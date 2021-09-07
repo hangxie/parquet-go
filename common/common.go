@@ -69,7 +69,7 @@ func NewTag() *Tag {
 	}
 }
 
-func StringToTag(tag string) *Tag {
+func StringToTag(tag string) (*Tag, error) {
 	mp := NewTag()
 	tagStr := strings.Replace(tag, "\t", "", -1)
 	tags := strings.Split(tagStr, ",")
@@ -78,7 +78,9 @@ func StringToTag(tag string) *Tag {
 		tag = strings.TrimSpace(tag)
 
 		kv := strings.SplitN(tag, "=", 2)
-
+		if len(kv) != 2 {
+			return nil, fmt.Errorf("expect 'key=value' but got '%s'", tag)
+		}
 		key := kv[0]
 		key = strings.ToLower(key)
 		key = strings.TrimSpace(key)
@@ -86,22 +88,23 @@ func StringToTag(tag string) *Tag {
 		val := kv[1]
 		val = strings.TrimSpace(val)
 
-		valInt32 := func() int32 {
+		valInt32 := func() (int32, error) {
 			valInt, err := strconv.Atoi(val)
 			if err != nil {
-				panic(err)
+				return 0, fmt.Errorf("'%s' is not an integer", val)
 			}
-			return int32(valInt)
+			return int32(valInt), nil
 		}
 
-		valBoolean := func() bool {
+		valBoolean := func() (bool, error) {
 			valBoolean, err := strconv.ParseBool(val)
 			if err != nil {
-				panic(err)
+				return false, fmt.Errorf("'%s' is not a boolean value", val)
 			}
-			return valBoolean
+			return valBoolean, nil
 		}
 
+		var err error
 		switch key {
 		case "type":
 			mp.Type = val
@@ -116,35 +119,65 @@ func StringToTag(tag string) *Tag {
 		case "valueconvertedtype":
 			mp.ValueConvertedType = val
 		case "length":
-			mp.Length = valInt32()
+			if mp.Length, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse length: %s", err.Error())
+			}
 		case "keylength":
-			mp.KeyLength = valInt32()
+			if mp.KeyLength, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse keylength: %s", err.Error())
+			}
 		case "valuelength":
-			mp.ValueLength = valInt32()
+			if mp.ValueLength, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse valuelength: %s", err.Error())
+			}
 		case "scale":
-			mp.Scale = valInt32()
+			if mp.Scale, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse scale: %s", err.Error())
+			}
 		case "keyscale":
-			mp.KeyScale = valInt32()
+			if mp.KeyScale, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse keyscale: %s", err.Error())
+			}
 		case "valuescale":
-			mp.ValueScale = valInt32()
+			if mp.ValueScale, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse valuescale: %s", err.Error())
+			}
 		case "precision":
-			mp.Precision = valInt32()
+			if mp.Precision, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse precision: %s", err.Error())
+			}
 		case "keyprecision":
-			mp.KeyPrecision = valInt32()
+			if mp.KeyPrecision, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse keyprecision: %s", err.Error())
+			}
 		case "valueprecision":
-			mp.ValuePrecision = valInt32()
+			if mp.ValuePrecision, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse valueprecision: %s", err.Error())
+			}
 		case "fieldid":
-			mp.FieldID = valInt32()
+			if mp.FieldID, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse fieldid: %s", err.Error())
+			}
 		case "keyfieldid":
-			mp.KeyFieldID = valInt32()
+			if mp.KeyFieldID, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse keyfieldid: %s", err.Error())
+			}
 		case "valuefieldid":
-			mp.ValueFieldID = valInt32()
+			if mp.ValueFieldID, err = valInt32(); err != nil {
+				return nil, fmt.Errorf("failed to parse valuefieldid: %s", err.Error())
+			}
 		case "isadjustedtoutc":
-			mp.IsAdjustedToUTC = valBoolean()
+			if mp.IsAdjustedToUTC, err = valBoolean(); err != nil {
+				return nil, fmt.Errorf("failed to parse isadjustedtoutc: %s", err.Error())
+			}
 		case "keyisadjustedtoutc":
-			mp.KeyIsAdjustedToUTC = valBoolean()
+			if mp.KeyIsAdjustedToUTC, err = valBoolean(); err != nil {
+				return nil, fmt.Errorf("failed to parse keyisadjustedtoutc: %s", err.Error())
+			}
 		case "valueisadjustedtoutc":
-			mp.ValueIsAdjustedToUTC = valBoolean()
+			if mp.ValueIsAdjustedToUTC, err = valBoolean(); err != nil {
+				return nil, fmt.Errorf("failed to parse valueisadjustedtoutc: %s", err.Error())
+			}
 		case "name":
 			if mp.InName == "" {
 				mp.InName = StringToVariableName(val)
@@ -153,11 +186,17 @@ func StringToTag(tag string) *Tag {
 		case "inname":
 			mp.InName = val
 		case "omitstats":
-			mp.OmitStats = valBoolean()
+			if mp.OmitStats, err = valBoolean(); err != nil {
+				return nil, fmt.Errorf("failed to parse omitstats: %s", err.Error())
+			}
 		case "keyomitstats":
-			mp.KeyOmitStats = valBoolean()
+			if mp.KeyOmitStats, err = valBoolean(); err != nil {
+				return nil, fmt.Errorf("failed to parse keyomitstats: %s", err.Error())
+			}
 		case "valueomitstats":
-			mp.ValueOmitStats = valBoolean()
+			if mp.ValueOmitStats, err = valBoolean(); err != nil {
+				return nil, fmt.Errorf("failed to parse valueomitstats: %s", err.Error())
+			}
 		case "repetitiontype":
 			switch strings.ToLower(val) {
 			case "repeated":
@@ -260,7 +299,7 @@ func StringToTag(tag string) *Tag {
 			}
 		}
 	}
-	return mp
+	return mp, nil
 }
 
 func NewSchemaElementFromTagMap(info *Tag) *parquet.SchemaElement {

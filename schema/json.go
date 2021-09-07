@@ -46,7 +46,10 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 		ln := len(stack)
 		item := stack[ln-1]
 		stack = stack[:ln-1]
-		info := common.StringToTag(item.Tag)
+		info, err := common.StringToTag(item.Tag)
+		if err != nil {
+			return nil, fmt.Errorf("failed parse tag: %s", err.Error())
+		}
 		var newInfo *common.Tag
 		if info.Type == "" { //struct
 			schema := parquet.NewSchemaElement()

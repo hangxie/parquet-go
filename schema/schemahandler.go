@@ -282,7 +282,10 @@ func NewSchemaHandlerFromStruct(obj interface{}) (sh *SchemaHandler, err error) 
 				}
 
 				newItem := NewItem()
-				newItem.Info = common.StringToTag(tagStr)
+				newItem.Info, err = common.StringToTag(tagStr)
+				if err != nil {
+					return nil, fmt.Errorf("failed parse tag: %s", err.Error())
+				}
 				newItem.Info.InName = f.Name
 				newItem.GoType = f.Type
 				if f.Type.Kind() == reflect.Ptr {
