@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: retrieve tags
+        run: |
+          git fetch --tags origin
       - name: Generate change log
         run: |
           VERSION=$(git describe --tags --always)
