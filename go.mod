@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.76
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.79.4
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.80.0
 	github.com/bobg/gcsobj v0.3.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
 	github.com/goccy/go-reflect v1.2.0
