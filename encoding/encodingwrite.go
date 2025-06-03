@@ -8,6 +8,7 @@ import (
 	"math/bits"
 	"reflect"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
@@ -93,8 +94,12 @@ func WritePlainINT64(nums []interface{}) ([]byte, error) {
 
 func WritePlainINT96(nums []interface{}) []byte {
 	bufWriter := new(bytes.Buffer)
-	for i := 0; i < len(nums); i++ {
-		bufWriter.WriteString(nums[i].(string))
+	for i := range len(nums) {
+		val, ok := nums[i].(common.ByteArray)
+		if !ok {
+			return nil
+		}
+		bufWriter.WriteString(string(val))
 	}
 	return bufWriter.Bytes()
 }
@@ -117,15 +122,26 @@ func WritePlainDOUBLE(nums []interface{}) ([]byte, error) {
 
 func WritePlainBYTE_ARRAY(arrays []interface{}) ([]byte, error) {
 	bufLen := 0
-	for i := 0; i < len(arrays); i++ {
-		bufLen += 4 + len(arrays[i].(string))
+	for i := range len(arrays) {
+		switch v := arrays[i].(type) {
+		case string:
+			bufLen += 4 + len(v)
+		case common.ByteArray:
+			bufLen += 4 + len(v)
+		}
+		// bufLen += 4 + len(arrays[i].(common.ByteArrayString))
 	}
 
 	buf := make([]byte, bufLen)
 	pos := 0
-	for i := 0; i < len(arrays); i++ {
-		value, ok := arrays[i].(string)
-		if !ok {
+	for i := range len(arrays) {
+		var value string
+		switch v := arrays[i].(type) {
+		case string:
+			value = v
+		case common.ByteArray:
+			value = string(v)
+		default:
 			return nil, fmt.Errorf("[%v] is not a string", arrays[i])
 		}
 		binary.LittleEndian.PutUint32(buf[pos:], uint32(len(value)))
@@ -139,9 +155,14 @@ func WritePlainBYTE_ARRAY(arrays []interface{}) ([]byte, error) {
 func WritePlainFIXED_LEN_BYTE_ARRAY(arrays []interface{}) ([]byte, error) {
 	bufWriter := new(bytes.Buffer)
 	cnt := len(arrays)
-	for i := 0; i < int(cnt); i++ {
-		tmp, ok := arrays[i].(string)
-		if !ok {
+	for i := range int(cnt) {
+		var tmp string
+		switch v := arrays[i].(type) {
+		case string:
+			tmp = v
+		case common.ByteArray:
+			tmp = string(v)
+		default:
 			return nil, fmt.Errorf("[%v] is not a string", arrays[i])
 		}
 		bufWriter.WriteString(tmp)

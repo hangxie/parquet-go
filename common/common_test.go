@@ -599,7 +599,7 @@ func Test_cmpIntBinary(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, cmpIntBinary(string(tc.a), string(tc.b), tc.endian, tc.signed), tc.expected)
+			require.Equal(t, cmpIntBinary(ByteArray(tc.a), ByteArray(tc.b), tc.endian, tc.signed), tc.expected)
 		})
 	}
 }
@@ -617,8 +617,8 @@ func Test_FindFuncTable(t *testing.T) {
 		"INT96-nil-nil":                     {ToPtr(parquet.Type_INT96), nil, nil, int96FuncTable{}},
 		"FLOAT-nil-nil":                     {ToPtr(parquet.Type_FLOAT), nil, nil, float32FuncTable{}},
 		"DOUBLE-nil-nil":                    {ToPtr(parquet.Type_DOUBLE), nil, nil, float64FuncTable{}},
-		"BYTE_ARRAY-nil-nil":                {ToPtr(parquet.Type_BYTE_ARRAY), nil, nil, stringFuncTable{}},
-		"FIXED_LEN_BYTE_ARRAY-nil-nil":      {ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), nil, nil, stringFuncTable{}},
+		"BYTE_ARRAY-nil-nil":                {ToPtr(parquet.Type_BYTE_ARRAY), nil, nil, byteArrayFuncTable{}},
+		"FIXED_LEN_BYTE_ARRAY-nil-nil":      {ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), nil, nil, byteArrayFuncTable{}},
 		"BYTE_ARRAY-UTF8-nil":               {ToPtr(parquet.Type_BYTE_ARRAY), ToPtr(parquet.ConvertedType_UTF8), nil, stringFuncTable{}},
 		"BYTE_ARRAY-BSON-nil":               {ToPtr(parquet.Type_BYTE_ARRAY), ToPtr(parquet.ConvertedType_BSON), nil, stringFuncTable{}},
 		"BYTE_ARRAY-JSON-nil":               {ToPtr(parquet.Type_BYTE_ARRAY), ToPtr(parquet.ConvertedType_JSON), nil, stringFuncTable{}},
@@ -731,7 +731,7 @@ func Test_Min(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			funcTable := FindFuncTable(tc.PT, tc.CT, nil)
-			res := Min(funcTable, tc.Num1, tc.Num2)
+			res := min(funcTable, tc.Num1, tc.Num2)
 			if res != tc.Expected {
 				t.Errorf("Min err, expect %v, get %v", tc.Expected, res)
 			}
@@ -755,7 +755,7 @@ func Test_Max(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			funcTable := FindFuncTable(tc.PT, tc.CT, nil)
-			res := Max(funcTable, tc.Num1, tc.Num2)
+			res := max(funcTable, tc.Num1, tc.Num2)
 			if res != tc.Expected {
 				t.Errorf("Max err, expect %v, get %v", tc.Expected, res)
 			}
@@ -779,23 +779,23 @@ func Test_LessThan(t *testing.T) {
 		"uint32":     {uint32FuncTable{}, int32(1), int32(2), true},
 		"int64":      {int64FuncTable{}, int64(1), int64(2), true},
 		"uint64":     {uint64FuncTable{}, int64(1), int64(2), true},
-		"int96-1":    {int96FuncTable{}, toHex("000000000000000000000001"), toHex("010000000000000000000000"), false},
-		"int96-2":    {int96FuncTable{}, toHex("000000000000000000010000"), toHex("000000000000000000020000"), true},
-		"int96-3":    {int96FuncTable{}, toHex("0000000000000000000000ff"), toHex("010000000000000000000000"), true},
-		"int96-4":    {int96FuncTable{}, toHex("000000000000000000000000"), toHex("0100000000000000000000ff"), false},
-		"int96-5":    {int96FuncTable{}, toHex("000000000000000000000000"), toHex("000000000000000000000000"), false},
+		"int96-1":    {int96FuncTable{}, ByteArray(toHex("000000000000000000000001")), ByteArray(toHex("010000000000000000000000")), false},
+		"int96-2":    {int96FuncTable{}, ByteArray(toHex("000000000000000000010000")), ByteArray(toHex("000000000000000000020000")), true},
+		"int96-3":    {int96FuncTable{}, ByteArray(toHex("0000000000000000000000ff")), ByteArray(toHex("010000000000000000000000")), true},
+		"int96-4":    {int96FuncTable{}, ByteArray(toHex("000000000000000000000000")), ByteArray(toHex("0100000000000000000000ff")), false},
+		"int96-5":    {int96FuncTable{}, ByteArray(toHex("000000000000000000000000")), ByteArray(toHex("000000000000000000000000")), false},
 		"float32":    {float32FuncTable{}, float32(1), float32(2), true},
 		"float64":    {float64FuncTable{}, float64(1), float64(2), true},
 		"string":     {stringFuncTable{}, "a", "b", true},
-		"interval-1": {intervalFuncTable{}, toHex("000000000000000000000001"), toHex("010000000000000000000000"), false},
-		"interval-2": {intervalFuncTable{}, toHex("000000000000000000000001"), toHex("000000000000000000000002"), true},
-		"interval-3": {intervalFuncTable{}, toHex("000000000000000000000000"), toHex("000000000000000000000000"), false},
-		"decimal":    {decimalStringFuncTable{}, "\x00\x02", "\x00\x01", false},
+		"interval-1": {intervalFuncTable{}, ByteArray(toHex("000000000000000000000001")), ByteArray(toHex("010000000000000000000000")), false},
+		"interval-2": {intervalFuncTable{}, ByteArray(toHex("000000000000000000000001")), ByteArray(toHex("000000000000000000000002")), true},
+		"interval-3": {intervalFuncTable{}, ByteArray(toHex("000000000000000000000000")), ByteArray(toHex("000000000000000000000000")), false},
+		"decimal":    {decimalStringFuncTable{}, ByteArray("\x00\x02"), ByteArray("\x00\x01"), false},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, tc.f.LessThan(tc.a, tc.b))
+			require.Equal(t, tc.expected, tc.f.lessThan(tc.a, tc.b))
 		})
 	}
 }
@@ -832,29 +832,29 @@ func Test_MinMaxSize(t *testing.T) {
 		"uint64-3": {uint64FuncTable{}, int64(2), int64(4), int64(5), int64(2), int64(5), 8},
 		"int96-1": {
 			int96FuncTable{},
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000004"),
-			toHex("000000000000000000000001"),
-			toHex("000000000000000000000001"),
-			toHex("000000000000000000000004"),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000004")),
+			ByteArray(toHex("000000000000000000000001")),
+			ByteArray(toHex("000000000000000000000001")),
+			ByteArray(toHex("000000000000000000000004")),
 			12,
 		},
 		"int96-2": {
 			int96FuncTable{},
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000004"),
-			toHex("000000000000000000000003"),
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000004"),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000004")),
+			ByteArray(toHex("000000000000000000000003")),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000004")),
 			12,
 		},
 		"int96-3": {
 			int96FuncTable{},
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000004"),
-			toHex("000000000000000000000005"),
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000005"),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000004")),
+			ByteArray(toHex("000000000000000000000005")),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000005")),
 			12,
 		},
 		"float32-1": {float32FuncTable{}, float32(2), float32(4), float32(1), float32(1), float32(4), 4},
@@ -868,34 +868,34 @@ func Test_MinMaxSize(t *testing.T) {
 		"string-3":  {stringFuncTable{}, "2", "4", "55", "2", "55", 2},
 		"interval-1": {
 			intervalFuncTable{},
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000004"),
-			toHex("000000000000000000000001"),
-			toHex("000000000000000000000001"),
-			toHex("000000000000000000000004"),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000004")),
+			ByteArray(toHex("000000000000000000000001")),
+			ByteArray(toHex("000000000000000000000001")),
+			ByteArray(toHex("000000000000000000000004")),
 			12,
 		},
 		"interval-2": {
 			intervalFuncTable{},
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000004"),
-			toHex("000000000000000000000003"),
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000004"),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000004")),
+			ByteArray(toHex("000000000000000000000003")),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000004")),
 			12,
 		},
 		"interval-3": {
 			intervalFuncTable{},
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000004"),
-			toHex("000000000000000000000005"),
-			toHex("000000000000000000000002"),
-			toHex("000000000000000000000005"),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000004")),
+			ByteArray(toHex("000000000000000000000005")),
+			ByteArray(toHex("000000000000000000000002")),
+			ByteArray(toHex("000000000000000000000005")),
 			12,
 		},
-		"decimal-1": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x01", "\x00\x01", "\x04", 2},
-		"decimal-2": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x03", "\x02", "\x04", 2},
-		"decimal-3": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x05", "\x02", "\x00\x05", 2},
+		"decimal-1": {decimalStringFuncTable{}, ByteArray("\x02"), ByteArray("\x04"), ByteArray("\x00\x01"), ByteArray("\x00\x01"), ByteArray("\x04"), 2},
+		"decimal-2": {decimalStringFuncTable{}, ByteArray("\x02"), ByteArray("\x04"), ByteArray("\x00\x03"), ByteArray("\x02"), ByteArray("\x04"), 2},
+		"decimal-3": {decimalStringFuncTable{}, ByteArray("\x02"), ByteArray("\x04"), ByteArray("\x00\x05"), ByteArray("\x02"), ByteArray("\x00\x05"), 2},
 	}
 
 	for name, tc := range testCases {

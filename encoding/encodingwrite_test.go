@@ -5,6 +5,7 @@ import (
 	"math/bits"
 	"testing"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
@@ -166,16 +167,16 @@ func TestWritePlainINT64(t *testing.T) {
 
 func TestWritePlainINT96(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{}, []byte{}},
-		{[]interface{}{string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{[]any{}, []byte{}},
+		{[]any{common.ByteArray([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{
-			[]interface{}{
-				string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
-				string([]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
-				string([]byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
+			[]any{
+				common.ByteArray([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
+				common.ByteArray([]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
+				common.ByteArray([]byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
 			},
 
 			[]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
