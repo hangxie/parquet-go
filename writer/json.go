@@ -3,6 +3,7 @@ package writer
 import (
 	"io"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/layout"
 	"github.com/hangxie/parquet-go/v2/marshal"
 	"github.com/hangxie/parquet-go/v2/parquet"
@@ -30,8 +31,8 @@ func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, np int64) 
 	}
 
 	res.PFile = pfile
-	res.PageSize = 8 * 1024              // 8K
-	res.RowGroupSize = 128 * 1024 * 1024 // 128M
+	res.PageSize = common.DefaultPageSize         // 8K
+	res.RowGroupSize = common.DefaultRowGroupSize // 128M
 	res.CompressionType = parquet.CompressionCodec_SNAPPY
 	res.PagesMapBuf = make(map[string][]*layout.Page)
 	res.DictRecs = make(map[string]*layout.DictRecType)

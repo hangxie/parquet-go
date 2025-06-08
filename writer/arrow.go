@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	pageSize      = 8 * 1024
-	rowGroupSize  = 128 * 1024 * 1024
+	pageSize      = common.DefaultPageSize
+	rowGroupSize  = common.DefaultRowGroupSize
 	footerVersion = 1
 	offset        = 4
 )

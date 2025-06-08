@@ -61,8 +61,8 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj interface{}, np int64)
 
 	res := new(ParquetWriter)
 	res.NP = np
-	res.PageSize = 8 * 1024              // 8K
-	res.RowGroupSize = 128 * 1024 * 1024 // 128M
+	res.PageSize = common.DefaultPageSize         // 8K
+	res.RowGroupSize = common.DefaultRowGroupSize // 128M
 	res.CompressionType = parquet.CompressionCodec_SNAPPY
 	res.ObjsSize = 0
 	res.CheckSizeCritical = 0

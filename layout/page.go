@@ -48,7 +48,7 @@ func NewPage() *Page {
 	page.DataTable = nil
 	page.Header = parquet.NewPageHeader()
 	page.Info = common.NewTag()
-	page.PageSize = 8 * 1024
+	page.PageSize = common.DefaultPageSize
 	return page
 }
 
@@ -56,7 +56,7 @@ func NewPage() *Page {
 func NewDictPage() *Page {
 	page := NewPage()
 	page.Header.DictionaryPageHeader = parquet.NewDictionaryPageHeader()
-	page.PageSize = 8 * 1024
+	page.PageSize = common.DefaultPageSize
 	return page
 }
 
@@ -64,7 +64,7 @@ func NewDictPage() *Page {
 func NewDataPage() *Page {
 	page := NewPage()
 	page.Header.DataPageHeader = parquet.NewDataPageHeader()
-	page.PageSize = 8 * 1024
+	page.PageSize = common.DefaultPageSize
 	return page
 }
 

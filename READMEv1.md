@@ -223,8 +223,8 @@ Two Readers are supported: ParquetReader, ColumnReader
 
 * `RowGroupSize` and `PageSize` may influence the final parquet file size. You can find the details from [here](https://github.com/apache/parquet-format). You can reset them in ParquetWriter
 ```go
-	pw.RowGroupSize = 128 * 1024 * 1024 // default 128M
-	pw.PageSize = 8 * 1024 // default 8K
+	pw.RowGroupSize = common.DefaultRowGroupSize // default 128M
+	pw.PageSize = common.DefaultPageSize // default 8K
 ```
 
 ## Schema
