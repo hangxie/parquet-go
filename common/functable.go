@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/hangxie/parquet-go/v2/parquet"
@@ -43,23 +44,27 @@ var convertedTypeFuncTable = map[parquet.ConvertedType]FuncTable{
 	parquet.ConvertedType_TIMESTAMP_MILLIS: int64FuncTable{},
 }
 
-func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.LogicalType) FuncTable {
+func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.LogicalType) (FuncTable, error) {
+	if pT == nil && cT == nil && logT == nil {
+		return nil, fmt.Errorf("all types are nil")
+	}
+
 	if cT == nil && logT == nil {
 		if table, ok := parquetTypeFuncTable[*pT]; ok {
-			return table
+			return table, nil
 		}
 	}
 
 	if cT != nil {
 		if table, ok := convertedTypeFuncTable[*cT]; ok {
-			return table
+			return table, nil
 		} else if *cT == parquet.ConvertedType_DECIMAL {
 			if *pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY {
-				return decimalStringFuncTable{}
+				return decimalStringFuncTable{}, nil
 			} else if *pT == parquet.Type_INT32 {
-				return int32FuncTable{}
+				return int32FuncTable{}, nil
 			} else if *pT == parquet.Type_INT64 {
-				return int64FuncTable{}
+				return int64FuncTable{}, nil
 			}
 		}
 	}
@@ -68,31 +73,31 @@ func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.Lo
 		if logT.TIME != nil || logT.TIMESTAMP != nil {
 			return FindFuncTable(pT, nil, nil)
 		} else if logT.DATE != nil {
-			return int32FuncTable{}
+			return int32FuncTable{}, nil
 		} else if logT.INTEGER != nil {
 			if logT.INTEGER.IsSigned {
 				return FindFuncTable(pT, nil, nil)
 			} else {
 				if *pT == parquet.Type_INT32 {
-					return uint32FuncTable{}
+					return uint32FuncTable{}, nil
 				} else if *pT == parquet.Type_INT64 {
-					return uint64FuncTable{}
+					return uint64FuncTable{}, nil
 				}
 			}
 		} else if logT.DECIMAL != nil {
 			if *pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY {
-				return decimalStringFuncTable{}
+				return decimalStringFuncTable{}, nil
 			} else if *pT == parquet.Type_INT32 {
-				return int32FuncTable{}
+				return int32FuncTable{}, nil
 			} else if *pT == parquet.Type_INT64 {
-				return int64FuncTable{}
+				return int64FuncTable{}, nil
 			}
 		} else if logT.BSON != nil || logT.JSON != nil || logT.STRING != nil || logT.UUID != nil {
-			return stringFuncTable{}
+			return stringFuncTable{}, nil
 		}
 	}
 
-	panic("No known func table in FindFuncTable")
+	return nil, fmt.Errorf("cannot find func table for given types: %v, %v, %v", pT, cT, logT)
 }
 
 func Min(table FuncTable, a, b any) any {

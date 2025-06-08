@@ -85,7 +85,10 @@ func TableToDataPages(table *Table, pageSize int32, compressType parquet.Compres
 		var minVal interface{} = table.Values[i]
 		nullCount := int64(0)
 
-		funcTable := common.FindFuncTable(pT, cT, logT)
+		funcTable, err := common.FindFuncTable(pT, cT, logT)
+		if err != nil {
+			return nil, 0, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
+		}
 
 		for j < totalLn && size < pageSize {
 			if table.DefinitionLevels[j] == table.MaxDefinitionLevel {
@@ -127,7 +130,7 @@ func TableToDataPages(table *Table, pageSize int32, compressType parquet.Compres
 		page.Path = table.Path
 		page.Info = table.Info
 
-		_, err := page.DataPageCompress(compressType)
+		_, err = page.DataPageCompress(compressType)
 		if err != nil {
 			return nil, 0, err
 		}

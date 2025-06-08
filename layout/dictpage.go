@@ -2,6 +2,7 @@ package layout
 
 import (
 	"context"
+	"fmt"
 	"math/bits"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -95,7 +96,10 @@ func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth
 		var nullCount int64 = 0
 		values := make([]int32, 0)
 
-		funcTable := common.FindFuncTable(pT, cT, logT)
+		funcTable, err := common.FindFuncTable(pT, cT, logT)
+		if err != nil {
+			return nil, 0, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
+		}
 
 		for j < totalLn && size < pageSize {
 			if table.DefinitionLevels[j] == table.MaxDefinitionLevel {
@@ -148,7 +152,7 @@ func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth
 		page.Path = table.Path
 		page.Info = table.Info
 
-		_, err := page.DictDataPageCompress(compressType, bitWidth, values)
+		_, err = page.DictDataPageCompress(compressType, bitWidth, values)
 		if err != nil {
 			return nil, 0, err
 		}
