@@ -13,6 +13,12 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
+const (
+	PAR_GO_PATH_DELIMITER = "\x01"
+	DefaultPageSize       = 8 * 1024
+	DefaultRowGroupSize   = 128 * 1024 * 1024
+)
+
 type fieldAttr struct {
 	Type           string
 	Length         int32
@@ -743,8 +749,6 @@ func SizeOf(val reflect.Value) int64 {
 	}
 	return 4
 }
-
-const PAR_GO_PATH_DELIMITER = "\x01"
 
 // . -> \x01
 func ReformPathStr(pathStr string) string {

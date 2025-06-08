@@ -4,6 +4,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/reader"
 	"github.com/hangxie/parquet-go/v2/source/local"
@@ -35,8 +36,8 @@ func main() {
 		return
 	}
 
-	pw.RowGroupSize = 128 * 1024 * 1024 // 128M
-	pw.PageSize = 8 * 1024              // 8K
+	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
+	pw.PageSize = common.DefaultPageSize         // 8K
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
 	for i := 0; i < num; i++ {

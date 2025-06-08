@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/source/local"
 	"github.com/hangxie/parquet-go/v2/writer"
@@ -32,7 +33,7 @@ func main() {
 		return
 	}
 
-	pw.RowGroupSize = 128 * 1024 * 1024 // 128M
+	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	csvFile, _ := os.Open("shoes.csv")

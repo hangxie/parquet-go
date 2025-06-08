@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/reader"
 	"github.com/hangxie/parquet-go/v2/source/local"
@@ -90,7 +91,7 @@ func main() {
 		return
 	}
 
-	pw.RowGroupSize = 128 * 1024 * 1024 // 128M
+	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
 	for i := 0; i < num; i++ {
