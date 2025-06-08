@@ -93,12 +93,19 @@ func Test_FindFuncTable(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, FindFuncTable(tc.pT, tc.cT, tc.lT))
+			actual, err := FindFuncTable(tc.pT, tc.cT, tc.lT)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, actual)
 		})
 	}
 
-	t.Run("panic", func(t *testing.T) {
-		require.Panics(t, func() { FindFuncTable(nil, nil, &parquet.LogicalType{}) })
+	t.Run("bad", func(t *testing.T) {
+		_, err := FindFuncTable(nil, nil, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "all types are nil")
+		_, err = FindFuncTable(nil, nil, &parquet.LogicalType{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cannot find func table for given types")
 	})
 }
 
@@ -117,7 +124,8 @@ func Test_Min(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			funcTable := FindFuncTable(tc.PT, tc.CT, nil)
+			funcTable, err := FindFuncTable(tc.PT, tc.CT, nil)
+			require.NoError(t, err)
 			res := Min(funcTable, tc.Num1, tc.Num2)
 			if res != tc.Expected {
 				t.Errorf("Min err, expect %v, get %v", tc.Expected, res)
@@ -141,7 +149,8 @@ func Test_Max(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			funcTable := FindFuncTable(tc.PT, tc.CT, nil)
+			funcTable, err := FindFuncTable(tc.PT, tc.CT, nil)
+			require.NoError(t, err)
 			res := Max(funcTable, tc.Num1, tc.Num2)
 			if res != tc.Expected {
 				t.Errorf("Max err, expect %v, get %v", tc.Expected, res)

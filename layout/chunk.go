@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"fmt"
+
 	"github.com/apache/thrift/lib/go/thrift"
 
 	"github.com/hangxie/parquet-go/v2/common"
@@ -26,7 +28,10 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 	var minVal interface{} = pages[0].MinVal
 	var nullCount int64 = 0
 	pT, cT, logT, omitStats := pages[0].Schema.Type, pages[0].Schema.ConvertedType, pages[0].Schema.LogicalType, pages[0].Info.OmitStats
-	funcTable := common.FindFuncTable(pT, cT, logT)
+	funcTable, err := common.FindFuncTable(pT, cT, logT)
+	if err != nil {
+		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
+	}
 
 	for i := 0; i < ln; i++ {
 		if pages[i].Header.DataPageHeader != nil {
@@ -99,7 +104,10 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 	var minVal interface{} = pages[1].MinVal
 	var nullCount int64 = 0
 	pT, cT, logT, omitStats := pages[1].Schema.Type, pages[1].Schema.ConvertedType, pages[1].Schema.LogicalType, pages[1].Info.OmitStats
-	funcTable := common.FindFuncTable(pT, cT, logT)
+	funcTable, err := common.FindFuncTable(pT, cT, logT)
+	if err != nil {
+		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
+	}
 
 	for i := 0; i < len(pages); i++ {
 		if pages[i].Header.DataPageHeader != nil {
