@@ -39,10 +39,13 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 			rT := sh.SchemaElements[idx].RepetitionType
 
 			if nc == 0 {
-				if *rT != parquet.FieldRepetitionType_REPEATED {
-					elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, rT)
-				} else {
+				switch *rT {
+				case parquet.FieldRepetitionType_REPEATED:
 					elementTypes[idx] = reflect.SliceOf(types.ParquetTypeToGoReflectType(pT, nil))
+				case parquet.FieldRepetitionType_OPTIONAL:
+					elementTypes[idx] = reflect.PointerTo(types.ParquetTypeToGoReflectType(pT, rT))
+				default:
+					elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, rT)
 				}
 			} else {
 				if cT != nil && *cT == parquet.ConvertedType_LIST &&
@@ -51,8 +54,11 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 					len(elements[elements[idx][0]]) == 1 &&
 					sh.GetInName(int(elements[elements[idx][0]][0])) == "Element" {
 					cidx := elements[elements[idx][0]][0]
-					elementTypes[idx] = reflect.SliceOf(elementTypes[cidx])
-
+					if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
+						elementTypes[idx] = reflect.PointerTo(reflect.SliceOf(elementTypes[cidx]))
+					} else {
+						elementTypes[idx] = reflect.SliceOf(elementTypes[cidx])
+					}
 				} else if cT != nil && *cT == parquet.ConvertedType_MAP &&
 					len(elements[idx]) == 1 &&
 					sh.GetInName(int(elements[idx][0])) == "Key_value" &&
@@ -61,8 +67,11 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 					sh.GetInName(int(elements[elements[idx][0]][1])) == "Value" {
 					kIdx, vIdx := elements[elements[idx][0]][0], elements[elements[idx][0]][1]
 					kT, vT := elementTypes[kIdx], elementTypes[vIdx]
-					elementTypes[idx] = reflect.MapOf(kT, vT)
-
+					if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
+						elementTypes[idx] = reflect.PointerTo(reflect.MapOf(kT, vT))
+					} else {
+						elementTypes[idx] = reflect.MapOf(kT, vT)
+					}
 				} else {
 					fields := []reflect.StructField{}
 					for _, ci := range elements[idx] {
