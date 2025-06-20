@@ -42,8 +42,6 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 				switch *rT {
 				case parquet.FieldRepetitionType_REPEATED:
 					elementTypes[idx] = reflect.SliceOf(types.ParquetTypeToGoReflectType(pT, nil))
-				case parquet.FieldRepetitionType_OPTIONAL:
-					elementTypes[idx] = reflect.PointerTo(types.ParquetTypeToGoReflectType(pT, rT))
 				default:
 					elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, rT)
 				}
