@@ -666,7 +666,11 @@ func rowToSliceOfValues(s interface{}) []interface{} {
 			res = append(res, nil)
 			continue
 		}
-		res = append(res, field.Elem().Elem().Interface())
+		if field.Type().Kind() == reflect.Ptr {
+			res = append(res, field.Elem().Interface())
+		} else {
+			res = append(res, field.Interface())
+		}
 	}
 	return res
 }
