@@ -59,11 +59,12 @@ func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.Lo
 		if table, ok := convertedTypeFuncTable[*cT]; ok {
 			return table, nil
 		} else if *cT == parquet.ConvertedType_DECIMAL {
-			if *pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			switch *pT {
+			case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
 				return decimalStringFuncTable{}, nil
-			} else if *pT == parquet.Type_INT32 {
+			case parquet.Type_INT32:
 				return int32FuncTable{}, nil
-			} else if *pT == parquet.Type_INT64 {
+			case parquet.Type_INT64:
 				return int64FuncTable{}, nil
 			}
 		}
@@ -78,18 +79,20 @@ func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.Lo
 			if logT.INTEGER.IsSigned {
 				return FindFuncTable(pT, nil, nil)
 			} else {
-				if *pT == parquet.Type_INT32 {
+				switch *pT {
+				case parquet.Type_INT32:
 					return uint32FuncTable{}, nil
-				} else if *pT == parquet.Type_INT64 {
+				case parquet.Type_INT64:
 					return uint64FuncTable{}, nil
 				}
 			}
 		} else if logT.DECIMAL != nil {
-			if *pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			switch *pT {
+			case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
 				return decimalStringFuncTable{}, nil
-			} else if *pT == parquet.Type_INT32 {
+			case parquet.Type_INT32:
 				return int32FuncTable{}, nil
-			} else if *pT == parquet.Type_INT64 {
+			case parquet.Type_INT64:
 				return int64FuncTable{}, nil
 			}
 		} else if logT.BSON != nil || logT.JSON != nil || logT.STRING != nil || logT.UUID != nil {

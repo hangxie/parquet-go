@@ -56,7 +56,7 @@ func main() {
 	log.Println("Write Finished")
 	_ = fw.Close()
 
-	var names, classes, scores_key, scores_value, ids []interface{}
+	var names, classes, scores_key, scores_value, ids []any
 	var rls, dls []int32
 
 	// read

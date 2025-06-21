@@ -48,12 +48,12 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, np int64) (*CSVWr
 }
 
 // Write string values to parquet file
-func (w *CSVWriter) WriteString(recsi interface{}) error {
+func (w *CSVWriter) WriteString(recsi any) error {
 	var err error
 	recs := recsi.([]*string)
 	lr := len(recs)
-	rec := make([]interface{}, lr)
-	for i := 0; i < lr; i++ {
+	rec := make([]any, lr)
+	for i := range lr {
 		rec[i] = nil
 		if recs[i] != nil {
 			rec[i], err = types.StrToParquetType(*recs[i],

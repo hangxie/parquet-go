@@ -39,7 +39,7 @@ type ParquetReader struct {
 }
 
 // Create a parquet reader: obj is a object with schema tags or a JSON schema string
-func NewParquetReader(pFile source.ParquetFileReader, obj interface{}, np int64, opts ...ParquetReaderOptions) (*ParquetReader, error) {
+func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ...ParquetReaderOptions) (*ParquetReader, error) {
 	var caseInsensitive bool
 	if len(opts) > 0 {
 		caseInsensitive = opts[0].CaseInsensitive
@@ -221,12 +221,12 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 }
 
 // Read rows of parquet file and unmarshal all to dst
-func (pr *ParquetReader) Read(dstInterface interface{}) error {
+func (pr *ParquetReader) Read(dstInterface any) error {
 	return pr.read(dstInterface, "")
 }
 
 // Read maxReadNumber objects
-func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]interface{}, error) {
+func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
 	var err error
 	if pr.ObjType == nil {
 		if pr.ObjType, err = pr.SchemaHandler.GetType(pr.SchemaHandler.GetRootInName()); err != nil {
@@ -243,7 +243,7 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]interface{}, error) 
 	}
 
 	ln := res.Elem().Len()
-	ret := make([]interface{}, ln)
+	ret := make([]any, ln)
 	for i := 0; i < ln; i++ {
 		ret[i] = res.Elem().Index(i).Interface()
 	}
@@ -252,7 +252,7 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]interface{}, error) 
 }
 
 // Read rows of parquet file and unmarshal all to dst
-func (pr *ParquetReader) ReadPartial(dstInterface interface{}, prefixPath string) error {
+func (pr *ParquetReader) ReadPartial(dstInterface any, prefixPath string) error {
 	prefixPath, err := pr.SchemaHandler.ConvertToInPathStr(prefixPath)
 	if err != nil {
 		return err
@@ -262,7 +262,7 @@ func (pr *ParquetReader) ReadPartial(dstInterface interface{}, prefixPath string
 }
 
 // Read maxReadNumber partial objects
-func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath string) ([]interface{}, error) {
+func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath string) ([]any, error) {
 	var err error
 	if pr.ObjPartialType == nil {
 		if pr.ObjPartialType, err = pr.SchemaHandler.GetType(prefixPath); err != nil {
@@ -279,7 +279,7 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 	}
 
 	ln := res.Elem().Len()
-	ret := make([]interface{}, ln)
+	ret := make([]any, ln)
 	for i := 0; i < ln; i++ {
 		ret[i] = res.Elem().Index(i).Interface()
 	}
@@ -288,7 +288,7 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 }
 
 // Read rows of parquet file with a prefixPath
-func (pr *ParquetReader) read(dstInterface interface{}, prefixPath string) error {
+func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	var err error
 	tmap := make(map[string]*layout.Table)
 	locker := new(sync.Mutex)
@@ -340,7 +340,7 @@ func (pr *ParquetReader) read(dstInterface interface{}, prefixPath string) error
 		stopChan <- 0
 	}
 
-	dstList := make([]interface{}, pr.NP)
+	dstList := make([]any, pr.NP)
 	delta := (int64(num) + pr.NP - 1) / pr.NP
 
 	var wg sync.WaitGroup

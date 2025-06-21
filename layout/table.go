@@ -38,7 +38,7 @@ type Table struct {
 	MaxRepetitionLevel int32
 
 	// Parquet values
-	Values []interface{}
+	Values []any
 	// Definition Levels slice
 	DefinitionLevels []int32
 	// Repetition Levels slice
@@ -50,11 +50,7 @@ type Table struct {
 
 // Merge several tables to one table(the first table)
 func (t *Table) Merge(tables ...*Table) {
-	ln := len(tables)
-	if ln <= 0 {
-		return
-	}
-	for i := 0; i < ln; i++ {
+	for i := range len(tables) {
 		if tables[i] == nil {
 			continue
 		}

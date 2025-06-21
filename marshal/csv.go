@@ -8,13 +8,13 @@ import (
 )
 
 // Marshal function for CSV like data
-func MarshalCSV(records []interface{}, schemaHandler *schema.SchemaHandler) (*map[string]*layout.Table, error) {
+func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string]*layout.Table, error) {
 	res := make(map[string]*layout.Table)
 	if ln := len(records); ln <= 0 {
 		return &res, nil
 	}
 
-	for i := 0; i < len(records[0].([]interface{})); i++ {
+	for i := 0; i < len(records[0].([]any)); i++ {
 		pathStr := schemaHandler.GetRootInName() + common.PAR_GO_PATH_DELIMITER + schemaHandler.Infos[i+1].InName
 		table := layout.NewEmptyTable()
 		res[pathStr] = table
@@ -37,12 +37,12 @@ func MarshalCSV(records []interface{}, schemaHandler *schema.SchemaHandler) (*ma
 		table.Schema = schemaHandler.SchemaElements[schemaHandler.MapIndex[pathStr]]
 		table.Info = schemaHandler.Infos[i+1]
 		// Pre-allocate these arrays for efficiency
-		table.Values = make([]interface{}, 0, len(records))
+		table.Values = make([]any, 0, len(records))
 		table.RepetitionLevels = make([]int32, 0, len(records))
 		table.DefinitionLevels = make([]int32, 0, len(records))
 
 		for j := 0; j < len(records); j++ {
-			rec := records[j].([]interface{})[i]
+			rec := records[j].([]any)[i]
 			table.Values = append(table.Values, rec)
 
 			table.RepetitionLevels = append(table.RepetitionLevels, 0)

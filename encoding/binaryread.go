@@ -6,7 +6,7 @@ import (
 )
 
 // LittleEndian
-func BinaryReadINT32(r io.Reader, nums []interface{}) error {
+func BinaryReadINT32(r io.Reader, nums []any) error {
 	buf := make([]byte, len(nums)*4)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {
@@ -25,7 +25,7 @@ func BinaryReadINT32(r io.Reader, nums []interface{}) error {
 	return nil
 }
 
-func BinaryReadINT64(r io.Reader, nums []interface{}) error {
+func BinaryReadINT64(r io.Reader, nums []any) error {
 	buf := make([]byte, len(nums)*8)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {
@@ -48,7 +48,7 @@ func BinaryReadINT64(r io.Reader, nums []interface{}) error {
 	return nil
 }
 
-func BinaryReadFLOAT32(r io.Reader, nums []interface{}) error {
+func BinaryReadFLOAT32(r io.Reader, nums []any) error {
 	buf := make([]byte, len(nums)*4)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {
@@ -67,7 +67,7 @@ func BinaryReadFLOAT32(r io.Reader, nums []interface{}) error {
 	return nil
 }
 
-func BinaryReadFLOAT64(r io.Reader, nums []interface{}) error {
+func BinaryReadFLOAT64(r io.Reader, nums []any) error {
 	buf := make([]byte, len(nums)*8)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {

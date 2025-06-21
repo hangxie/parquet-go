@@ -24,8 +24,8 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 	var totalUncompressedSize int64 = 0
 	var totalCompressedSize int64 = 0
 
-	var maxVal interface{} = pages[0].MaxVal
-	var minVal interface{} = pages[0].MinVal
+	var maxVal any = pages[0].MaxVal
+	var minVal any = pages[0].MinVal
 	var nullCount int64 = 0
 	pT, cT, logT, omitStats := pages[0].Schema.Type, pages[0].Schema.ConvertedType, pages[0].Schema.LogicalType, pages[0].Info.OmitStats
 	funcTable, err := common.FindFuncTable(pT, cT, logT)
@@ -65,11 +65,11 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 	metaData.Statistics = parquet.NewStatistics()
 
 	if !omitStats && maxVal != nil && minVal != nil {
-		tmpBufMax, err := encoding.WritePlain([]interface{}{maxVal}, *pT)
+		tmpBufMax, err := encoding.WritePlain([]any{maxVal}, *pT)
 		if err != nil {
 			return nil, err
 		}
-		tmpBufMin, err := encoding.WritePlain([]interface{}{minVal}, *pT)
+		tmpBufMin, err := encoding.WritePlain([]any{minVal}, *pT)
 		if err != nil {
 			return nil, err
 		}
@@ -100,8 +100,8 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 	var totalUncompressedSize int64 = 0
 	var totalCompressedSize int64 = 0
 
-	var maxVal interface{} = pages[1].MaxVal
-	var minVal interface{} = pages[1].MinVal
+	var maxVal any = pages[1].MaxVal
+	var minVal any = pages[1].MinVal
 	var nullCount int64 = 0
 	pT, cT, logT, omitStats := pages[1].Schema.Type, pages[1].Schema.ConvertedType, pages[1].Schema.LogicalType, pages[1].Info.OmitStats
 	funcTable, err := common.FindFuncTable(pT, cT, logT)
@@ -143,11 +143,11 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 	metaData.Statistics = parquet.NewStatistics()
 
 	if !omitStats && maxVal != nil && minVal != nil {
-		tmpBufMax, err := encoding.WritePlain([]interface{}{maxVal}, *pT)
+		tmpBufMax, err := encoding.WritePlain([]any{maxVal}, *pT)
 		if err != nil {
 			return nil, err
 		}
-		tmpBufMin, err := encoding.WritePlain([]interface{}{minVal}, *pT)
+		tmpBufMin, err := encoding.WritePlain([]any{minVal}, *pT)
 		if err != nil {
 			return nil, err
 		}

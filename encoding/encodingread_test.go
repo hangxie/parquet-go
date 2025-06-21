@@ -13,7 +13,7 @@ import (
 )
 
 func TestReadPlainBOOLEAN(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{(true)},
 		{(false)},
 		{(false), (false)},
@@ -35,12 +35,12 @@ func TestReadPlainBOOLEAN(t *testing.T) {
 
 func TestReadPlainINT32(t *testing.T) {
 	testData := []struct {
-		expected   []interface{}
+		expected   []any
 		byteReader *bytes.Reader
 	}{
-		{[]interface{}{}, bytes.NewReader([]byte{})},
-		{[]interface{}{int32(0)}, bytes.NewReader([]byte{0, 0, 0, 0})},
-		{[]interface{}{int32(0), int32(1), int32(2)}, bytes.NewReader([]byte{0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0})},
+		{[]any{}, bytes.NewReader([]byte{})},
+		{[]any{int32(0)}, bytes.NewReader([]byte{0, 0, 0, 0})},
+		{[]any{int32(0), int32(1), int32(2)}, bytes.NewReader([]byte{0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0})},
 	}
 
 	for _, data := range testData {
@@ -53,12 +53,12 @@ func TestReadPlainINT32(t *testing.T) {
 
 func TestReadPlainINT64(t *testing.T) {
 	testData := []struct {
-		expected   []interface{}
+		expected   []any
 		byteReader *bytes.Reader
 	}{
-		{[]interface{}{}, bytes.NewReader([]byte{})},
-		{[]interface{}{int64(0)}, bytes.NewReader([]byte{0, 0, 0, 0, 0, 0, 0, 0})},
-		{[]interface{}{int64(0), int64(1), int64(2)}, bytes.NewReader([]byte{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0})},
+		{[]any{}, bytes.NewReader([]byte{})},
+		{[]any{int64(0)}, bytes.NewReader([]byte{0, 0, 0, 0, 0, 0, 0, 0})},
+		{[]any{int64(0), int64(1), int64(2)}, bytes.NewReader([]byte{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0})},
 	}
 
 	for _, data := range testData {
@@ -70,7 +70,7 @@ func TestReadPlainINT64(t *testing.T) {
 }
 
 func TestReadPlainBYTE_ARRAY(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{("hello"), ("world")},
 		{("good"), (""), ("a"), ("b")},
 	}
@@ -89,7 +89,7 @@ func TestReadPlainBYTE_ARRAY(t *testing.T) {
 }
 
 func TestReadPlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{("hello"), ("world")},
 		{("a"), ("b"), ("c"), ("d")},
 	}
@@ -108,7 +108,7 @@ func TestReadPlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
 }
 
 func TestReadPlainFLOAT(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{float32(0), float32(1), float32(2)},
 		{float32(0), float32(0.1), float32(0.2)},
 	}
@@ -127,7 +127,7 @@ func TestReadPlainFLOAT(t *testing.T) {
 }
 
 func TestReadPlainDOUBLE(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{float64(0), float64(1), float64(2)},
 		{float64(0), float64(0), float64(0)},
 	}
@@ -158,7 +158,7 @@ func TestReadUnsignedVarInt(t *testing.T) {
 }
 
 func TestReadRLEBitPackedHybrid(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{int64(1), int64(2), int64(3), int64(4)},
 		{int64(0), int64(0), int64(0), int64(0), int64(0)},
 	}
@@ -177,7 +177,7 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 }
 
 func TestReadDeltaBinaryPackedINT(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{int64(1), int64(2), int64(3), int64(4)},
 		{int64(math.MaxInt64), int64(math.MinInt64), int64(-15654523568543623), int64(4354365463543632), int64(0)},
 	}
@@ -217,7 +217,7 @@ func TestReadDeltaINT32(t *testing.T) {
 }
 
 func TestReadDeltaBinaryPackedINT32(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{int32(1), int32(2), int32(3), int32(4)},
 		{int32(-1570499385), int32(-1570499385), int32(-1570499386), int32(-1570499388), int32(-1570499385)},
 	}
@@ -236,7 +236,7 @@ func TestReadDeltaBinaryPackedINT32(t *testing.T) {
 }
 
 func TestReadDeltaByteArray(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{"Hello", "world"},
 	}
 	for _, data := range testData {
@@ -248,7 +248,7 @@ func TestReadDeltaByteArray(t *testing.T) {
 }
 
 func TestReadLengthDeltaByteArray(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{"Hello", "world"},
 	}
 	for _, data := range testData {
@@ -260,7 +260,7 @@ func TestReadLengthDeltaByteArray(t *testing.T) {
 }
 
 func TestReadBitPacked(t *testing.T) {
-	testData := [][]interface{}{
+	testData := [][]any{
 		{1, 2, 3, 4, 5, 6, 7, 8},
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 	}

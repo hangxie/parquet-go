@@ -17,7 +17,7 @@ var gzipWriterPool sync.Pool
 
 func init() {
 	gzipWriterPool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return gzip.NewWriter(nil)
 		},
 	}

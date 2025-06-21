@@ -53,7 +53,7 @@ func main() {
 			log.Println("WriteString error", err)
 		}
 
-		data2 := []interface{}{
+		data2 := []any{
 			"Student Name",
 			int32(20 + i%5),
 			int64(i),

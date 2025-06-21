@@ -14,14 +14,14 @@ import (
 )
 
 type DictRecType struct {
-	DictMap   map[interface{}]int32
-	DictSlice []interface{}
+	DictMap   map[any]int32
+	DictSlice []any
 	Type      parquet.Type
 }
 
 func NewDictRec(pT parquet.Type) *DictRecType {
 	res := new(DictRecType)
-	res.DictMap = make(map[interface{}]int32)
+	res.DictMap = make(map[any]int32)
 	res.Type = pT
 	return res
 }
@@ -91,8 +91,8 @@ func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth
 		var size int32 = 0
 		var numValues int32 = 0
 
-		var maxVal interface{} = table.Values[i]
-		var minVal interface{} = table.Values[i]
+		var maxVal any = table.Values[i]
+		var minVal any = table.Values[i]
 		var nullCount int64 = 0
 		values := make([]int32, 0)
 
@@ -214,7 +214,7 @@ func (page *Page) DictDataPageCompress(compressType parquet.CompressionCodec, bi
 
 	page.Header.DataPageHeader.Statistics = parquet.NewStatistics()
 	if page.MaxVal != nil {
-		tmpBuf, err := encoding.WritePlain([]interface{}{page.MaxVal}, *page.Schema.Type)
+		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
 		if err != nil {
 			return nil, err
 		}
@@ -225,7 +225,7 @@ func (page *Page) DictDataPageCompress(compressType parquet.CompressionCodec, bi
 		page.Header.DataPageHeader.Statistics.MaxValue = tmpBuf
 	}
 	if page.MinVal != nil {
-		tmpBuf, err := encoding.WritePlain([]interface{}{page.MinVal}, *page.Schema.Type)
+		tmpBuf, err := encoding.WritePlain([]any{page.MinVal}, *page.Schema.Type)
 		if err != nil {
 			return nil, err
 		}

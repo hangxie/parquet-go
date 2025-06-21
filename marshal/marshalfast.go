@@ -26,7 +26,7 @@ import (
 // features. (Namely TypeID and TypeAndPtrOf.)
 //
 // It does not support map-type fields. It should support every other use-case of Marshal.
-func MarshalFast(srcInterface []interface{}, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
+func MarshalFast(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
 	tableMap := setupTableMap(schemaHandler, len(srcInterface))
 	pathMap := schemaHandler.PathMap
 
@@ -130,7 +130,7 @@ func (c *compiler) compilePointer(typ reflect.Type, pathMap *schema.PathMapType)
 	return &pointerEncoder{valEncoder}
 }
 
-func (c *compiler) compileInterface(typ reflect.Type, pathMap *schema.PathMapType) encoder {
+func (c *compiler) compileInterface(_ reflect.Type, pathMap *schema.PathMapType) encoder {
 	var childTables []*layout.Table
 	for tablePath, table := range c.tableMap {
 		if common.IsChildPath(pathMap.Path, tablePath) {
@@ -170,7 +170,7 @@ func (c *compiler) compileSlice(typ reflect.Type, pathMap *schema.PathMapType) e
 	return &sliceEncoder{elemSize, valEncoder}
 }
 
-// emptyInterface shares the structure underlying an interface{}. It allows us to
+// emptyInterface shares the structure underlying an any. It allows us to
 // build one on the stack without performing an allocation.
 type emptyInterface struct {
 	typ unsafe.Pointer
@@ -182,18 +182,18 @@ type emptyInterface struct {
 // an allocation.
 // This is safe only if the ptr is heap-allocated. However, we can infer that the value is
 // heap-allocated because the code traversed to ptr from the root object, which came from
-// a []interface{} in the input to MarshalFast.
-func toIface(typeIface interface{}, ptr unsafe.Pointer) interface{} {
+// a []any in the input to MarshalFast.
+func toIface(typeIface any, ptr unsafe.Pointer) any {
 	ei := emptyInterface{
 		typ: *(*unsafe.Pointer)(unsafe.Pointer(&typeIface)),
 		val: ptr,
 	}
-	return *(*interface{})(unsafe.Pointer(&ei))
+	return *(*any)(unsafe.Pointer(&ei))
 }
 
 // terminalEncoder handles encoding of terminal (leaf) values that don't have children.
 type terminalEncoder struct {
-	typeIface interface{}
+	typeIface any
 	table     *layout.Table
 	pT        *parquet.Type
 }
@@ -201,14 +201,14 @@ type terminalEncoder struct {
 // encode converts a pointer back to an interface of the correct type and appends it
 // to the table with definition-level and repetition-level.
 func (e *terminalEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
-	var v interface{}
+	var v any
 	if ptr != nil {
 		v = toIface(e.typeIface, ptr)
 	}
 	e.write(v, dl, rl)
 }
 
-func (e *terminalEncoder) write(v interface{}, dl, rl int32) {
+func (e *terminalEncoder) write(v any, dl, rl int32) {
 	e.table.Values = append(e.table.Values, types.InterfaceToParquetType(v, e.pT))
 	e.table.DefinitionLevels = append(e.table.DefinitionLevels, dl)
 	e.table.RepetitionLevels = append(e.table.RepetitionLevels, rl)
@@ -270,9 +270,9 @@ type sliceEncoder struct {
 }
 
 func (e *sliceEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
-	var sliceHeader []interface{}
+	var sliceHeader []any
 	if ptr != nil {
-		sliceHeader = *(*[]interface{})(ptr)
+		sliceHeader = *(*[]any)(ptr)
 	}
 	if len(sliceHeader) == 0 {
 		e.valEncoder.encode(nil, dl, rl)
@@ -300,7 +300,7 @@ type ifaceEncoder struct {
 }
 
 func (e *ifaceEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
-	iface := *(*interface{})(ptr)
+	iface := *(*any)(ptr)
 	typ, subPtr := reflect.TypeAndPtrOf(iface)
 	if typ == nil {
 		term := terminalEncoder{}

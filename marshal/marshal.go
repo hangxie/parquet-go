@@ -131,7 +131,7 @@ func (p *ParquetMapStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*No
 		stack = append(stack, newNode)
 	}
 
-	var null interface{}
+	var null any
 	for k, isMissing := range missingKeys {
 		if isMissing {
 			newNode := nodeBuf.GetNode()
@@ -223,7 +223,7 @@ func (p *ParquetMap) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) []
 }
 
 // Convert the objects to table map. srcInterface is a slice of objects
-func Marshal(srcInterface []interface{}, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
+func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
 	src := reflect.ValueOf(srcInterface)
 	res := setupTableMap(schemaHandler, len(srcInterface))
 	pathMap := schemaHandler.PathMap
@@ -242,7 +242,7 @@ func Marshal(srcInterface []interface{}, schemaHandler *schema.SchemaHandler) (t
 			table.Schema = schemaHandler.SchemaElements[schemaHandler.MapIndex[pathStr]]
 			table.Info = schemaHandler.Infos[i]
 			// Pre-size tables under the assumption that they'll be filled.
-			table.Values = make([]interface{}, 0, len(srcInterface))
+			table.Values = make([]any, 0, len(srcInterface))
 			table.DefinitionLevels = make([]int32, 0, len(srcInterface))
 			table.RepetitionLevels = make([]int32, 0, len(srcInterface))
 			res[pathStr] = table
@@ -273,13 +273,14 @@ func Marshal(srcInterface []interface{}, schemaHandler *schema.SchemaHandler) (t
 			}
 			var m Marshaler
 
-			if tk == reflect.Ptr {
+			switch tk {
+			case reflect.Ptr:
 				m = &ParquetPtr{}
-			} else if tk == reflect.Struct {
+			case reflect.Struct:
 				m = &ParquetStruct{}
-			} else if tk == reflect.Slice {
+			case reflect.Slice:
 				m = &ParquetSlice{schemaHandler: schemaHandler}
-			} else if tk == reflect.Map {
+			case reflect.Map:
 				schemaIndex := schemaHandler.MapIndex[node.PathMap.Path]
 				sele := schemaHandler.SchemaElements[schemaIndex]
 				if !sele.IsSetConvertedType() {
@@ -287,11 +288,11 @@ func Marshal(srcInterface []interface{}, schemaHandler *schema.SchemaHandler) (t
 				} else {
 					m = &ParquetMap{schemaHandler: schemaHandler}
 				}
-			} else {
+			default:
 				table := res[node.PathMap.Path]
 				schemaIndex := schemaHandler.MapIndex[node.PathMap.Path]
 				schema := schemaHandler.SchemaElements[schemaIndex]
-				var v interface{}
+				var v any
 				if node.Val.IsValid() {
 					v = node.Val.Interface()
 				}
@@ -343,7 +344,7 @@ func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) map[str
 			table.Schema = schemaHandler.SchemaElements[schemaHandler.MapIndex[pathStr]]
 			table.Info = schemaHandler.Infos[i]
 			// Pre-size tables under the assumption that they'll be filled.
-			table.Values = make([]interface{}, 0, numElements)
+			table.Values = make([]any, 0, numElements)
 			table.DefinitionLevels = make([]int32, 0, numElements)
 			table.RepetitionLevels = make([]int32, 0, numElements)
 			tableMap[pathStr] = table
