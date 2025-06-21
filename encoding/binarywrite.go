@@ -7,7 +7,7 @@ import (
 )
 
 // LittleEndian
-func BinaryWriteINT32(w io.Writer, nums []interface{}) error {
+func BinaryWriteINT32(w io.Writer, nums []any) error {
 	buf := make([]byte, len(nums)*4)
 	for i, n := range nums {
 		tmp, ok := n.(int32)
@@ -25,7 +25,7 @@ func BinaryWriteINT32(w io.Writer, nums []interface{}) error {
 	return err
 }
 
-func BinaryWriteINT64(w io.Writer, nums []interface{}) error {
+func BinaryWriteINT64(w io.Writer, nums []any) error {
 	buf := make([]byte, len(nums)*8)
 	for i, n := range nums {
 		tmp, ok := n.(int64)
@@ -47,7 +47,7 @@ func BinaryWriteINT64(w io.Writer, nums []interface{}) error {
 	return err
 }
 
-func BinaryWriteFLOAT32(w io.Writer, nums []interface{}) error {
+func BinaryWriteFLOAT32(w io.Writer, nums []any) error {
 	buf := make([]byte, len(nums)*4)
 	for i, n := range nums {
 		tmp, ok := n.(float32)
@@ -65,7 +65,7 @@ func BinaryWriteFLOAT32(w io.Writer, nums []interface{}) error {
 	return err
 }
 
-func BinaryWriteFLOAT64(w io.Writer, nums []interface{}) error {
+func BinaryWriteFLOAT64(w io.Writer, nums []any) error {
 	buf := make([]byte, len(nums)*8)
 	for i, n := range nums {
 		tmp, ok := n.(float64)

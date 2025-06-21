@@ -130,7 +130,7 @@ func Benchmark_WriteCSVPlainDictionary(b *testing.B) {
 			b.Fatal(err)
 		}
 		for j := 0; j < 10000; j++ {
-			err = pw.Write([]interface{}{"Harry", "S", "Truman", "Lamar"})
+			err = pw.Write([]any{"Harry", "S", "Truman", "Lamar"})
 			if err != nil {
 				b.Fatal(err)
 			}

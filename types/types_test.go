@@ -12,7 +12,7 @@ import (
 func TestStrToParquetType(t *testing.T) {
 	testData := []struct {
 		StrData string
-		GoData  interface{}
+		GoData  any
 		PT      *parquet.Type
 		CT      *parquet.ConvertedType
 		Length  int

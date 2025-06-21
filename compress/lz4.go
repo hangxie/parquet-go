@@ -15,7 +15,7 @@ import (
 
 func init() {
 	lz4WriterPool := sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return lz4.NewWriter(nil)
 		},
 	}

@@ -227,7 +227,7 @@ func NewItem() *Item {
 }
 
 // Create schema handler from a object
-func NewSchemaHandlerFromStruct(obj interface{}) (sh *SchemaHandler, err error) {
+func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 	ot := reflect.TypeOf(obj).Elem()
 	item := NewItem()
 	item.GoType = ot

@@ -5,162 +5,138 @@ import (
 	"math/big"
 	"reflect"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
 func ParquetTypeToGoReflectType(pT *parquet.Type, rT *parquet.FieldRepetitionType) reflect.Type {
 	if rT == nil || *rT != parquet.FieldRepetitionType_OPTIONAL {
-		if *pT == parquet.Type_BOOLEAN {
+		switch *pT {
+		case parquet.Type_BOOLEAN:
 			return reflect.TypeOf(true)
-		} else if *pT == parquet.Type_INT32 {
+		case parquet.Type_INT32:
 			return reflect.TypeOf(int32(0))
-		} else if *pT == parquet.Type_INT64 {
+		case parquet.Type_INT64:
 			return reflect.TypeOf(int64(0))
-		} else if *pT == parquet.Type_INT96 {
+		case parquet.Type_INT96:
 			return reflect.TypeOf("")
-		} else if *pT == parquet.Type_FLOAT {
+		case parquet.Type_FLOAT:
 			return reflect.TypeOf(float32(0))
-		} else if *pT == parquet.Type_DOUBLE {
+		case parquet.Type_DOUBLE:
 			return reflect.TypeOf(float64(0))
-		} else if *pT == parquet.Type_BYTE_ARRAY {
+		case parquet.Type_BYTE_ARRAY:
 			return reflect.TypeOf("")
-		} else if *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY {
+		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
 			return reflect.TypeOf("")
-		} else {
+		default:
 			return nil
 		}
-	} else {
-		if *pT == parquet.Type_BOOLEAN {
-			v := true
-			return reflect.TypeOf(&v)
+	}
 
-		} else if *pT == parquet.Type_INT32 {
-			v := int32(0)
-			return reflect.TypeOf(&v)
-
-		} else if *pT == parquet.Type_INT64 {
-			v := int64(0)
-			return reflect.TypeOf(&v)
-
-		} else if *pT == parquet.Type_INT96 {
-			v := ""
-			return reflect.TypeOf(&v)
-
-		} else if *pT == parquet.Type_FLOAT {
-			v := float32(0)
-			return reflect.TypeOf(&v)
-
-		} else if *pT == parquet.Type_DOUBLE {
-			v := float64(0)
-			return reflect.TypeOf(&v)
-
-		} else if *pT == parquet.Type_BYTE_ARRAY {
-			v := ""
-			return reflect.TypeOf(&v)
-
-		} else if *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY {
-			v := ""
-			return reflect.TypeOf(&v)
-
-		} else {
-			return nil
-		}
+	switch *pT {
+	case parquet.Type_BOOLEAN:
+		return reflect.TypeOf(common.ToPtr(true))
+	case parquet.Type_INT32:
+		return reflect.TypeOf(common.ToPtr(int32(0)))
+	case parquet.Type_INT64:
+		return reflect.TypeOf(common.ToPtr(int64(0)))
+	case parquet.Type_INT96:
+		return reflect.TypeOf(common.ToPtr(""))
+	case parquet.Type_FLOAT:
+		return reflect.TypeOf(common.ToPtr(float32(0)))
+	case parquet.Type_DOUBLE:
+		return reflect.TypeOf(common.ToPtr(float64(0)))
+	case parquet.Type_BYTE_ARRAY:
+		return reflect.TypeOf(common.ToPtr(""))
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		return reflect.TypeOf(common.ToPtr(""))
+	default:
+		return nil
 	}
 }
 
 // Scan a string to parquet value; length and scale just for decimal
-func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (interface{}, error) {
+func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
 	if cT == nil {
-		if *pT == parquet.Type_BOOLEAN {
+		switch *pT {
+		case parquet.Type_BOOLEAN:
 			var v bool
 			_, err := fmt.Sscanf(s, "%t", &v)
 			return v, err
-
-		} else if *pT == parquet.Type_INT32 {
+		case parquet.Type_INT32:
 			var v int32
 			_, err := fmt.Sscanf(s, "%d", &v)
 			return v, err
-
-		} else if *pT == parquet.Type_INT64 {
+		case parquet.Type_INT64:
 			var v int64
 			_, err := fmt.Sscanf(s, "%d", &v)
 			return v, err
-
-		} else if *pT == parquet.Type_INT96 {
+		case parquet.Type_INT96:
 			res := StrIntToBinary(s, "LittleEndian", 12, true)
 			return res, nil
-
-		} else if *pT == parquet.Type_FLOAT {
+		case parquet.Type_FLOAT:
 			var v float32
 			_, err := fmt.Sscanf(s, "%f", &v)
 			return v, err
-
-		} else if *pT == parquet.Type_DOUBLE {
+		case parquet.Type_DOUBLE:
 			var v float64
 			_, err := fmt.Sscanf(s, "%f", &v)
 			return v, err
-
-		} else if *pT == parquet.Type_BYTE_ARRAY {
+		case parquet.Type_BYTE_ARRAY:
 			return s, nil
-		} else if *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY {
+		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
 			return s, nil
+		default:
+			return nil, nil
 		}
-		return nil, nil
 	}
 
-	if *cT == parquet.ConvertedType_UTF8 {
+	switch *cT {
+	case parquet.ConvertedType_UTF8:
 		return s, nil
-	} else if *cT == parquet.ConvertedType_INT_8 {
+	case parquet.ConvertedType_INT_8:
 		var v int8
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
-
-	} else if *cT == parquet.ConvertedType_INT_16 {
+	case parquet.ConvertedType_INT_16:
 		var v int16
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
-
-	} else if *cT == parquet.ConvertedType_INT_32 {
+	case parquet.ConvertedType_INT_32:
 		var v int32
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
-
-	} else if *cT == parquet.ConvertedType_UINT_8 {
+	case parquet.ConvertedType_UINT_8:
 		var v uint8
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
-
-	} else if *cT == parquet.ConvertedType_UINT_16 {
+	case parquet.ConvertedType_UINT_16:
 		var v uint16
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
-
-	} else if *cT == parquet.ConvertedType_UINT_32 {
+	case parquet.ConvertedType_UINT_32:
 		var v uint32
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
-
-	} else if *cT == parquet.ConvertedType_DATE || *cT == parquet.ConvertedType_TIME_MILLIS {
+	case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS:
 		var v int32
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
-
-	} else if *cT == parquet.ConvertedType_UINT_64 {
+	case parquet.ConvertedType_UINT_64:
 		var vt uint64
 		_, err := fmt.Sscanf(s, "%d", &vt)
 		return int64(vt), err
-
-	} else if *cT == parquet.ConvertedType_INT_64 ||
-		*cT == parquet.ConvertedType_TIME_MICROS || *cT == parquet.ConvertedType_TIMESTAMP_MICROS || *cT == parquet.ConvertedType_TIMESTAMP_MILLIS {
+	case parquet.ConvertedType_INT_64,
+		parquet.ConvertedType_TIME_MICROS,
+		parquet.ConvertedType_TIMESTAMP_MICROS,
+		parquet.ConvertedType_TIMESTAMP_MILLIS:
 		var v int64
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return v, err
-
-	} else if *cT == parquet.ConvertedType_INTERVAL {
+	case parquet.ConvertedType_INTERVAL:
 		res := StrIntToBinary(s, "LittleEndian", 12, false)
 		return res, nil
-
-	} else if *cT == parquet.ConvertedType_DECIMAL {
+	case parquet.ConvertedType_DECIMAL:
 		numSca := big.NewFloat(1.0)
 		for i := 0; i < scale; i++ {
 			numSca.Mul(numSca, big.NewFloat(10))
@@ -169,30 +145,28 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		num.SetString(s)
 		num.Mul(num, numSca)
 
-		if *pT == parquet.Type_INT32 {
+		switch *pT {
+		case parquet.Type_INT32:
 			tmp, _ := num.Float64()
 			return int32(tmp), nil
-
-		} else if *pT == parquet.Type_INT64 {
+		case parquet.Type_INT64:
 			tmp, _ := num.Float64()
 			return int64(tmp), nil
-
-		} else if *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY {
+		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
 			s = num.Text('f', 0)
 			res := StrIntToBinary(s, "BigEndian", length, true)
 			return res, nil
-
-		} else {
+		default:
 			s = num.Text('f', 0)
 			res := StrIntToBinary(s, "BigEndian", 0, true)
 			return res, nil
 		}
-	} else {
+	default:
 		return nil, nil
 	}
 }
 
-func InterfaceToParquetType(src interface{}, pT *parquet.Type) interface{} {
+func InterfaceToParquetType(src any, pT *parquet.Type) any {
 	if src == nil {
 		return src
 	}
@@ -318,7 +292,7 @@ func StrIntToBinary(num, order string, length int, signed bool) string {
 	return string(bs)
 }
 
-func JSONTypeToParquetType(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (interface{}, error) {
+func JSONTypeToParquetType(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
 	if val.Type().Kind() == reflect.Interface && val.IsNil() {
 		return nil, nil
 	}

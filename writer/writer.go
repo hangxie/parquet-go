@@ -31,7 +31,7 @@ type ParquetWriter struct {
 	CompressionType parquet.CompressionCodec
 	Offset          int64
 
-	Objs              []interface{}
+	Objs              []any
 	ObjsSize          int64
 	ObjSize           int64
 	CheckSizeCritical int64
@@ -45,18 +45,18 @@ type ParquetWriter struct {
 	ColumnIndexes []*parquet.ColumnIndex
 	OffsetIndexes []*parquet.OffsetIndex
 
-	MarshalFunc func(src []interface{}, sh *schema.SchemaHandler) (*map[string]*layout.Table, error)
+	MarshalFunc func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error)
 
 	stopped bool
 }
 
-func NewParquetWriterFromWriter(w io.Writer, obj interface{}, np int64) (*ParquetWriter, error) {
+func NewParquetWriterFromWriter(w io.Writer, obj any, np int64) (*ParquetWriter, error) {
 	wf := writerfile.NewWriterFile(w)
 	return NewParquetWriter(wf, obj, np)
 }
 
 // Create a parquet handler. Obj is a object with tags or JSON schema string.
-func NewParquetWriter(pFile source.ParquetFileWriter, obj interface{}, np int64) (*ParquetWriter, error) {
+func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*ParquetWriter, error) {
 	var err error
 
 	res := new(ParquetWriter)
@@ -224,7 +224,7 @@ func (pw *ParquetWriter) WriteStop() error {
 }
 
 // Write one object to parquet file
-func (pw *ParquetWriter) Write(src interface{}) error {
+func (pw *ParquetWriter) Write(src any) error {
 	if pw.stopped {
 		return errors.New("writer is stopped")
 	}
@@ -428,7 +428,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 
 			firstRowIndex := int64(0)
 
-			for l := 0; l < pageCount; l++ {
+			for l := range pageCount {
 				page := rowGroup.Chunks[k].Pages[l]
 				if page.Header.Type == parquet.PageType_DICTIONARY_PAGE {
 					tmp := pw.Offset

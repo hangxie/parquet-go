@@ -616,11 +616,11 @@ func TestE2ENullabilityValid(t *testing.T) {
 	res, err := pr.ReadByNumber(num)
 	assert.Nil(t, err)
 
-	actualTable := [][]interface{}{}
+	actualTable := [][]any{}
 	for _, row := range res {
 		actualTable = append(actualTable, rowToSliceOfValues(row))
 	}
-	expectedTable := [][]interface{}{
+	expectedTable := [][]any{
 		{
 			-1, nil, -21, nil, 1, nil, 21, nil, float32(1.1), nil, 1, nil, "A", nil, true,
 			nil, 1, nil, 1,
@@ -657,9 +657,9 @@ func TestE2ENullabilityValid(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func rowToSliceOfValues(s interface{}) []interface{} {
+func rowToSliceOfValues(s any) []any {
 	v := reflect.ValueOf(s)
-	res := []interface{}{}
+	res := []any{}
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		if field.IsNil() {

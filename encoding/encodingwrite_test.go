@@ -10,12 +10,12 @@ import (
 
 func TestToInt64(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []int64
 	}{
-		{nums: []interface{}{int(1), int(2), int(3)}, expected: []int64{int64(1), int64(2), int64(3)}},
-		{nums: []interface{}{true, false, true}, expected: []int64{int64(1), int64(0), int64(1)}},
-		{nums: []interface{}{}, expected: []int64{}},
+		{nums: []any{int(1), int(2), int(3)}, expected: []int64{int64(1), int64(2), int64(3)}},
+		{nums: []any{true, false, true}, expected: []int64{int64(1), int64(0), int64(1)}},
+		{nums: []any{}, expected: []int64{}},
 	}
 
 	for _, data := range testData {
@@ -68,12 +68,12 @@ func TestWriteUnsignedVarInt(t *testing.T) {
 
 func TestWriteRLE(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{int64(0), int64(0), int64(0)}, []byte{byte(3 << 1)}},
-		{[]interface{}{int64(3)}, []byte{byte(1 << 1), byte(3)}},
-		{[]interface{}{int64(1), int64(2), int64(3), int64(3)}, []byte{byte(1 << 1), byte(1), byte(1 << 1), byte(2), byte(2 << 1), byte(3)}},
+		{[]any{int64(0), int64(0), int64(0)}, []byte{byte(3 << 1)}},
+		{[]any{int64(3)}, []byte{byte(1 << 1), byte(3)}},
+		{[]any{int64(1), int64(2), int64(3), int64(3)}, []byte{byte(1 << 1), byte(1), byte(1 << 1), byte(2), byte(2 << 1), byte(3)}},
 	}
 
 	for _, data := range testData {
@@ -88,11 +88,11 @@ func TestWriteRLE(t *testing.T) {
 
 func TestWriteBitPacked(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{0, 0, 0, 0, 0, 0, 0, 0}, []byte{3}},
-		{[]interface{}{0, 1, 2, 3, 4, 5, 6, 7}, []byte{3, 0x88, 0xC6, 0xFA}},
+		{[]any{0, 0, 0, 0, 0, 0, 0, 0}, []byte{3}},
+		{[]any{0, 1, 2, 3, 4, 5, 6, 7}, []byte{3, 0x88, 0xC6, 0xFA}},
 	}
 
 	for _, data := range testData {
@@ -105,13 +105,13 @@ func TestWriteBitPacked(t *testing.T) {
 
 func TestWritePlainBOOLEAN(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{}, []byte{}},
-		{[]interface{}{(true)}, []byte{1}},
-		{[]interface{}{(true), (false)}, []byte{1}},
-		{[]interface{}{(true), (false), (false), (true), (false)}, []byte{9}},
+		{[]any{}, []byte{}},
+		{[]any{(true)}, []byte{1}},
+		{[]any{(true), (false)}, []byte{1}},
+		{[]any{(true), (false), (false), (true), (false)}, []byte{9}},
 	}
 
 	for _, data := range testData {
@@ -126,12 +126,12 @@ func TestWritePlainBOOLEAN(t *testing.T) {
 
 func TestWritePlainINT32(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{}, []byte{}},
-		{[]interface{}{int32(0)}, []byte{0, 0, 0, 0}},
-		{[]interface{}{int32(0), int32(1), int32(2)}, []byte{0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0}},
+		{[]any{}, []byte{}},
+		{[]any{int32(0)}, []byte{0, 0, 0, 0}},
+		{[]any{int32(0), int32(1), int32(2)}, []byte{0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0}},
 	}
 
 	for _, data := range testData {
@@ -146,12 +146,12 @@ func TestWritePlainINT32(t *testing.T) {
 
 func TestWritePlainINT64(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{}, []byte{}},
-		{[]interface{}{int64(0)}, []byte{0, 0, 0, 0, 0, 0, 0, 0}},
-		{[]interface{}{int64(0), int64(1), int64(2)}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0}},
+		{[]any{}, []byte{}},
+		{[]any{int64(0)}, []byte{0, 0, 0, 0, 0, 0, 0, 0}},
+		{[]any{int64(0), int64(1), int64(2)}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0}},
 	}
 
 	for _, data := range testData {
@@ -166,13 +166,13 @@ func TestWritePlainINT64(t *testing.T) {
 
 func TestWritePlainINT96(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{}, []byte{}},
-		{[]interface{}{string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{[]any{}, []byte{}},
+		{[]any{string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{
-			[]interface{}{
+			[]any{
 				string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
 				string([]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
 				string([]byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
@@ -192,11 +192,11 @@ func TestWritePlainINT96(t *testing.T) {
 
 func TestWritePlainBYTE_ARRAY(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{}, []byte{}},
-		{[]interface{}{("a"), ("abc")}, []byte{1, 0, 0, 0, 97, 3, 0, 0, 0, 97, 98, 99}},
+		{[]any{}, []byte{}},
+		{[]any{("a"), ("abc")}, []byte{1, 0, 0, 0, 97, 3, 0, 0, 0, 97, 98, 99}},
 	}
 
 	for _, data := range testData {
@@ -211,11 +211,11 @@ func TestWritePlainBYTE_ARRAY(t *testing.T) {
 
 func TestWritePlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{}, []byte{}},
-		{[]interface{}{("bca"), ("abc")}, []byte{98, 99, 97, 97, 98, 99}},
+		{[]any{}, []byte{}},
+		{[]any{("bca"), ("abc")}, []byte{98, 99, 97, 97, 98, 99}},
 	}
 
 	for _, data := range testData {
@@ -230,12 +230,12 @@ func TestWritePlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
 
 func TestWriteDeltaINT32(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{int32(1), int32(2), int32(3), int32(4), int32(5)}, []byte{128, 1, 4, 5, 2, 2, 0, 0, 0, 0}},
+		{[]any{int32(1), int32(2), int32(3), int32(4), int32(5)}, []byte{128, 1, 4, 5, 2, 2, 0, 0, 0, 0}},
 		{
-			[]interface{}{int32(7), int32(5), int32(3), int32(1), int32(2), int32(3), int32(4), int32(5)},
+			[]any{int32(7), int32(5), int32(3), int32(1), int32(2), int32(3), int32(4), int32(5)},
 			[]byte{128, 1, 4, 8, 14, 3, 2, 0, 0, 0, 192, 63, 0, 0, 0, 0, 0, 0},
 		},
 	}
@@ -250,12 +250,12 @@ func TestWriteDeltaINT32(t *testing.T) {
 
 func TestWriteDeltaint64(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{int64(1), int64(2), int64(3), int64(4), int64(5)}, []byte{128, 1, 4, 5, 2, 2, 0, 0, 0, 0}},
+		{[]any{int64(1), int64(2), int64(3), int64(4), int64(5)}, []byte{128, 1, 4, 5, 2, 2, 0, 0, 0, 0}},
 		{
-			[]interface{}{int64(7), int64(5), int64(3), int64(1), int64(2), int64(3), int64(4), int64(5)},
+			[]any{int64(7), int64(5), int64(3), int64(1), int64(2), int64(3), int64(4), int64(5)},
 			[]byte{128, 1, 4, 8, 14, 3, 2, 0, 0, 0, 192, 63, 0, 0, 0, 0, 0, 0},
 		},
 	}
@@ -270,10 +270,10 @@ func TestWriteDeltaint64(t *testing.T) {
 
 func TestWriteDeltaLengthByteArray(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{"Hello", "World", "Foobar", "ABCDEF"}, []byte{128, 1, 4, 4, 10, 0, 1, 0, 0, 0, 2, 0, 0, 0, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 70, 111, 111, 98, 97, 114, 65, 66, 67, 68, 69, 70}},
+		{[]any{"Hello", "World", "Foobar", "ABCDEF"}, []byte{128, 1, 4, 4, 10, 0, 1, 0, 0, 0, 2, 0, 0, 0, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 70, 111, 111, 98, 97, 114, 65, 66, 67, 68, 69, 70}},
 	}
 
 	for _, data := range testData {
@@ -286,10 +286,10 @@ func TestWriteDeltaLengthByteArray(t *testing.T) {
 
 func TestWriteDeltaByteArray(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{"Hello", "World", "Foobar", "ABCDEF"}, []byte{128, 1, 4, 4, 0, 0, 0, 0, 0, 0, 128, 1, 4, 4, 10, 0, 1, 0, 0, 0, 2, 0, 0, 0, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 70, 111, 111, 98, 97, 114, 65, 66, 67, 68, 69, 70}},
+		{[]any{"Hello", "World", "Foobar", "ABCDEF"}, []byte{128, 1, 4, 4, 0, 0, 0, 0, 0, 0, 128, 1, 4, 4, 10, 0, 1, 0, 0, 0, 2, 0, 0, 0, 72, 101, 108, 108, 111, 87, 111, 114, 108, 100, 70, 111, 111, 98, 97, 114, 65, 66, 67, 68, 69, 70}},
 	}
 
 	for _, data := range testData {
@@ -302,10 +302,10 @@ func TestWriteDeltaByteArray(t *testing.T) {
 
 func TestWriteBitPackedDeprecated(t *testing.T) {
 	testData := []struct {
-		nums     []interface{}
+		nums     []any
 		expected []byte
 	}{
-		{[]interface{}{1, 2, 3, 4}, []byte{41}},
+		{[]any{1, 2, 3, 4}, []byte{41}},
 	}
 
 	for _, data := range testData {

@@ -84,12 +84,12 @@ func TestMarshalFast(t *testing.T) {
 	}
 
 	type testIfaceElem struct {
-		Bool      interface{} `parquet:"name=bool, type=BOOLEAN"`
-		Int32     interface{} `parquet:"name=int32, type=INT32"`
-		Int64     interface{} `parquet:"name=int64, type=INT64"`
-		Float     interface{} `parquet:"name=float, type=FLOAT"`
-		Double    interface{} `parquet:"name=double, type=DOUBLE"`
-		ByteArray interface{} `parquet:"name=bytearray, type=BYTE_ARRAY"`
+		Bool      any `parquet:"name=bool, type=BOOLEAN"`
+		Int32     any `parquet:"name=int32, type=INT32"`
+		Int64     any `parquet:"name=int64, type=INT64"`
+		Float     any `parquet:"name=float, type=FLOAT"`
+		Double    any `parquet:"name=double, type=DOUBLE"`
+		ByteArray any `parquet:"name=bytearray, type=BYTE_ARRAY"`
 	}
 
 	i64 := int64(31)
@@ -99,7 +99,7 @@ func TestMarshalFast(t *testing.T) {
 	str := "hi"
 
 	testCases := []struct {
-		value interface{}
+		value any
 	}{
 		{testElem{Bool: true}},
 		{testElem{Ptr: &i64, PtrPtr: &refRef}},
@@ -151,7 +151,7 @@ func TestMarshalFast(t *testing.T) {
 		{testNestedElem{EmptyRepeated: []*struct{}{{}}}},
 		{testNestedElem{EmptyRepeated: []*struct{}{{}, nil, {}}}},
 
-		// interface{}
+		// any
 		{testIfaceElem{}},
 		{testIfaceElem{
 			Bool:      false,
@@ -173,7 +173,7 @@ func TestMarshalFast(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run("", func(t *testing.T) {
-			input := []interface{}{tt.value}
+			input := []any{tt.value}
 			schemaType := reflect.Zero(reflect.PointerTo(reflect.TypeOf(tt.value))).Interface()
 			sch, err := schema.NewSchemaHandlerFromStruct(schemaType)
 			if err != nil {

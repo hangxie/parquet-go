@@ -14,7 +14,7 @@ import (
 )
 
 // ss is []string
-func MarshalJSON(ss []interface{}, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
+func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
 	res := setupTableMap(schemaHandler, len(ss))
 	pathMap := schemaHandler.PathMap
 	nodeBuf := NewNodeBuf(1)
@@ -25,7 +25,7 @@ func MarshalJSON(ss []interface{}, schemaHandler *schema.SchemaHandler) (tb *map
 		nodeBuf.Reset()
 
 		node := nodeBuf.GetNode()
-		var ui interface{}
+		var ui any
 
 		var d *json.Decoder
 
@@ -35,7 +35,7 @@ func MarshalJSON(ss []interface{}, schemaHandler *schema.SchemaHandler) (tb *map
 		case []byte:
 			d = json.NewDecoder(bytes.NewReader(t))
 		}
-		// `useNumber`causes the Decoder to unmarshal a number into an interface{} as a Number instead of as a float64.
+		// `useNumber`causes the Decoder to unmarshal a number into an any as a Number instead of as a float64.
 		d.UseNumber()
 		if err := d.Decode(&ui); err != nil {
 			return nil, err

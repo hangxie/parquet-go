@@ -60,22 +60,22 @@ func (pr *ParquetReader) SkipRowsByIndex(index, num int64) {
 }
 
 // ReadColumnByPath reads column by path in schema.
-func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []interface{}, rls, dls []int32, err error) {
+func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []any, rls, dls []int32, err error) {
 	errPathNotFound := fmt.Errorf("path %v not found", pathStr)
 
 	pathStr, err = pr.SchemaHandler.ConvertToInPathStr(pathStr)
 	if num <= 0 || len(pathStr) <= 0 || err != nil {
-		return []interface{}{}, []int32{}, []int32{}, err
+		return []any{}, []int32{}, []int32{}, err
 	}
 
 	if _, ok := pr.SchemaHandler.MapIndex[pathStr]; !ok {
-		return []interface{}{}, []int32{}, []int32{}, errPathNotFound
+		return []any{}, []int32{}, []int32{}, errPathNotFound
 	}
 
 	if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 		var err error
 		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr); err != nil {
-			return []interface{}{}, []int32{}, []int32{}, err
+			return []any{}, []int32{}, []int32{}, err
 		}
 	}
 
@@ -83,11 +83,11 @@ func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []i
 		table, _ := cb.ReadRows(int64(num))
 		return table.Values, table.RepetitionLevels, table.DefinitionLevels, nil
 	}
-	return []interface{}{}, []int32{}, []int32{}, errPathNotFound
+	return []any{}, []int32{}, []int32{}, errPathNotFound
 }
 
 // ReadColumnByIndex reads column by index. The index of first column is 0.
-func (pr *ParquetReader) ReadColumnByIndex(index, num int64) (values []interface{}, rls, dls []int32, err error) {
+func (pr *ParquetReader) ReadColumnByIndex(index, num int64) (values []any, rls, dls []int32, err error) {
 	if index >= int64(len(pr.SchemaHandler.ValueColumns)) {
 		err = fmt.Errorf("index %v out of range %v", index, len(pr.SchemaHandler.ValueColumns))
 		return

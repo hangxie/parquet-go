@@ -63,7 +63,7 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter,
 // gives as array of columns, to array of rows which the parquet-go library
 // can understand as it does not accepts data by columns, but rather by rows.
 func (w *ArrowWriter) WriteArrow(record arrow.Record) error {
-	table := make([][]interface{}, 0)
+	table := make([][]any, 0)
 	for i, column := range record.Columns() {
 		columnFromRecord, err := common.ArrowColToParquetCol(
 			record.Schema().Field(i), column)
