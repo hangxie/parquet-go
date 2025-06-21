@@ -39,7 +39,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: coverage-report
-          path: build/test/coverage.out
+          path: build/test/
       - name: Update coverage badge
         uses: ncruces/go-coverage-report@main
         with:
