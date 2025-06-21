@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
 // TransposeTable transposes a table's rows and columns once per arrow record.
@@ -21,6 +20,27 @@ func TransposeTable(table [][]any) [][]any {
 	return transposedTable
 }
 
+type arrowArrayWithValues[arrowValueT any] interface {
+	arrow.Array
+	Value(i int) arrowValueT
+}
+
+func arrowArrayToParquetList[arrowValueT any](field arrow.Field, col arrow.Array, toParquetType func(arrowValueT) any) ([]any, error) {
+	recs := make([]any, col.Len())
+	arr := col.(arrowArrayWithValues[arrowValueT])
+	for i := range arr.Len() {
+		if arr.IsNull(i) {
+			if !field.Nullable {
+				return nil, nonNullableFieldContainsNullError(field, i)
+			}
+			recs[i] = nil
+		} else {
+			recs[i] = toParquetType(arr.Value(i))
+		}
+	}
+	return recs, nil
+}
+
 // ArrowColToParquetCol creates column with native go values from column
 // with arrow values according to the rules described in the Type section in
 // the project's README.md file.
@@ -29,213 +49,44 @@ func TransposeTable(table [][]any) [][]any {
 // results in an error.
 func ArrowColToParquetCol(field arrow.Field, col arrow.Array) ([]any, error) {
 	recs := make([]any, col.Len())
+	var err error
 	switch field.Type.(type) {
 	case *arrow.Int8Type:
-		arr := col.(*array.Int8)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int32(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v int8) any { return int32(v) })
 	case *arrow.Int16Type:
-		arr := col.(*array.Int16)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int32(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v int16) any { return int32(v) })
 	case *arrow.Int32Type:
-		arr := col.(*array.Int32)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = arr.Value(i)
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v int32) any { return v })
 	case *arrow.Int64Type:
-		arr := col.(*array.Int64)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = arr.Value(i)
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v int64) any { return v })
 	case *arrow.Uint8Type:
-		arr := col.(*array.Uint8)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int32(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v uint8) any { return int32(v) })
 	case *arrow.Uint16Type:
-		arr := col.(*array.Uint16)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int32(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v uint16) any { return int32(v) })
 	case *arrow.Uint32Type:
-		arr := col.(*array.Uint32)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int32(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v uint32) any { return int32(v) })
 	case *arrow.Uint64Type:
-		arr := col.(*array.Uint64)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int64(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v uint64) any { return int64(v) })
 	case *arrow.Float32Type:
-		arr := col.(*array.Float32)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = arr.Value(i)
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v float32) any { return v })
 	case *arrow.Float64Type:
-		arr := col.(*array.Float64)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = arr.Value(i)
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v float64) any { return v })
 	case *arrow.Date32Type:
-		arr := col.(*array.Date32)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int32(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v arrow.Date32) any { return int32(v) })
 	case *arrow.Date64Type:
-		arr := col.(*array.Date64)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int32(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v arrow.Date64) any { return int32(v) })
 	case *arrow.BinaryType:
-		arr := col.(*array.Binary)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = string(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v []byte) any { return string(v) })
 	case *arrow.StringType:
-		arr := col.(*array.String)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = arr.Value(i)
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v string) any { return v })
 	case *arrow.BooleanType:
-		arr := col.(*array.Boolean)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = arr.Value(i)
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v bool) any { return v })
 	case *arrow.Time32Type:
-		arr := col.(*array.Time32)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int32(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v arrow.Time32) any { return int32(v) })
 	case *arrow.TimestampType:
-		arr := col.(*array.Timestamp)
-		for i := range arr.Len() {
-			if arr.IsNull(i) {
-				if !field.Nullable {
-					return nil, nonNullableFieldContainsNullError(field, i)
-				}
-				recs[i] = nil
-			} else {
-				recs[i] = int64(arr.Value(i))
-			}
-		}
+		recs, err = arrowArrayToParquetList(field, col, func(v arrow.Timestamp) any { return int64(v) })
 	}
-	return recs, nil
+	return recs, err
 }
 
 func nonNullableFieldContainsNullError(field arrow.Field, idx int) error {
