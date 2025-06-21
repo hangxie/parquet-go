@@ -30,9 +30,12 @@ jobs:
           gh release create $(cat ./VERSION) \
               --title $(cat ./VERSION) \
               --notes-file ./CHANGELOG
+  coverage-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build
+        uses: ./.github/workflows/build.yml
       - name: Update coverage badge
         uses: ncruces/go-coverage-report@main
         with:
-          report: true
-          chart: true
-          amend: true
+          coverage-file: build/test/coverage.out
