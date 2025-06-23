@@ -23,8 +23,8 @@ func Test_FindFuncTable(t *testing.T) {
 		"INT96-nil-nil":                     {ToPtr(parquet.Type_INT96), nil, nil, int96FuncTable{}},
 		"FLOAT-nil-nil":                     {ToPtr(parquet.Type_FLOAT), nil, nil, float32FuncTable{}},
 		"DOUBLE-nil-nil":                    {ToPtr(parquet.Type_DOUBLE), nil, nil, float64FuncTable{}},
-		"BYTE_ARRAY-nil-nil":                {ToPtr(parquet.Type_BYTE_ARRAY), nil, nil, stringFuncTable{}},
-		"FIXED_LEN_BYTE_ARRAY-nil-nil":      {ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), nil, nil, stringFuncTable{}},
+		"BYTE_ARRAY-nil-nil":                {ToPtr(parquet.Type_BYTE_ARRAY), nil, nil, byteArrayFuncTable{}},
+		"FIXED_LEN_BYTE_ARRAY-nil-nil":      {ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), nil, nil, byteArrayFuncTable{}},
 		"BYTE_ARRAY-UTF8-nil":               {ToPtr(parquet.Type_BYTE_ARRAY), ToPtr(parquet.ConvertedType_UTF8), nil, stringFuncTable{}},
 		"BYTE_ARRAY-BSON-nil":               {ToPtr(parquet.Type_BYTE_ARRAY), ToPtr(parquet.ConvertedType_BSON), nil, stringFuncTable{}},
 		"BYTE_ARRAY-JSON-nil":               {ToPtr(parquet.Type_BYTE_ARRAY), ToPtr(parquet.ConvertedType_JSON), nil, stringFuncTable{}},
@@ -112,7 +112,7 @@ func Test_LessThan(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, tc.f.LessThan(tc.a, tc.b))
+			require.Equal(t, tc.expected, tc.f.lessThan(tc.a, tc.b))
 		})
 	}
 }
@@ -134,7 +134,7 @@ func Test_Max(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			funcTable, err := FindFuncTable(tc.PT, tc.CT, nil)
 			require.NoError(t, err)
-			res := Max(funcTable, tc.Num1, tc.Num2)
+			res := max(funcTable, tc.Num1, tc.Num2)
 			require.Equal(t, tc.Expected, res)
 		})
 	}
@@ -157,7 +157,7 @@ func Test_Min(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			funcTable, err := FindFuncTable(tc.PT, tc.CT, nil)
 			require.NoError(t, err)
-			res := Min(funcTable, tc.Num1, tc.Num2)
+			res := min(funcTable, tc.Num1, tc.Num2)
 			require.Equal(t, tc.Expected, res)
 		})
 	}
@@ -429,7 +429,7 @@ func Test_Int96FuncTable_LessThan_NilChecks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := table.LessThan(tt.a, tt.b)
+			result := table.lessThan(tt.a, tt.b)
 			require.Equal(t, tt.expect, result)
 		})
 	}
@@ -520,7 +520,7 @@ func Test_IntervalFuncTable_LessThan_NilChecks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := table.LessThan(tt.a, tt.b)
+			result := table.lessThan(tt.a, tt.b)
 			require.Equal(t, tt.expect, result)
 		})
 	}
@@ -534,10 +534,10 @@ func Test_Int96FuncTable_BoundsChecking(t *testing.T) {
 	shortString := "12345678901"  // 11 bytes
 	validString := "123456789012" // 12 bytes
 
-	result := table.LessThan(shortString, validString)
+	result := table.lessThan(shortString, validString)
 	require.False(t, result)
 
-	result = table.LessThan(validString, shortString)
+	result = table.lessThan(validString, shortString)
 	require.False(t, result)
 }
 
@@ -548,9 +548,9 @@ func Test_IntervalFuncTable_BoundsChecking(t *testing.T) {
 	shortString := "12345678901"  // 11 bytes
 	validString := "123456789012" // 12 bytes
 
-	result := table.LessThan(shortString, validString)
+	result := table.lessThan(shortString, validString)
 	require.False(t, result)
 
-	result = table.LessThan(validString, shortString)
+	result = table.lessThan(validString, shortString)
 	require.False(t, result)
 }

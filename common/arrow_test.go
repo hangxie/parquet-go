@@ -142,7 +142,7 @@ func Test_ArrowColToParquetCol(t *testing.T) {
 		"binary_to_string": {
 			field:    arrow.Field{Name: "test", Type: &arrow.BinaryType{}, Nullable: true},
 			col:      buildBinaryArray(mem, [][]byte{[]byte("hello"), []byte("world")}, []bool{true, true}),
-			expected: []any{"hello", "world"},
+			expected: []any{ByteArray("hello"), ByteArray("world")},
 		},
 		"string_direct": {
 			field:    arrow.Field{Name: "test", Type: &arrow.StringType{}, Nullable: true},

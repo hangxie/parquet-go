@@ -1,6 +1,8 @@
 package common
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -14,6 +16,22 @@ const (
 	DefaultPageSize       = 8 * 1024
 	DefaultRowGroupSize   = 128 * 1024 * 1024
 )
+
+type ByteArray string
+
+func (d ByteArray) MarshalJSON() ([]byte, error) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(d))
+	return json.Marshal(encoded)
+}
+
+func (d *ByteArray) UnmarshalJSON(data []byte) error {
+	decoded, err := base64.StdEncoding.DecodeString(string(data))
+	if err != nil {
+		return err
+	}
+	*d = ByteArray(decoded)
+	return nil
+}
 
 type fieldAttr struct {
 	Type           string

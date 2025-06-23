@@ -8,7 +8,7 @@ import (
 )
 
 type FuncTable interface {
-	LessThan(a, b any) bool
+	lessThan(a, b any) bool
 	MinMaxSize(minVal, maxVal, val any) (any, any, int32)
 }
 
@@ -19,8 +19,8 @@ var parquetTypeFuncTable = map[parquet.Type]FuncTable{
 	parquet.Type_INT96:                int96FuncTable{},
 	parquet.Type_FLOAT:                float32FuncTable{},
 	parquet.Type_DOUBLE:               float64FuncTable{},
-	parquet.Type_BYTE_ARRAY:           stringFuncTable{},
-	parquet.Type_FIXED_LEN_BYTE_ARRAY: stringFuncTable{},
+	parquet.Type_BYTE_ARRAY:           byteArrayFuncTable{},
+	parquet.Type_FIXED_LEN_BYTE_ARRAY: byteArrayFuncTable{},
 }
 
 var convertedTypeFuncTable = map[parquet.ConvertedType]FuncTable{
@@ -103,28 +103,28 @@ func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.Lo
 	return nil, fmt.Errorf("cannot find func table for given types: %v, %v, %v", pT, cT, logT)
 }
 
-func Min(table FuncTable, a, b any) any {
+func min(table FuncTable, a, b any) any {
 	if a == nil {
 		return b
 	}
 	if b == nil {
 		return a
 	}
-	if table.LessThan(a, b) {
+	if table.lessThan(a, b) {
 		return a
 	} else {
 		return b
 	}
 }
 
-func Max(table FuncTable, a, b any) any {
+func max(table FuncTable, a, b any) any {
 	if a == nil {
 		return b
 	}
 	if b == nil {
 		return a
 	}
-	if table.LessThan(a, b) {
+	if table.lessThan(a, b) {
 		return b
 	} else {
 		return a
@@ -133,57 +133,57 @@ func Max(table FuncTable, a, b any) any {
 
 type boolFuncTable struct{}
 
-func (boolFuncTable) LessThan(a, b any) bool {
+func (boolFuncTable) lessThan(a, b any) bool {
 	return !a.(bool) && b.(bool)
 }
 
 func (table boolFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), 1
+	return min(table, minVal, val), max(table, maxVal, val), 1
 }
 
 type int32FuncTable struct{}
 
-func (int32FuncTable) LessThan(a, b any) bool {
+func (int32FuncTable) lessThan(a, b any) bool {
 	return a.(int32) < b.(int32)
 }
 
 func (table int32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), 4
+	return min(table, minVal, val), max(table, maxVal, val), 4
 }
 
 type uint32FuncTable struct{}
 
-func (uint32FuncTable) LessThan(a, b any) bool {
+func (uint32FuncTable) lessThan(a, b any) bool {
 	return uint32(a.(int32)) < uint32(b.(int32))
 }
 
 func (table uint32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), 4
+	return min(table, minVal, val), max(table, maxVal, val), 4
 }
 
 type int64FuncTable struct{}
 
-func (int64FuncTable) LessThan(a, b any) bool {
+func (int64FuncTable) lessThan(a, b any) bool {
 	return a.(int64) < b.(int64)
 }
 
 func (table int64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), 8
+	return min(table, minVal, val), max(table, maxVal, val), 8
 }
 
 type uint64FuncTable struct{}
 
-func (uint64FuncTable) LessThan(a, b any) bool {
+func (uint64FuncTable) lessThan(a, b any) bool {
 	return uint64(a.(int64)) < uint64(b.(int64))
 }
 
 func (table uint64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), 8
+	return min(table, minVal, val), max(table, maxVal, val), 8
 }
 
 type int96FuncTable struct{}
 
-func (int96FuncTable) LessThan(ai, bi any) bool {
+func (int96FuncTable) lessThan(ai, bi any) bool {
 	aStr, aOk := ai.(string)
 	bStr, bOk := bi.(string)
 	if !aOk || !bOk {
@@ -194,7 +194,6 @@ func (int96FuncTable) LessThan(ai, bi any) bool {
 	if len(a) < 12 || len(b) < 12 {
 		return false
 	}
-
 	fa, fb := a[11]>>7, b[11]>>7
 	if fa > fb {
 		return true
@@ -212,42 +211,61 @@ func (int96FuncTable) LessThan(ai, bi any) bool {
 }
 
 func (table int96FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), int32(len(val.(string)))
+	return min(table, minVal, val), max(table, maxVal, val), int32(len(val.(string)))
 }
 
 type float32FuncTable struct{}
 
-func (float32FuncTable) LessThan(a, b any) bool {
+func (float32FuncTable) lessThan(a, b any) bool {
 	return a.(float32) < b.(float32)
 }
 
 func (table float32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), 4
+	return min(table, minVal, val), max(table, maxVal, val), 4
 }
 
 type float64FuncTable struct{}
 
-func (float64FuncTable) LessThan(a, b any) bool {
+func (float64FuncTable) lessThan(a, b any) bool {
 	return a.(float64) < b.(float64)
 }
 
 func (table float64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), 8
+	return min(table, minVal, val), max(table, maxVal, val), 8
+}
+
+type byteArrayFuncTable struct{}
+
+func (byteArrayFuncTable) lessThan(a, b any) bool {
+	var as, bs string
+	switch a.(type) {
+	case ByteArray:
+		as, bs = string(a.(ByteArray)), string(b.(ByteArray))
+	case string:
+		as, bs = a.(string), b.(string)
+	default:
+		panic(fmt.Sprintf("cannot convert [%T] to ByteArrayString", a))
+	}
+	return as < bs
+}
+
+func (table byteArrayFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+	return stringMinMaxSize[ByteArray](minVal, maxVal, val, table)
 }
 
 type stringFuncTable struct{}
 
-func (stringFuncTable) LessThan(a, b any) bool {
+func (stringFuncTable) lessThan(a, b any) bool {
 	return a.(string) < b.(string)
 }
 
 func (table stringFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), int32(len(val.(string)))
+	return min(table, minVal, val), max(table, maxVal, val), int32(len(val.(string)))
 }
 
 type intervalFuncTable struct{}
 
-func (intervalFuncTable) LessThan(ai, bi any) bool {
+func (intervalFuncTable) lessThan(ai, bi any) bool {
 	aStr, aOk := ai.(string)
 	bStr, bOk := bi.(string)
 	if !aOk || !bOk {
@@ -258,7 +276,6 @@ func (intervalFuncTable) LessThan(ai, bi any) bool {
 	if len(a) < 12 || len(b) < 12 {
 		return false
 	}
-
 	for i := 11; i >= 0; i-- {
 		if a[i] > b[i] {
 			return false
@@ -270,17 +287,17 @@ func (intervalFuncTable) LessThan(ai, bi any) bool {
 }
 
 func (table intervalFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), int32(len(val.(string)))
+	return min(table, minVal, val), max(table, maxVal, val), int32(len(val.(string)))
 }
 
 type decimalStringFuncTable struct{}
 
-func (decimalStringFuncTable) LessThan(a, b any) bool {
+func (decimalStringFuncTable) lessThan(a, b any) bool {
 	return cmpIntBinary(a.(string), b.(string), "BigEndian", true)
 }
 
 func (table decimalStringFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), int32(len(val.(string)))
+	return min(table, minVal, val), max(table, maxVal, val), int32(len(val.(string)))
 }
 
 // Get the size of a parquet value
@@ -328,7 +345,7 @@ func SizeOf(val reflect.Value) int64 {
 	return 4
 }
 
-func cmpIntBinary(as, bs, order string, signed bool) bool {
+func cmpIntBinary[T ByteArray | string](as, bs T, order string, signed bool) bool {
 	abs := []byte(as)
 	bbs := []byte(bs)
 	la, lb := len(abs), len(bbs)
@@ -389,4 +406,24 @@ func cmpIntBinary(as, bs, order string, signed bool) bool {
 		}
 	}
 	return false
+}
+
+func toT[T ~string](val any) T {
+	if val == nil {
+		return T("")
+	}
+
+	switch v := val.(type) {
+	case T:
+		return v
+	case string:
+		return T(v)
+	default:
+		panic(fmt.Sprintf("cannot convert [%T] to %T", val, new(T)))
+	}
+}
+
+func stringMinMaxSize[T ByteArray | string](minVal, maxVal, val any, f FuncTable) (any, any, int32) {
+	convertedMin, convertedMax, convertedVal := toT[T](minVal), toT[T](maxVal), toT[T](val)
+	return min(f, convertedMin, convertedVal), max(f, convertedMax, convertedVal), int32(len(convertedVal))
 }
