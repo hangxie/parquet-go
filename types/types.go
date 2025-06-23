@@ -138,7 +138,7 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		return res, nil
 	case parquet.ConvertedType_DECIMAL:
 		numSca := big.NewFloat(1.0)
-		for i := 0; i < scale; i++ {
+		for range scale {
 			numSca.Mul(numSca, big.NewFloat(10))
 		}
 		num := new(big.Float)

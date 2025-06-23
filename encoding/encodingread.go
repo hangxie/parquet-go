@@ -11,23 +11,24 @@ import (
 )
 
 func ReadPlain(bytesReader *bytes.Reader, dataType parquet.Type, cnt, bitWidth uint64) ([]any, error) {
-	if dataType == parquet.Type_BOOLEAN {
+	switch dataType {
+	case parquet.Type_BOOLEAN:
 		return ReadPlainBOOLEAN(bytesReader, cnt)
-	} else if dataType == parquet.Type_INT32 {
+	case parquet.Type_INT32:
 		return ReadPlainINT32(bytesReader, cnt)
-	} else if dataType == parquet.Type_INT64 {
+	case parquet.Type_INT64:
 		return ReadPlainINT64(bytesReader, cnt)
-	} else if dataType == parquet.Type_INT96 {
+	case parquet.Type_INT96:
 		return ReadPlainINT96(bytesReader, cnt)
-	} else if dataType == parquet.Type_FLOAT {
+	case parquet.Type_FLOAT:
 		return ReadPlainFLOAT(bytesReader, cnt)
-	} else if dataType == parquet.Type_DOUBLE {
+	case parquet.Type_DOUBLE:
 		return ReadPlainDOUBLE(bytesReader, cnt)
-	} else if dataType == parquet.Type_BYTE_ARRAY {
+	case parquet.Type_BYTE_ARRAY:
 		return ReadPlainBYTE_ARRAY(bytesReader, cnt)
-	} else if dataType == parquet.Type_FIXED_LEN_BYTE_ARRAY {
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
 		return ReadPlainFIXED_LEN_BYTE_ARRAY(bytesReader, cnt, bitWidth)
-	} else {
+	default:
 		return nil, fmt.Errorf("unknown parquet type")
 	}
 }
@@ -44,7 +45,7 @@ func ReadPlainBOOLEAN(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 		return res, err
 	}
 
-	for i := 0; i < int(cnt); i++ {
+	for i := range int(cnt) {
 		if resInt[i].(int64) > 0 {
 			res[i] = true
 		} else {
@@ -72,7 +73,7 @@ func ReadPlainINT96(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 	var err error
 	res := make([]any, cnt)
 	cur := make([]byte, 12)
-	for i := 0; i < int(cnt); i++ {
+	for i := range int(cnt) {
 		if _, err = bytesReader.Read(cur); err != nil {
 			break
 		}
@@ -98,7 +99,7 @@ func ReadPlainDOUBLE(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 func ReadPlainBYTE_ARRAY(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 	var err error
 	res := make([]any, cnt)
-	for i := 0; i < int(cnt); i++ {
+	for i := range int(cnt) {
 		buf := make([]byte, 4)
 		if _, err = bytesReader.Read(buf); err != nil {
 			break
@@ -116,7 +117,7 @@ func ReadPlainBYTE_ARRAY(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 func ReadPlainFIXED_LEN_BYTE_ARRAY(bytesReader *bytes.Reader, cnt, fixedLength uint64) ([]any, error) {
 	var err error
 	res := make([]any, cnt)
-	for i := 0; i < int(cnt); i++ {
+	for i := range int(cnt) {
 		cur := make([]byte, fixedLength)
 		if _, err = bytesReader.Read(cur); err != nil {
 			break
@@ -162,7 +163,7 @@ func ReadRLE(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, error) 
 	val := int64(binary.LittleEndian.Uint32(data))
 	res = make([]any, cnt)
 
-	for i := 0; i < int(cnt); i++ {
+	for i := range int(cnt) {
 		res[i] = val
 	}
 	return res, err
@@ -182,7 +183,7 @@ func ReadBitPacked(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, e
 	}
 
 	if bitWidth == 0 {
-		for i := 0; i < int(cnt); i++ {
+		for range int(cnt) {
 			res = append(res, int64(0))
 		}
 		return res, err
@@ -307,7 +308,7 @@ func ReadDeltaBinaryPackedINT32(bytesReader *bytes.Reader) ([]any, error) {
 		md32 := int32(minDeltaZigZag)
 		var minDelta int32 = int32(uint32(md32)>>1) ^ -(md32 & 1)
 		bitWidths := make([]uint64, numMiniblocksInBlock)
-		for i := 0; uint64(i) < numMiniblocksInBlock; i++ {
+		for i := range numMiniblocksInBlock {
 			b, err := bytesReader.ReadByte()
 			if err != nil {
 				return res, err
@@ -363,7 +364,7 @@ func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader) ([]any, error) {
 		}
 		var minDelta int64 = int64(minDeltaZigZag>>1) ^ -(int64(minDeltaZigZag) & 1)
 		bitWidths := make([]uint64, numMiniblocksInBlock)
-		for i := 0; uint64(i) < numMiniblocksInBlock; i++ {
+		for i := range numMiniblocksInBlock {
 			b, err := bytesReader.ReadByte()
 			if err != nil {
 				return res, err
@@ -376,7 +377,7 @@ func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader) ([]any, error) {
 			if err != nil {
 				return res, err
 			}
-			for j := 0; j < len(cur); j++ {
+			for j := range cur {
 				res = append(res, (res[len(res)-1].(int64) + cur[j].(int64) + minDelta))
 			}
 		}
@@ -395,7 +396,7 @@ func ReadDeltaLengthByteArray(bytesReader *bytes.Reader) ([]any, error) {
 		return res, err
 	}
 	res = make([]any, len(lengths))
-	for i := 0; i < len(lengths); i++ {
+	for i := range lengths {
 		res[i] = ""
 		length := uint64(lengths[i].(int64))
 		if length > 0 {
@@ -448,7 +449,7 @@ func ReadByteStreamSplitFloat32(bytesReader *bytes.Reader, cnt uint64) ([]any, e
 		return res, io.ErrUnexpectedEOF
 	}
 
-	for i := uint64(0); i < cnt; i++ {
+	for i := range cnt {
 		res[i] = math.Float32frombits(uint32(buf[i]) |
 			uint32(buf[cnt+i])<<8 |
 			uint32(buf[cnt*2+i])<<16 |
@@ -470,7 +471,7 @@ func ReadByteStreamSplitFloat64(bytesReader *bytes.Reader, cnt uint64) ([]any, e
 		return res, io.ErrUnexpectedEOF
 	}
 
-	for i := uint64(0); i < cnt; i++ {
+	for i := range cnt {
 		res[i] = math.Float64frombits(uint64(buf[i]) |
 			uint64(buf[cnt+i])<<8 |
 			uint64(buf[cnt*2+i])<<16 |

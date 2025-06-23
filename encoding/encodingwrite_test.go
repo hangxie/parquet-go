@@ -56,7 +56,7 @@ func TestWriteUnsignedVarInt(t *testing.T) {
 	testNum[9] = 0xFFFFFFF
 
 	testRes := make([]byte, 0)
-	for i := 0; i < len(testNum); i++ {
+	for i := range testNum {
 		tmpBuf := WriteUnsignedVarInt(uint64(testNum[i]))
 		testRes = append(testRes, tmpBuf...)
 	}

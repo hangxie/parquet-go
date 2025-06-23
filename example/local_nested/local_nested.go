@@ -137,7 +137,7 @@ func writeNested() {
 		return
 	}
 	num := int(pr.GetNumRows())
-	for i := 0; i < num; i++ {
+	for range num {
 		stus := make([]Student, 1)
 		if err = pr.Read(&stus); err != nil {
 			log.Println("Read error", err)

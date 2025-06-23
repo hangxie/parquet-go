@@ -147,7 +147,7 @@ func (c *compiler) compileStruct(typ reflect.Type, pathMap *schema.PathMapType) 
 	}
 	numFields := typ.NumField()
 	encoders := make([]structFieldEncoder, 0, numFields)
-	for i := 0; i < numFields; i++ {
+	for i := range numFields {
 		tf := typ.Field(i)
 		name := tf.Name
 		if fPathMap, ok := pathMap.Children[name]; ok {
@@ -279,7 +279,7 @@ func (e *sliceEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
 		return
 	}
 	headPtr := unsafe.Pointer(&sliceHeader[0])
-	for i := 0; i < len(sliceHeader); i++ {
+	for i := range len(sliceHeader) {
 		elemPtr := unsafe.Pointer(uintptr(headPtr) + uintptr(i)*e.elemSize)
 		e.valEncoder.encode(elemPtr, dl+1, rl)
 		if i == 0 {

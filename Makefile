@@ -62,6 +62,7 @@ tools:  ## Install build tools
 clean:  ## Clean up the build dirs
 	@echo "==> Cleaning up build dirs"
 	@rm -rf $(BUILD_DIR) vendor .venv
+	@find . -name *.parquet | xargs -r rm
 
 .PHONY: test
 test: deps tools  ## Run unit tests

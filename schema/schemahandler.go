@@ -61,7 +61,7 @@ type SchemaHandler struct {
 
 // setValueColumns collects leaf nodes' full path in SchemaHandler.ValueColumns
 func (sh *SchemaHandler) setValueColumns() {
-	for i := 0; i < len(sh.SchemaElements); i++ {
+	for i := range len(sh.SchemaElements) {
 		schema := sh.SchemaElements[i]
 		numChildren := schema.GetNumChildren()
 		if numChildren == 0 {
@@ -78,7 +78,7 @@ func (sh *SchemaHandler) GetColumnNum() int64 {
 // setPathMap builds the PathMap from leaf SchemaElement
 func (sh *SchemaHandler) setPathMap() {
 	sh.PathMap = NewPathMap(sh.GetRootInName())
-	for i := 0; i < len(sh.SchemaElements); i++ {
+	for i := range len(sh.SchemaElements) {
 		schema := sh.SchemaElements[i]
 		numChildren := schema.GetNumChildren()
 		if numChildren == 0 {
@@ -174,7 +174,7 @@ func (sh *SchemaHandler) CreateInExMap() {
 			pos++
 		} else { // leaf node
 			inPath, exPath := make([]string, 0), make([]string, 0)
-			for i := 0; i < len(stack); i++ {
+			for i := range len(stack) {
 				inPath = append(inPath, sh.Infos[stack[i][0]].InName)
 				exPath = append(exPath, sh.Infos[stack[i][0]].ExName)
 
@@ -399,7 +399,7 @@ func NewSchemaHandlerFromSchemaHandler(sh *SchemaHandler) *SchemaHandler {
 	schemaHandler.SchemaElements = sh.SchemaElements
 
 	schemaHandler.Infos = make([]*common.Tag, len(sh.SchemaElements))
-	for i := 0; i < len(sh.SchemaElements); i++ {
+	for i := range len(sh.SchemaElements) {
 		InName, ExName := sh.GetInName(i), sh.GetExName(i)
 		schemaHandler.Infos[i] = &common.Tag{
 			InName: InName,
@@ -422,7 +422,7 @@ func NewSchemaHandlerFromSchemaHandler(sh *SchemaHandler) *SchemaHandler {
 			pos++
 		} else {
 			path := make([]string, 0)
-			for i := 0; i < len(stack); i++ {
+			for i := range len(stack) {
 				inname := schemaHandler.Infos[stack[i][0]].InName
 				path = append(path, inname)
 			}
@@ -448,7 +448,7 @@ func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHan
 	schemaHandler.SchemaElements = schemas
 
 	schemaHandler.Infos = make([]*common.Tag, len(schemas))
-	for i := 0; i < len(schemas); i++ {
+	for i := range schemas {
 		name := schemas[i].GetName()
 		InName, ExName := common.StringToVariableName(name), name
 		schemaHandler.Infos[i] = &common.Tag{
@@ -472,7 +472,7 @@ func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHan
 			pos++
 		} else {
 			path := make([]string, 0)
-			for i := 0; i < len(stack); i++ {
+			for i := range len(stack) {
 				inname := schemaHandler.Infos[stack[i][0]].InName
 				path = append(path, inname)
 			}

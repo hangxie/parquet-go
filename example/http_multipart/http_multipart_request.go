@@ -24,7 +24,7 @@ type Student struct {
 }
 
 func main() {
-	path := "flat.parquet"
+	path := "flat.parquet.keep"
 	file, err := os.Open(path)
 	if err != nil {
 		log.Fatal(err)
@@ -68,7 +68,7 @@ func main() {
 
 	// read contents
 	num := int(pr.GetNumRows())
-	for i := 0; i < num; i++ {
+	for range num {
 		stus := make([]Student, 1)
 		if err = pr.Read(&stus); err != nil {
 			log.Println("Read error", err)

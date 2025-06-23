@@ -39,7 +39,7 @@ func main() {
 	pw.PageSize = common.DefaultPageSize         // 8K
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
-	for i := 0; i < num; i++ {
+	for i := range num {
 		stu := Student{
 			Name: "StudentName",
 			Age:  AgeInt(20 + i%5),

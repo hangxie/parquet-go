@@ -37,7 +37,7 @@ func main() {
 	}
 
 	num := 10
-	for i := 0; i < num; i++ {
+	for i := range num {
 		data := []string{
 			fmt.Sprintf("%s_%d", "Student Name", i),
 			fmt.Sprintf("%d", 20+i%5),
@@ -46,7 +46,7 @@ func main() {
 			fmt.Sprintf("%t", i%2 == 0),
 		}
 		rec := make([]*string, len(data))
-		for j := 0; j < len(data); j++ {
+		for j := range data {
 			rec[j] = &data[j]
 		}
 		if err = pw.WriteString(rec); err != nil {

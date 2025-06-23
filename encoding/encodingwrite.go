@@ -18,7 +18,7 @@ func ToInt64(nums []any) []int64 { // convert bool/int values to int64 values
 		return res
 	}
 	tk := reflect.TypeOf(nums[0]).Kind()
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		if tk == reflect.Bool {
 			if nums[i].(bool) {
 				res[i] = 1
@@ -38,23 +38,24 @@ func WritePlain(src []any, pt parquet.Type) ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	if pt == parquet.Type_BOOLEAN {
+	switch pt {
+	case parquet.Type_BOOLEAN:
 		return WritePlainBOOLEAN(src)
-	} else if pt == parquet.Type_INT32 {
+	case parquet.Type_INT32:
 		return WritePlainINT32(src)
-	} else if pt == parquet.Type_INT64 {
+	case parquet.Type_INT64:
 		return WritePlainINT64(src)
-	} else if pt == parquet.Type_INT96 {
+	case parquet.Type_INT96:
 		return WritePlainINT96(src), nil
-	} else if pt == parquet.Type_FLOAT {
+	case parquet.Type_FLOAT:
 		return WritePlainFLOAT(src)
-	} else if pt == parquet.Type_DOUBLE {
+	case parquet.Type_DOUBLE:
 		return WritePlainDOUBLE(src)
-	} else if pt == parquet.Type_BYTE_ARRAY {
+	case parquet.Type_BYTE_ARRAY:
 		return WritePlainBYTE_ARRAY(src)
-	} else if pt == parquet.Type_FIXED_LEN_BYTE_ARRAY {
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
 		return WritePlainFIXED_LEN_BYTE_ARRAY(src)
-	} else {
+	default:
 		return []byte{}, nil
 	}
 }
@@ -63,7 +64,7 @@ func WritePlainBOOLEAN(nums []any) ([]byte, error) {
 	ln := len(nums)
 	byteNum := (ln + 7) / 8
 	res := make([]byte, byteNum)
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		tmp, ok := nums[i].(bool)
 		if !ok {
 			return nil, fmt.Errorf("[%v] is not a bool", nums[i])
@@ -93,7 +94,7 @@ func WritePlainINT64(nums []any) ([]byte, error) {
 
 func WritePlainINT96(nums []any) []byte {
 	bufWriter := new(bytes.Buffer)
-	for i := 0; i < len(nums); i++ {
+	for i := range nums {
 		bufWriter.WriteString(nums[i].(string))
 	}
 	return bufWriter.Bytes()
@@ -117,13 +118,13 @@ func WritePlainDOUBLE(nums []any) ([]byte, error) {
 
 func WritePlainBYTE_ARRAY(arrays []any) ([]byte, error) {
 	bufLen := 0
-	for i := 0; i < len(arrays); i++ {
+	for i := range arrays {
 		bufLen += 4 + len(arrays[i].(string))
 	}
 
 	buf := make([]byte, bufLen)
 	pos := 0
-	for i := 0; i < len(arrays); i++ {
+	for i := range arrays {
 		value, ok := arrays[i].(string)
 		if !ok {
 			return nil, fmt.Errorf("[%v] is not a string", arrays[i])
@@ -139,7 +140,7 @@ func WritePlainBYTE_ARRAY(arrays []any) ([]byte, error) {
 func WritePlainFIXED_LEN_BYTE_ARRAY(arrays []any) ([]byte, error) {
 	bufWriter := new(bytes.Buffer)
 	cnt := len(arrays)
-	for i := 0; i < int(cnt); i++ {
+	for i := range cnt {
 		tmp, ok := arrays[i].(string)
 		if !ok {
 			return nil, fmt.Errorf("[%v] is not a string", arrays[i])
@@ -157,7 +158,7 @@ func WriteUnsignedVarInt(num uint64) []byte {
 	res := make([]byte, byteNum)
 
 	numTmp := num
-	for i := 0; i < int(byteNum); i++ {
+	for i := range byteNum {
 		res[i] = byte(numTmp & uint64(0x7F))
 		res[i] = res[i] | byte(0x80)
 		numTmp = numTmp >> 7
@@ -351,7 +352,7 @@ func WriteDeltaINT32(nums []any) []byte {
 
 		bitWidths := make([]byte, numMiniBlocksInBlock)
 
-		for j := 0; uint64(j) < numMiniBlocksInBlock; j++ {
+		for j := range numMiniBlocksInBlock {
 			var maxValue int32 = 0
 			for k := uint64(j) * numValuesInMiniBlock; k < uint64(j+1)*numValuesInMiniBlock; k++ {
 				blockBuf[k] = blockBuf[k].(int32) - minDelta
@@ -366,7 +367,7 @@ func WriteDeltaINT32(nums []any) []byte {
 		res = append(res, WriteUnsignedVarInt(minDeltaZigZag)...)
 		res = append(res, bitWidths...)
 
-		for j := 0; uint64(j) < numMiniBlocksInBlock; j++ {
+		for j := range numMiniBlocksInBlock {
 			res = append(res, WriteBitPacked((blockBuf[uint64(j)*numValuesInMiniBlock:uint64(j+1)*numValuesInMiniBlock]), int64(bitWidths[j]), false)...)
 		}
 
@@ -409,7 +410,7 @@ func WriteDeltaINT64(nums []any) []byte {
 
 		bitWidths := make([]byte, numMiniBlocksInBlock)
 
-		for j := 0; uint64(j) < numMiniBlocksInBlock; j++ {
+		for j := range numMiniBlocksInBlock {
 			var maxValue int64 = 0
 			for k := uint64(j) * numValuesInMiniBlock; k < uint64(j+1)*numValuesInMiniBlock; k++ {
 				blockBuf[k] = blockBuf[k].(int64) - minDelta
@@ -424,7 +425,7 @@ func WriteDeltaINT64(nums []any) []byte {
 		res = append(res, WriteUnsignedVarInt(minDeltaZigZag)...)
 		res = append(res, bitWidths...)
 
-		for j := 0; uint64(j) < numMiniBlocksInBlock; j++ {
+		for j := range numMiniBlocksInBlock {
 			res = append(res, WriteBitPacked((blockBuf[uint64(j)*numValuesInMiniBlock:uint64(j+1)*numValuesInMiniBlock]), int64(bitWidths[j]), false)...)
 		}
 
@@ -435,14 +436,14 @@ func WriteDeltaINT64(nums []any) []byte {
 func WriteDeltaLengthByteArray(arrays []any) []byte {
 	ln := len(arrays)
 	lengthArray := make([]any, ln)
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		array := reflect.ValueOf(arrays[i]).String()
 		lengthArray[i] = int32(len(array))
 	}
 
 	res := WriteDeltaINT32(lengthArray)
 
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		array := reflect.ValueOf(arrays[i]).String()
 		res = append(res, array...)
 	}
@@ -455,7 +456,7 @@ func WriteBitPackedDeprecated(vals []any, bitWidth int64) []byte {
 		return []byte{}
 	}
 	valsInt := make([]uint64, ln)
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		valsInt[i] = uint64(reflect.ValueOf(vals[i]).Int())
 	}
 

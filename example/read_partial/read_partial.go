@@ -46,7 +46,7 @@ func main() {
 	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 100
-	for i := 0; i < num; i++ {
+	for i := range num {
 		stu := Student{
 			Name:   "StudentName",
 			Age:    int32(20 + i%5),
@@ -79,7 +79,7 @@ func main() {
 		return
 	}
 	num = int(pr.GetNumRows())
-	for i := 0; i < num/10; i++ {
+	for i := range num / 10 {
 		if i%2 == 0 {
 			_ = pr.SkipRows(10) // skip 10 rows
 			continue

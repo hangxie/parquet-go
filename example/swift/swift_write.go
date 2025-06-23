@@ -53,7 +53,7 @@ func main() {
 		return
 	}
 
-	for i := 0; i < num; i++ {
+	for i := range num {
 		stu := Student{
 			Name:   fmt.Sprintf("Student-%d", i),
 			Age:    int32(20 + i%5),
@@ -90,7 +90,7 @@ func main() {
 		return
 	}
 	num = int(pr.GetNumRows())
-	for i := 0; i < num/10; i++ {
+	for range num / 10 {
 		stus := make([]Student, 10) // read 10 rows
 		if err = pr.Read(&stus); err != nil {
 			log.Println("Read error: ", err)

@@ -16,7 +16,7 @@ func BinaryReadINT32(r io.Reader, nums []any) error {
 		return io.ErrUnexpectedEOF
 	}
 
-	for i := 0; i < len(nums); i++ {
+	for i := range nums {
 		nums[i] = int32(uint32(buf[i*4+0]) |
 			uint32(buf[i*4+1])<<8 |
 			uint32(buf[i*4+2])<<16 |
@@ -35,7 +35,7 @@ func BinaryReadINT64(r io.Reader, nums []any) error {
 		return io.ErrUnexpectedEOF
 	}
 
-	for i := 0; i < len(nums); i++ {
+	for i := range nums {
 		nums[i] = int64(uint64(buf[i*8+0]) |
 			uint64(buf[i*8+1])<<8 |
 			uint64(buf[i*8+2])<<16 |
@@ -58,7 +58,7 @@ func BinaryReadFLOAT32(r io.Reader, nums []any) error {
 		return io.ErrUnexpectedEOF
 	}
 
-	for i := 0; i < len(nums); i++ {
+	for i := range nums {
 		nums[i] = math.Float32frombits(uint32(buf[i*4+0]) |
 			uint32(buf[i*4+1])<<8 |
 			uint32(buf[i*4+2])<<16 |
@@ -77,7 +77,7 @@ func BinaryReadFLOAT64(r io.Reader, nums []any) error {
 		return io.ErrUnexpectedEOF
 	}
 
-	for i := 0; i < len(nums); i++ {
+	for i := range nums {
 		nums[i] = math.Float64frombits(uint64(buf[i*8+0]) |
 			uint64(buf[i*8+1])<<8 |
 			uint64(buf[i*8+2])<<16 |

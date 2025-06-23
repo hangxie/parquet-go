@@ -39,7 +39,7 @@ func main() {
 	pw.PageSize = common.DefaultPageSize         // 8K
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
-	for i := 0; i < num; i++ {
+	for range num {
 		o := A{
 			V1: 1,
 			V2: B{

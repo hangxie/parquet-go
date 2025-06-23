@@ -49,13 +49,13 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 	columnChunks := rowGroupHeader.GetColumns()
 	ln := int64(len(columnChunks))
 	chunksList := make([][]*Chunk, NP)
-	for i := int64(0); i < NP; i++ {
+	for i := range NP {
 		chunksList[i] = make([]*Chunk, 0)
 	}
 
 	delta := (ln + NP - 1) / NP
 	var wg sync.WaitGroup
-	for c := int64(0); c < NP; c++ {
+	for c := range NP {
 		bgn := c * delta
 		end := bgn + delta
 		if end > ln {
@@ -86,7 +86,7 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 
 	wg.Wait()
 
-	for c := int64(0); c < NP; c++ {
+	for c := range NP {
 		if len(chunksList[c]) <= 0 {
 			continue
 		}

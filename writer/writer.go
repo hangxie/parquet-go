@@ -124,7 +124,7 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 
 // Rename schema name to exname in tags
 func (pw *ParquetWriter) RenameSchema() {
-	for i := 0; i < len(pw.Footer.Schema); i++ {
+	for i := range len(pw.Footer.Schema) {
 		pw.Footer.Schema[i].Name = pw.SchemaHandler.Infos[i].ExName
 	}
 	for _, rowGroup := range pw.Footer.RowGroups {
@@ -262,7 +262,7 @@ func (pw *ParquetWriter) flushObjs() error {
 		return nil
 	}
 	pagesMapList := make([]map[string][]*layout.Page, pw.NP)
-	for i := 0; i < int(pw.NP); i++ {
+	for i := range int(pw.NP) {
 		pagesMapList[i] = make(map[string][]*layout.Page)
 	}
 
@@ -271,7 +271,7 @@ func (pw *ParquetWriter) flushObjs() error {
 	var wg sync.WaitGroup
 	var errs []error = make([]error, pw.NP)
 
-	for c := int64(0); c < pw.NP; c++ {
+	for c := range pw.NP {
 		bgn := c * delta
 		end := bgn + delta
 		if end > l {
@@ -389,7 +389,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 		rowGroup := layout.NewRowGroup()
 		rowGroup.RowGroupHeader.Columns = make([]*parquet.ColumnChunk, 0)
 
-		for k := 0; k < len(pw.SchemaHandler.SchemaElements); k++ {
+		for k := range len(pw.SchemaHandler.SchemaElements) {
 			// for _, chunk := range chunkMap {
 			schema := pw.SchemaHandler.SchemaElements[k]
 			if schema.GetNumChildren() > 0 {
@@ -407,7 +407,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 		rowGroup.RowGroupHeader.NumRows = pw.NumRows
 		pw.NumRows = 0
 
-		for k := 0; k < len(rowGroup.Chunks); k++ {
+		for k := range len(rowGroup.Chunks) {
 			rowGroup.Chunks[k].ChunkHeader.MetaData.DataPageOffset = -1
 			rowGroup.Chunks[k].ChunkHeader.FileOffset = pw.Offset
 

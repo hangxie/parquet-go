@@ -40,7 +40,7 @@ func main() {
 	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 100
-	for i := 0; i < num; i++ {
+	for i := range num {
 		stu := Student{
 			Name:   "StudentName",
 			Age:    int32(20 + i%5),
