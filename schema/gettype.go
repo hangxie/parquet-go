@@ -12,7 +12,7 @@ import (
 func (sh *SchemaHandler) GetTypes() []reflect.Type {
 	ln := int32(len(sh.SchemaElements))
 	elements := make([][]int32, ln)
-	for i := 0; i < int(ln); i++ {
+	for i := range int(ln) {
 		elements[i] = []int32{}
 	}
 

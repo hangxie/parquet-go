@@ -660,7 +660,7 @@ func TestE2ENullabilityValid(t *testing.T) {
 func rowToSliceOfValues(s any) []any {
 	v := reflect.ValueOf(s)
 	res := []any{}
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		field := v.Field(i)
 		if field.IsNil() {
 			res = append(res, nil)
@@ -683,8 +683,8 @@ func BenchmarkWrite(b *testing.B) {
 	rec := testRecord(mem)
 	defer rec.Release()
 	pw, _ := NewArrowWriter(md, fw, 1)
-	b.ResetTimer()
-	for N := 0; N < b.N; N++ {
+
+	for b.Loop() {
 		_ = pw.WriteArrow(rec)
 	}
 }

@@ -94,7 +94,7 @@ func main() {
 	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
-	for i := 0; i < num; i++ {
+	for i := range num {
 		stu := Student{
 			NameIn:  "StudentName",
 			Age:     int32(20 + i%5),
@@ -152,7 +152,7 @@ func main() {
 	}
 
 	num = int(pr.GetNumRows())
-	for i := 0; i < num; i++ {
+	for range num {
 		stus := make([]Student, 1)
 		if err = pr.Read(&stus); err != nil {
 			log.Println("Read error", err)

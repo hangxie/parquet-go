@@ -25,7 +25,7 @@ func BenchmarkGzipCompression(b *testing.B) {
 	gzipCompressor := compressors[parquet.CompressionCodec_GZIP]
 	input := []byte("test data")
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		gzipCompressor.Compress(input)
 	}
 }

@@ -35,7 +35,7 @@ func main() {
 		return
 	}
 	num := int64(10)
-	for i := 0; int64(i) < num; i++ {
+	for i := range num {
 		stu := Student{
 			Name:   "StudentName",
 			Age:    int32(20 + i%5),

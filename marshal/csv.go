@@ -14,7 +14,7 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 		return &res, nil
 	}
 
-	for i := 0; i < len(records[0].([]any)); i++ {
+	for i := range len(records[0].([]any)) {
 		pathStr := schemaHandler.GetRootInName() + common.PAR_GO_PATH_DELIMITER + schemaHandler.Infos[i+1].InName
 		table := layout.NewEmptyTable()
 		res[pathStr] = table
@@ -41,7 +41,7 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 		table.RepetitionLevels = make([]int32, 0, len(records))
 		table.DefinitionLevels = make([]int32, 0, len(records))
 
-		for j := 0; j < len(records); j++ {
+		for j := range records {
 			rec := records[j].([]any)[i]
 			table.Values = append(table.Values, rec)
 

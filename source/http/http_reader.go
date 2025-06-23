@@ -151,7 +151,7 @@ func (r *httpReader) Read(b []byte) (int, error) {
 
 	buf, err := io.ReadAll(resp.Body)
 	bytesRead := len(buf)
-	for i := 0; i < bytesRead; i++ {
+	for i := range bytesRead {
 		b[i] = buf[i]
 	}
 

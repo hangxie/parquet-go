@@ -68,7 +68,7 @@ func main() {
 		return
 	}
 	num := 10
-	for i := 0; i < num; i++ {
+	for i := range num {
 		tp := TypeList{
 			Bool:              bool(i%2 == 0),
 			Int32:             int32(i),
@@ -127,7 +127,7 @@ func main() {
 		return
 	}
 	num = int(pr.GetNumRows())
-	for i := 0; i < num; i++ {
+	for range num {
 		tps := make([]TypeList, 1)
 		if err = pr.Read(&tps); err != nil {
 			log.Println("Read error", err)

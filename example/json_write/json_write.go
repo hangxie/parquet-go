@@ -65,7 +65,7 @@ func main() {
 	}
 
 	num := 10
-	for i := 0; i < num; i++ {
+	for i := range num {
 		rec := `
             {
                 "name":"%s",

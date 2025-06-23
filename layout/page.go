@@ -162,7 +162,7 @@ func (page *Page) Decode(dictPage *Page) {
 	}
 
 	numValues := len(page.DataTable.Values)
-	for i := 0; i < numValues; i++ {
+	for i := range numValues {
 		if page.DataTable.Values[i] != nil {
 			index := page.DataTable.Values[i].(int64)
 			page.DataTable.Values[i] = dictPage.DataTable.Values[index]
@@ -202,7 +202,7 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 	// MaxDefinitionLevel". This lets us avoid allocating the array for the
 	// (somewhat) common case of "all values present".
 	var valuesBuf []any
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		if page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
 			if valuesBuf != nil {
 				valuesBuf = append(valuesBuf, page.DataTable.Values[i])
@@ -304,7 +304,7 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 
 	// values////////////////////////////////////////////
 	valuesBuf := make([]any, 0)
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		if page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
 			valuesBuf = append(valuesBuf, page.DataTable.Values[i])
 		}
@@ -319,7 +319,7 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 	var definitionLevelBuf []byte
 	if page.DataTable.MaxDefinitionLevel > 0 {
 		numInterfaces := make([]any, ln)
-		for i := 0; i < ln; i++ {
+		for i := range ln {
 			numInterfaces[i] = int64(page.DataTable.DefinitionLevels[i])
 		}
 		definitionLevelBuf, err = encoding.WriteRLE(numInterfaces,
@@ -335,7 +335,7 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 	var repetitionLevelBuf []byte
 	if page.DataTable.MaxRepetitionLevel > 0 {
 		numInterfaces := make([]any, ln)
-		for i := 0; i < ln; i++ {
+		for i := range ln {
 			numInterfaces[i] = int64(page.DataTable.RepetitionLevels[i])
 			if page.DataTable.RepetitionLevels[i] == 0 {
 				r0Num++
@@ -533,7 +533,7 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 			}
 		} else {
 			repetitionLevels = make([]any, numValues)
-			for i := 0; i < len(repetitionLevels); i++ {
+			for i := range len(repetitionLevels) {
 				repetitionLevels[i] = int64(0)
 			}
 		}
@@ -556,7 +556,7 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 
 		} else {
 			definitionLevels = make([]any, numValues)
-			for i := 0; i < len(definitionLevels); i++ {
+			for i := range len(definitionLevels) {
 				definitionLevels[i] = int64(0)
 			}
 		}
@@ -575,7 +575,7 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 		table.DefinitionLevels = make([]int32, len(definitionLevels))
 
 		numRows := int64(0)
-		for i := 0; i < len(definitionLevels); i++ {
+		for i := range len(definitionLevels) {
 			dl, _ := definitionLevels[i].(int64)
 			rl, _ := repetitionLevels[i].(int64)
 			table.RepetitionLevels[i] = int32(rl)
@@ -627,7 +627,7 @@ func (p *Page) GetValueFromRawData(schemaHandler *schema.SchemaHandler) error {
 		bytesReader := bytes.NewReader(p.RawData)
 
 		var numNulls uint64 = 0
-		for i := 0; i < len(p.DataTable.DefinitionLevels); i++ {
+		for i := range len(p.DataTable.DefinitionLevels) {
 			if p.DataTable.DefinitionLevels[i] != p.DataTable.MaxDefinitionLevel {
 				numNulls++
 			}
@@ -649,7 +649,7 @@ func (p *Page) GetValueFromRawData(schemaHandler *schema.SchemaHandler) error {
 			return err
 		}
 		j := 0
-		for i := 0; i < len(p.DataTable.DefinitionLevels); i++ {
+		for i := range len(p.DataTable.DefinitionLevels) {
 			if p.DataTable.DefinitionLevels[i] == p.DataTable.MaxDefinitionLevel {
 				p.DataTable.Values[i] = values[j]
 				j++
@@ -700,7 +700,7 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 			return res, err
 		}
 		if dataType == parquet.Type_INT32 {
-			for i := 0; i < len(values); i++ {
+			for i := range values {
 				values[i] = int32(values[i].(int64))
 			}
 		}
@@ -723,7 +723,7 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 			return res, err
 		}
 		if dataType == parquet.Type_FIXED_LEN_BYTE_ARRAY {
-			for i := 0; i < len(values); i++ {
+			for i := range values {
 				values[i] = values[i].(string)
 			}
 		}
@@ -734,7 +734,7 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 			return res, err
 		}
 		if dataType == parquet.Type_FIXED_LEN_BYTE_ARRAY {
-			for i := 0; i < len(values); i++ {
+			for i := range values {
 				values[i] = values[i].(string)
 			}
 		}
@@ -887,7 +887,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 
 		} else {
 			repetitionLevels = make([]any, numValues)
-			for i := 0; i < len(repetitionLevels); i++ {
+			for i := range len(repetitionLevels) {
 				repetitionLevels[i] = int64(0)
 			}
 		}
@@ -911,7 +911,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 
 		} else {
 			definitionLevels = make([]any, numValues)
-			for i := 0; i < len(definitionLevels); i++ {
+			for i := range len(definitionLevels) {
 				definitionLevels[i] = int64(0)
 			}
 		}
@@ -920,7 +920,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 		}
 
 		var numNulls uint64 = 0
-		for i := 0; i < len(definitionLevels); i++ {
+		for i := range len(definitionLevels) {
 			if int32(definitionLevels[i].(int64)) != maxDefinitionLevel {
 				numNulls++
 			}
@@ -952,7 +952,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 
 		j := 0
 		numRows := int64(0)
-		for i := 0; i < len(definitionLevels); i++ {
+		for i := range len(definitionLevels) {
 			dl, _ := definitionLevels[i].(int64)
 			rl, _ := repetitionLevels[i].(int64)
 			table.RepetitionLevels[i] = int32(rl)

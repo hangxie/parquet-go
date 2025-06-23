@@ -101,7 +101,7 @@ func Benchmark_WriteCSV(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		for j := 0; j < 10000; j++ {
+		for range 10000 {
 			err = pw.Write([]any{"Harry", "S", "Truman", "Lamar"})
 			if err != nil {
 				b.Fatal(err)
@@ -123,13 +123,13 @@ func Benchmark_WriteCSVPlainDictionary(b *testing.B) {
 		"Name=Last, Type=BYTE_ARRAY, ConvertedType=UTF8, Encoding=PLAIN_DICTIONARY",
 		"Name=BirthCity, Type=BYTE_ARRAY, ConvertedType=UTF8, Encoding=PLAIN_DICTIONARY",
 	}
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		fw := buffer.NewBufferWriterFromBytesNoAlloc(nil)
 		pw, err := NewCSVWriter(md, fw, 2)
 		if err != nil {
 			b.Fatal(err)
 		}
-		for j := 0; j < 10000; j++ {
+		for range 10000 {
 			err = pw.Write([]any{"Harry", "S", "Truman", "Lamar"})
 			if err != nil {
 				b.Fatal(err)

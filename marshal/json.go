@@ -20,7 +20,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 	nodeBuf := NewNodeBuf(1)
 
 	stack := make([]*Node, 0, 100)
-	for i := 0; i < len(ss); i++ {
+	for i := range ss {
 		stack = stack[:0]
 		nodeBuf.Reset()
 
@@ -115,7 +115,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 
 				} else { // struct
 					keysMap := make(map[string]int)
-					for j := 0; j < len(keys); j++ {
+					for j := range keys {
 						// ExName to InName
 						keysMap[common.StringToVariableName(keys[j].String())] = j
 					}

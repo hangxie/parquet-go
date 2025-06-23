@@ -28,7 +28,7 @@ func NewNodeBuf(ln int) *NodeBufType {
 	nodeBuf := new(NodeBufType)
 	nodeBuf.Index = 0
 	nodeBuf.Buf = make([]*Node, ln)
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		nodeBuf.Buf[i] = new(Node)
 	}
 	return nodeBuf
@@ -69,7 +69,7 @@ func (p *ParquetStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node)
 	var ok bool
 
 	numField := node.Val.Type().NumField()
-	for j := 0; j < numField; j++ {
+	for j := range numField {
 		tf := node.Val.Type().Field(j)
 		name := tf.Name
 		newNode := nodeBuf.GetNode()
@@ -229,7 +229,7 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 	pathMap := schemaHandler.PathMap
 	nodeBuf := NewNodeBuf(1)
 
-	for i := 0; i < len(schemaHandler.SchemaElements); i++ {
+	for i := range len(schemaHandler.SchemaElements) {
 		schema := schemaHandler.SchemaElements[i]
 		pathStr := schemaHandler.IndexMap[int32(i)]
 		numChildren := schema.GetNumChildren()
@@ -250,7 +250,7 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 	}
 
 	stack := make([]*Node, 0, 100)
-	for i := 0; i < len(srcInterface); i++ {
+	for i := range srcInterface {
 		stack = stack[:0]
 		nodeBuf.Reset()
 
@@ -331,7 +331,7 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 
 func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) map[string]*layout.Table {
 	tableMap := make(map[string]*layout.Table)
-	for i := 0; i < len(schemaHandler.SchemaElements); i++ {
+	for i := range len(schemaHandler.SchemaElements) {
 		schema := schemaHandler.SchemaElements[i]
 		pathStr := schemaHandler.IndexMap[int32(i)]
 		numChildren := schema.GetNumChildren()

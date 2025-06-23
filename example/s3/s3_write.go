@@ -41,7 +41,7 @@ func main() {
 		return
 	}
 	// write 100 student records to the parquet file
-	for i := 0; i < num; i++ {
+	for i := range num {
 		stu := Student{
 			Name:   "StudentName",
 			Age:    int32(20 + i%5),
@@ -81,7 +81,7 @@ func main() {
 
 	// read the student rows and print
 	num = int(pr.GetNumRows())
-	for i := 0; i < num/10; i++ {
+	for i := range num / 10 {
 		if i%2 == 0 {
 			_ = pr.SkipRows(10) // skip 10 rows
 			continue

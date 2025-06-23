@@ -40,7 +40,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 		ln := len(table.Values)
 		num := -1
 		tableBgn[name], tableEnd[name] = -1, -1
-		for i := 0; i < ln; i++ {
+		for i := range ln {
 			if table.RepetitionLevels[i] == 0 {
 				num++
 				if num == bgn {
@@ -73,13 +73,13 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 		bgn := tableBgn[name]
 		end := tableEnd[name]
 		schemaIndexs := make([]int, len(path))
-		for i := 0; i < len(path); i++ {
+		for i := range path {
 			curPathStr := common.PathToStr(path[:i+1])
 			schemaIndexs[i] = int(schemaHandler.MapIndex[curPathStr])
 		}
 
 		repetitionLevels, definitionLevels := make([]int32, len(path)), make([]int32, len(path))
-		for i := 0; i < len(path); i++ {
+		for i := range path {
 			repetitionLevels[i], _ = schemaHandler.MaxRepetitionLevel(path[:i+1])
 			definitionLevels[i], _ = schemaHandler.MaxDefinitionLevel(path[:i+1])
 		}

@@ -74,7 +74,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 	}
 
 	res.RenameSchema()
-	for i := 0; i < len(res.SchemaHandler.SchemaElements); i++ {
+	for i := range len(res.SchemaHandler.SchemaElements) {
 		schema := res.SchemaHandler.SchemaElements[i]
 		if schema.GetNumChildren() == 0 {
 			pathStr := res.SchemaHandler.IndexMap[int32(i)]
@@ -95,7 +95,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	}
 
 	pr.RenameSchema()
-	for i := 0; i < len(pr.SchemaHandler.SchemaElements); i++ {
+	for i := range len(pr.SchemaHandler.SchemaElements) {
 		schemaElement := pr.SchemaHandler.SchemaElements[i]
 		if schemaElement.GetNumChildren() == 0 {
 			pathStr := pr.SchemaHandler.IndexMap[int32(i)]
@@ -109,7 +109,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 
 // Rename schema name to inname
 func (pr *ParquetReader) RenameSchema() {
-	for i := 0; i < len(pr.SchemaHandler.Infos); i++ {
+	for i := range len(pr.SchemaHandler.Infos) {
 		pr.Footer.Schema[i].Name = pr.SchemaHandler.Infos[i].InName
 	}
 
@@ -192,7 +192,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 		}
 	}
 
-	for i := int64(0); i < pr.NP; i++ {
+	for range pr.NP {
 		go func() {
 			for {
 				select {
@@ -211,10 +211,10 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 		taskChan <- key
 	}
 
-	for i := 0; i < len(pr.ColumnBuffers); i++ {
+	for range len(pr.ColumnBuffers) {
 		<-doneChan
 	}
-	for i := int64(0); i < pr.NP; i++ {
+	for range pr.NP {
 		stopChan <- 0
 	}
 	return err
@@ -244,7 +244,7 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
 
 	ln := res.Elem().Len()
 	ret := make([]any, ln)
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		ret[i] = res.Elem().Index(i).Interface()
 	}
 
@@ -280,7 +280,7 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 
 	ln := res.Elem().Len()
 	ret := make([]any, ln)
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		ret[i] = res.Elem().Index(i).Interface()
 	}
 
@@ -302,7 +302,7 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	taskChan := make(chan string, len(pr.ColumnBuffers))
 	stopChan := make(chan int)
 
-	for i := int64(0); i < pr.NP; i++ {
+	for range pr.NP {
 		go func() {
 			for {
 				select {
@@ -332,11 +332,11 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 			readNum++
 		}
 	}
-	for i := 0; i < readNum; i++ {
+	for range readNum {
 		<-doneChan
 	}
 
-	for i := int64(0); i < pr.NP; i++ {
+	for range pr.NP {
 		stopChan <- 0
 	}
 
@@ -344,7 +344,7 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	delta := (int64(num) + pr.NP - 1) / pr.NP
 
 	var wg sync.WaitGroup
-	for c := int64(0); c < pr.NP; c++ {
+	for c := range pr.NP {
 		bgn := c * delta
 		end := bgn + delta
 		if end > int64(num) {

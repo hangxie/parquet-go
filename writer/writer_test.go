@@ -187,7 +187,7 @@ func TestDoubleWriteStop(t *testing.T) {
 	pw, err := NewParquetWriter(fw, new(test), 1)
 	assert.NoError(t, err)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		stu := test{
 			ColA: fmt.Sprintf("cola_%d", i),
 			ColB: fmt.Sprintf("colb_%d", i),
@@ -241,7 +241,7 @@ func TestWriteStopRaceConditionOnError(t *testing.T) {
 	pw, err := NewJSONWriter(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=x, type=INT64"}]}`, fw, 4)
 	assert.NoError(t, err)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		entry := fmt.Sprintf(`{"not-x":%d}`, i)
 		assert.NoError(t, pw.Write(entry))
 	}

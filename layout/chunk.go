@@ -33,7 +33,7 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 	}
 
-	for i := 0; i < ln; i++ {
+	for i := range ln {
 		if pages[i].Header.DataPageHeader != nil {
 			numValues += int64(pages[i].Header.DataPageHeader.NumValues)
 		} else {
@@ -109,7 +109,7 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 	}
 
-	for i := 0; i < len(pages); i++ {
+	for i := range pages {
 		if pages[i].Header.DataPageHeader != nil {
 			numValues += int64(pages[i].Header.DataPageHeader.NumValues)
 		} else if pages[i].Header.DataPageHeaderV2 != nil {
@@ -175,7 +175,7 @@ func DecodeDictChunk(chunk *Chunk) {
 	numPages := len(chunk.Pages)
 	for i := 1; i < numPages; i++ {
 		numValues := len(chunk.Pages[i].DataTable.Values)
-		for j := 0; j < numValues; j++ {
+		for j := range numValues {
 			if chunk.Pages[i].DataTable.Values[j] != nil {
 				index := chunk.Pages[i].DataTable.Values[j].(int64)
 				chunk.Pages[i].DataTable.Values[j] = dictPage.DataTable.Values[index]
