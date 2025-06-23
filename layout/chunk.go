@@ -62,8 +62,7 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 		totalUncompressedSize += int64(pages[i].Header.UncompressedPageSize) + int64(len(pages[i].RawData)) - int64(pages[i].Header.CompressedPageSize)
 		totalCompressedSize += int64(len(pages[i].RawData))
 		if !omitStats {
-			minVal = common.Min(funcTable, minVal, pages[i].MinVal)
-			maxVal = common.Max(funcTable, maxVal, pages[i].MaxVal)
+			minVal, maxVal, _ = funcTable.MinMaxSize(minVal, maxVal, pages[i].MinVal)
 			if pages[i].NullCount != nil {
 				nullCount += *pages[i].NullCount
 			}
@@ -156,8 +155,7 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 		totalUncompressedSize += int64(pages[i].Header.UncompressedPageSize) + int64(len(pages[i].RawData)) - int64(pages[i].Header.CompressedPageSize)
 		totalCompressedSize += int64(len(pages[i].RawData))
 		if !omitStats && i > 0 {
-			minVal = common.Min(funcTable, minVal, pages[i].MinVal)
-			maxVal = common.Max(funcTable, maxVal, pages[i].MaxVal)
+			minVal, maxVal, _ = funcTable.MinMaxSize(minVal, maxVal, pages[i].MinVal)
 			if pages[i].NullCount != nil {
 				nullCount += *pages[i].NullCount
 			}
