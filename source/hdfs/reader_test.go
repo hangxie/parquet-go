@@ -1,0 +1,102 @@
+package hdfs
+
+import (
+	"testing"
+
+	"github.com/colinmarc/hdfs/v2"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hangxie/parquet-go/v2/source"
+)
+
+func Test_HdfsFileInterfaceCompliance(t *testing.T) {
+	var _ source.ParquetFileReader = (*hdfsReader)(nil)
+	var _ source.ParquetFileWriter = (*hdfsWriter)(nil)
+}
+
+func Test_HdfsFileStructure(t *testing.T) {
+	file := hdfsFile{
+		hosts:    []string{"localhost:9000"},
+		user:     "test-user",
+		filePath: "test.parquet",
+		client:   &hdfs.Client{},
+	}
+
+	require.Equal(t, []string{"localhost:9000"}, file.hosts)
+	require.Equal(t, "test-user", file.user)
+	require.Equal(t, "test.parquet", file.filePath)
+}
+
+func Test_HdfsReaderStructure(t *testing.T) {
+	reader := &hdfsReader{
+		hdfsFile: hdfsFile{
+			hosts:    []string{"localhost:9000"},
+			user:     "test-user",
+			filePath: "test.parquet",
+			client:   &hdfs.Client{},
+		},
+		fileReader: nil,
+	}
+
+	require.Equal(t, []string{"localhost:9000"}, reader.hosts)
+	require.Equal(t, "test-user", reader.user)
+	require.Equal(t, "test.parquet", reader.filePath)
+	require.Nil(t, reader.fileReader)
+}
+
+func Test_HdfsReaderClose(t *testing.T) {
+	reader := &hdfsReader{
+		hdfsFile: hdfsFile{
+			hosts:    []string{"localhost:9000"},
+			user:     "test-user",
+			filePath: "test.parquet",
+			client:   nil,
+		},
+		fileReader: nil,
+	}
+
+	// Should not panic with nil fileReader and client
+	err := reader.Close()
+	require.NoError(t, err)
+}
+
+// Note: NewHdfsFileReader and NewHdfsFileWriter require actual HDFS connection
+// These would fail in test environment without a running HDFS cluster
+func Test_NewHdfsFileReaderError(t *testing.T) {
+	// This will fail due to no HDFS connection, but tests the error path
+	_, err := NewHdfsFileReader([]string{"nonexistent:9000"}, "test-user", "test.parquet")
+	require.Error(t, err)
+}
+
+func Test_HdfsReaderMethodDelegation(t *testing.T) {
+	reader := &hdfsReader{
+		hdfsFile: hdfsFile{
+			hosts:    []string{"localhost:9000"},
+			user:     "test-user",
+			filePath: "test.parquet",
+			client:   nil,
+		},
+		fileReader: nil,
+	}
+
+	buf := make([]byte, 10)
+	require.Panics(t, func() {
+		_, _ = reader.Read(buf)
+	})
+}
+
+func Test_HdfsReaderSeekDelegation(t *testing.T) {
+	reader := &hdfsReader{
+		hdfsFile: hdfsFile{
+			hosts:    []string{"localhost:9000"},
+			user:     "test-user",
+			filePath: "test.parquet",
+			client:   nil,
+		},
+		fileReader: nil,
+	}
+
+	require.Panics(t, func() {
+		_, _ = reader.Seek(0, 0)
+	})
+}

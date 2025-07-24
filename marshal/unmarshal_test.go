@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/hangxie/parquet-go/v2/schema"
 )
 
@@ -49,9 +51,8 @@ func (s Student) String() string {
 	return res
 }
 
-func TestMarshalUnmarshal(t *testing.T) {
+func Test_MarshalUnmarshal(t *testing.T) {
 	schemaHandler, _ := schema.NewSchemaHandlerFromStruct(new(Student))
-	fmt.Println("SchemaHandler Finished")
 
 	math01ID := int64(1)
 	math01 := Class{
@@ -99,14 +100,10 @@ func TestMarshalUnmarshal(t *testing.T) {
 	stus := make([]any, 0)
 	stus = append(stus, stu01, stu02)
 
-	src, err := Marshal(stus, schemaHandler)
-	fmt.Println("Marshal Finished", err)
+	src, _ := Marshal(stus, schemaHandler)
 
-	for name, table := range *src {
-		fmt.Println(name)
-		fmt.Println("Val: ", table.Values)
-		fmt.Println("RL: ", table.RepetitionLevels)
-		fmt.Println("DL: ", table.DefinitionLevels)
+	for range *src {
+		// Iteration over marshaled data for testing
 	}
 
 	dst := make([]Student, 0)
@@ -115,7 +112,5 @@ func TestMarshalUnmarshal(t *testing.T) {
 
 	s0 := fmt.Sprint(stus)
 	s1 := fmt.Sprint(dst)
-	if s0 != s1 {
-		t.Errorf("Fail expect %s, get %s", s0, s1)
-	}
+	require.Equal(t, s0, s1)
 }

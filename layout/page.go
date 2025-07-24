@@ -603,64 +603,77 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 
 // Get values from raw data
 func (p *Page) GetValueFromRawData(schemaHandler *schema.SchemaHandler) error {
-	var err error
-	var encodingType parquet.Encoding
-
 	switch p.Header.GetType() {
 	case parquet.PageType_DICTIONARY_PAGE:
-		bytesReader := bytes.NewReader(p.RawData)
-		p.DataTable.Values, err = encoding.ReadPlain(bytesReader,
-			*p.Schema.Type,
-			uint64(p.Header.DictionaryPageHeader.GetNumValues()),
-			0)
-		if err != nil {
-			return err
-		}
-	case parquet.PageType_DATA_PAGE_V2:
-		if p.RawData, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
-			return err
-		}
-		_ = p.Header.DataPageHeader.GetEncoding()
-		fallthrough
+		return p.processDictionaryPage()
 	case parquet.PageType_DATA_PAGE:
-		encodingType = p.Header.DataPageHeader.GetEncoding()
-		bytesReader := bytes.NewReader(p.RawData)
-
-		var numNulls uint64 = 0
-		for i := range len(p.DataTable.DefinitionLevels) {
-			if p.DataTable.DefinitionLevels[i] != p.DataTable.MaxDefinitionLevel {
-				numNulls++
-			}
-		}
-		name := common.PathToStr(p.DataTable.Path)
-		var values []any
-		var ct parquet.ConvertedType = -1
-		if schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].IsSetConvertedType() {
-			ct = schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetConvertedType()
-		}
-
-		values, err = ReadDataPageValues(bytesReader,
-			encodingType,
-			*p.Schema.Type,
-			ct,
-			uint64(len(p.DataTable.DefinitionLevels))-numNulls,
-			uint64(schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetTypeLength()))
-		if err != nil {
-			return err
-		}
-		j := 0
-		for i := range len(p.DataTable.DefinitionLevels) {
-			if p.DataTable.DefinitionLevels[i] == p.DataTable.MaxDefinitionLevel {
-				p.DataTable.Values[i] = values[j]
-				j++
-			}
-		}
-		p.RawData = []byte{}
-		return nil
-
+		return p.processDataPage(schemaHandler, p.Header.DataPageHeader.GetEncoding())
+	case parquet.PageType_DATA_PAGE_V2:
+		return p.processDataPageV2(schemaHandler)
 	default:
 		return fmt.Errorf("unsupported page type")
 	}
+}
+
+// Process dictionary page
+func (p *Page) processDictionaryPage() error {
+	bytesReader := bytes.NewReader(p.RawData)
+	values, err := encoding.ReadPlain(bytesReader,
+		*p.Schema.Type,
+		uint64(p.Header.DictionaryPageHeader.GetNumValues()),
+		0)
+	if err != nil {
+		return err
+	}
+	p.DataTable.Values = values
+	return nil
+}
+
+// Process data page v2
+func (p *Page) processDataPageV2(schemaHandler *schema.SchemaHandler) error {
+	var err error
+	if p.RawData, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
+		return err
+	}
+	return p.processDataPage(schemaHandler, p.Header.DataPageHeaderV2.GetEncoding())
+}
+
+// Process data page (common logic for DATA_PAGE and DATA_PAGE_V2)
+func (p *Page) processDataPage(schemaHandler *schema.SchemaHandler, encodingType parquet.Encoding) error {
+	bytesReader := bytes.NewReader(p.RawData)
+
+	var numNulls uint64 = 0
+	for i := range len(p.DataTable.DefinitionLevels) {
+		if p.DataTable.DefinitionLevels[i] != p.DataTable.MaxDefinitionLevel {
+			numNulls++
+		}
+	}
+
+	name := common.PathToStr(p.DataTable.Path)
+	var ct parquet.ConvertedType = -1
+	if schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].IsSetConvertedType() {
+		ct = schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetConvertedType()
+	}
+
+	values, err := ReadDataPageValues(bytesReader,
+		encodingType,
+		*p.Schema.Type,
+		ct,
+		uint64(len(p.DataTable.DefinitionLevels))-numNulls,
+		uint64(schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetTypeLength()))
+	if err != nil {
+		return err
+	}
+
+	j := 0
+	for i := range len(p.DataTable.DefinitionLevels) {
+		if p.DataTable.DefinitionLevels[i] == p.DataTable.MaxDefinitionLevel {
+			p.DataTable.Values[i] = values[j]
+			j++
+		}
+	}
+
+	p.RawData = []byte{}
 	return nil
 }
 

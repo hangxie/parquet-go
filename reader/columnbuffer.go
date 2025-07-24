@@ -33,6 +33,15 @@ type ColumnBufferType struct {
 }
 
 func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string) (*ColumnBufferType, error) {
+	if pFile == nil {
+		return nil, fmt.Errorf("pFile cannot be nil")
+	}
+	if footer == nil {
+		return nil, fmt.Errorf("footer cannot be nil")
+	}
+	if schemaHandler == nil {
+		return nil, fmt.Errorf("schema handler cannot be nil")
+	}
 	newPFile, err := pFile.Clone()
 	if err != nil {
 		return nil, err
@@ -47,6 +56,8 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 
 	if err = res.NextRowGroup(); err == io.EOF {
 		err = nil
+	} else if err != nil {
+		return nil, err
 	}
 	return res, err
 }
@@ -56,7 +67,9 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	rowGroups := cbt.Footer.GetRowGroups()
 	ln := int64(len(rowGroups))
 	if cbt.RowGroupIndex >= ln {
-		cbt.DataTableNumRows++ // very important, because DataTableNumRows is one smaller than real rows number
+		if ln > 0 { // Only increment if there were actually row groups to process
+			cbt.DataTableNumRows++ // very important, because DataTableNumRows is one smaller than real rows number
+		}
 		return io.EOF
 	}
 
@@ -70,7 +83,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		path = append(path, cbt.SchemaHandler.GetRootInName())
 		path = append(path, columnChunks[i].MetaData.GetPathInSchema()...)
 
-		if cbt.PathStr == common.PathToStr(path) {
+		if common.ReformPathStr(cbt.PathStr) == common.PathToStr(path) {
 			break
 		}
 	}

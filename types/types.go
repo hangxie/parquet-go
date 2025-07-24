@@ -179,48 +179,38 @@ func InterfaceToParquetType(src any, pT *parquet.Type) any {
 	case parquet.Type_BOOLEAN:
 		if _, ok := src.(bool); ok {
 			return src
-		} else {
-			return reflect.ValueOf(src).Bool()
 		}
+		return reflect.ValueOf(src).Bool()
 
 	case parquet.Type_INT32:
 		if _, ok := src.(int32); ok {
 			return src
-		} else {
-			return int32(reflect.ValueOf(src).Int())
 		}
+		return int32(reflect.ValueOf(src).Int())
 
 	case parquet.Type_INT64:
 		if _, ok := src.(int64); ok {
 			return src
-		} else {
-			return reflect.ValueOf(src).Int()
 		}
+		return reflect.ValueOf(src).Int()
 
 	case parquet.Type_FLOAT:
 		if _, ok := src.(float32); ok {
 			return src
-		} else {
-			return float32(reflect.ValueOf(src).Float())
 		}
+		return float32(reflect.ValueOf(src).Float())
 
 	case parquet.Type_DOUBLE:
 		if _, ok := src.(float64); ok {
 			return src
-		} else {
-			return reflect.ValueOf(src).Float()
 		}
+		return reflect.ValueOf(src).Float()
 
-	case parquet.Type_INT96:
-		fallthrough
-	case parquet.Type_BYTE_ARRAY:
-		fallthrough
-	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+	case parquet.Type_INT96, parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
 		if _, ok := src.(string); ok {
 			return src
-		} else {
-			return reflect.ValueOf(src).String()
 		}
+		return reflect.ValueOf(src).String()
 
 	default:
 		return src
