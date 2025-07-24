@@ -8,7 +8,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func TestToInt64(t *testing.T) {
+func Test_ToInt64(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []int64
@@ -30,7 +30,7 @@ func TestToInt64(t *testing.T) {
 	}
 }
 
-func TestWriteUnsignedVarInt(t *testing.T) {
+func Test_WriteUnsignedVarInt(t *testing.T) {
 	resBuf := make([]byte, 0)
 	resBuf = append(resBuf, byte(0x00))
 	resBuf = append(resBuf, byte(0x7F))
@@ -66,7 +66,7 @@ func TestWriteUnsignedVarInt(t *testing.T) {
 	}
 }
 
-func TestWriteRLE(t *testing.T) {
+func Test_WriteRLE(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -86,7 +86,7 @@ func TestWriteRLE(t *testing.T) {
 	}
 }
 
-func TestWriteBitPacked(t *testing.T) {
+func Test_WriteBitPacked(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -103,7 +103,7 @@ func TestWriteBitPacked(t *testing.T) {
 	}
 }
 
-func TestWritePlainBOOLEAN(t *testing.T) {
+func Test_WritePlainBOOLEAN(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -124,7 +124,7 @@ func TestWritePlainBOOLEAN(t *testing.T) {
 	}
 }
 
-func TestWritePlainINT32(t *testing.T) {
+func Test_WritePlainINT32(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -144,7 +144,7 @@ func TestWritePlainINT32(t *testing.T) {
 	}
 }
 
-func TestWritePlainINT64(t *testing.T) {
+func Test_WritePlainINT64(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -164,7 +164,7 @@ func TestWritePlainINT64(t *testing.T) {
 	}
 }
 
-func TestWritePlainINT96(t *testing.T) {
+func Test_WritePlainINT96(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -190,7 +190,7 @@ func TestWritePlainINT96(t *testing.T) {
 	}
 }
 
-func TestWritePlainBYTE_ARRAY(t *testing.T) {
+func Test_WritePlainBYTE_ARRAY(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -209,7 +209,7 @@ func TestWritePlainBYTE_ARRAY(t *testing.T) {
 	}
 }
 
-func TestWritePlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
+func Test_WritePlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -228,7 +228,7 @@ func TestWritePlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
 	}
 }
 
-func TestWriteDeltaINT32(t *testing.T) {
+func Test_WriteDeltaINT32(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -248,7 +248,7 @@ func TestWriteDeltaINT32(t *testing.T) {
 	}
 }
 
-func TestWriteDeltaint64(t *testing.T) {
+func Test_WriteDeltaINT64(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -268,7 +268,7 @@ func TestWriteDeltaint64(t *testing.T) {
 	}
 }
 
-func TestWriteDeltaLengthByteArray(t *testing.T) {
+func Test_WriteDeltaLengthByteArray(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -284,7 +284,7 @@ func TestWriteDeltaLengthByteArray(t *testing.T) {
 	}
 }
 
-func TestWriteDeltaByteArray(t *testing.T) {
+func Test_WriteDeltaByteArray(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte
@@ -300,7 +300,7 @@ func TestWriteDeltaByteArray(t *testing.T) {
 	}
 }
 
-func TestWriteBitPackedDeprecated(t *testing.T) {
+func Test_WriteBitPackedDeprecated(t *testing.T) {
 	testData := []struct {
 		nums     []any
 		expected []byte

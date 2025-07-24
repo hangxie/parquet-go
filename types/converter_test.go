@@ -7,7 +7,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func TestINT96(t *testing.T) {
+func Test_INT96(t *testing.T) {
 	t1 := time.Now().Truncate(time.Microsecond).UTC()
 	s := TimeToINT96(t1)
 	t2 := INT96ToTime(s)
@@ -17,7 +17,7 @@ func TestINT96(t *testing.T) {
 	}
 }
 
-func TestDECIMAL(t *testing.T) {
+func Test_DECIMAL(t *testing.T) {
 	a1, _ := StrToParquetType("1.23", parquet.TypePtr(parquet.Type_INT32), parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), 9, 2)
 	sa1 := DECIMAL_INT_ToString(int64(a1.(int32)), 9, 2)
 	if sa1 != "1.23" {

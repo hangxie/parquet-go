@@ -18,7 +18,7 @@ import (
 )
 
 // TestNullCountsFromColumnIndex tests that NullCounts is correctly set in the ColumnIndex.
-func TestNullCountsFromColumnIndex(t *testing.T) {
+func Test_NullCountsFromColumnIndex(t *testing.T) {
 	type Entry struct {
 		X *int64 `parquet:"name=x, type=INT64"`
 		Y *int64 `parquet:"name=y, type=INT64"`
@@ -38,8 +38,8 @@ func TestNullCountsFromColumnIndex(t *testing.T) {
 	assert.NoError(t, err)
 
 	entries := []Entry{
-		{val(0), val(0), val(0), 1, 1},
-		{nil, val(1), val(1), 2, 2},
+		{int64Ptr(0), int64Ptr(0), int64Ptr(0), 1, 1},
+		{nil, int64Ptr(1), int64Ptr(1), 2, 2},
 		{nil, nil, nil, 3, 3},
 	}
 	for _, entry := range entries {
@@ -76,7 +76,7 @@ func TestNullCountsFromColumnIndex(t *testing.T) {
 }
 
 // TestAllNullCountsFromColumnIndex tests that NullCounts is correctly set in the ColumnIndex if a field contains null value only.
-func TestAllNullCountsFromColumnIndex(t *testing.T) {
+func Test_AllNullCountsFromColumnIndex(t *testing.T) {
 	type Entry struct {
 		X *int64 `parquet:"name=x, type=INT64"`
 		Y *int64 `parquet:"name=z, type=INT64"`
@@ -88,12 +88,12 @@ func TestAllNullCountsFromColumnIndex(t *testing.T) {
 	assert.NoError(t, err)
 
 	entries := []Entry{
-		{val(0), nil},
-		{val(1), nil},
-		{val(2), nil},
-		{val(3), nil},
-		{val(4), nil},
-		{val(5), nil},
+		{int64Ptr(0), nil},
+		{int64Ptr(1), nil},
+		{int64Ptr(2), nil},
+		{int64Ptr(3), nil},
+		{int64Ptr(4), nil},
+		{int64Ptr(5), nil},
 	}
 	for _, entry := range entries {
 		assert.NoError(t, pw.Write(entry))
@@ -136,39 +136,47 @@ func readColumnIndex(pf source.ParquetFileReader, offset int64) (*parquet.Column
 	return colIdx, nil
 }
 
-func val(x int64) *int64 {
-	y := x
-	return &y
+// Helper function to create int64 pointer for test data
+func int64Ptr(value int64) *int64 {
+	return &value
 }
 
-func TestZeroRows(t *testing.T) {
-	type test struct {
+// Helper function to create a parquet writer with buffer for testing
+func createTestParquetWriter(schema any, parallelNumber int64) (*ParquetWriter, *bytes.Buffer, error) {
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := NewParquetWriter(fw, schema, parallelNumber)
+	return pw, &buf, err
+}
+
+// Helper function to create a parquet reader from buffer
+func createTestParquetReader(buf []byte, schema any, parallelNumber int64) (*reader.ParquetReader, source.ParquetFileReader, error) {
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf)
+	pr, err := reader.NewParquetReader(pf, schema, parallelNumber)
+	return pr, pf, err
+}
+
+func Test_ZeroRows(t *testing.T) {
+	type TestSchema struct {
 		ColA string `parquet:"name=col_a, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 		ColB string `parquet:"name=col_b, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 	}
 
-	var err error
-	var buf bytes.Buffer
-	fw := writerfile.NewWriterFile(&buf)
-	// defer fw.Close()
-
-	// write
-	pw, err := NewParquetWriter(fw, new(test), 1)
-	assert.NoError(t, err)
+	// Create writer and write zero rows
+	pw, buf, err := createTestParquetWriter(new(TestSchema), 1)
+	assert.NoError(t, err, "Should create parquet writer successfully")
 
 	err = pw.WriteStop()
-	assert.NoError(t, err)
-	assert.NoError(t, fw.Close())
+	assert.NoError(t, err, "WriteStop should succeed")
 
-	// read
-	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	// Create reader and verify zero rows
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestSchema), 1)
+	assert.NoError(t, err, "Should create parquet reader successfully")
 	defer func() {
-		assert.NoError(t, pf.Close())
+		assert.NoError(t, pf.Close(), "Should close parquet file successfully")
 	}()
-	pr, err := reader.NewParquetReader(pf, new(test), 1)
-	assert.NoError(t, err)
 
-	assert.Equal(t, int64(0), pr.GetNumRows())
+	assert.Equal(t, int64(0), pr.GetNumRows(), "Should have zero rows")
 }
 
 type test struct {
@@ -176,45 +184,44 @@ type test struct {
 	ColB string `parquet:"name=col_b, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 }
 
-// TestNullCountsFromColumnIndex tests that NullCounts is correctly set in the ColumnIndex.
-func TestDoubleWriteStop(t *testing.T) {
-	var err error
-	var buf bytes.Buffer
-	fw := writerfile.NewWriterFile(&buf)
-	// defer fw.Close()
+// TestDoubleWriteStop verifies that calling WriteStop multiple times is safe
+func Test_DoubleWriteStop(t *testing.T) {
+	// Create writer
+	pw, buf, err := createTestParquetWriter(new(test), 1)
+	assert.NoError(t, err, "Should create parquet writer successfully")
 
-	// write
-	pw, err := NewParquetWriter(fw, new(test), 1)
-	assert.NoError(t, err)
-
-	for i := range 3 {
-		stu := test{
-			ColA: fmt.Sprintf("cola_%d", i),
-			ColB: fmt.Sprintf("colb_%d", i),
-		}
-		assert.NoError(t, pw.Write(stu))
+	// Write test data
+	testData := []test{
+		{ColA: "cola_0", ColB: "colb_0"},
+		{ColA: "cola_1", ColB: "colb_1"},
+		{ColA: "cola_2", ColB: "colb_2"},
 	}
 
+	for _, record := range testData {
+		err = pw.Write(record)
+		assert.NoError(t, err, "Should write record successfully")
+	}
+
+	// Call WriteStop twice to verify it's idempotent
 	err = pw.WriteStop()
-	assert.NoError(t, err)
+	assert.NoError(t, err, "First WriteStop should succeed")
 
 	err = pw.WriteStop()
-	assert.NoError(t, err)
+	assert.NoError(t, err, "Second WriteStop should also succeed")
 
-	assert.NoError(t, fw.Close())
-
-	// read
-	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	// Verify data can be read correctly
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(test), 1)
+	assert.NoError(t, err, "Should create parquet reader successfully")
 	defer func() {
-		assert.NoError(t, pf.Close())
+		assert.NoError(t, pf.Close(), "Should close parquet file successfully")
 	}()
-	pr, err := reader.NewParquetReader(pf, new(test), 1)
-	assert.NoError(t, err)
 
-	num := int(pr.GetNumRows())
-	rows := make([]test, num)
-	err = pr.Read(&rows)
-	assert.NoError(t, err)
+	numRows := int(pr.GetNumRows())
+	assert.Equal(t, len(testData), numRows, "Should have correct number of rows")
+
+	actualRows := make([]test, numRows)
+	err = pr.Read(&actualRows)
+	assert.NoError(t, err, "Should read data successfully")
 
 	pr.ReadStop()
 }
@@ -229,13 +236,13 @@ func (m *invalidFileWriter) Write(data []byte) (n int, err error) {
 	return 0, errWrite
 }
 
-func TestNewWriterWithInvaidFile(t *testing.T) {
+func Test_NewWriterWithInvaidFile(t *testing.T) {
 	pw, err := NewParquetWriter(&invalidFileWriter{}, new(test), 1)
 	assert.Nil(t, pw)
 	assert.ErrorIs(t, err, errWrite)
 }
 
-func TestWriteStopRaceConditionOnError(t *testing.T) {
+func Test_WriteStopRaceConditionOnError(t *testing.T) {
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
 	pw, err := NewJSONWriter(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=x, type=INT64"}]}`, fw, 4)

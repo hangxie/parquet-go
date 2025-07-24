@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/schema"
 )
 
@@ -12,41 +13,62 @@ type marshalCases struct {
 	integerPtr *int
 }
 
-func TestParquetPtrMarshal(t *testing.T) {
-	ptrMarshal := &ParquetPtr{}
+func Test_ParquetPtrMarshal(t *testing.T) {
 	var integer int = 10
-	c := &marshalCases{
+	testData := &marshalCases{
 		integerPtr: &integer,
 	}
-	// case1: null ptr
-	nodeNilPtr := &Node{
-		Val:     reflect.ValueOf(c).Elem().FieldByName("nullPtr"),
-		PathMap: nil,
-		RL:      2,
-		DL:      3,
+
+	testCases := []struct {
+		name              string
+		fieldName         string
+		expectedNodeCount int
+		expectedDL        int32
+	}{
+		{
+			name:              "null-pointer-field",
+			fieldName:         "nullPtr",
+			expectedNodeCount: 0,
+			expectedDL:        0, // Not used for null case
+		},
+		{
+			name:              "valid-integer-pointer-field",
+			fieldName:         "integerPtr",
+			expectedNodeCount: 1,
+			expectedDL:        4,
+		},
 	}
 
-	stack := []*Node{}
-	res := ptrMarshal.Marshal(nodeNilPtr, nil, stack)
-	if len(res) != 0 {
-		t.Errorf("Fail expect nodes len %v, get %v", 0, len(res))
-	}
+	ptrMarshal := &ParquetPtr{}
 
-	// case2 not null ptr
-	nodeIntPtr := &Node{
-		Val:     reflect.ValueOf(c).Elem().FieldByName("integerPtr"),
-		PathMap: nil,
-		RL:      2,
-		DL:      3,
-	}
-	stack = []*Node{}
-	res = ptrMarshal.Marshal(nodeIntPtr, nil, stack)
-	if len(res) != 1 || res[0].DL != 4 {
-		t.Errorf("Fail expect nodes len %v, DL value %v, get nodes len %v, DL value %v", 1, 4, len(res), res[0].DL)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			node := &Node{
+				Val:     reflect.ValueOf(testData).Elem().FieldByName(testCase.fieldName),
+				PathMap: nil,
+				RL:      2,
+				DL:      3,
+			}
+
+			stack := []*Node{}
+			result := ptrMarshal.Marshal(node, nil, stack)
+
+			// Verify node count
+			if len(result) != testCase.expectedNodeCount {
+				t.Errorf("Expected %d nodes, got %d", testCase.expectedNodeCount, len(result))
+			}
+
+			// Verify DL value for non-empty results
+			if testCase.expectedNodeCount > 0 && len(result) > 0 {
+				if result[0].DL != testCase.expectedDL {
+					t.Errorf("Expected DL value %d, got %d", testCase.expectedDL, result[0].DL)
+				}
+			}
+		})
 	}
 }
 
-func TestMarshalFast(t *testing.T) {
+func Test_MarshalFast(t *testing.T) {
 	type testElem struct {
 		Bool      bool    `parquet:"name=bool, type=BOOLEAN"`
 		Int       int     `parquet:"name=int, type=INT64"`
@@ -192,5 +214,304 @@ func TestMarshalFast(t *testing.T) {
 				t.Errorf("not equal")
 			}
 		})
+	}
+}
+
+func Test_MarshalCSV(t *testing.T) {
+	// Create a simple schema for CSV data
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
+			{"Tag": "name=age, type=INT32", "Type": "int32"},
+			{"Tag": "name=score, type=FLOAT", "Type": "float32"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	if err != nil {
+		t.Fatalf("Failed to create schema: %v", err)
+	}
+
+	// Test with empty records
+	emptyRecords := []any{}
+	result, err := MarshalCSV(emptyRecords, sch)
+	if err != nil {
+		t.Errorf("MarshalCSV failed with empty records: %v", err)
+	}
+	if len(*result) != 0 {
+		t.Errorf("Expected empty result for empty records, got %d tables", len(*result))
+	}
+
+	// Test with actual data
+	records := []any{
+		[]any{"Alice", int32(25), float32(95.5)},
+		[]any{"Bob", int32(30), float32(87.2)},
+		[]any{"Charlie", int32(35), float32(92.1)},
+	}
+
+	result, err = MarshalCSV(records, sch)
+	if err != nil {
+		t.Errorf("MarshalCSV failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	// Check that we have the expected number of columns
+	expectedColumns := 3
+	if len(*result) != expectedColumns {
+		t.Errorf("Expected %d columns, got %d", expectedColumns, len(*result))
+	}
+
+	// Debug: print available columns
+	for key := range *result {
+		t.Logf("Available CSV column: %s", key)
+	}
+
+	// Check specific column data
+	nameColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Name"]
+	if nameColumn == nil {
+		t.Error("Expected name column to exist")
+	} else {
+		if len(nameColumn.Values) != 3 {
+			t.Errorf("Expected 3 name values, got %d", len(nameColumn.Values))
+		}
+		if nameColumn.Values[0] != "Alice" {
+			t.Errorf("Expected first name to be 'Alice', got %v", nameColumn.Values[0])
+		}
+	}
+}
+
+func Test_MarshalArrow(t *testing.T) {
+	// Create a simple schema for Arrow data
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=id, type=INT64", "Type": "int64"},
+			{"Tag": "name=value, type=FLOAT", "Type": "float32"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	if err != nil {
+		t.Fatalf("Failed to create schema: %v", err)
+	}
+
+	// Test with empty records
+	emptyRecords := []any{}
+	result, err := MarshalArrow(emptyRecords, sch)
+	if err != nil {
+		t.Errorf("MarshalArrow failed with empty records: %v", err)
+	}
+	if len(*result) != 0 {
+		t.Errorf("Expected empty result for empty records, got %d tables", len(*result))
+	}
+
+	// Test with actual data - Arrow format has rows as []any
+	records := []any{
+		[]any{int64(1), float32(10.5)},
+		[]any{int64(2), float32(20.3)},
+		[]any{int64(3), float32(30.7)},
+	}
+
+	result, err = MarshalArrow(records, sch)
+	if err != nil {
+		t.Errorf("MarshalArrow failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	// Check that we have the expected number of columns
+	expectedColumns := 2
+	if len(*result) != expectedColumns {
+		t.Errorf("Expected %d columns, got %d", expectedColumns, len(*result))
+	}
+
+	// Check specific column data
+	idColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Id"]
+	if idColumn == nil {
+		t.Error("Expected id column to exist")
+	} else {
+		if len(idColumn.Values) != 3 {
+			t.Errorf("Expected 3 id values, got %d", len(idColumn.Values))
+		}
+		if idColumn.Values[0] != int64(1) {
+			t.Errorf("Expected first id to be 1, got %v", idColumn.Values[0])
+		}
+	}
+}
+
+func Test_MarshalJSON(t *testing.T) {
+	// Create a simple schema for JSON data
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
+			{"Tag": "name=age, type=INT32", "Type": "int32"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	if err != nil {
+		t.Fatalf("Failed to create schema: %v", err)
+	}
+
+	// Test with empty records
+	emptyRecords := []any{}
+	result, err := MarshalJSON(emptyRecords, sch)
+	if err != nil {
+		t.Errorf("MarshalJSON failed with empty records: %v", err)
+	}
+	if len(*result) != 2 { // Should have 2 empty tables for the 2 schema fields
+		t.Errorf("Expected 2 empty tables for empty records, got %d tables", len(*result))
+	}
+
+	// Test with actual JSON data
+	jsonRecords := []any{
+		`{"name": "Alice", "age": 25}`,
+		`{"name": "Bob", "age": 30}`,
+		[]byte(`{"name": "Charlie", "age": 35}`), // Test []byte input as well
+	}
+
+	result, err = MarshalJSON(jsonRecords, sch)
+	if err != nil {
+		t.Errorf("MarshalJSON failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	// Check that we have the expected number of columns
+	expectedColumns := 2
+	if len(*result) != expectedColumns {
+		t.Errorf("Expected %d columns, got %d", expectedColumns, len(*result))
+	}
+
+	// Check specific column data
+	nameColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Name"]
+	if nameColumn == nil {
+		t.Error("Expected name column to exist")
+	} else {
+		if len(nameColumn.Values) != 3 {
+			t.Errorf("Expected 3 name values, got %d", len(nameColumn.Values))
+		}
+		if nameColumn.Values[0] != "Alice" {
+			t.Errorf("Expected first name to be 'Alice', got %v", nameColumn.Values[0])
+		}
+	}
+
+	ageColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Age"]
+	if ageColumn == nil {
+		t.Error("Expected age column to exist")
+	} else {
+		if len(ageColumn.Values) != 3 {
+			t.Errorf("Expected 3 age values, got %d", len(ageColumn.Values))
+		}
+	}
+}
+
+func Test_MarshalJSONWithInvalidJSON(t *testing.T) {
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	if err != nil {
+		t.Fatalf("Failed to create schema: %v", err)
+	}
+
+	// Test with invalid JSON
+	invalidJSONRecords := []any{
+		`{"name": "Alice"`, // Invalid JSON - missing closing brace
+	}
+
+	_, err = MarshalJSON(invalidJSONRecords, sch)
+	if err == nil {
+		t.Error("Expected error for invalid JSON")
+	}
+}
+
+func Test_EncoderMapKeyString(t *testing.T) {
+	// Test the String() method for encoderMapKey which was previously uncovered
+	type SimpleStruct struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Age  int32  `parquet:"name=age, type=INT32"`
+	}
+
+	data := []any{
+		SimpleStruct{Name: "Alice", Age: 25},
+		SimpleStruct{Name: "Bob", Age: 30},
+	}
+
+	sch, err := schema.NewSchemaHandlerFromStruct(&SimpleStruct{})
+	if err != nil {
+		t.Fatalf("Failed to create schema: %v", err)
+	}
+
+	_, err = MarshalFast(data, sch)
+	if err != nil {
+		t.Fatalf("MarshalFast failed: %v", err)
+	}
+
+	// The String() method is internal to encoderMapKey, but we can verify MarshalFast works
+	// This indirectly tests the String() method through the compiler cache
+}
+
+func Test_ParquetMapStructMarshal(t *testing.T) {
+	// Create a simple schema to test map struct marshaling
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	if err != nil {
+		t.Fatalf("Failed to create schema: %v", err)
+	}
+
+	// Create a ParquetMapStruct instance
+	mapStruct := &ParquetMapStruct{schemaHandler: sch}
+
+	// Create a map value to marshal
+	mapValue := map[string]any{
+		"name": "Alice",
+	}
+
+	// Create a node with the map value
+	node := &Node{
+		Val:     reflect.ValueOf(mapValue),
+		PathMap: sch.PathMap,
+		RL:      0,
+		DL:      0,
+	}
+
+	nodeBuf := NewNodeBuf(10)
+	stack := []*Node{}
+
+	// Test marshaling
+	result := mapStruct.Marshal(node, nodeBuf, stack)
+	if len(result) == 0 {
+		t.Error("Expected non-empty result from Marshal")
+	}
+
+	// Test with empty map
+	emptyMapValue := map[string]any{}
+	emptyNode := &Node{
+		Val:     reflect.ValueOf(emptyMapValue),
+		PathMap: sch.PathMap,
+		RL:      0,
+		DL:      0,
+	}
+
+	emptyResult := mapStruct.Marshal(emptyNode, nodeBuf, stack)
+	if len(emptyResult) != 0 {
+		t.Error("Expected empty result for empty map")
 	}
 }

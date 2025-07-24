@@ -475,7 +475,7 @@ func testRecordWithNulls(mem memory.Allocator) arrow.Record {
 // TestE2EValid tests the whole cycle of creating a parquet file from arrow
 // covering all the currently supported types by using sequential writer
 // running a single goroutine.
-func TestE2ESequentialValid(t *testing.T) {
+func Test_E2ESequentialValid(t *testing.T) {
 	var err error
 	ts := testSchema
 
@@ -531,7 +531,7 @@ func TestE2ESequentialValid(t *testing.T) {
 // TestE2EConcurrentValid tests the whole cycle of creating a parquet file
 // from arrow covering all the currently supported types by using a
 // concurrent writer running four goroutines
-func TestE2EConcurrentValid(t *testing.T) {
+func Test_E2EConcurrentValid(t *testing.T) {
 	var err error
 	ts := testSchema
 
@@ -587,7 +587,7 @@ func TestE2EConcurrentValid(t *testing.T) {
 // TestE2NullabilityValid tests the whole cycle of creating a parquet file
 // from arrow record which contains Null values covering all the currently
 // supported types by using schema in which all fields are marked Nullable.
-func TestE2ENullabilityValid(t *testing.T) {
+func Test_E2ENullabilityValid(t *testing.T) {
 	var err error
 	ts := testNullableSchema
 
@@ -675,7 +675,7 @@ func rowToSliceOfValues(s any) []any {
 	return res
 }
 
-func BenchmarkWrite(b *testing.B) {
+func Benchmark_Write(b *testing.B) {
 	buf := new(bytes.Buffer)
 	fw := writerfile.NewWriterFile(buf)
 	md := testSchema

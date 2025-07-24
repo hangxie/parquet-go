@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestTypeConversion(t *testing.T) {
+func Test_TypeConversion(t *testing.T) {
 	tests := []struct {
 		title                   string
 		testSchema              *arrow.Schema

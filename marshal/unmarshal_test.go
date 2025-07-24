@@ -49,7 +49,7 @@ func (s Student) String() string {
 	return res
 }
 
-func TestMarshalUnmarshal(t *testing.T) {
+func Test_MarshalUnmarshal(t *testing.T) {
 	schemaHandler, _ := schema.NewSchemaHandlerFromStruct(new(Student))
 	fmt.Println("SchemaHandler Finished")
 

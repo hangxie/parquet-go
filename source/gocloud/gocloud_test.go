@@ -9,7 +9,7 @@ import (
 	"gocloud.dev/blob/memblob"
 )
 
-func TestSeek(t *testing.T) {
+func Test_BlobReader_Seek(t *testing.T) {
 	bf := &blobReader{}
 
 	// Out of range whence
@@ -57,7 +57,7 @@ func TestSeek(t *testing.T) {
 	assert.Equal(t, int64(2), offset)
 }
 
-func TestRead(t *testing.T) {
+func Test_BlobReader_Read(t *testing.T) {
 	b := memblob.OpenBucket(nil)
 	defer func() {
 		_ = b.Close()
@@ -107,7 +107,7 @@ func TestRead(t *testing.T) {
 	assert.Equal(t, n, 0)
 }
 
-func TestWrite(t *testing.T) {
+func Test_BlobWriter_Write(t *testing.T) {
 	b := memblob.OpenBucket(nil)
 	defer func() {
 		_ = b.Close()

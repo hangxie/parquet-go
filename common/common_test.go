@@ -8,7 +8,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_fieldAttr_update(t *testing.T) {
+func Test_FieldAttr_Update(t *testing.T) {
 	testCases := map[string]struct {
 		key, val string
 		expected fieldAttr
