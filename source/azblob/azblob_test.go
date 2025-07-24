@@ -55,7 +55,7 @@ var testCases []testCase = []testCase{
 	},
 }
 
-func TestOpen_NewAzBlobFileReader(t *testing.T) {
+func Test_NewAzBlobFileReader(t *testing.T) {
 	for _, tc := range testCases {
 		_, err := NewAzBlobFileReader(context.Background(), tc.url, nil, blockblob.ClientOptions{
 			ClientOptions: policy.ClientOptions{
@@ -79,7 +79,7 @@ func TestOpen_NewAzBlobFileReader(t *testing.T) {
 	}
 }
 
-func TestOpen_NewAzBlobFileReaderWithSharedKey(t *testing.T) {
+func Test_NewAzBlobFileReaderWithSharedKey(t *testing.T) {
 	for _, tc := range testCases {
 		_, err := NewAzBlobFileReader(context.Background(), tc.url, nil, blockblob.ClientOptions{
 			ClientOptions: policy.ClientOptions{
@@ -103,7 +103,7 @@ func TestOpen_NewAzBlobFileReaderWithSharedKey(t *testing.T) {
 	}
 }
 
-func TestOpen_NewAzBlobFileReaderWithClient(t *testing.T) {
+func Test_NewAzBlobFileReaderWithClient(t *testing.T) {
 	for _, tc := range testCases {
 		testClient, _ := blockblob.NewClientWithNoCredential(tc.url, &blockblob.ClientOptions{})
 		_, err := NewAzBlobFileReaderWithClient(context.Background(), tc.url, testClient)

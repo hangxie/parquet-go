@@ -12,83 +12,229 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func TestReadPlainBOOLEAN(t *testing.T) {
-	testData := [][]any{
-		{(true)},
-		{(false)},
-		{(false), (false)},
-		{(false), (true)},
-	}
-
-	for _, data := range testData {
-		buf, err := WritePlainBOOLEAN(data)
-		if err != nil {
-			t.Errorf("WritePlainBOOLEAN err, %v", err)
-			continue
-		}
-		res, _ := ReadPlainBOOLEAN(bytes.NewReader(buf), uint64(len(data)))
-		if fmt.Sprintf("%v", data) != fmt.Sprintf("%v", res) {
-			t.Errorf("ReadPlainBOOLEAN err, expect %v, get %v", data, res)
-		}
-	}
-}
-
-func TestReadPlainINT32(t *testing.T) {
-	testData := []struct {
-		expected   []any
-		byteReader *bytes.Reader
+func Test_ReadPlainBOOLEAN(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input []any
 	}{
-		{[]any{}, bytes.NewReader([]byte{})},
-		{[]any{int32(0)}, bytes.NewReader([]byte{0, 0, 0, 0})},
-		{[]any{int32(0), int32(1), int32(2)}, bytes.NewReader([]byte{0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0})},
+		{
+			name:  "single-true-value",
+			input: []any{true},
+		},
+		{
+			name:  "single-false-value",
+			input: []any{false},
+		},
+		{
+			name:  "two-false-values",
+			input: []any{false, false},
+		},
+		{
+			name:  "mixed-false-true",
+			input: []any{false, true},
+		},
+		{
+			name:  "empty-input",
+			input: []any{},
+		},
+		{
+			name:  "multiple-mixed-values",
+			input: []any{true, false, true, true, false},
+		},
 	}
 
-	for _, data := range testData {
-		res, _ := ReadPlainINT32(data.byteReader, uint64(len(data.expected)))
-		if fmt.Sprintf("%v", res) != fmt.Sprintf("%v", data.expected) {
-			t.Errorf("ReadPlainINT32 error, expect %v, get %v", data.expected, res)
-		}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Write data to buffer
+			buf, err := WritePlainBOOLEAN(testCase.input)
+			if err != nil {
+				t.Fatalf("WritePlainBOOLEAN failed: %v", err)
+			}
+
+			// Read data back from buffer
+			result, err := ReadPlainBOOLEAN(bytes.NewReader(buf), uint64(len(testCase.input)))
+			if err != nil {
+				t.Fatalf("ReadPlainBOOLEAN failed: %v", err)
+			}
+
+			// Compare results
+			if len(result) != len(testCase.input) {
+				t.Errorf("Length mismatch: expected %d, got %d", len(testCase.input), len(result))
+			}
+
+			for i, expected := range testCase.input {
+				if i < len(result) && result[i] != expected {
+					t.Errorf("Value mismatch at index %d: expected %v, got %v", i, expected, result[i])
+				}
+			}
+		})
 	}
 }
 
-func TestReadPlainINT64(t *testing.T) {
-	testData := []struct {
+func Test_ReadPlainINT32(t *testing.T) {
+	testCases := []struct {
+		name       string
 		expected   []any
-		byteReader *bytes.Reader
+		inputBytes []byte
 	}{
-		{[]any{}, bytes.NewReader([]byte{})},
-		{[]any{int64(0)}, bytes.NewReader([]byte{0, 0, 0, 0, 0, 0, 0, 0})},
-		{[]any{int64(0), int64(1), int64(2)}, bytes.NewReader([]byte{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0})},
+		{
+			name:       "empty_input",
+			expected:   []any{},
+			inputBytes: []byte{},
+		},
+		{
+			name:       "single-zero-value",
+			expected:   []any{int32(0)},
+			inputBytes: []byte{0, 0, 0, 0},
+		},
+		{
+			name:       "multiple-sequential-values",
+			expected:   []any{int32(0), int32(1), int32(2)},
+			inputBytes: []byte{0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0},
+		},
+		{
+			name:       "negative-values",
+			expected:   []any{int32(-1), int32(-2)},
+			inputBytes: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF},
+		},
+		{
+			name:       "max-int32-value",
+			expected:   []any{int32(2147483647)},
+			inputBytes: []byte{0xFF, 0xFF, 0xFF, 0x7F},
+		},
 	}
 
-	for _, data := range testData {
-		res, _ := ReadPlainINT64(data.byteReader, uint64(len(data.expected)))
-		if fmt.Sprintf("%v", res) != fmt.Sprintf("%v", data.expected) {
-			t.Errorf("ReadPlainINT64 error, expect %v, get %v", data.expected, res)
-		}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			reader := bytes.NewReader(testCase.inputBytes)
+			result, err := ReadPlainINT32(reader, uint64(len(testCase.expected)))
+			if err != nil {
+				t.Fatalf("ReadPlainINT32 failed: %v", err)
+			}
+
+			if len(result) != len(testCase.expected) {
+				t.Errorf("Length mismatch: expected %d, got %d", len(testCase.expected), len(result))
+			}
+
+			for i, expected := range testCase.expected {
+				if i < len(result) && result[i] != expected {
+					t.Errorf("Value mismatch at index %d: expected %v, got %v", i, expected, result[i])
+				}
+			}
+		})
 	}
 }
 
-func TestReadPlainBYTE_ARRAY(t *testing.T) {
-	testData := [][]any{
-		{("hello"), ("world")},
-		{("good"), (""), ("a"), ("b")},
+func Test_ReadPlainINT64(t *testing.T) {
+	testCases := []struct {
+		name       string
+		expected   []any
+		inputBytes []byte
+	}{
+		{
+			name:       "empty_input",
+			expected:   []any{},
+			inputBytes: []byte{},
+		},
+		{
+			name:       "single-zero-value",
+			expected:   []any{int64(0)},
+			inputBytes: []byte{0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:       "multiple-sequential-values",
+			expected:   []any{int64(0), int64(1), int64(2)},
+			inputBytes: []byte{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:       "negative-values",
+			expected:   []any{int64(-1), int64(-100)},
+			inputBytes: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x9C, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+		},
+		{
+			name:       "max-int64-value",
+			expected:   []any{int64(9223372036854775807)},
+			inputBytes: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F},
+		},
 	}
 
-	for _, data := range testData {
-		buf, err := WritePlainBYTE_ARRAY(data)
-		if err != nil {
-			t.Errorf("WritePlainBYTE_ARRAY err, %v", err)
-			continue
-		}
-		res, _ := ReadPlainBYTE_ARRAY(bytes.NewReader(buf), uint64(len(data)))
-		if fmt.Sprintf("%v", data) != fmt.Sprintf("%v", res) {
-			t.Errorf("ReadPlainBYTE_ARRAY err, %v", data)
-		}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			reader := bytes.NewReader(testCase.inputBytes)
+			result, err := ReadPlainINT64(reader, uint64(len(testCase.expected)))
+			if err != nil {
+				t.Fatalf("ReadPlainINT64 failed: %v", err)
+			}
+
+			if len(result) != len(testCase.expected) {
+				t.Errorf("Length mismatch: expected %d, got %d", len(testCase.expected), len(result))
+			}
+
+			for i, expected := range testCase.expected {
+				if i < len(result) && result[i] != expected {
+					t.Errorf("Value mismatch at index %d: expected %v, got %v", i, expected, result[i])
+				}
+			}
+		})
 	}
 }
 
-func TestReadPlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
+func Test_ReadPlainBYTE_ARRAY(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input []any
+	}{
+		{
+			name:  "two-string-values",
+			input: []any{"hello", "world"},
+		},
+		{
+			name:  "mixed-empty-and-single-char",
+			input: []any{"good", "", "a", "b"},
+		},
+		{
+			name:  "empty-input",
+			input: []any{},
+		},
+		{
+			name:  "single-string",
+			input: []any{"test"},
+		},
+		{
+			name:  "long-strings",
+			input: []any{"this is a longer string", "another long string with more characters"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Write data to buffer
+			buf, err := WritePlainBYTE_ARRAY(testCase.input)
+			if err != nil {
+				t.Fatalf("WritePlainBYTE_ARRAY failed: %v", err)
+			}
+
+			// Read data back from buffer
+			result, err := ReadPlainBYTE_ARRAY(bytes.NewReader(buf), uint64(len(testCase.input)))
+			if err != nil {
+				t.Fatalf("ReadPlainBYTE_ARRAY failed: %v", err)
+			}
+
+			// Compare results
+			if len(result) != len(testCase.input) {
+				t.Errorf("Length mismatch: expected %d, got %d", len(testCase.input), len(result))
+			}
+
+			for i, expected := range testCase.input {
+				if i < len(result) && result[i] != expected {
+					t.Errorf("Value mismatch at index %d: expected %v, got %v", i, expected, result[i])
+				}
+			}
+		})
+	}
+}
+
+func Test_ReadPlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
 	testData := [][]any{
 		{("hello"), ("world")},
 		{("a"), ("b"), ("c"), ("d")},
@@ -107,7 +253,7 @@ func TestReadPlainFIXED_LEN_BYTE_ARRAY(t *testing.T) {
 	}
 }
 
-func TestReadPlainFLOAT(t *testing.T) {
+func Test_ReadPlainFLOAT(t *testing.T) {
 	testData := [][]any{
 		{float32(0), float32(1), float32(2)},
 		{float32(0), float32(0.1), float32(0.2)},
@@ -126,7 +272,7 @@ func TestReadPlainFLOAT(t *testing.T) {
 	}
 }
 
-func TestReadPlainDOUBLE(t *testing.T) {
+func Test_ReadPlainDOUBLE(t *testing.T) {
 	testData := [][]any{
 		{float64(0), float64(1), float64(2)},
 		{float64(0), float64(0), float64(0)},
@@ -145,7 +291,7 @@ func TestReadPlainDOUBLE(t *testing.T) {
 	}
 }
 
-func TestReadUnsignedVarInt(t *testing.T) {
+func Test_ReadUnsignedVarInt(t *testing.T) {
 	i32 := int32(-1570499385)
 
 	testData := []uint64{1, 2, 3, 11, 1570499385, uint64(i32), 111, 222, 333, 0}
@@ -157,7 +303,7 @@ func TestReadUnsignedVarInt(t *testing.T) {
 	}
 }
 
-func TestReadRLEBitPackedHybrid(t *testing.T) {
+func Test_ReadRLEBitPackedHybrid(t *testing.T) {
 	testData := [][]any{
 		{int64(1), int64(2), int64(3), int64(4)},
 		{int64(0), int64(0), int64(0), int64(0), int64(0)},
@@ -176,7 +322,7 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 	}
 }
 
-func TestReadDeltaBinaryPackedINT(t *testing.T) {
+func Test_ReadDeltaBinaryPackedINT(t *testing.T) {
 	testData := [][]any{
 		{int64(1), int64(2), int64(3), int64(4)},
 		{int64(math.MaxInt64), int64(math.MinInt64), int64(-15654523568543623), int64(4354365463543632), int64(0)},
@@ -195,7 +341,7 @@ func TestReadDeltaBinaryPackedINT(t *testing.T) {
 	}
 }
 
-func TestReadDeltaINT32(t *testing.T) {
+func Test_ReadDeltaINT32(t *testing.T) {
 	bInt32 := func(n int32) string { return strconv.FormatUint(uint64(*(*uint32)(unsafe.Pointer(&n))), 2) }
 	buInt64 := func(n uint64) string { return strconv.FormatUint(n, 2) }
 	testData := []int32{1, -1570499385, 3, -11, 1570499385, 111, 222, 333, 0}
@@ -216,7 +362,7 @@ func TestReadDeltaINT32(t *testing.T) {
 	}
 }
 
-func TestReadDeltaBinaryPackedINT32(t *testing.T) {
+func Test_ReadDeltaBinaryPackedINT32(t *testing.T) {
 	testData := [][]any{
 		{int32(1), int32(2), int32(3), int32(4)},
 		{int32(-1570499385), int32(-1570499385), int32(-1570499386), int32(-1570499388), int32(-1570499385)},
@@ -235,7 +381,7 @@ func TestReadDeltaBinaryPackedINT32(t *testing.T) {
 	}
 }
 
-func TestReadDeltaByteArray(t *testing.T) {
+func Test_ReadDeltaByteArray(t *testing.T) {
 	testData := [][]any{
 		{"Hello", "world"},
 	}
@@ -247,7 +393,7 @@ func TestReadDeltaByteArray(t *testing.T) {
 	}
 }
 
-func TestReadLengthDeltaByteArray(t *testing.T) {
+func Test_ReadLengthDeltaByteArray(t *testing.T) {
 	testData := [][]any{
 		{"Hello", "world"},
 	}
@@ -259,7 +405,7 @@ func TestReadLengthDeltaByteArray(t *testing.T) {
 	}
 }
 
-func TestReadBitPacked(t *testing.T) {
+func Test_ReadBitPacked(t *testing.T) {
 	testData := [][]any{
 		{1, 2, 3, 4, 5, 6, 7, 8},
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},

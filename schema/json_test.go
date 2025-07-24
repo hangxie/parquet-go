@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestNewSchemaHandlerFromJSON(t *testing.T) {
+func Test_NewSchemaHandlerFromJSON(t *testing.T) {
 	var jsonSchema string = `
 	{
 	  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
@@ -26,7 +26,7 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 	}
 }
 
-func TestNewSchemaHandlerFromImproperJSON(t *testing.T) {
+func Test_NewSchemaHandlerFromImproperJSON(t *testing.T) {
 	var improperJsonSchema string = `
 	{
 	  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
@@ -43,7 +43,7 @@ func TestNewSchemaHandlerFromImproperJSON(t *testing.T) {
 	}
 }
 
-func TestNewSchemaHandlerFromImproperJSON_MAP(t *testing.T) {
+func Test_NewSchemaHandlerFromImproperJSON_MAP(t *testing.T) {
 	var improperJsonSchema string = `
 	{
 	  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
@@ -63,7 +63,7 @@ func TestNewSchemaHandlerFromImproperJSON_MAP(t *testing.T) {
 	}
 }
 
-func TestNewSchemaHandlerFromImproperJSON_LIST(t *testing.T) {
+func Test_NewSchemaHandlerFromImproperJSON_LIST(t *testing.T) {
 	var improperJsonSchema string = `
 	{
 	  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",

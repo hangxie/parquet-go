@@ -9,41 +9,73 @@ import (
 )
 
 func Test_Uncompress(t *testing.T) {
-	testCases := map[string]struct {
-		codec      parquet.CompressionCodec
-		compressed []byte
-		expected   []byte
-		errMsg     string
+	testCases := []struct {
+		name             string
+		codec            parquet.CompressionCodec
+		compressedData   []byte
+		expectedData     []byte
+		expectedErrorMsg string
 	}{
-		"good":      {parquet.CompressionCodec_SNAPPY, []byte{3, 8, 1, 2, 3}, []byte{1, 2, 3}, ""},
-		"bad-input": {parquet.CompressionCodec_SNAPPY, []byte{1, 2, 3}, nil, "corrupt input"},
-		"bad-codec": {parquet.CompressionCodec(-1), []byte{1, 2, 3}, nil, "unsupported compress method"},
+		{
+			name:           "successful-snappy-decompression",
+			codec:          parquet.CompressionCodec_SNAPPY,
+			compressedData: []byte{3, 8, 1, 2, 3},
+			expectedData:   []byte{1, 2, 3},
+		},
+		{
+			name:             "corrupt-snappy-input",
+			codec:            parquet.CompressionCodec_SNAPPY,
+			compressedData:   []byte{1, 2, 3},
+			expectedData:     nil,
+			expectedErrorMsg: "corrupt input",
+		},
+		{
+			name:             "unsupported-compression-codec",
+			codec:            parquet.CompressionCodec(-1),
+			compressedData:   []byte{1, 2, 3},
+			expectedData:     nil,
+			expectedErrorMsg: "unsupported compress method",
+		},
 	}
 
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			res, err := Uncompress(tc.compressed, tc.codec)
-			if err == nil && tc.errMsg == "" {
-				require.Equal(t, tc.expected, res)
-			} else if err == nil || tc.errMsg == "" {
-				require.EqualError(t, err, tc.errMsg)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			actualData, err := Uncompress(testCase.compressedData, testCase.codec)
+
+			if testCase.expectedErrorMsg == "" {
+				// Expecting success
+				require.NoError(t, err, "Uncompress should succeed")
+				require.Equal(t, testCase.expectedData, actualData, "Decompressed data should match expected")
 			} else {
-				require.Contains(t, err.Error(), tc.errMsg)
+				// Expecting error
+				require.Error(t, err, "Uncompress should fail")
+				require.Contains(t, err.Error(), testCase.expectedErrorMsg, "Error message should contain expected text")
+				require.Equal(t, testCase.expectedData, actualData, "Data should match expected (likely nil)")
 			}
 		})
 	}
 }
 
 func Test_Compress(t *testing.T) {
-	testCases := map[string]struct {
-		codec    parquet.CompressionCodec
-		raw      []byte
-		expected []byte
-	}{}
+	testCases := []struct {
+		name         string
+		codec        parquet.CompressionCodec
+		rawData      []byte
+		expectedData []byte
+	}{
+		// Note: Test cases are currently empty in the original implementation
+		// This structure is prepared for future test cases
+	}
 
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, Compress(tc.raw, tc.codec))
+	if len(testCases) == 0 {
+		t.Skip("No test cases defined for Compress function yet")
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			actualCompressedData := Compress(testCase.rawData, testCase.codec)
+			require.Equal(t, testCase.expectedData, actualCompressedData,
+				"Compressed data should match expected output")
 		})
 	}
 }
