@@ -5,6 +5,7 @@ import (
 	"math/bits"
 	"testing"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
@@ -170,12 +171,12 @@ func Test_WritePlainINT96(t *testing.T) {
 		expected []byte
 	}{
 		{[]any{}, []byte{}},
-		{[]any{string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{[]any{common.ByteArray([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{
 			[]any{
-				string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
-				string([]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
-				string([]byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
+				common.ByteArray([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
+				common.ByteArray([]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
+				common.ByteArray([]byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
 			},
 
 			[]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
