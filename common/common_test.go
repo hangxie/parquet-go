@@ -8,6 +8,54 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
+func Test_DeepCopy(t *testing.T) {
+	testCases := map[string]struct {
+		src      Tag
+		expected Tag
+	}{
+		"empty": {Tag{}, Tag{}},
+		"with-logicaltype": {
+			Tag{
+				InName: "inname",
+				ExName: "exname",
+				fieldAttr: fieldAttr{
+					Type:              "BOOLEAN",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
+				},
+				Key: fieldAttr{
+					Type:              "BYTE_ARRAY",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
+				},
+				Value: fieldAttr{
+					Type:              "INT32",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
+				},
+			},
+			Tag{
+				InName: "inname",
+				ExName: "exname",
+				fieldAttr: fieldAttr{
+					Type: "BOOLEAN",
+				},
+				Key: fieldAttr{
+					Type: "BYTE_ARRAY",
+				},
+				Value: fieldAttr{
+					Type: "INT32",
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			dst := NewTag()
+			DeepCopy(&tc.src, dst)
+			require.Equal(t, tc.expected, *dst)
+		})
+	}
+}
+
 func Test_FieldAttr_Update(t *testing.T) {
 	testCases := map[string]struct {
 		key, val string
@@ -40,52 +88,94 @@ func Test_FieldAttr_Update(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			actual := fieldAttr{}
 			err := actual.update(tc.key, tc.val)
-			if err == nil && tc.errMsg == "" {
+			if tc.errMsg == "" {
+				require.NoError(t, err)
 				require.Equal(t, tc.expected, actual)
-			} else if err == nil || tc.errMsg == "" {
-				t.Errorf("expected [%s], got [%v]", tc.errMsg, err)
 			} else {
+				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			}
 		})
 	}
 }
 
-func Test_NewTag(t *testing.T) {
-	actual := NewTag()
-	require.NotNil(t, actual)
-	require.Equal(t, Tag{}, *actual)
-}
-
-func Test_StringToTag(t *testing.T) {
+func Test_GetKeyTagMap(t *testing.T) {
 	testCases := map[string]struct {
-		tag      string
+		src      Tag
 		expected Tag
-		errMsg   string
 	}{
-		"missing=":         {" name ", Tag{}, "expect 'key=value' but got"},
-		"name-only":        {"NAME = John", Tag{InName: "John", ExName: "John"}, ""},
-		"inname-only":      {" inname = John ", Tag{InName: "John"}, ""},
-		"name-then-inname": {" name=John,inname = Jane ", Tag{InName: "Jane", ExName: "John"}, ""},
-		"inname-then-name": {" inname=John,name = Jane ", Tag{InName: "John", ExName: "Jane"}, ""},
-		"tag-good":         {"type=BYTE_ARRAY,convertedtype=UTF8", Tag{fieldAttr: fieldAttr{Type: "BYTE_ARRAY", convertedType: "UTF8"}}, ""},
-		"tag-bad":          {"foo=bar", Tag{}, "failed to parse tag"},
-		"key-good":         {"keytype=INT32,KeyConvertedtype=TIME", Tag{Key: fieldAttr{Type: "INT32", convertedType: "TIME"}}, ""},
-		"key-bad":          {"keyfoo=bar", Tag{}, "failed to parse tag"},
-		"value-good":       {"valuetype=INT32, valuerepetitiontype=REPEATED", Tag{Value: fieldAttr{Type: "INT32", RepetitionType: parquet.FieldRepetitionType_REPEATED}}, ""},
-		"value-bad":        {"valuefoo=bar", Tag{}, "failed to parse tag"},
+		"empty": {Tag{}, Tag{InName: "Key", ExName: "key"}},
+		"with-logicaltype": {
+			Tag{
+				Key: fieldAttr{
+					Type:              "UNT32",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
+				},
+			},
+			Tag{
+				InName: "Key",
+				ExName: "key",
+				fieldAttr: fieldAttr{
+					Type: "UNT32",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			actual, err := StringToTag(tc.tag)
-			if err == nil && tc.errMsg == "" {
-				require.Equal(t, tc.expected, *actual)
-			} else if err == nil || tc.errMsg == "" {
-				t.Errorf("expected [%s], got [%v]", tc.errMsg, err)
-			} else {
-				require.Contains(t, err.Error(), tc.errMsg)
-			}
+			dst := GetKeyTagMap(&tc.src)
+			require.Equal(t, tc.expected, *dst)
+		})
+	}
+}
+
+func Test_GetValueTagMap(t *testing.T) {
+	testCases := map[string]struct {
+		src      Tag
+		expected Tag
+	}{
+		"empty": {Tag{}, Tag{InName: "Value", ExName: "value"}},
+		"with-logicaltype": {
+			Tag{
+				Value: fieldAttr{
+					Type:              "UNT32",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
+				},
+			},
+			Tag{
+				InName: "Value",
+				ExName: "value",
+				fieldAttr: fieldAttr{
+					Type: "UNT32",
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			dst := GetValueTagMap(&tc.src)
+			require.Equal(t, tc.expected, *dst)
+		})
+	}
+}
+
+func Test_IsChildPath(t *testing.T) {
+	testCases := map[string]struct {
+		parent   string
+		child    string
+		expected bool
+	}{
+		"test-case-1": {"a\x01b\x01c", "a\x01b\x01c", true},
+		"test-case-2": {"a\x01b", "a\x01b\x01c", true},
+		"test-case-3": {"a\x01b\x01", "a\x01b\x01c", false},
+		"test-case-4": {"x\x01b\x01c", "a\x01b\x01c", false},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.expected, IsChildPath(tc.parent, tc.child))
 		})
 	}
 }
@@ -136,167 +226,189 @@ func Test_NewSchemaElementFromTagMap(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			actual, err := NewSchemaElementFromTagMap(&tc.tag)
-			if err == nil && tc.errMsg == "" {
+			if tc.errMsg == "" {
+				require.NoError(t, err)
 				require.Equal(t, tc.expected, *actual)
-			} else if err == nil || tc.errMsg == "" {
-				t.Errorf("expected [%s], got [%v]", tc.errMsg, err)
 			} else {
+				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			}
 		})
 	}
 }
 
-func Test_newTimeUnitFromString(t *testing.T) {
+func Test_NewTag(t *testing.T) {
+	actual := NewTag()
+	require.NotNil(t, actual)
+	require.Equal(t, Tag{}, *actual)
+}
+
+func Test_PathStrIndex(t *testing.T) {
 	testCases := map[string]struct {
-		unit     string
-		expected parquet.TimeUnit
-		errMsg   string
+		path     string
+		expected int
 	}{
-		"MILLIS": {"MILLIS", parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}, ""},
-		"MICROS": {"MICROS", parquet.TimeUnit{MICROS: parquet.NewMicroSeconds()}, ""},
-		"NANOS":  {"NANOS", parquet.TimeUnit{NANOS: parquet.NewNanoSeconds()}, ""},
-		"foobar": {"foobar", parquet.TimeUnit{}, "logicaltype time error, unknown unit:"},
+		"test-case-1": {"a\x01b\x01c", 3},
+		"test-case-2": {"a\x01\x01c", 3},
+		"test-case-3": {"", 1},
+		"test-case-4": {"abc", 1},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			actual, err := newTimeUnitFromString(tc.unit)
-			if err == nil && tc.errMsg == "" {
+			require.Equal(t, tc.expected, PathStrIndex(tc.path))
+		})
+	}
+}
+
+func Test_PathToStr(t *testing.T) {
+	testCases := map[string]struct {
+		path     []string
+		expected string
+	}{
+		"test-case-1": {[]string{"a", "b", "c"}, "a\x01b\x01c"},
+		"test-case-2": {[]string{"a", "", "c"}, "a\x01\x01c"},
+		"test-case-3": {[]string{}, ""},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.expected, PathToStr(tc.path))
+		})
+	}
+}
+
+func Test_ReformPathStr(t *testing.T) {
+	testCases := map[string]struct {
+		path     string
+		expected string
+	}{
+		"test-case-1": {"a.b.c", "a\x01b\x01c"},
+		"test-case-2": {"a..c", "a\x01\x01c"},
+		"test-case-3": {"", ""},
+		"test-case-4": {"abc", "abc"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.expected, ReformPathStr(tc.path))
+		})
+	}
+}
+
+func Test_StrToPath(t *testing.T) {
+	testCases := map[string]struct {
+		str      string
+		expected []string
+	}{
+		"test-case-1": {"a\x01b\x01c", []string{"a", "b", "c"}},
+		"test-case-2": {"a\x01\x01c", []string{"a", "", "c"}},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.expected, StrToPath(tc.str))
+		})
+	}
+}
+
+func Test_StringToTag(t *testing.T) {
+	testCases := map[string]struct {
+		tag      string
+		expected Tag
+		errMsg   string
+	}{
+		"missing=":         {" name ", Tag{}, "expect 'key=value' but got"},
+		"name-only":        {"NAME = John", Tag{InName: "John", ExName: "John"}, ""},
+		"inname-only":      {" inname = John ", Tag{InName: "John"}, ""},
+		"name-then-inname": {" name=John,inname = Jane ", Tag{InName: "Jane", ExName: "John"}, ""},
+		"inname-then-name": {" inname=John,name = Jane ", Tag{InName: "John", ExName: "Jane"}, ""},
+		"tag-good":         {"type=BYTE_ARRAY,convertedtype=UTF8", Tag{fieldAttr: fieldAttr{Type: "BYTE_ARRAY", convertedType: "UTF8"}}, ""},
+		"tag-bad":          {"foo=bar", Tag{}, "failed to parse tag"},
+		"key-good":         {"keytype=INT32,KeyConvertedtype=TIME", Tag{Key: fieldAttr{Type: "INT32", convertedType: "TIME"}}, ""},
+		"key-bad":          {"keyfoo=bar", Tag{}, "failed to parse tag"},
+		"value-good":       {"valuetype=INT32, valuerepetitiontype=REPEATED", Tag{Value: fieldAttr{Type: "INT32", RepetitionType: parquet.FieldRepetitionType_REPEATED}}, ""},
+		"value-bad":        {"valuefoo=bar", Tag{}, "failed to parse tag"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			actual, err := StringToTag(tc.tag)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
 				require.Equal(t, tc.expected, *actual)
-			} else if err == nil || tc.errMsg == "" {
-				t.Errorf("expected [%s], got [%v]", tc.errMsg, err)
 			} else {
+				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			}
 		})
 	}
 }
 
-func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
+func Test_StringToVariableName(t *testing.T) {
 	testCases := map[string]struct {
-		fields   map[string]string
-		expected parquet.LogicalType
-		errMsg   string
+		str      string
+		expected string
 	}{
-		"missing-logicaltype": {map[string]string{}, parquet.LogicalType{}, "does not have logicaltype"},
-		"string": {
-			map[string]string{"logicaltype": "STRING"},
-			parquet.LogicalType{STRING: &parquet.StringType{}},
-			"",
-		},
-		"list": {
-			map[string]string{"logicaltype": "LIST"},
-			parquet.LogicalType{LIST: &parquet.ListType{}},
-			"",
-		},
-		"map": {
-			map[string]string{"logicaltype": "MAP"},
-			parquet.LogicalType{MAP: &parquet.MapType{}},
-			"",
-		},
-		"enum": {
-			map[string]string{"logicaltype": "ENUM"},
-			parquet.LogicalType{ENUM: &parquet.EnumType{}},
-			"",
-		},
-		"date": {
-			map[string]string{"logicaltype": "DATE"},
-			parquet.LogicalType{DATE: &parquet.DateType{}},
-			"",
-		},
-		"json": {
-			map[string]string{"logicaltype": "JSON"},
-			parquet.LogicalType{JSON: &parquet.JsonType{}},
-			"",
-		},
-		"bson": {
-			map[string]string{"logicaltype": "BSON"},
-			parquet.LogicalType{BSON: &parquet.BsonType{}},
-			"",
-		},
-		"uuid": {
-			map[string]string{"logicaltype": "UUID"},
-			parquet.LogicalType{UUID: &parquet.UUIDType{}},
-			"",
-		},
-		"decimal-bad-precision": {
-			map[string]string{"logicaltype": "DECIMAL"},
-			parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
-			"cannot parse logicaltype.precision as int32",
-		},
-		"decimal-bad-scale": {
-			map[string]string{"logicaltype": "DECIMAL", "logicaltype.precision": "10"},
-			parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
-			"cannot parse logicaltype.scale as int32",
-		},
-		"decimal-good": {
-			map[string]string{"logicaltype": "DECIMAL", "logicaltype.precision": "10", "logicaltype.scale": "2"},
-			parquet.LogicalType{DECIMAL: &parquet.DecimalType{Precision: 10, Scale: 2}},
-			"",
-		},
-		"time-bad-adjustutc": {
-			map[string]string{"logicaltype": "TIME"},
-			parquet.LogicalType{TIME: &parquet.TimeType{}},
-			"cannot parse logicaltype.isadjustedtoutc as bool",
-		},
-		"time-bad-unit": {
-			map[string]string{"logicaltype": "TIME", "logicaltype.isadjustedtoutc": "true"},
-			parquet.LogicalType{TIME: &parquet.TimeType{}},
-			"logicaltype time error, unknown unit:",
-		},
-		"time-good": {
-			map[string]string{"logicaltype": "TIME", "logicaltype.isadjustedtoutc": "true", "logicaltype.unit": "MILLIS"},
-			parquet.LogicalType{TIME: &parquet.TimeType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}}},
-			"",
-		},
-		"timestamp-bad-adjustutc": {
-			map[string]string{"logicaltype": "TIMESTAMP"},
-			parquet.LogicalType{TIME: &parquet.TimeType{}},
-			"cannot parse logicaltype.isadjustedtoutc as bool",
-		},
-		"timestamp-bad-unit": {
-			map[string]string{"logicaltype": "TIMESTAMP", "logicaltype.isadjustedtoutc": "true"},
-			parquet.LogicalType{TIME: &parquet.TimeType{}},
-			"logicaltype time error, unknown unit:",
-		},
-		"timestamp-good": {
-			map[string]string{"logicaltype": "TIMESTAMP", "logicaltype.isadjustedtoutc": "true", "logicaltype.unit": "MILLIS"},
-			parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}}},
-			"",
-		},
-		"integer-bad-bitwidth": {
-			map[string]string{"logicaltype": "INTEGER"},
-			parquet.LogicalType{INTEGER: &parquet.IntType{}},
-			"cannot parse logicaltype.bitwidth as int32",
-		},
-		"integer-bad-signed": {
-			map[string]string{"logicaltype": "INTEGER", "logicaltype.bitwidth": "64"},
-			parquet.LogicalType{INTEGER: &parquet.IntType{}},
-			"cannot parse logicaltype.issigned as boolean:",
-		},
-		"integer-good": {
-			map[string]string{"logicaltype": "INTEGER", "logicaltype.bitwidth": "64", "logicaltype.issigned": "true"},
-			parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 64, IsSigned: true}},
-			"",
-		},
-		"bad-logicaltype": {
-			map[string]string{"logicaltype": "foobar"},
-			parquet.LogicalType{STRING: &parquet.StringType{}},
-			"unknown logicaltype:",
+		"empty":        {"", ""},
+		"invalid-char": {"!@#", "PARGO_PREFIX_336435"},
+		"no-change":    {"Name", "Name"},
+		"title":        {"name", "Name"},
+		"prefix":       {"12", "PARGO_PREFIX_12"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			varName := StringToVariableName(tc.str)
+			require.Equal(t, tc.expected, varName)
+		})
+	}
+}
+
+func Test_ToPtr(t *testing.T) {
+	testCases := map[string]struct {
+		val any
+	}{
+		"bool":    {true},
+		"int32":   {int32(1)},
+		"int64":   {int64(1)},
+		"string":  {"012345678901"},
+		"float32": {float32(0.1)},
+		"float64": {float64(0.1)},
+		"slice":   {[]int32{1, 2, 3}},
+		"map":     {map[string]int32{"a": 1, "b": 2, "c": 3}},
+		"struct": {
+			struct {
+				id   uint64
+				name string
+			}{123, "abc"},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			actual, err := newLogicalTypeFromFieldsMap(tc.fields)
-			if err == nil && tc.errMsg == "" {
-				require.Equal(t, tc.expected, *actual)
-			} else if err == nil || tc.errMsg == "" {
-				t.Errorf("expected [%s], got [%v]", tc.errMsg, err)
-			} else {
-				require.Contains(t, err.Error(), tc.errMsg)
-			}
+			ptr := ToPtr(tc.val)
+			require.NotNil(t, ptr)
+			require.Equal(t, tc.val, *ptr)
+		})
+	}
+}
+
+func Test_headToUpper(t *testing.T) {
+	testCases := map[string]struct {
+		str      string
+		expected string
+	}{
+		"empty":          {"", ""},
+		"lowercase":      {"hello", "Hello"},
+		"uppercase":      {"HeHH", "HeHH"},
+		"not-alphabetic": {"123", "PARGO_PREFIX_123"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			actual := headToUpper(tc.str)
+			require.Equal(t, tc.expected, actual)
 		})
 	}
 }
@@ -423,173 +535,154 @@ func Test_newLogicalTypeFromConvertedType(t *testing.T) {
 	}
 }
 
-func Test_DeepCopy(t *testing.T) {
+func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
 	testCases := map[string]struct {
-		src      Tag
-		expected Tag
-	}{
-		"empty": {Tag{}, Tag{}},
-		"with-logicaltype": {
-			Tag{
-				InName: "inname",
-				ExName: "exname",
-				fieldAttr: fieldAttr{
-					Type:              "BOOLEAN",
-					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
-				},
-				Key: fieldAttr{
-					Type:              "BYTE_ARRAY",
-					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
-				},
-				Value: fieldAttr{
-					Type:              "INT32",
-					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
-				},
-			},
-			Tag{
-				InName: "inname",
-				ExName: "exname",
-				fieldAttr: fieldAttr{
-					Type: "BOOLEAN",
-				},
-				Key: fieldAttr{
-					Type: "BYTE_ARRAY",
-				},
-				Value: fieldAttr{
-					Type: "INT32",
-				},
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			dst := NewTag()
-			DeepCopy(&tc.src, dst)
-			require.Equal(t, tc.expected, *dst)
-		})
-	}
-}
-
-func Test_GetKeyTagMap(t *testing.T) {
-	testCases := map[string]struct {
-		src      Tag
-		expected Tag
-	}{
-		"empty": {Tag{}, Tag{InName: "Key", ExName: "key"}},
-		"with-logicaltype": {
-			Tag{
-				Key: fieldAttr{
-					Type:              "UNT32",
-					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
-				},
-			},
-			Tag{
-				InName: "Key",
-				ExName: "key",
-				fieldAttr: fieldAttr{
-					Type: "UNT32",
-				},
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			dst := GetKeyTagMap(&tc.src)
-			require.Equal(t, tc.expected, *dst)
-		})
-	}
-}
-
-func Test_GetValueTagMap(t *testing.T) {
-	testCases := map[string]struct {
-		src      Tag
-		expected Tag
-	}{
-		"empty": {Tag{}, Tag{InName: "Value", ExName: "value"}},
-		"with-logicaltype": {
-			Tag{
-				Value: fieldAttr{
-					Type:              "UNT32",
-					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
-				},
-			},
-			Tag{
-				InName: "Value",
-				ExName: "value",
-				fieldAttr: fieldAttr{
-					Type: "UNT32",
-				},
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			dst := GetValueTagMap(&tc.src)
-			require.Equal(t, tc.expected, *dst)
-		})
-	}
-}
-
-func Test_StringToVariableName(t *testing.T) {
-	testCases := map[string]struct {
-		str      string
-		expected string
-	}{
-		"empty":        {"", ""},
-		"invalid-char": {"!@#", "PARGO_PREFIX_336435"},
-		"no-change":    {"Name", "Name"},
-		"title":        {"name", "Name"},
-		"prefix":       {"12", "PARGO_PREFIX_12"},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			varName := StringToVariableName(tc.str)
-			require.Equal(t, tc.expected, varName)
-		})
-	}
-}
-
-func Test_headToUpper(t *testing.T) {
-	testCases := map[string]struct {
-		str      string
-		expected string
-	}{
-		"empty":          {"", ""},
-		"lowercase":      {"hello", "Hello"},
-		"uppercase":      {"HeHH", "HeHH"},
-		"not-alphabetic": {"123", "PARGO_PREFIX_123"},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			actual := headToUpper(tc.str)
-			require.Equal(t, tc.expected, actual)
-		})
-	}
-}
-
-func Test_str2Int32(t *testing.T) {
-	testCases := map[string]struct {
-		str      string
-		expected int32
+		fields   map[string]string
+		expected parquet.LogicalType
 		errMsg   string
 	}{
-		"bad":  {"abc", 0, "strconv.Atoi: parsing"},
-		"good": {"123", 123, ""},
+		"missing-logicaltype": {map[string]string{}, parquet.LogicalType{}, "does not have logicaltype"},
+		"string": {
+			map[string]string{"logicaltype": "STRING"},
+			parquet.LogicalType{STRING: &parquet.StringType{}},
+			"",
+		},
+		"list": {
+			map[string]string{"logicaltype": "LIST"},
+			parquet.LogicalType{LIST: &parquet.ListType{}},
+			"",
+		},
+		"map": {
+			map[string]string{"logicaltype": "MAP"},
+			parquet.LogicalType{MAP: &parquet.MapType{}},
+			"",
+		},
+		"enum": {
+			map[string]string{"logicaltype": "ENUM"},
+			parquet.LogicalType{ENUM: &parquet.EnumType{}},
+			"",
+		},
+		"date": {
+			map[string]string{"logicaltype": "DATE"},
+			parquet.LogicalType{DATE: &parquet.DateType{}},
+			"",
+		},
+		"json": {
+			map[string]string{"logicaltype": "JSON"},
+			parquet.LogicalType{JSON: &parquet.JsonType{}},
+			"",
+		},
+		"bson": {
+			map[string]string{"logicaltype": "BSON"},
+			parquet.LogicalType{BSON: &parquet.BsonType{}},
+			"",
+		},
+		"uuid": {
+			map[string]string{"logicaltype": "UUID"},
+			parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			"",
+		},
+		"decimal-bad-precision": {
+			map[string]string{"logicaltype": "DECIMAL"},
+			parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
+			"cannot parse logicaltype.precision as int32",
+		},
+		"decimal-bad-scale": {
+			map[string]string{"logicaltype": "DECIMAL", "logicaltype.precision": "10"},
+			parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
+			"cannot parse logicaltype.scale as int32",
+		},
+		"decimal-good": {
+			map[string]string{"logicaltype": "DECIMAL", "logicaltype.precision": "10", "logicaltype.scale": "2"},
+			parquet.LogicalType{DECIMAL: &parquet.DecimalType{Precision: 10, Scale: 2}},
+			"",
+		},
+		"time-bad-adjustutc": {
+			map[string]string{"logicaltype": "TIME"},
+			parquet.LogicalType{TIME: &parquet.TimeType{}},
+			"cannot parse logicaltype.isadjustedtoutc as bool",
+		},
+		"time-bad-unit": {
+			map[string]string{"logicaltype": "TIME", "logicaltype.isadjustedtoutc": "true"},
+			parquet.LogicalType{TIME: &parquet.TimeType{}},
+			"logicaltype time error, unknown unit:",
+		},
+		"time-good": {
+			map[string]string{"logicaltype": "TIME", "logicaltype.isadjustedtoutc": "true", "logicaltype.unit": "MILLIS"},
+			parquet.LogicalType{TIME: &parquet.TimeType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}}},
+			"",
+		},
+		"timestamp-bad-adjustutc": {
+			map[string]string{"logicaltype": "TIMESTAMP"},
+			parquet.LogicalType{TIME: &parquet.TimeType{}},
+			"cannot parse logicaltype.isadjustedtoutc as bool",
+		},
+		"timestamp-bad-unit": {
+			map[string]string{"logicaltype": "TIMESTAMP", "logicaltype.isadjustedtoutc": "true"},
+			parquet.LogicalType{TIME: &parquet.TimeType{}},
+			"logicaltype time error, unknown unit:",
+		},
+		"timestamp-good": {
+			map[string]string{"logicaltype": "TIMESTAMP", "logicaltype.isadjustedtoutc": "true", "logicaltype.unit": "MILLIS"},
+			parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}}},
+			"",
+		},
+		"integer-bad-bitwidth": {
+			map[string]string{"logicaltype": "INTEGER"},
+			parquet.LogicalType{INTEGER: &parquet.IntType{}},
+			"cannot parse logicaltype.bitwidth as int32",
+		},
+		"integer-bad-signed": {
+			map[string]string{"logicaltype": "INTEGER", "logicaltype.bitwidth": "64"},
+			parquet.LogicalType{INTEGER: &parquet.IntType{}},
+			"cannot parse logicaltype.issigned as boolean:",
+		},
+		"integer-good": {
+			map[string]string{"logicaltype": "INTEGER", "logicaltype.bitwidth": "64", "logicaltype.issigned": "true"},
+			parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 64, IsSigned: true}},
+			"",
+		},
+		"bad-logicaltype": {
+			map[string]string{"logicaltype": "foobar"},
+			parquet.LogicalType{STRING: &parquet.StringType{}},
+			"unknown logicaltype:",
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			actual, err := str2Int32(tc.str)
-			if err == nil && tc.errMsg == "" {
-				require.Equal(t, tc.expected, actual)
-			} else if err == nil || tc.errMsg == "" {
-				t.Errorf("expected [%s], got [%v]", tc.errMsg, err)
+			actual, err := newLogicalTypeFromFieldsMap(tc.fields)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+				require.Equal(t, tc.expected, *actual)
 			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+			}
+		})
+	}
+}
+
+func Test_newTimeUnitFromString(t *testing.T) {
+	testCases := map[string]struct {
+		unit     string
+		expected parquet.TimeUnit
+		errMsg   string
+	}{
+		"MILLIS": {"MILLIS", parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}, ""},
+		"MICROS": {"MICROS", parquet.TimeUnit{MICROS: parquet.NewMicroSeconds()}, ""},
+		"NANOS":  {"NANOS", parquet.TimeUnit{NANOS: parquet.NewNanoSeconds()}, ""},
+		"foobar": {"foobar", parquet.TimeUnit{}, "logicaltype time error, unknown unit:"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			actual, err := newTimeUnitFromString(tc.unit)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+				require.Equal(t, tc.expected, *actual)
+			} else {
+				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			}
 		})
@@ -609,130 +702,37 @@ func Test_str2Bool(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			actual, err := str2Bool(tc.str)
-			if err == nil && tc.errMsg == "" {
+			if tc.errMsg == "" {
+				require.NoError(t, err)
 				require.Equal(t, tc.expected, actual)
-			} else if err == nil || tc.errMsg == "" {
-				t.Errorf("expected [%s], got [%v]", tc.errMsg, err)
 			} else {
+				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			}
 		})
 	}
 }
 
-func Test_ReformPathStr(t *testing.T) {
-	testCases := map[string]struct {
-		path     string
-		expected string
-	}{
-		"test-case-1": {"a.b.c", "a\x01b\x01c"},
-		"test-case-2": {"a..c", "a\x01\x01c"},
-		"test-case-3": {"", ""},
-		"test-case-4": {"abc", "abc"},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, ReformPathStr(tc.path))
-		})
-	}
-}
-
-func Test_PathToStr(t *testing.T) {
-	testCases := map[string]struct {
-		path     []string
-		expected string
-	}{
-		"test-case-1": {[]string{"a", "b", "c"}, "a\x01b\x01c"},
-		"test-case-2": {[]string{"a", "", "c"}, "a\x01\x01c"},
-		"test-case-3": {[]string{}, ""},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, PathToStr(tc.path))
-		})
-	}
-}
-
-func Test_StrToPath(t *testing.T) {
+func Test_str2Int32(t *testing.T) {
 	testCases := map[string]struct {
 		str      string
-		expected []string
+		expected int32
+		errMsg   string
 	}{
-		"test-case-1": {"a\x01b\x01c", []string{"a", "b", "c"}},
-		"test-case-2": {"a\x01\x01c", []string{"a", "", "c"}},
+		"bad":  {"abc", 0, "strconv.Atoi: parsing"},
+		"good": {"123", 123, ""},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, StrToPath(tc.str))
-		})
-	}
-}
-
-func Test_PathStrIndex(t *testing.T) {
-	testCases := map[string]struct {
-		path     string
-		expected int
-	}{
-		"test-case-1": {"a\x01b\x01c", 3},
-		"test-case-2": {"a\x01\x01c", 3},
-		"test-case-3": {"", 1},
-		"test-case-4": {"abc", 1},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, PathStrIndex(tc.path))
-		})
-	}
-}
-
-func Test_IsChildPath(t *testing.T) {
-	testCases := map[string]struct {
-		parent   string
-		child    string
-		expected bool
-	}{
-		"test-case-1": {"a\x01b\x01c", "a\x01b\x01c", true},
-		"test-case-2": {"a\x01b", "a\x01b\x01c", true},
-		"test-case-3": {"a\x01b\x01", "a\x01b\x01c", false},
-		"test-case-4": {"x\x01b\x01c", "a\x01b\x01c", false},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, IsChildPath(tc.parent, tc.child))
-		})
-	}
-}
-
-func Test_ToPtr(t *testing.T) {
-	testCases := map[string]struct {
-		val any
-	}{
-		"bool":    {true},
-		"int32":   {int32(1)},
-		"int64":   {int64(1)},
-		"string":  {"012345678901"},
-		"float32": {float32(0.1)},
-		"float64": {float64(0.1)},
-		"slice":   {[]int32{1, 2, 3}},
-		"map":     {map[string]int32{"a": 1, "b": 2, "c": 3}},
-		"struct": {
-			struct {
-				id   uint64
-				name string
-			}{123, "abc"},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			ptr := ToPtr(tc.val)
-			require.NotNil(t, ptr)
-			require.Equal(t, tc.val, *ptr)
+			actual, err := str2Int32(tc.str)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+				require.Equal(t, tc.expected, actual)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+			}
 		})
 	}
 }

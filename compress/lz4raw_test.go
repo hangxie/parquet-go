@@ -1,9 +1,10 @@
 package compress
 
 import (
-	"bytes"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
@@ -22,19 +23,13 @@ func Test_Lz4RawCompress(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			output := lz4RawCompressor.Compress(input)
-			if !bytes.Equal(compressed, output) {
-				t.Errorf("expected output %s but was %s", string(compressed), string(output))
-			}
+			require.Equal(t, compressed, output)
 		}()
 	}
 	wg.Wait()
 
 	// uncompression
 	output, err := lz4RawCompressor.Uncompress(compressed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(input, output) {
-		t.Fatalf("expected output %s but was %s", string(input), string(output))
-	}
+	require.NoError(t, err)
+	require.Equal(t, input, output)
 }

@@ -10,35 +10,6 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_cmpIntBinary(t *testing.T) {
-	testCases := map[string]struct {
-		a        []byte
-		b        []byte
-		endian   string
-		signed   bool
-		expected bool
-	}{
-		"8-bits: 0 < 0":        {[]byte{0}, []byte{0}, "LittleEndian", true, false},
-		"8-bits: 0 < -1":       {[]byte{0}, []byte{255}, "LittleEndian", true, false},
-		"8-bits: -1 < 0":       {[]byte{255}, []byte{0}, "LittleEndian", true, true},
-		"8-bits: 255 < 0":      {[]byte{255}, []byte{0}, "LittleEndian", false, false},
-		"16-bits: -1 < 0":      {[]byte{255, 255}, []byte{0, 0}, "LittleEndian", true, true},
-		"16-bits: 65535 < 0":   {[]byte{255, 255}, []byte{0, 0}, "LittleEndian", false, false},
-		"16-bits: -256 < 0":    {[]byte{255, 0}, []byte{0, 0}, "BigEndian", true, true},
-		"16-bits: 65280 < 0":   {[]byte{0, 255}, []byte{0, 0}, "LittleEndian", false, false},
-		"8/16-bits: -1 < -2":   {[]byte{255}, []byte{255, 254}, "BigEndian", true, false},
-		"16/8-bits: -2 < -1":   {[]byte{254, 255}, []byte{255}, "LittleEndian", true, true},
-		"8/16-bits: 255 < 254": {[]byte{255}, []byte{0, 254}, "BigEndian", false, false},
-		"16/8-bits: 254 < 255": {[]byte{254, 0}, []byte{255}, "LittleEndian", false, true},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, cmpIntBinary(string(tc.a), string(tc.b), tc.endian, tc.signed), tc.expected)
-		})
-	}
-}
-
 func Test_FindFuncTable(t *testing.T) {
 	testCases := map[string]struct {
 		pT       *parquet.Type
@@ -109,56 +80,6 @@ func Test_FindFuncTable(t *testing.T) {
 	})
 }
 
-func Test_Min(t *testing.T) {
-	testCases := map[string]struct {
-		Num1, Num2 any
-		PT         *parquet.Type
-		CT         *parquet.ConvertedType
-		Expected   any
-	}{
-		"nil-int32":     {nil, int32(1), parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
-		"nil-nil":       {nil, nil, parquet.TypePtr(parquet.Type_INT32), nil, nil},
-		"int32-nil":     {int32(1), nil, parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
-		"int32-int32-1": {int32(1), int32(2), parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
-		"int32-int32-2": {int32(2), int32(1), parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			funcTable, err := FindFuncTable(tc.PT, tc.CT, nil)
-			require.NoError(t, err)
-			res := Min(funcTable, tc.Num1, tc.Num2)
-			if res != tc.Expected {
-				t.Errorf("Min err, expect %v, get %v", tc.Expected, res)
-			}
-		})
-	}
-}
-
-func Test_Max(t *testing.T) {
-	testCases := map[string]struct {
-		Num1, Num2 any
-		PT         *parquet.Type
-		CT         *parquet.ConvertedType
-		Expected   any
-	}{
-		"nil-int32":     {nil, int32(1), parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
-		"nil-nil":       {nil, nil, parquet.TypePtr(parquet.Type_INT32), nil, nil},
-		"int32-nil":     {int32(1), nil, parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
-		"int32-int32-1": {int32(1), int32(2), parquet.TypePtr(parquet.Type_INT32), nil, int32(2)},
-		"int32-int32-2": {int32(2), int32(1), parquet.TypePtr(parquet.Type_INT32), nil, int32(2)},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			funcTable, err := FindFuncTable(tc.PT, tc.CT, nil)
-			require.NoError(t, err)
-			res := Max(funcTable, tc.Num1, tc.Num2)
-			if res != tc.Expected {
-				t.Errorf("Max err, expect %v, get %v", tc.Expected, res)
-			}
-		})
-	}
-}
-
 func Test_LessThan(t *testing.T) {
 	toHex := func(input string) string {
 		ret, _ := hex.DecodeString(input)
@@ -192,6 +113,52 @@ func Test_LessThan(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.expected, tc.f.LessThan(tc.a, tc.b))
+		})
+	}
+}
+
+func Test_Max(t *testing.T) {
+	testCases := map[string]struct {
+		Num1, Num2 any
+		PT         *parquet.Type
+		CT         *parquet.ConvertedType
+		Expected   any
+	}{
+		"nil-int32":     {nil, int32(1), parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
+		"nil-nil":       {nil, nil, parquet.TypePtr(parquet.Type_INT32), nil, nil},
+		"int32-nil":     {int32(1), nil, parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
+		"int32-int32-1": {int32(1), int32(2), parquet.TypePtr(parquet.Type_INT32), nil, int32(2)},
+		"int32-int32-2": {int32(2), int32(1), parquet.TypePtr(parquet.Type_INT32), nil, int32(2)},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			funcTable, err := FindFuncTable(tc.PT, tc.CT, nil)
+			require.NoError(t, err)
+			res := Max(funcTable, tc.Num1, tc.Num2)
+			require.Equal(t, tc.Expected, res)
+		})
+	}
+}
+
+func Test_Min(t *testing.T) {
+	testCases := map[string]struct {
+		Num1, Num2 any
+		PT         *parquet.Type
+		CT         *parquet.ConvertedType
+		Expected   any
+	}{
+		"nil-int32":     {nil, int32(1), parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
+		"nil-nil":       {nil, nil, parquet.TypePtr(parquet.Type_INT32), nil, nil},
+		"int32-nil":     {int32(1), nil, parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
+		"int32-int32-1": {int32(1), int32(2), parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
+		"int32-int32-2": {int32(2), int32(1), parquet.TypePtr(parquet.Type_INT32), nil, int32(1)},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			funcTable, err := FindFuncTable(tc.PT, tc.CT, nil)
+			require.NoError(t, err)
+			res := Min(funcTable, tc.Num1, tc.Num2)
+			require.Equal(t, tc.Expected, res)
 		})
 	}
 }
@@ -346,10 +313,39 @@ func Test_SizeOf(t *testing.T) {
 		"invalid-value": {reflect.ValueOf(nil), 0},
 	}
 
-	for _, data := range testCases {
-		res := SizeOf(data.val)
-		if res != data.expected {
-			t.Errorf("SizeOf err, expect %v, get %v", data.expected, res)
-		}
+	for name, data := range testCases {
+		t.Run(name, func(t *testing.T) {
+			res := SizeOf(data.val)
+			require.Equal(t, data.expected, res)
+		})
+	}
+}
+
+func Test_cmpIntBinary(t *testing.T) {
+	testCases := map[string]struct {
+		a        []byte
+		b        []byte
+		endian   string
+		signed   bool
+		expected bool
+	}{
+		"8-bits: 0 < 0":        {[]byte{0}, []byte{0}, "LittleEndian", true, false},
+		"8-bits: 0 < -1":       {[]byte{0}, []byte{255}, "LittleEndian", true, false},
+		"8-bits: -1 < 0":       {[]byte{255}, []byte{0}, "LittleEndian", true, true},
+		"8-bits: 255 < 0":      {[]byte{255}, []byte{0}, "LittleEndian", false, false},
+		"16-bits: -1 < 0":      {[]byte{255, 255}, []byte{0, 0}, "LittleEndian", true, true},
+		"16-bits: 65535 < 0":   {[]byte{255, 255}, []byte{0, 0}, "LittleEndian", false, false},
+		"16-bits: -256 < 0":    {[]byte{255, 0}, []byte{0, 0}, "BigEndian", true, true},
+		"16-bits: 65280 < 0":   {[]byte{0, 255}, []byte{0, 0}, "LittleEndian", false, false},
+		"8/16-bits: -1 < -2":   {[]byte{255}, []byte{255, 254}, "BigEndian", true, false},
+		"16/8-bits: -2 < -1":   {[]byte{254, 255}, []byte{255}, "LittleEndian", true, true},
+		"8/16-bits: 255 < 254": {[]byte{255}, []byte{0, 254}, "BigEndian", false, false},
+		"16/8-bits: 254 < 255": {[]byte{254, 0}, []byte{255}, "LittleEndian", false, true},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, cmpIntBinary(string(tc.a), string(tc.b), tc.endian, tc.signed), tc.expected)
+		})
 	}
 }

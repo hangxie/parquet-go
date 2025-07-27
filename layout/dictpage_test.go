@@ -3,64 +3,58 @@ package layout
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_NewDictRec(t *testing.T) {
-	dictRec := NewDictRec(parquet.Type_INT32)
-	if dictRec == nil {
-		t.Fatal("Expected non-nil DictRecType")
+func Test_DictDataPageCompress(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		Type: common.ToPtr(parquet.Type_INT32),
+		Name: "test_col",
 	}
-	if dictRec.DictMap == nil {
-		t.Error("Expected DictMap to be initialized")
+	page.Info = common.NewTag()
+
+	// Set up DataTable with proper definition and repetition levels
+	page.DataTable = &Table{
+		DefinitionLevels:   []int32{0, 0, 0, 0},
+		RepetitionLevels:   []int32{0, 0, 0, 0},
+		MaxDefinitionLevel: 0,
+		MaxRepetitionLevel: 0,
 	}
-	// DictSlice is not initialized by NewDictRec - it's nil initially
-	if dictRec.Type != parquet.Type_INT32 {
-		t.Errorf("Expected Type to be INT32, got %v", dictRec.Type)
-	}
+
+	// Test values representing dictionary indices
+	values := []int32{0, 1, 0, 2}
+
+	data, err := page.DictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, values)
+	require.NoError(t, err)
+	require.NotZero(t, len(data))
 }
 
-func Test_DictRecToDictPage(t *testing.T) {
-	dictRec := NewDictRec(parquet.Type_INT32)
+func Test_DictDataPageCompressWithEmptyValues(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		Type: common.ToPtr(parquet.Type_INT32),
+		Name: "test_col",
+	}
+	page.Info = common.NewTag()
 
-	// Add some test values to the dictionary
-	dictRec.DictSlice = append(dictRec.DictSlice, int32(1))
-	dictRec.DictSlice = append(dictRec.DictSlice, int32(2))
-	dictRec.DictSlice = append(dictRec.DictSlice, int32(3))
-	dictRec.DictMap[int32(1)] = 0
-	dictRec.DictMap[int32(2)] = 1
-	dictRec.DictMap[int32(3)] = 2
+	// Set up DataTable
+	page.DataTable = &Table{
+		DefinitionLevels:   []int32{},
+		RepetitionLevels:   []int32{},
+		MaxDefinitionLevel: 0,
+		MaxRepetitionLevel: 0,
+	}
 
-	page, totalSize, err := DictRecToDictPage(dictRec, 1024, parquet.CompressionCodec_UNCOMPRESSED)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if page == nil {
-		t.Fatal("Expected non-nil page")
-	}
-	if page.Header.Type != parquet.PageType_DICTIONARY_PAGE {
-		t.Errorf("Expected DICTIONARY_PAGE type, got %v", page.Header.Type)
-	}
-	if totalSize <= 0 {
-		t.Errorf("Expected positive total size, got %d", totalSize)
-	}
-}
+	// Test with empty values slice
+	values := []int32{}
 
-func Test_DictRecToDictPageWithEmptyDict(t *testing.T) {
-	dictRec := NewDictRec(parquet.Type_INT32)
-	// Don't add any values - test empty dictionary
-
-	page, totalSize, err := DictRecToDictPage(dictRec, 1024, parquet.CompressionCodec_UNCOMPRESSED)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if page == nil {
-		t.Fatal("Expected non-nil page")
-	}
-	if totalSize < 0 {
-		t.Errorf("Expected non-negative total size, got %d", totalSize)
-	}
+	data, err := page.DictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 1, values)
+	require.NoError(t, err)
+	require.NotZero(t, len(data))
 }
 
 func Test_DictPageCompress(t *testing.T) {
@@ -77,12 +71,8 @@ func Test_DictPageCompress(t *testing.T) {
 	}
 
 	data, err := page.DictPageCompress(parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if len(data) == 0 {
-		t.Error("Expected non-empty compressed data")
-	}
+	require.NoError(t, err)
+	require.NotZero(t, len(data))
 }
 
 func Test_DictPageCompressWithEmptyDataTable(t *testing.T) {
@@ -97,12 +87,82 @@ func Test_DictPageCompressWithEmptyDataTable(t *testing.T) {
 	}
 
 	data, err := page.DictPageCompress(parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
+	require.NoError(t, err)
+	require.NotZero(t, len(data))
+}
+
+func Test_DictRecToDictPage(t *testing.T) {
+	tests := []struct {
+		name         string
+		setupDictRec func() *DictRecType
+		pageSize     int32
+		compression  parquet.CompressionCodec
+		checkPage    func(t *testing.T, page *Page, totalSize int64)
+		expectError  bool
+	}{
+		{
+			name: "populated_dictionary",
+			setupDictRec: func() *DictRecType {
+				dictRec := NewDictRec(parquet.Type_INT32)
+				// Add some test values to the dictionary
+				dictRec.DictSlice = append(dictRec.DictSlice, int32(1))
+				dictRec.DictSlice = append(dictRec.DictSlice, int32(2))
+				dictRec.DictSlice = append(dictRec.DictSlice, int32(3))
+				dictRec.DictMap[int32(1)] = 0
+				dictRec.DictMap[int32(2)] = 1
+				dictRec.DictMap[int32(3)] = 2
+				return dictRec
+			},
+			pageSize:    1024,
+			compression: parquet.CompressionCodec_UNCOMPRESSED,
+			checkPage: func(t *testing.T, page *Page, totalSize int64) {
+				require.Equal(t, parquet.PageType_DICTIONARY_PAGE, page.Header.Type)
+				require.Positive(t, totalSize)
+			},
+		},
+		{
+			name: "empty_dictionary",
+			setupDictRec: func() *DictRecType {
+				dictRec := NewDictRec(parquet.Type_INT32)
+				// Don't add any values - test empty dictionary
+				return dictRec
+			},
+			pageSize:    1024,
+			compression: parquet.CompressionCodec_UNCOMPRESSED,
+			checkPage: func(t *testing.T, page *Page, totalSize int64) {
+				require.GreaterOrEqual(t, totalSize, int64(0))
+			},
+		},
 	}
-	if len(data) == 0 {
-		t.Error("Expected non-empty compressed data even with empty values")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dictRec := tt.setupDictRec()
+
+			page, totalSize, err := DictRecToDictPage(dictRec, tt.pageSize, tt.compression)
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+
+			require.NotNil(t, page)
+
+			if tt.checkPage != nil {
+				tt.checkPage(t, page, totalSize)
+			}
+		})
 	}
+}
+
+func Test_NewDictRec(t *testing.T) {
+	dictRec := NewDictRec(parquet.Type_INT32)
+	require.NotNil(t, dictRec)
+	require.NotNil(t, dictRec.DictMap)
+	// DictSlice is not initialized by NewDictRec - it's nil initially
+	require.Equal(t, parquet.Type_INT32, dictRec.Type)
 }
 
 func Test_TableToDictDataPages(t *testing.T) {
@@ -127,36 +187,9 @@ func Test_TableToDictDataPages(t *testing.T) {
 	}
 
 	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 2, parquet.CompressionCodec_UNCOMPRESSED)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if len(pages) == 0 {
-		t.Error("Expected at least one page")
-	}
-	if totalSize <= 0 {
-		t.Errorf("Expected positive total size, got %d", totalSize)
-	}
-}
-
-func Test_TableToDictDataPagesWithInvalidType(t *testing.T) {
-	dictRec := NewDictRec(parquet.Type_INT32)
-
-	// Create a table with invalid schema
-	table := &Table{
-		Schema: &parquet.SchemaElement{
-			Name: "test_col",
-			// No Type set
-		},
-		Values:           []any{int32(1)},
-		DefinitionLevels: []int32{0},
-		RepetitionLevels: []int32{0},
-		Info:             common.NewTag(),
-	}
-
-	_, _, err := TableToDictDataPages(dictRec, table, 1024, 1, parquet.CompressionCodec_UNCOMPRESSED)
-	if err == nil {
-		t.Error("Expected error for invalid schema type")
-	}
+	require.NoError(t, err)
+	require.NotZero(t, len(pages))
+	require.Positive(t, totalSize)
 }
 
 func Test_TableToDictDataPagesWithEmptyTable(t *testing.T) {
@@ -175,69 +208,26 @@ func Test_TableToDictDataPagesWithEmptyTable(t *testing.T) {
 	}
 
 	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 1, parquet.CompressionCodec_UNCOMPRESSED)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if len(pages) != 0 {
-		t.Errorf("Expected no pages for empty table, got %d", len(pages))
-	}
-	if totalSize != 0 {
-		t.Errorf("Expected zero total size for empty table, got %d", totalSize)
-	}
+	require.NoError(t, err)
+	require.Len(t, pages, 0)
+	require.Equal(t, int64(0), totalSize)
 }
 
-func Test_DictDataPageCompress(t *testing.T) {
-	page := NewDataPage()
-	page.Schema = &parquet.SchemaElement{
-		Type: common.ToPtr(parquet.Type_INT32),
-		Name: "test_col",
-	}
-	page.Info = common.NewTag()
+func Test_TableToDictDataPagesWithInvalidType(t *testing.T) {
+	dictRec := NewDictRec(parquet.Type_INT32)
 
-	// Set up DataTable with proper definition and repetition levels
-	page.DataTable = &Table{
-		DefinitionLevels:   []int32{0, 0, 0, 0},
-		RepetitionLevels:   []int32{0, 0, 0, 0},
-		MaxDefinitionLevel: 0,
-		MaxRepetitionLevel: 0,
-	}
-
-	// Test values representing dictionary indices
-	values := []int32{0, 1, 0, 2}
-
-	data, err := page.DictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, values)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if len(data) == 0 {
-		t.Error("Expected non-empty compressed data")
-	}
-}
-
-func Test_DictDataPageCompressWithEmptyValues(t *testing.T) {
-	page := NewDataPage()
-	page.Schema = &parquet.SchemaElement{
-		Type: common.ToPtr(parquet.Type_INT32),
-		Name: "test_col",
-	}
-	page.Info = common.NewTag()
-
-	// Set up DataTable
-	page.DataTable = &Table{
-		DefinitionLevels:   []int32{},
-		RepetitionLevels:   []int32{},
-		MaxDefinitionLevel: 0,
-		MaxRepetitionLevel: 0,
+	// Create a table with invalid schema
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Name: "test_col",
+			// No Type set
+		},
+		Values:           []any{int32(1)},
+		DefinitionLevels: []int32{0},
+		RepetitionLevels: []int32{0},
+		Info:             common.NewTag(),
 	}
 
-	// Test with empty values slice
-	values := []int32{}
-
-	data, err := page.DictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 1, values)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if len(data) == 0 {
-		t.Error("Expected non-empty compressed data even with empty values")
-	}
+	_, _, err := TableToDictDataPages(dictRec, table, 1024, 1, parquet.CompressionCodec_UNCOMPRESSED)
+	require.Error(t, err)
 }

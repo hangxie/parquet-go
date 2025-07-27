@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"net"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
@@ -66,17 +67,29 @@ func Test_NewAzBlobFileReader(t *testing.T) {
 			},
 		})
 		if tc.err == nil {
-			if err != nil {
-				t.Errorf("expected no error but got %s", err.Error())
-			}
+			require.NoError(t, err)
 			continue
 		}
-		if err == nil {
-			t.Errorf("expected [%s] error but got nil", tc.err)
-		} else if !tc.err.Match(err) {
-			t.Errorf("expected [%s] error but got: %s", tc.err, err.Error())
-		}
+		require.Error(t, err)
+		require.True(t, tc.err.Match(err))
 	}
+}
+
+func Test_NewAzBlobFileReaderWithClient(t *testing.T) {
+	for _, tc := range testCases {
+		testClient, _ := blockblob.NewClientWithNoCredential(tc.url, &blockblob.ClientOptions{})
+		_, err := NewAzBlobFileReaderWithClient(context.Background(), tc.url, testClient)
+		if tc.err == nil {
+			require.NoError(t, err)
+			continue
+		}
+		require.Error(t, err)
+		require.True(t, tc.err.Match(err))
+	}
+	_, err := NewAzBlobFileReaderWithClient(context.Background(), "dummy-url", nil)
+	expected := "client cannot be nil"
+	require.Error(t, err)
+	require.Contains(t, err.Error(), expected)
 }
 
 func Test_NewAzBlobFileReaderWithSharedKey(t *testing.T) {
@@ -90,40 +103,10 @@ func Test_NewAzBlobFileReaderWithSharedKey(t *testing.T) {
 			},
 		})
 		if tc.err == nil {
-			if err != nil {
-				t.Errorf("expected no error but got %s", err.Error())
-			}
+			require.NoError(t, err)
 			continue
 		}
-		if err == nil {
-			t.Errorf("expected [%s] error but got nil", tc.err)
-		} else if !tc.err.Match(err) {
-			t.Errorf("expected [%s] error but got: %s", tc.err, err.Error())
-		}
-	}
-}
-
-func Test_NewAzBlobFileReaderWithClient(t *testing.T) {
-	for _, tc := range testCases {
-		testClient, _ := blockblob.NewClientWithNoCredential(tc.url, &blockblob.ClientOptions{})
-		_, err := NewAzBlobFileReaderWithClient(context.Background(), tc.url, testClient)
-		if tc.err == nil {
-			if err != nil {
-				t.Errorf("expected no error but got %s", err.Error())
-			}
-			continue
-		}
-		if err == nil {
-			t.Errorf("expected [%s] error but got nil", tc.err)
-		} else if !tc.err.Match(err) {
-			t.Errorf("expected [%s] error but got: %s", tc.err, err.Error())
-		}
-	}
-	_, err := NewAzBlobFileReaderWithClient(context.Background(), "dummy-url", nil)
-	expected := "client cannot be nil"
-	if err == nil {
-		t.Errorf("expected [%s] but got: <nil>", expected)
-	} else if !strings.Contains(err.Error(), expected) {
-		t.Errorf("expected [%s] error but got: %s", expected, err.Error())
+		require.Error(t, err)
+		require.True(t, tc.err.Match(err))
 	}
 }

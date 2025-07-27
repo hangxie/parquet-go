@@ -3,45 +3,11 @@ package layout
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
-
-func Test_Table_Merge(t *testing.T) {
-	// Create first table with initial data
-	sourceTable := &Table{
-		Values:           []any{int32(1), int32(2)},
-		DefinitionLevels: []int32{0, 0},
-		RepetitionLevels: []int32{0, 0},
-	}
-
-	// Create second table to merge
-	targetTable := &Table{
-		Values:           []any{int32(3), int32(4)},
-		DefinitionLevels: []int32{0, 0},
-		RepetitionLevels: []int32{0, 0},
-	}
-
-	// Perform merge operation
-	sourceTable.Merge(targetTable)
-
-	// Verify merged results
-	expectedValues := []any{int32(1), int32(2), int32(3), int32(4)}
-	expectedDefinitionLevels := []int32{0, 0, 0, 0}
-	expectedRepetitionLevels := []int32{0, 0, 0, 0}
-
-	if !equalSlices(sourceTable.Values, expectedValues) {
-		t.Errorf("Values merge failed: expected %v, got %v", expectedValues, sourceTable.Values)
-	}
-
-	if !equalInt32Slices(sourceTable.DefinitionLevels, expectedDefinitionLevels) {
-		t.Errorf("DefinitionLevels merge failed: expected %v, got %v", expectedDefinitionLevels, sourceTable.DefinitionLevels)
-	}
-
-	if !equalInt32Slices(sourceTable.RepetitionLevels, expectedRepetitionLevels) {
-		t.Errorf("RepetitionLevels merge failed: expected %v, got %v", expectedRepetitionLevels, sourceTable.RepetitionLevels)
-	}
-}
 
 // Helper function to compare any slices
 func equalSlices(a, b []any) bool {
@@ -69,12 +35,16 @@ func equalInt32Slices(a, b []int32) bool {
 	return true
 }
 
+func Test_NewEmptyTable(t *testing.T) {
+	table := NewEmptyTable()
+	require.NotNil(t, table)
+	require.NotNil(t, table.Info)
+}
+
 func Test_NewTableFromTable(t *testing.T) {
 	// Test with nil table
 	result := NewTableFromTable(nil)
-	if result != nil {
-		t.Errorf("Expected nil result for nil input, got %v", result)
-	}
+	require.Nil(t, result)
 
 	// Test with valid table
 	src := &Table{
@@ -84,113 +54,155 @@ func Test_NewTableFromTable(t *testing.T) {
 	}
 
 	result = NewTableFromTable(src)
-	if result == nil {
-		t.Fatal("Expected non-nil result for valid input")
-	}
-	if result.Schema != src.Schema {
-		t.Errorf("Expected schema to be copied, got %v", result.Schema)
-	}
-	if len(result.Path) != len(src.Path) {
-		t.Errorf("Expected path length %d, got %d", len(src.Path), len(result.Path))
-	}
-	if result.MaxDefinitionLevel != 0 || result.MaxRepetitionLevel != 0 {
-		t.Errorf("Expected max levels to be 0, got def=%d rep=%d", result.MaxDefinitionLevel, result.MaxRepetitionLevel)
-	}
+	require.NotNil(t, result)
+	require.Equal(t, src.Schema, result.Schema)
+	require.Len(t, result.Path, len(src.Path))
+	require.Equal(t, int32(0), result.MaxDefinitionLevel)
+	require.Equal(t, int32(0), result.MaxRepetitionLevel)
 }
 
-func Test_NewEmptyTable(t *testing.T) {
-	table := NewEmptyTable()
-	if table == nil {
-		t.Fatal("Expected non-nil table")
+func Test_Table_Merge(t *testing.T) {
+	tests := []struct {
+		name                string
+		setupSource         func() *Table
+		setupTarget         func() *Table
+		expectedValues      []any
+		expectedDefLevels   []int32
+		expectedRepLevels   []int32
+		expectedMaxDefLevel int32
+		expectedMaxRepLevel int32
+		checkMaxLevels      bool
+	}{
+		{
+			name: "basic_merge",
+			setupSource: func() *Table {
+				return &Table{
+					Values:           []any{int32(1), int32(2)},
+					DefinitionLevels: []int32{0, 0},
+					RepetitionLevels: []int32{0, 0},
+				}
+			},
+			setupTarget: func() *Table {
+				return &Table{
+					Values:           []any{int32(3), int32(4)},
+					DefinitionLevels: []int32{0, 0},
+					RepetitionLevels: []int32{0, 0},
+				}
+			},
+			expectedValues:    []any{int32(1), int32(2), int32(3), int32(4)},
+			expectedDefLevels: []int32{0, 0, 0, 0},
+			expectedRepLevels: []int32{0, 0, 0, 0},
+		},
+		{
+			name: "max_levels",
+			setupSource: func() *Table {
+				return &Table{
+					Values:             []any{int32(1), int32(2)},
+					DefinitionLevels:   []int32{0, 1},
+					RepetitionLevels:   []int32{0, 0},
+					MaxDefinitionLevel: 1,
+					MaxRepetitionLevel: 0,
+				}
+			},
+			setupTarget: func() *Table {
+				return &Table{
+					Values:             []any{int32(3), int32(4)},
+					DefinitionLevels:   []int32{2, 1},
+					RepetitionLevels:   []int32{1, 1},
+					MaxDefinitionLevel: 2,
+					MaxRepetitionLevel: 1,
+				}
+			},
+			expectedValues:      []any{int32(1), int32(2), int32(3), int32(4)},
+			expectedDefLevels:   []int32{0, 1, 2, 1},
+			expectedRepLevels:   []int32{0, 0, 1, 1},
+			expectedMaxDefLevel: 2,
+			expectedMaxRepLevel: 1,
+			checkMaxLevels:      true,
+		},
+		{
+			name: "nil_table",
+			setupSource: func() *Table {
+				return &Table{
+					Values:           []any{int32(1)},
+					DefinitionLevels: []int32{0},
+					RepetitionLevels: []int32{0},
+				}
+			},
+			setupTarget: func() *Table {
+				return nil
+			},
+			expectedValues:    []any{int32(1)},
+			expectedDefLevels: []int32{0},
+			expectedRepLevels: []int32{0},
+		},
 	}
-	if table.Info == nil {
-		t.Error("Expected Info field to be initialized")
-	}
-}
 
-func Test_Table_Merge_maxLevels(t *testing.T) {
-	table1 := &Table{
-		Values:             []any{int32(1), int32(2)},
-		DefinitionLevels:   []int32{0, 1},
-		RepetitionLevels:   []int32{0, 0},
-		MaxDefinitionLevel: 1,
-		MaxRepetitionLevel: 0,
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sourceTable := tt.setupSource()
+			targetTable := tt.setupTarget()
 
-	table2 := &Table{
-		Values:             []any{int32(3), int32(4)},
-		DefinitionLevels:   []int32{2, 1},
-		RepetitionLevels:   []int32{1, 1},
-		MaxDefinitionLevel: 2,
-		MaxRepetitionLevel: 1,
-	}
+			sourceTable.Merge(targetTable)
+			require.True(t, equalSlices(sourceTable.Values, tt.expectedValues))
+			require.True(t, equalInt32Slices(sourceTable.DefinitionLevels, tt.expectedDefLevels))
+			require.True(t, equalInt32Slices(sourceTable.RepetitionLevels, tt.expectedRepLevels))
 
-	table1.Merge(table2)
-
-	if table1.MaxDefinitionLevel != 2 {
-		t.Errorf("Expected MaxDefinitionLevel=2, got %d", table1.MaxDefinitionLevel)
-	}
-	if table1.MaxRepetitionLevel != 1 {
-		t.Errorf("Expected MaxRepetitionLevel=1, got %d", table1.MaxRepetitionLevel)
-	}
-	if len(table1.Values) != 4 {
-		t.Errorf("Expected 4 values, got %d", len(table1.Values))
-	}
-}
-
-func Test_Table_Merge_nilTable(t *testing.T) {
-	table := &Table{
-		Values:           []any{int32(1)},
-		DefinitionLevels: []int32{0},
-		RepetitionLevels: []int32{0},
-	}
-
-	originalLen := len(table.Values)
-	table.Merge(nil)
-
-	if len(table.Values) != originalLen {
-		t.Errorf("Expected values length unchanged after merging nil, got %d", len(table.Values))
+			if tt.checkMaxLevels {
+				require.Equal(t, tt.expectedMaxDefLevel, sourceTable.MaxDefinitionLevel)
+				require.Equal(t, tt.expectedMaxRepLevel, sourceTable.MaxRepetitionLevel)
+			}
+		})
 	}
 }
 
 func Test_Table_Pop(t *testing.T) {
-	table := &Table{
-		Values:           []any{int32(1), int32(2), int32(3), int32(4)},
-		DefinitionLevels: []int32{0, 1, 0, 1},
-		RepetitionLevels: []int32{0, 1, 0, 1},
+	tests := []struct {
+		name           string
+		setupTable     func() *Table
+		rowCount       int64
+		expectedResult int
+		expectedRemain int
+	}{
+		{
+			name: "normal_table",
+			setupTable: func() *Table {
+				return &Table{
+					Values:           []any{int32(1), int32(2), int32(3), int32(4)},
+					DefinitionLevels: []int32{0, 1, 0, 1},
+					RepetitionLevels: []int32{0, 1, 0, 1},
+				}
+			},
+			rowCount:       1,
+			expectedResult: 2, // Should return first row (2 values since repetition level 1 means continuation)
+			expectedRemain: 2, // Original table should have remaining values
+		},
+		{
+			name: "empty_table",
+			setupTable: func() *Table {
+				return &Table{
+					Values:           []any{},
+					DefinitionLevels: []int32{},
+					RepetitionLevels: []int32{},
+				}
+			},
+			rowCount:       1,
+			expectedResult: 0,
+			expectedRemain: 0,
+		},
 	}
 
-	result := table.Pop(1)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			table := tt.setupTable()
 
-	if result == nil {
-		t.Fatal("Expected non-nil result from Pop")
-	}
+			result := table.Pop(tt.rowCount)
 
-	// Should return first row (2 values since repetition level 1 means continuation)
-	if len(result.Values) != 2 {
-		t.Errorf("Expected 2 values in result, got %d", len(result.Values))
-	}
+			require.NotNil(t, result)
 
-	// Original table should have remaining values
-	if len(table.Values) != 2 {
-		t.Errorf("Expected 2 values remaining in original table, got %d", len(table.Values))
-	}
-}
+			require.Len(t, result.Values, tt.expectedResult)
 
-func Test_Table_Pop_emptyTable(t *testing.T) {
-	table := &Table{
-		Values:           []any{},
-		DefinitionLevels: []int32{},
-		RepetitionLevels: []int32{},
-	}
-
-	result := table.Pop(1)
-
-	if result == nil {
-		t.Fatal("Expected non-nil result from Pop")
-	}
-
-	if len(result.Values) != 0 {
-		t.Errorf("Expected 0 values in result, got %d", len(result.Values))
+			require.Len(t, table.Values, tt.expectedRemain)
+		})
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v2/reader"
 	"github.com/hangxie/parquet-go/v2/source/buffer"
@@ -475,90 +475,61 @@ func testRecordWithNulls(mem memory.Allocator) arrow.Record {
 // TestE2EValid tests the whole cycle of creating a parquet file from arrow
 // covering all the currently supported types by using sequential writer
 // running a single goroutine.
-func Test_E2ESequentialValid(t *testing.T) {
-	var err error
-	ts := testSchema
-
-	buf := new(bytes.Buffer)
-	fw := writerfile.NewWriterFile(buf)
-	assert.Nil(t, err)
-
-	w, err := NewArrowWriter(ts, fw, 1)
-	assert.Nil(t, err)
-
-	mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
-	rec := testRecord(mem)
-	defer rec.Release()
-	err = w.WriteArrow(rec)
-	assert.Nil(t, err)
-
-	err = w.WriteStop()
-	assert.Nil(t, err)
-
-	parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-
-	pr, err := reader.NewParquetReader(parquetFile, nil, 1)
-	assert.Nil(t, err)
-
-	num := int(pr.GetNumRows())
-	res, err := pr.ReadByNumber(num)
-	assert.Nil(t, err)
-
-	actualTable := ""
-	for _, row := range res {
-		actualTable = actualTable + fmt.Sprintf("%v", row)
-	}
-	expectedTable := "" +
-		"{-1 -11 -21 -31 1 11 21 31 1.1 10.1 1 1 A a true 1 1 1 1}" +
-		"{-2 -12 -22 -32 2 12 22 32 2.2 12.2 2 2 B b false 2 2 2 2}" +
-		"{-3 -13 -23 -33 3 13 23 33 3.3 13.3 3 3 C c true 3 3 3 3}" +
-		"{-4 -14 -24 -34 4 14 24 34 4.4 14.4 4 4 D d false 4 4 4 4}" +
-		"{-5 -15 -25 -35 5 15 25 35 5.5 15.5 5 5 E e true 5 5 5 5}" +
-		"{-6 -16 -26 -36 6 16 26 36 6.6 16.6 6 6 F f false 6 6 6 6}" +
-		"{-7 -17 -27 -37 7 17 27 37 7.7 17.7 7 7 G g true 7 7 7 7}" +
-		"{-8 -18 -28 -38 8 18 28 38 8.8 18.8 8 8 H h false 8 8 8 8}" +
-		"{-9 -19 -29 -39 9 19 29 39 9.9 19.9 9 9 I i true 9 9 9 9}" +
-		"{-10 -20 -30 -40 10 20 30 40 10.1 20.1 10 10 J j false 10 10 10 10}"
-	assert.Equal(t, expectedTable, actualTable)
-
-	err = fw.Close()
-	assert.Nil(t, err)
-	pr.ReadStop()
-	err = parquetFile.Close()
-	assert.Nil(t, err)
-}
 
 // TestE2EConcurrentValid tests the whole cycle of creating a parquet file
 // from arrow covering all the currently supported types by using a
 // concurrent writer running four goroutines
+
+// TestE2NullabilityValid tests the whole cycle of creating a parquet file
+// from arrow record which contains Null values covering all the currently
+// supported types by using schema in which all fields are marked Nullable.
+
+func rowToSliceOfValues(s any) []any {
+	v := reflect.ValueOf(s)
+	res := []any{}
+	for i := range v.NumField() {
+		field := v.Field(i)
+		if field.IsNil() {
+			res = append(res, nil)
+			continue
+		}
+		if field.Type().Kind() == reflect.Ptr {
+			res = append(res, field.Elem().Interface())
+		} else {
+			res = append(res, field.Interface())
+		}
+	}
+	return res
+}
+
 func Test_E2EConcurrentValid(t *testing.T) {
 	var err error
 	ts := testSchema
 
 	buf := new(bytes.Buffer)
 	fw := writerfile.NewWriterFile(buf)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	w, err := NewArrowWriter(ts, fw, 4)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
 	rec := testRecord(mem)
 	defer rec.Release()
 	err = w.WriteArrow(rec)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	err = w.WriteStop()
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
 	pr, err := reader.NewParquetReader(parquetFile, nil, 1)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	num := int(pr.GetNumRows())
 	res, err := pr.ReadByNumber(num)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	actualTable := ""
 	for _, row := range res {
@@ -575,46 +546,43 @@ func Test_E2EConcurrentValid(t *testing.T) {
 		"{-8 -18 -28 -38 8 18 28 38 8.8 18.8 8 8 H h false 8 8 8 8}" +
 		"{-9 -19 -29 -39 9 19 29 39 9.9 19.9 9 9 I i true 9 9 9 9}" +
 		"{-10 -20 -30 -40 10 20 30 40 10.1 20.1 10 10 J j false 10 10 10 10}"
-	assert.Equal(t, expectedTable, actualTable)
+	require.Equal(t, expectedTable, actualTable)
 
 	err = fw.Close()
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	pr.ReadStop()
 	err = parquetFile.Close()
-	assert.Nil(t, err)
+	require.Nil(t, err)
 }
 
-// TestE2NullabilityValid tests the whole cycle of creating a parquet file
-// from arrow record which contains Null values covering all the currently
-// supported types by using schema in which all fields are marked Nullable.
 func Test_E2ENullabilityValid(t *testing.T) {
 	var err error
 	ts := testNullableSchema
 
 	buf := new(bytes.Buffer)
 	fw := writerfile.NewWriterFile(buf)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	w, err := NewArrowWriter(ts, fw, 1)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
 	rec := testRecordWithNulls(mem)
 	defer rec.Release()
 	err = w.WriteArrow(rec)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	err = w.WriteStop()
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
 	pr, err := reader.NewParquetReader(parquetFile, nil, 1)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	num := int(pr.GetNumRows())
 	res, err := pr.ReadByNumber(num)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	actualTable := [][]any{}
 	for _, row := range res {
@@ -641,50 +609,71 @@ func Test_E2ENullabilityValid(t *testing.T) {
 			nil, 2, nil, 2, nil,
 		},
 	}
-	assert.Equal(t, len(expectedTable), len(actualTable))
-	assert.Equal(t, len(expectedTable[0]), len(actualTable[0]))
+	require.Equal(t, len(expectedTable), len(actualTable))
+	require.Equal(t, len(expectedTable[0]), len(actualTable[0]))
 	for i := range expectedTable {
 		for j := range expectedTable[i] {
-			assert.EqualValues(t, expectedTable[i][j], actualTable[i][j],
+			require.EqualValues(t, expectedTable[i][j], actualTable[i][j],
 				"mismatch at: [%d][%d]", i, j)
 		}
 	}
 
 	err = fw.Close()
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	pr.ReadStop()
 	err = parquetFile.Close()
-	assert.Nil(t, err)
+	require.Nil(t, err)
 }
 
-func rowToSliceOfValues(s any) []any {
-	v := reflect.ValueOf(s)
-	res := []any{}
-	for i := range v.NumField() {
-		field := v.Field(i)
-		if field.IsNil() {
-			res = append(res, nil)
-			continue
-		}
-		if field.Type().Kind() == reflect.Ptr {
-			res = append(res, field.Elem().Interface())
-		} else {
-			res = append(res, field.Interface())
-		}
-	}
-	return res
-}
+func Test_E2ESequentialValid(t *testing.T) {
+	var err error
+	ts := testSchema
 
-func Benchmark_Write(b *testing.B) {
 	buf := new(bytes.Buffer)
 	fw := writerfile.NewWriterFile(buf)
-	md := testSchema
+	require.Nil(t, err)
+
+	w, err := NewArrowWriter(ts, fw, 1)
+	require.Nil(t, err)
+
 	mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
 	rec := testRecord(mem)
 	defer rec.Release()
-	pw, _ := NewArrowWriter(md, fw, 1)
+	err = w.WriteArrow(rec)
+	require.Nil(t, err)
 
-	for b.Loop() {
-		_ = pw.WriteArrow(rec)
+	err = w.WriteStop()
+	require.Nil(t, err)
+
+	parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+
+	pr, err := reader.NewParquetReader(parquetFile, nil, 1)
+	require.Nil(t, err)
+
+	num := int(pr.GetNumRows())
+	res, err := pr.ReadByNumber(num)
+	require.Nil(t, err)
+
+	actualTable := ""
+	for _, row := range res {
+		actualTable = actualTable + fmt.Sprintf("%v", row)
 	}
+	expectedTable := "" +
+		"{-1 -11 -21 -31 1 11 21 31 1.1 10.1 1 1 A a true 1 1 1 1}" +
+		"{-2 -12 -22 -32 2 12 22 32 2.2 12.2 2 2 B b false 2 2 2 2}" +
+		"{-3 -13 -23 -33 3 13 23 33 3.3 13.3 3 3 C c true 3 3 3 3}" +
+		"{-4 -14 -24 -34 4 14 24 34 4.4 14.4 4 4 D d false 4 4 4 4}" +
+		"{-5 -15 -25 -35 5 15 25 35 5.5 15.5 5 5 E e true 5 5 5 5}" +
+		"{-6 -16 -26 -36 6 16 26 36 6.6 16.6 6 6 F f false 6 6 6 6}" +
+		"{-7 -17 -27 -37 7 17 27 37 7.7 17.7 7 7 G g true 7 7 7 7}" +
+		"{-8 -18 -28 -38 8 18 28 38 8.8 18.8 8 8 H h false 8 8 8 8}" +
+		"{-9 -19 -29 -39 9 19 29 39 9.9 19.9 9 9 I i true 9 9 9 9}" +
+		"{-10 -20 -30 -40 10 20 30 40 10.1 20.1 10 10 J j false 10 10 10 10}"
+	require.Equal(t, expectedTable, actualTable)
+
+	err = fw.Close()
+	require.Nil(t, err)
+	pr.ReadStop()
+	err = parquetFile.Close()
+	require.Nil(t, err)
 }
