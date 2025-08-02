@@ -30,11 +30,8 @@ jobs:
           gh release create $(cat ./VERSION) \
               --title $(cat ./VERSION) \
               --notes-file ./CHANGELOG
-  build:
-    uses: ./.github/workflows/build.yml
   coverage-report:
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - uses: actions/download-artifact@v4
         with:
