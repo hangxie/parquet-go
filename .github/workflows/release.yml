@@ -33,10 +33,6 @@ jobs:
   coverage-report:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: coverage-report
-          path: ./
       - name: Update coverage badge
         uses: ncruces/go-coverage-report@main
         with:

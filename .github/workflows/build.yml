@@ -31,7 +31,3 @@ jobs:
             cat /tmp/git-status.log
             false
           fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: ./
