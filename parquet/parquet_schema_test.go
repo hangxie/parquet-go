@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_SchemaElement_Methods(t *testing.T) {
+func Test_SchemaElement(t *testing.T) {
 	se := NewSchemaElement()
 	require.NotNil(t, se)
 
@@ -77,7 +77,7 @@ func Test_SchemaElement_Methods(t *testing.T) {
 	require.True(t, se.Equals(se2))
 }
 
-func Test_SchemaElementComprehensive(t *testing.T) {
+func Test_SchemaElementDefaults(t *testing.T) {
 	se := NewSchemaElement()
 	require.Equal(t, int32(0), se.GetTypeLength())
 	require.Equal(t, FieldRepetitionType(0), se.GetRepetitionType())
@@ -97,7 +97,7 @@ func Test_SchemaElementComprehensive(t *testing.T) {
 	require.False(t, se.IsSetLogicalType())
 }
 
-func Test_SchemaElement_Equals_Comprehensive(t *testing.T) {
+func Test_SchemaElement_Equals(t *testing.T) {
 	tests := []struct {
 		name     string
 		element1 func() *SchemaElement

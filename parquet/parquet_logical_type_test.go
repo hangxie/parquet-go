@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_SimpleType_Methods(t *testing.T) {
+func Test_SimpleType(t *testing.T) {
 	tests := []struct {
 		name string
 		test func(t *testing.T)
@@ -69,7 +69,7 @@ func Test_SimpleType_Methods(t *testing.T) {
 	}
 }
 
-func Test_DecimalType_Methods(t *testing.T) {
+func Test_DecimalType(t *testing.T) {
 	scale := int32(2)
 	precision := int32(10)
 	dt := NewDecimalType()
@@ -87,7 +87,7 @@ func Test_DecimalType_Methods(t *testing.T) {
 	require.True(t, dt.Equals(dt2))
 }
 
-func Test_TimeUnit_BasicMethods(t *testing.T) {
+func Test_TimeUnit_Basic(t *testing.T) {
 	tests := []struct {
 		name string
 		test func(t *testing.T)
@@ -120,7 +120,7 @@ func Test_TimeUnit_BasicMethods(t *testing.T) {
 	}
 }
 
-func Test_TimeUnit_Methods(t *testing.T) {
+func Test_TimeUnit(t *testing.T) {
 	tu := NewTimeUnit()
 
 	millis := NewMilliSeconds()
@@ -141,7 +141,7 @@ func Test_TimeUnit_Methods(t *testing.T) {
 	require.True(t, tu.Equals(tu2))
 }
 
-func Test_TimestampType_Methods(t *testing.T) {
+func Test_TimestampType(t *testing.T) {
 	isAdjusted := true
 	tt := NewTimestampType()
 	tt.IsAdjustedToUTC = isAdjusted
@@ -162,7 +162,7 @@ func Test_TimestampType_Methods(t *testing.T) {
 	require.True(t, tt.Equals(tt2))
 }
 
-func Test_TimeType_Methods(t *testing.T) {
+func Test_TimeType(t *testing.T) {
 	isAdjusted := false
 	timeType := NewTimeType()
 	timeType.IsAdjustedToUTC = isAdjusted
@@ -183,7 +183,7 @@ func Test_TimeType_Methods(t *testing.T) {
 	require.True(t, timeType.Equals(timeType2))
 }
 
-func Test_IntType_Methods(t *testing.T) {
+func Test_IntType(t *testing.T) {
 	bitWidth := int8(32)
 	isSigned := true
 	it := NewIntType()
@@ -201,7 +201,7 @@ func Test_IntType_Methods(t *testing.T) {
 	require.True(t, it.Equals(it2))
 }
 
-func Test_DocumentType_Methods(t *testing.T) {
+func Test_DocumentType(t *testing.T) {
 	tests := []struct {
 		name string
 		test func(t *testing.T)
@@ -227,7 +227,7 @@ func Test_DocumentType_Methods(t *testing.T) {
 	}
 }
 
-func Test_LogicalType_Methods(t *testing.T) {
+func Test_LogicalType(t *testing.T) {
 	lt := NewLogicalType()
 	require.NotNil(t, lt)
 
@@ -351,7 +351,7 @@ func Test_GetterEdgeCases(t *testing.T) {
 	}
 }
 
-func Test_CountSetFieldsMethods(t *testing.T) {
+func Test_CountSetFields(t *testing.T) {
 	tu := NewTimeUnit()
 
 	count := tu.CountSetFieldsTimeUnit()
@@ -430,7 +430,7 @@ func Test_StringMethodVariations(t *testing.T) {
 	require.NotEqual(t, str6, str7)
 }
 
-func Test_LogicalType_ReadFieldMethods(t *testing.T) {
+func Test_LogicalType_ReadField(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("ReadField2_MAP", func(t *testing.T) {
@@ -528,7 +528,7 @@ func Test_LogicalType_Getters_NilCases(t *testing.T) {
 	require.Nil(t, lt.GetUUID())
 }
 
-func Test_LogicalType_Write_Field_Coverage(t *testing.T) {
+func Test_LogicalType_Write_Field(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("LogicalType_writeField2_MAP", func(t *testing.T) {
@@ -612,19 +612,17 @@ func Test_LogicalType_Write_Field_Coverage(t *testing.T) {
 	})
 }
 
-func Test_LogicalType_CountSetFields_Coverage(t *testing.T) {
-	t.Run("LogicalType_CountSetFields_MultipleFields", func(t *testing.T) {
-		lt := NewLogicalType()
+func Test_LogicalType_CountSetFields(t *testing.T) {
+	lt := NewLogicalType()
 
-		count := lt.CountSetFieldsLogicalType()
-		require.Equal(t, 0, count)
+	count := lt.CountSetFieldsLogicalType()
+	require.Equal(t, 0, count)
 
-		lt.STRING = NewStringType()
-		count = lt.CountSetFieldsLogicalType()
-		require.Equal(t, 1, count)
+	lt.STRING = NewStringType()
+	count = lt.CountSetFieldsLogicalType()
+	require.Equal(t, 1, count)
 
-		lt.MAP = NewMapType()
-		count = lt.CountSetFieldsLogicalType()
-		require.Equal(t, 2, count)
-	})
+	lt.MAP = NewMapType()
+	count = lt.CountSetFieldsLogicalType()
+	require.Equal(t, 2, count)
 }
