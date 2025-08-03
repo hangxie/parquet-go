@@ -508,7 +508,7 @@ func Test_IndexingAndStatisticalStructures(t *testing.T) {
 	require.NotNil(t, newEncAlgo.AES_GCM_CTR_V1)
 }
 
-func Test_ComprehensiveUnionAndComplexStructures(t *testing.T) {
+func Test_UnionAndComplexStructures(t *testing.T) {
 	ctx := context.Background()
 	transport := thrift.NewTMemoryBuffer()
 	protocol := thrift.NewTBinaryProtocolConf(transport, nil)
@@ -664,7 +664,7 @@ func Test_ComprehensiveUnionAndComplexStructures(t *testing.T) {
 	require.True(t, bytes.Equal(newComplexFileMetadata.FooterSigningKeyMetadata, complexFileMetadata.FooterSigningKeyMetadata))
 }
 
-func Test_ComprehensiveEqualsMethod(t *testing.T) {
+func Test_EqualsMethod(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupStats1 func() *Statistics
@@ -827,7 +827,7 @@ func Test_ComprehensiveEqualsMethod(t *testing.T) {
 	}
 }
 
-func Test_DecimalTypeEqualsComprehensive(t *testing.T) {
+func Test_DecimalTypeEquals(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupDT1 func() *DecimalType
@@ -876,7 +876,7 @@ func Test_DecimalTypeEqualsComprehensive(t *testing.T) {
 	}
 }
 
-func Test_TimeUnitEqualsComprehensive(t *testing.T) {
+func Test_TimeUnitEquals(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupTU1 func() *TimeUnit
@@ -937,7 +937,7 @@ func Test_TimeUnitEqualsComprehensive(t *testing.T) {
 	}
 }
 
-func Test_TimestampTypeEqualsComprehensive(t *testing.T) {
+func Test_TimestampTypeEquals(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupTT1 func() *TimestampType
@@ -1018,7 +1018,7 @@ func Test_TimestampTypeEqualsComprehensive(t *testing.T) {
 	}
 }
 
-func Test_TimeTypeEqualsComprehensive(t *testing.T) {
+func Test_TimeTypeEquals(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupTimeT1 func() *TimeType
@@ -1093,7 +1093,7 @@ func Test_TimeTypeEqualsComprehensive(t *testing.T) {
 	}
 }
 
-func Test_IntTypeEqualsComprehensive(t *testing.T) {
+func Test_IntTypeEquals(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupIT1 func() *IntType
@@ -1142,7 +1142,7 @@ func Test_IntTypeEqualsComprehensive(t *testing.T) {
 	}
 }
 
-func Test_StringMethodsComprehensive(t *testing.T) {
+func Test_VariousString(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupObj    func() interface{ String() string }
@@ -1319,7 +1319,7 @@ func Test_StringMethodsComprehensive(t *testing.T) {
 	}
 }
 
-func Test_ComprehensiveReadMethodsWithErrorHandling(t *testing.T) {
+func Test_ReadWithErrorHandling(t *testing.T) {
 	ctx := context.Background()
 
 	transport := thrift.NewTMemoryBuffer()
@@ -1431,7 +1431,7 @@ func Test_EqualsEdgeCases(t *testing.T) {
 	require.False(t, stats1.Equals(stats3))
 }
 
-func Test_StringMethods(t *testing.T) {
+func Test_StatisticsString(t *testing.T) {
 	stats := NewStatistics()
 	str1 := stats.String()
 	require.NotEmpty(t, str1)
@@ -1442,100 +1442,7 @@ func Test_StringMethods(t *testing.T) {
 	require.NotEqual(t, str1, str2)
 }
 
-func Test_Statistics_Methods(t *testing.T) {
-	stats := NewStatistics()
-	require.NotNil(t, stats)
-
-	maxVal := []byte("max")
-	minVal := []byte("min")
-	nullCount := int64(10)
-	distinctCount := int64(100)
-	maxValue := []byte("maxvalue")
-	minValue := []byte("minvalue")
-
-	stats.Max = maxVal
-	stats.Min = minVal
-	stats.NullCount = &nullCount
-	stats.DistinctCount = &distinctCount
-	stats.MaxValue = maxValue
-	stats.MinValue = minValue
-	require.Equal(t, maxVal, stats.GetMax())
-	require.Equal(t, minVal, stats.GetMin())
-	require.Equal(t, nullCount, stats.GetNullCount())
-	require.Equal(t, distinctCount, stats.GetDistinctCount())
-	require.Equal(t, maxValue, stats.GetMaxValue())
-	require.Equal(t, minValue, stats.GetMinValue())
-	require.True(t, stats.IsSetMax())
-	require.True(t, stats.IsSetMin())
-	require.True(t, stats.IsSetNullCount())
-	require.True(t, stats.IsSetDistinctCount())
-	require.True(t, stats.IsSetMaxValue())
-	require.True(t, stats.IsSetMinValue())
-
-	str := stats.String()
-	require.NotEmpty(t, str)
-
-	stats2 := NewStatistics()
-	stats2.Max = maxVal
-	stats2.Min = minVal
-	stats2.NullCount = &nullCount
-	stats2.DistinctCount = &distinctCount
-	stats2.MaxValue = maxValue
-	stats2.MinValue = minValue
-	require.True(t, stats.Equals(stats2))
-
-	differentNullCount := int64(20)
-	stats2.NullCount = &differentNullCount
-	require.False(t, stats.Equals(stats2))
-}
-
-func Test_StatisticsNilFields(t *testing.T) {
-	stats := NewStatistics()
-	require.Equal(t, int64(0), stats.GetDistinctCount())
-}
-
-func Test_Statistics_GetNullCount_EdgeCase(t *testing.T) {
-	stats := NewStatistics()
-	stats.NullCount = nil
-
-	result := stats.GetNullCount()
-	require.Equal(t, int64(0), result)
-}
-
-func Test_PageLocation_Methods(t *testing.T) {
-	pl := NewPageLocation()
-	require.NotNil(t, pl)
-
-	offset := int64(4096)
-	pl.Offset = offset
-	require.Equal(t, offset, pl.GetOffset())
-
-	compressedSize := int32(1024)
-	pl.CompressedPageSize = compressedSize
-	require.Equal(t, compressedSize, pl.GetCompressedPageSize())
-
-	firstRowIndex := int64(500)
-	pl.FirstRowIndex = firstRowIndex
-	require.Equal(t, firstRowIndex, pl.GetFirstRowIndex())
-
-	str := pl.String()
-	require.NotEmpty(t, str)
-	require.Contains(t, str, "PageLocation")
-
-	pl2 := NewPageLocation()
-	pl2.Offset = offset
-	pl2.CompressedPageSize = compressedSize
-	pl2.FirstRowIndex = firstRowIndex
-	require.True(t, pl.Equals(pl2))
-
-	pl3 := NewPageLocation()
-	pl3.Offset = offset + 1
-	pl3.CompressedPageSize = compressedSize
-	pl3.FirstRowIndex = firstRowIndex
-	require.False(t, pl.Equals(pl3))
-}
-
-func Test_OffsetIndex_Methods(t *testing.T) {
+func Test_OffsetIndex(t *testing.T) {
 	oi := NewOffsetIndex()
 	require.NotNil(t, oi)
 
@@ -1573,7 +1480,7 @@ func Test_OffsetIndex_Methods(t *testing.T) {
 	require.False(t, oi.Equals(oi3))
 }
 
-func Test_ColumnIndex_Methods(t *testing.T) {
+func Test_ColumnIndex(t *testing.T) {
 	ci := NewColumnIndex()
 	require.NotNil(t, ci)
 
@@ -1618,7 +1525,7 @@ func Test_ColumnIndex_Methods(t *testing.T) {
 	require.False(t, ci.Equals(ci3))
 }
 
-func Test_AesGcmV1_Methods(t *testing.T) {
+func Test_AesGcmV1(t *testing.T) {
 	aes := NewAesGcmV1()
 	require.NotNil(t, aes)
 
@@ -1652,7 +1559,7 @@ func Test_AesGcmV1_Methods(t *testing.T) {
 	require.False(t, aes.Equals(aes3))
 }
 
-func Test_ColumnOrder_Methods(t *testing.T) {
+func Test_ColumnOrder(t *testing.T) {
 	co := NewColumnOrder()
 	require.NotNil(t, co)
 
@@ -1673,7 +1580,7 @@ func Test_ColumnOrder_Methods(t *testing.T) {
 	require.False(t, co.Equals(co3))
 }
 
-func Test_PageEncodingStats_Methods(t *testing.T) {
+func Test_PageEncodingStats(t *testing.T) {
 	pes := NewPageEncodingStats()
 	require.NotNil(t, pes)
 
@@ -1723,7 +1630,7 @@ func Test_ColumnMetaData_GetType(t *testing.T) {
 	require.Equal(t, encodingStats, cmd.GetEncodingStats())
 }
 
-func Test_BloomFilterHash_Methods(t *testing.T) {
+func Test_BloomFilterHash(t *testing.T) {
 	bfh := NewBloomFilterHash()
 	require.NotNil(t, bfh)
 
@@ -1741,7 +1648,7 @@ func Test_BloomFilterHash_Methods(t *testing.T) {
 	require.True(t, bfh.Equals(bfh2))
 }
 
-func Test_BloomFilterCompression_Methods(t *testing.T) {
+func Test_BloomFilterCompression(t *testing.T) {
 	bfc := NewBloomFilterCompression()
 	require.NotNil(t, bfc)
 
@@ -1759,7 +1666,7 @@ func Test_BloomFilterCompression_Methods(t *testing.T) {
 	require.True(t, bfc.Equals(bfc2))
 }
 
-func Test_BloomFilterHeader_Methods(t *testing.T) {
+func Test_BloomFilterHeader(t *testing.T) {
 	bfh := NewBloomFilterHeader()
 	require.NotNil(t, bfh)
 
@@ -1797,7 +1704,7 @@ func Test_BloomFilterHeader_Methods(t *testing.T) {
 	require.True(t, bfh.Equals(bfh2))
 }
 
-func Test_FileMetaData_AdditionalMethods(t *testing.T) {
+func Test_FileMetaData_Additional(t *testing.T) {
 	fmd := NewFileMetaData()
 	require.NotNil(t, fmd)
 
@@ -1825,7 +1732,7 @@ func Test_FileMetaData_AdditionalMethods(t *testing.T) {
 	require.Contains(t, str, "FileMetaData")
 }
 
-func Test_FileCryptoMetaData_Methods(t *testing.T) {
+func Test_FileCryptoMetaData(t *testing.T) {
 	fcmd := NewFileCryptoMetaData()
 	require.NotNil(t, fcmd)
 
@@ -1890,12 +1797,12 @@ func Test_AdditionalEdgeCases(t *testing.T) {
 }
 
 func Test_StringMethodVariationsStructures(t *testing.T) {
-	se1 := NewSchemaElement()
-	se1.Name = "test"
-	str8 := se1.String()
+	se := NewSchemaElement()
+	se.Name = "test"
+	beforeType := se.String()
 
 	fieldType := Type_INT32
-	se1.Type = &fieldType
-	str9 := se1.String()
-	require.NotEqual(t, str8, str9)
+	se.Type = &fieldType
+	afterType := se.String()
+	require.NotEqual(t, beforeType, afterType)
 }

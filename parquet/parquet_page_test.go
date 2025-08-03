@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_DataPageHeader_Methods(t *testing.T) {
+func Test_DataPageHeader(t *testing.T) {
 	dph := NewDataPageHeader()
 	require.NotNil(t, dph)
 
@@ -46,7 +46,7 @@ func Test_DataPageHeader_Methods(t *testing.T) {
 	require.True(t, dph.Equals(dph2))
 }
 
-func Test_IndexPageHeader_Methods(t *testing.T) {
+func Test_IndexPageHeader(t *testing.T) {
 	iph := NewIndexPageHeader()
 	require.NotNil(t, iph)
 
@@ -57,7 +57,7 @@ func Test_IndexPageHeader_Methods(t *testing.T) {
 	require.True(t, iph.Equals(iph2))
 }
 
-func Test_DictionaryPageHeader_Methods(t *testing.T) {
+func Test_DictionaryPageHeader(t *testing.T) {
 	dph := NewDictionaryPageHeader()
 	require.NotNil(t, dph)
 
@@ -84,7 +84,7 @@ func Test_DictionaryPageHeader_Methods(t *testing.T) {
 	require.True(t, dph.Equals(dph2))
 }
 
-func Test_DataPageHeaderV2_Methods(t *testing.T) {
+func Test_DataPageHeaderV2(t *testing.T) {
 	dph := NewDataPageHeaderV2()
 	require.NotNil(t, dph)
 

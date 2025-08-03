@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_ThriftReadWriteMethods(t *testing.T) {
+func Test_ThriftReadWrite(t *testing.T) {
 	ctx := context.Background()
 
 	stats := NewStatistics()
@@ -102,7 +102,7 @@ func Test_ThriftReadWriteMethods(t *testing.T) {
 	require.Equal(t, intType.IsSigned, newIntType.IsSigned)
 }
 
-func Test_ComplexThriftReadWriteMethods(t *testing.T) {
+func Test_ComplexThriftReadWrite(t *testing.T) {
 	ctx := context.Background()
 	transport := thrift.NewTMemoryBuffer()
 	protocol := thrift.NewTBinaryProtocolConf(transport, nil)
@@ -222,7 +222,7 @@ func Test_ComplexThriftReadWriteMethods(t *testing.T) {
 	require.NotNil(t, newPageHeaderV2.Statistics)
 }
 
-func Test_UnionAndComplexReadWriteMethods(t *testing.T) {
+func Test_UnionAndComplexReadWrite(t *testing.T) {
 	ctx := context.Background()
 	transport := thrift.NewTMemoryBuffer()
 	protocol := thrift.NewTBinaryProtocolConf(transport, nil)
