@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/layout"
 	"github.com/hangxie/parquet-go/v2/schema"
 )
 
@@ -113,4 +114,25 @@ func Test_MarshalUnmarshal(t *testing.T) {
 	s0 := fmt.Sprint(stus)
 	s1 := fmt.Sprint(dst)
 	require.Equal(t, s0, s1)
+}
+
+func Test_Unmarshal_PanicZeroValue(t *testing.T) {
+	type TestStruct struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(TestStruct))
+	require.NoError(t, err)
+
+	tableMap := map[string]*layout.Table{
+		"name": {
+			Path:             []string{"name"}, // Start with valid field, but we'll simulate corruption
+			Values:           []interface{}{"test_value"},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{0},
+		},
+	}
+	dst := (*any)(nil)
+	err = Unmarshal(&tableMap, 0, 1, dst, schemaHandler, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "dstInterface must be a non-nil pointer")
 }
