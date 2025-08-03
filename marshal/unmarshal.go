@@ -1,6 +1,7 @@
 package marshal
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -28,6 +29,11 @@ type SliceRecord struct {
 
 // Convert the table map to objects slice. dstInterface is a slice of pointers of objects
 func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface any, schemaHandler *schema.SchemaHandler, prefixPath string) (err error) {
+	rootValue := reflect.ValueOf(dstInterface)
+	if !rootValue.IsValid() || rootValue.Kind() != reflect.Ptr || rootValue.IsNil() {
+		return fmt.Errorf("dstInterface must be a non-nil pointer")
+	}
+
 	tableNeeds := make(map[string]*layout.Table)
 	tableBgn, tableEnd := make(map[string]int), make(map[string]int)
 	for name, table := range *tableMap {
@@ -65,7 +71,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 	mapRecordsStack := make([]reflect.Value, 0)
 	sliceRecords := make(map[reflect.Value]*SliceRecord)
 	sliceRecordsStack := make([]reflect.Value, 0)
-	root := reflect.ValueOf(dstInterface).Elem()
+	root := rootValue.Elem()
 	prefixIndex := common.PathStrIndex(prefixPath) - 1
 
 	for name, table := range tableNeeds {
@@ -105,6 +111,10 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 			for index < len(path) {
 				schemaIndex := schemaIndexs[index]
 				_, cT := schemaHandler.SchemaElements[schemaIndex].Type, schemaHandler.SchemaElements[schemaIndex].ConvertedType
+
+				if !po.IsValid() {
+					return fmt.Errorf("invalid reflect value encountered during unmarshal")
+				}
 
 				poType := po.Type()
 				switch poType.Kind() {
@@ -214,10 +224,16 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 					if prevType != poType || name != prevFieldName {
 						prevType = poType
 						prevFieldName = name
-						f, _ := prevType.FieldByName(name)
+						f, ok := prevType.FieldByName(name)
+						if !ok {
+							return fmt.Errorf("field %q not found in struct type %v", name, prevType)
+						}
 						prevFieldIndex = f.Index
 					}
 					po = po.FieldByIndex(prevFieldIndex)
+					if !po.IsValid() {
+						return fmt.Errorf("field access resulted in invalid value for field %q", name)
+					}
 
 				default:
 					value := reflect.ValueOf(val)
