@@ -84,7 +84,7 @@ example: deps  ## Run all examples
 	@mkdir -p build/example
 	@set -euo pipefail; \
 	    for DIR in example/*; do \
-	        (go build -tags test -o build/example/ ./$${DIR}); \
+	        (go build -tags example -o build/example/ ./$${DIR}); \
 			echo "    ==> $${DIR}"; \
 	    done
 
