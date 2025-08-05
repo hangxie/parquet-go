@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_SimpleType(t *testing.T) {
+func Test_Type(t *testing.T) {
 	tests := []struct {
 		name string
 		test func(t *testing.T)
@@ -351,7 +352,7 @@ func Test_GetterEdgeCases(t *testing.T) {
 	}
 }
 
-func Test_CountSetFields(t *testing.T) {
+func Test_CountSetFields_LogicalType(t *testing.T) {
 	tu := NewTimeUnit()
 
 	count := tu.CountSetFieldsTimeUnit()
@@ -376,6 +377,28 @@ func Test_CountSetFields(t *testing.T) {
 	lt.STRING = NewStringType()
 	count = lt.CountSetFieldsLogicalType()
 	require.Equal(t, 1, count)
+}
+
+func Test_TimeUnitGetters(t *testing.T) {
+	tu := NewTimeUnit()
+	tu.MILLIS = NewMilliSeconds()
+	assert.NotNil(t, tu.MILLIS)
+	assert.Nil(t, tu.MICROS)
+	assert.Nil(t, tu.NANOS)
+
+	// Test getters
+	assert.NotNil(t, tu.GetMILLIS())
+	assert.Nil(t, tu.GetMICROS())
+	assert.Nil(t, tu.GetNANOS())
+
+	// Test setters
+	assert.True(t, tu.IsSetMILLIS())
+	assert.False(t, tu.IsSetMICROS())
+	assert.False(t, tu.IsSetNANOS())
+
+	// Test String method
+	str := tu.String()
+	assert.Contains(t, str, "TimeUnit")
 }
 
 func Test_EqualsNilPointerCases(t *testing.T) {

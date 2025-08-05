@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -827,7 +828,7 @@ func Test_EqualsMethod(t *testing.T) {
 	}
 }
 
-func Test_DecimalTypeEquals(t *testing.T) {
+func Test_DecimalType_Equals(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupDT1 func() *DecimalType
@@ -876,7 +877,7 @@ func Test_DecimalTypeEquals(t *testing.T) {
 	}
 }
 
-func Test_TimeUnitEquals(t *testing.T) {
+func Test_TimeUnit_Equals(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupTU1 func() *TimeUnit
@@ -937,7 +938,7 @@ func Test_TimeUnitEquals(t *testing.T) {
 	}
 }
 
-func Test_TimestampTypeEquals(t *testing.T) {
+func Test_TimestampType_Equals(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupTT1 func() *TimestampType
@@ -1018,7 +1019,7 @@ func Test_TimestampTypeEquals(t *testing.T) {
 	}
 }
 
-func Test_TimeTypeEquals(t *testing.T) {
+func Test_TimeType_Equals(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupTimeT1 func() *TimeType
@@ -1093,7 +1094,7 @@ func Test_TimeTypeEquals(t *testing.T) {
 	}
 }
 
-func Test_IntTypeEquals(t *testing.T) {
+func Test_IntType_Equals(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupIT1 func() *IntType
@@ -1559,7 +1560,7 @@ func Test_AesGcmV1(t *testing.T) {
 	require.False(t, aes.Equals(aes3))
 }
 
-func Test_ColumnOrder(t *testing.T) {
+func Test_ColumnOrder_Equals(t *testing.T) {
 	co := NewColumnOrder()
 	require.NotNil(t, co)
 
@@ -1580,7 +1581,7 @@ func Test_ColumnOrder(t *testing.T) {
 	require.False(t, co.Equals(co3))
 }
 
-func Test_PageEncodingStats(t *testing.T) {
+func Test_PageEncodingStats_Equals(t *testing.T) {
 	pes := NewPageEncodingStats()
 	require.NotNil(t, pes)
 
@@ -1630,7 +1631,7 @@ func Test_ColumnMetaData_GetType(t *testing.T) {
 	require.Equal(t, encodingStats, cmd.GetEncodingStats())
 }
 
-func Test_BloomFilterHash(t *testing.T) {
+func Test_BloomFilterHash_Equals(t *testing.T) {
 	bfh := NewBloomFilterHash()
 	require.NotNil(t, bfh)
 
@@ -1648,7 +1649,7 @@ func Test_BloomFilterHash(t *testing.T) {
 	require.True(t, bfh.Equals(bfh2))
 }
 
-func Test_BloomFilterCompression(t *testing.T) {
+func Test_BloomFilterCompression_Equals(t *testing.T) {
 	bfc := NewBloomFilterCompression()
 	require.NotNil(t, bfc)
 
@@ -1666,7 +1667,7 @@ func Test_BloomFilterCompression(t *testing.T) {
 	require.True(t, bfc.Equals(bfc2))
 }
 
-func Test_BloomFilterHeader(t *testing.T) {
+func Test_BloomFilterHeader_EqualsDetailed(t *testing.T) {
 	bfh := NewBloomFilterHeader()
 	require.NotNil(t, bfh)
 
@@ -1702,6 +1703,212 @@ func Test_BloomFilterHeader(t *testing.T) {
 	bfh2.Hash = hash
 	bfh2.Compression = compression
 	require.True(t, bfh.Equals(bfh2))
+}
+
+func Test_StatisticsGetters(t *testing.T) {
+	stats := NewStatistics()
+	maxValue := []byte("max")
+	stats.Max = maxValue
+	minValue := []byte("min")
+	stats.Min = minValue
+	nullCount := int64(10)
+	stats.NullCount = &nullCount
+	distinctCount := int64(5)
+	stats.DistinctCount = &distinctCount
+
+	assert.Equal(t, maxValue, stats.GetMax())
+	assert.Equal(t, minValue, stats.GetMin())
+	assert.Equal(t, int64(10), stats.GetNullCount())
+	assert.Equal(t, int64(5), stats.GetDistinctCount())
+	assert.True(t, stats.IsSetMax())
+	assert.True(t, stats.IsSetMin())
+	assert.True(t, stats.IsSetNullCount())
+	assert.True(t, stats.IsSetDistinctCount())
+
+	// Test String method
+	str := stats.String()
+	assert.Contains(t, str, "Statistics")
+}
+
+func Test_LogicalTypeEquals(t *testing.T) {
+	t.Run("DecimalType", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			setupDT1 func() *DecimalType
+			setupDT2 func() *DecimalType
+			expected bool
+		}{
+			{
+				name: "default values",
+				setupDT1: func() *DecimalType {
+					return NewDecimalType()
+				},
+				setupDT2: func() *DecimalType {
+					return NewDecimalType()
+				},
+				expected: true,
+			},
+			{
+				name: "same scale",
+				setupDT1: func() *DecimalType {
+					dt := NewDecimalType()
+					scale := int32(2)
+					dt.Scale = scale
+					return dt
+				},
+				setupDT2: func() *DecimalType {
+					dt := NewDecimalType()
+					scale := int32(2)
+					dt.Scale = scale
+					return dt
+				},
+				expected: true,
+			},
+			{
+				name: "different scale",
+				setupDT1: func() *DecimalType {
+					dt := NewDecimalType()
+					scale := int32(2)
+					dt.Scale = scale
+					return dt
+				},
+				setupDT2: func() *DecimalType {
+					dt := NewDecimalType()
+					scale := int32(3)
+					dt.Scale = scale
+					return dt
+				},
+				expected: false,
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				dt1 := test.setupDT1()
+				dt2 := test.setupDT2()
+				result := dt1.Equals(dt2)
+				assert.Equal(t, test.expected, result)
+			})
+		}
+	})
+
+	t.Run("TimeUnit", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			setupTU1 func() *TimeUnit
+			setupTU2 func() *TimeUnit
+			expected bool
+		}{
+			{
+				name: "both empty",
+				setupTU1: func() *TimeUnit {
+					return NewTimeUnit()
+				},
+				setupTU2: func() *TimeUnit {
+					return NewTimeUnit()
+				},
+				expected: true,
+			},
+			{
+				name: "same MILLIS",
+				setupTU1: func() *TimeUnit {
+					tu := NewTimeUnit()
+					tu.MILLIS = NewMilliSeconds()
+					return tu
+				},
+				setupTU2: func() *TimeUnit {
+					tu := NewTimeUnit()
+					tu.MILLIS = NewMilliSeconds()
+					return tu
+				},
+				expected: true,
+			},
+			{
+				name: "MILLIS vs MICROS",
+				setupTU1: func() *TimeUnit {
+					tu := NewTimeUnit()
+					tu.MILLIS = NewMilliSeconds()
+					return tu
+				},
+				setupTU2: func() *TimeUnit {
+					tu := NewTimeUnit()
+					tu.MICROS = NewMicroSeconds()
+					return tu
+				},
+				expected: false,
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				tu1 := test.setupTU1()
+				tu2 := test.setupTU2()
+				result := tu1.Equals(tu2)
+				assert.Equal(t, test.expected, result)
+			})
+		}
+	})
+
+	t.Run("IntType", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			setupIT1 func() *IntType
+			setupIT2 func() *IntType
+			expected bool
+		}{
+			{
+				name: "default values",
+				setupIT1: func() *IntType {
+					return NewIntType()
+				},
+				setupIT2: func() *IntType {
+					return NewIntType()
+				},
+				expected: true,
+			},
+			{
+				name: "same BitWidth",
+				setupIT1: func() *IntType {
+					it := NewIntType()
+					bitWidth := int8(32)
+					it.BitWidth = bitWidth
+					return it
+				},
+				setupIT2: func() *IntType {
+					it := NewIntType()
+					bitWidth := int8(32)
+					it.BitWidth = bitWidth
+					return it
+				},
+				expected: true,
+			},
+			{
+				name: "different BitWidth",
+				setupIT1: func() *IntType {
+					it := NewIntType()
+					bitWidth := int8(32)
+					it.BitWidth = bitWidth
+					return it
+				},
+				setupIT2: func() *IntType {
+					it := NewIntType()
+					bitWidth := int8(64)
+					it.BitWidth = bitWidth
+					return it
+				},
+				expected: false,
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				it1 := test.setupIT1()
+				it2 := test.setupIT2()
+				result := it1.Equals(it2)
+				assert.Equal(t, test.expected, result)
+			})
+		}
+	})
 }
 
 func Test_FileMetaData_Additional(t *testing.T) {
