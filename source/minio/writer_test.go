@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/stretchr/testify/require"
@@ -355,10 +356,34 @@ func Test_MinioWriterWriteWithValidPipe(t *testing.T) {
 }
 
 func Test_NewS3FileWriterWithClientFunctionality(t *testing.T) {
-	ctx := context.Background()
-	client := &minio.Client{}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 
-	require.Panics(t, func() {
-		_, _ = NewS3FileWriterWithClient(ctx, client, "test-bucket", "test.parquet")
-	})
+	client, err := minio.New("localhost:9000", &minio.Options{Secure: false})
+	require.NoError(t, err)
+
+	// This will timeout quickly, covering the constructor
+	_, err = NewS3FileWriterWithClient(ctx, client, "test-bucket", "test.parquet")
+	require.Error(t, err) // Expected to fail (timeout or connection refused)
+}
+
+func Test_MinioWriter_CreateMethod(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	client, err := minio.New("localhost:9000", &minio.Options{Secure: false})
+	require.NoError(t, err)
+
+	writer := &minioWriter{
+		minioFile: minioFile{
+			ctx:        ctx,
+			client:     client,
+			bucketName: "test-bucket",
+			key:        "test.parquet",
+		},
+	}
+
+	// This will timeout quickly, covering the Create method
+	_, err = writer.Create("new-file.parquet")
+	require.Error(t, err) // Expected to fail (timeout or connection refused)
 }

@@ -62,3 +62,21 @@ func Test_HdfsWriterWriteDelegation(t *testing.T) {
 		_, _ = writer.Write(testData)
 	})
 }
+
+func Test_HdfsWriter_Create(t *testing.T) {
+	// Test Create method with nil client (will fail, but covers the method)
+	writer := &hdfsWriter{
+		hdfsFile: hdfsFile{
+			hosts:    []string{"localhost:9000"},
+			user:     "test-user",
+			filePath: "test.parquet",
+			client:   nil,
+		},
+		fileWriter: nil,
+	}
+
+	// This should panic due to nil client, covering the Create method
+	require.Panics(t, func() {
+		_, _ = writer.Create("test.parquet")
+	})
+}

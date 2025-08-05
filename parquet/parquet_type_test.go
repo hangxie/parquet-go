@@ -8,8 +8,6 @@ import (
 
 // Individual Type and ConvertedType method tests removed - replaced by consolidated versions below
 
-
-
 func Test_FieldRepetitionType_String(t *testing.T) {
 	tests := []struct {
 		typ      FieldRepetitionType

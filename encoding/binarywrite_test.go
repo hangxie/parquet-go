@@ -34,8 +34,6 @@ func (m *mockWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// Test round-trip compatibility with binary read functions
-
 func Test_BinaryWriteFLOAT32(t *testing.T) {
 	tests := []struct {
 		name          string

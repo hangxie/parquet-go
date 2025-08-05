@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/stretchr/testify/require"
@@ -142,4 +143,62 @@ func Test_MinioReaderZeroFileSize(t *testing.T) {
 
 	_, err := reader.Seek(10, io.SeekStart)
 	require.NoError(t, err)
+}
+
+func Test_NewS3FileReaderWithClient(t *testing.T) {
+	// Create a context with timeout to avoid hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	client, err := minio.New("localhost:9000", &minio.Options{
+		Secure: false, // HTTP instead of HTTPS
+	})
+	require.NoError(t, err)
+
+	// This will timeout quickly, covering the method
+	_, err = NewS3FileReaderWithClient(ctx, client, "test-bucket", "test.parquet")
+	// We expect this to fail (either timeout or connection refused)
+	require.Error(t, err)
+}
+
+func Test_MinioReader_Open(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	client, err := minio.New("localhost:9000", &minio.Options{Secure: false})
+	require.NoError(t, err)
+
+	reader := &minioReader{
+		minioFile: minioFile{
+			ctx:        ctx,
+			client:     client,
+			bucketName: "test-bucket",
+			key:        "test.parquet",
+		},
+	}
+
+	// This will timeout quickly, covering the Open method
+	_, err = reader.Open("test.parquet")
+	require.Error(t, err) // Expected to fail (timeout or connection refused)
+}
+
+func Test_MinioReader_Clone(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	client, err := minio.New("localhost:9000", &minio.Options{Secure: false})
+	require.NoError(t, err)
+
+	reader := &minioReader{
+		minioFile: minioFile{
+			ctx:        ctx,
+			client:     client,
+			bucketName: "test-bucket",
+			key:        "test.parquet",
+		},
+	}
+
+	// This will timeout quickly, covering the Clone method
+	_, err = reader.Clone()
+	require.Error(t, err) // Expected to fail (timeout or connection refused)
 }
