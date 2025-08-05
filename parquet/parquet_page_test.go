@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -355,6 +356,138 @@ func Test_PageHeaderThriftReadWrite(t *testing.T) {
 			require.NoError(t, newPageHeader.Read(ctx, readProtocol))
 
 			tt.verifyPage(t, newPageHeader)
+		})
+	}
+}
+
+func Test_PageEncodingStats(t *testing.T) {
+	pes := NewPageEncodingStats()
+	require.NotNil(t, pes)
+
+	pageType := PageType_DATA_PAGE
+	pes.PageType = pageType
+	require.Equal(t, pageType, pes.GetPageType())
+
+	encoding := Encoding_PLAIN
+	pes.Encoding = encoding
+	require.Equal(t, encoding, pes.GetEncoding())
+
+	count := int32(100)
+	pes.Count = count
+	require.Equal(t, count, pes.GetCount())
+}
+
+func Test_PageHeader_EqualsBasic(t *testing.T) {
+	ph1 := NewPageHeader()
+	ph1.Type = PageType_DATA_PAGE
+	ph1.UncompressedPageSize = 1024
+	ph1.CompressedPageSize = 512
+
+	ph2 := NewPageHeader()
+	ph2.Type = PageType_DATA_PAGE
+	ph2.UncompressedPageSize = 1024
+	ph2.CompressedPageSize = 512
+
+	assert.True(t, ph1.Equals(ph2))
+	assert.False(t, ph1.Equals(nil))
+
+	// Test different page types
+	ph3 := NewPageHeader()
+	ph3.Type = PageType_DICTIONARY_PAGE
+	assert.False(t, ph1.Equals(ph3))
+}
+
+func Test_DictionaryPageHeader_Equals(t *testing.T) {
+	dph1 := NewDictionaryPageHeader()
+	dph1.NumValues = 100
+	dph1.Encoding = Encoding_PLAIN_DICTIONARY
+
+	dph2 := NewDictionaryPageHeader()
+	dph2.NumValues = 100
+	dph2.Encoding = Encoding_PLAIN_DICTIONARY
+
+	assert.True(t, dph1.Equals(dph2))
+	assert.False(t, dph1.Equals(nil))
+
+	// Test different num values
+	dph3 := NewDictionaryPageHeader()
+	dph3.NumValues = 200
+	assert.False(t, dph1.Equals(dph3))
+
+	// Test different encodings
+	dph4 := NewDictionaryPageHeader()
+	dph4.NumValues = 100
+	dph4.Encoding = Encoding_RLE_DICTIONARY
+	assert.False(t, dph1.Equals(dph4))
+
+	// Test is_sorted differences
+	sorted1 := true
+	dph1.IsSorted = &sorted1
+	sorted2 := false
+	dph5 := NewDictionaryPageHeader()
+	dph5.NumValues = 100
+	dph5.Encoding = Encoding_PLAIN_DICTIONARY
+	dph5.IsSorted = &sorted2
+	assert.False(t, dph1.Equals(dph5))
+}
+
+func Test_PageHeaderEquals(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupPH1 func() *PageHeader
+		setupPH2 func() *PageHeader
+		expected bool
+	}{
+		{
+			name: "identical objects",
+			setupPH1: func() *PageHeader {
+				ph := NewPageHeader()
+				ph.Type = PageType_DATA_PAGE
+				ph.UncompressedPageSize = 1024
+				ph.CompressedPageSize = 512
+				return ph
+			},
+			setupPH2: func() *PageHeader {
+				ph := NewPageHeader()
+				ph.Type = PageType_DATA_PAGE
+				ph.UncompressedPageSize = 1024
+				ph.CompressedPageSize = 512
+				return ph
+			},
+			expected: true,
+		},
+		{
+			name: "different page types",
+			setupPH1: func() *PageHeader {
+				ph := NewPageHeader()
+				ph.Type = PageType_DATA_PAGE
+				return ph
+			},
+			setupPH2: func() *PageHeader {
+				ph := NewPageHeader()
+				ph.Type = PageType_DICTIONARY_PAGE
+				return ph
+			},
+			expected: false,
+		},
+		{
+			name: "nil comparison",
+			setupPH1: func() *PageHeader {
+				return NewPageHeader()
+			},
+			setupPH2: func() *PageHeader {
+				return nil
+			},
+			expected: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ph1 := test.setupPH1()
+			ph2 := test.setupPH2()
+			result := ph1.Equals(ph2)
+			assert.Equal(t, test.expected, result)
 		})
 	}
 }

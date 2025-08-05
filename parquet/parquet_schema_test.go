@@ -3,6 +3,7 @@ package parquet
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -418,4 +419,37 @@ func Test_SchemaElement_GetType_EdgeCase(t *testing.T) {
 
 	result := se.GetType()
 	require.Equal(t, Type(0), result)
+}
+
+func Test_ColumnOrder(t *testing.T) {
+	co := NewColumnOrder()
+	require.NotNil(t, co)
+
+	typeOrder := NewTypeDefinedOrder()
+	co.TYPE_ORDER = typeOrder
+	require.Equal(t, typeOrder, co.GetTYPE_ORDER())
+	require.True(t, co.IsSetTYPE_ORDER())
+
+	count := co.CountSetFieldsColumnOrder()
+	require.Greater(t, count, 0)
+}
+
+func Test_KeyValue_Equals(t *testing.T) {
+	kv1 := NewKeyValue()
+	kv1.Key = "test_key"
+	value1 := "test_value"
+	kv1.Value = &value1
+
+	kv2 := NewKeyValue()
+	kv2.Key = "test_key"
+	value2 := "test_value"
+	kv2.Value = &value2
+
+	assert.True(t, kv1.Equals(kv2))
+	assert.False(t, kv1.Equals(nil))
+
+	// Test different keys
+	kv3 := NewKeyValue()
+	kv3.Key = "different_key"
+	assert.False(t, kv1.Equals(kv3))
 }

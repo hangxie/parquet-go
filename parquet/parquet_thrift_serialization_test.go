@@ -374,3 +374,105 @@ func Test_Thrift_Read_Error_Handling(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func Test_OffsetIndex_ReadWrite(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test data
+	original := NewOffsetIndex()
+	original.PageLocations = []*PageLocation{
+		{Offset: 100, CompressedPageSize: 500, FirstRowIndex: 0},
+		{Offset: 600, CompressedPageSize: 400, FirstRowIndex: 50},
+	}
+
+	// Create transport and protocol for serialization
+	transport := thrift.NewTMemoryBuffer()
+	protocol := thrift.NewTBinaryProtocolConf(transport, nil)
+
+	// Write the data
+	err := original.Write(ctx, protocol)
+	require.NoError(t, err)
+
+	// Read it back
+	readBack := NewOffsetIndex()
+	err = readBack.Read(ctx, protocol)
+	require.NoError(t, err)
+
+	// Verify
+	require.Equal(t, len(original.PageLocations), len(readBack.PageLocations))
+	for i, loc := range original.PageLocations {
+		require.Equal(t, loc.Offset, readBack.PageLocations[i].Offset)
+		require.Equal(t, loc.CompressedPageSize, readBack.PageLocations[i].CompressedPageSize)
+		require.Equal(t, loc.FirstRowIndex, readBack.PageLocations[i].FirstRowIndex)
+	}
+}
+
+func Test_ColumnIndex_ReadWrite(t *testing.T) {
+	ctx := context.Background()
+
+	// Create test data
+	original := NewColumnIndex()
+	original.NullPages = []bool{true, false}
+	original.MinValues = [][]byte{[]byte("min1"), []byte("min2")}
+	original.MaxValues = [][]byte{[]byte("max1"), []byte("max2")}
+	original.BoundaryOrder = BoundaryOrder_ASCENDING
+	original.NullCounts = []int64{10, 20}
+
+	// Create transport and protocol for serialization
+	transport := thrift.NewTMemoryBuffer()
+	protocol := thrift.NewTBinaryProtocolConf(transport, nil)
+
+	// Write the data
+	err := original.Write(ctx, protocol)
+	require.NoError(t, err)
+
+	// Read it back
+	readBack := NewColumnIndex()
+	err = readBack.Read(ctx, protocol)
+	require.NoError(t, err)
+
+	// Verify
+	require.Equal(t, original.NullPages, readBack.NullPages)
+	require.Equal(t, original.MinValues, readBack.MinValues)
+	require.Equal(t, original.MaxValues, readBack.MaxValues)
+	require.Equal(t, original.BoundaryOrder, readBack.BoundaryOrder)
+	require.Equal(t, original.NullCounts, readBack.NullCounts)
+}
+
+func Test_CountSetFields_Serialization(t *testing.T) {
+	t.Run("TimeUnit", func(t *testing.T) {
+		tu := NewTimeUnit()
+
+		// No fields set
+		count := tu.CountSetFieldsTimeUnit()
+		require.Equal(t, 0, count)
+
+		// Set MILLIS
+		tu.MILLIS = NewMilliSeconds()
+		count = tu.CountSetFieldsTimeUnit()
+		require.Equal(t, 1, count)
+
+		// Set MICROS (should still be 1 as only one should be set)
+		tu.MICROS = NewMicroSeconds()
+		count = tu.CountSetFieldsTimeUnit()
+		require.Equal(t, 2, count) // Both are set in test
+	})
+
+	t.Run("LogicalType", func(t *testing.T) {
+		lt := NewLogicalType()
+
+		// No fields set
+		count := lt.CountSetFieldsLogicalType()
+		require.Equal(t, 0, count)
+
+		// Set STRING
+		lt.STRING = NewStringType()
+		count = lt.CountSetFieldsLogicalType()
+		require.Equal(t, 1, count)
+
+		// Set DECIMAL
+		lt.DECIMAL = NewDecimalType()
+		count = lt.CountSetFieldsLogicalType()
+		require.Equal(t, 2, count)
+	})
+}
