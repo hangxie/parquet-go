@@ -100,7 +100,8 @@ func Test_MinioWriterCloseWithValidPipe(t *testing.T) {
 
 func Test_MinioWriterCreateFunctionality(t *testing.T) {
 	ctx := context.Background()
-	client := &minio.Client{}
+	// client := &minio.Client{}
+	client, _ := minio.New("dummy-url", &minio.Options{})
 
 	writer := &minioWriter{
 		minioFile: minioFile{
@@ -111,9 +112,8 @@ func Test_MinioWriterCreateFunctionality(t *testing.T) {
 		},
 	}
 
-	require.Panics(t, func() {
-		_, _ = writer.Create("new-file.parquet")
-	})
+	_, err := writer.Create("new-file.parquet")
+	require.Error(t, err)
 }
 
 func Test_MinioWriterErrorField(t *testing.T) {

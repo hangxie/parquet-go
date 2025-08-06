@@ -14,10 +14,9 @@ import (
 
 func Test_InterfaceToParquetType(t *testing.T) {
 	tests := []struct {
-		name        string
-		value       any
-		pT          *parquet.Type
-		expectPanic bool
+		name  string
+		value any
+		pT    *parquet.Type
 	}{
 		{
 			name:  "boolean_true",
@@ -55,23 +54,16 @@ func Test_InterfaceToParquetType(t *testing.T) {
 			pT:    parquet.TypePtr(parquet.Type_BOOLEAN),
 		},
 		{
-			name:        "invalid_type",
-			value:       42,
-			pT:          parquet.TypePtr(parquet.Type(-1)), // Invalid type
-			expectPanic: false,                             // This doesn't actually panic, just returns the value
+			name:  "invalid_type",
+			value: 42,
+			pT:    parquet.TypePtr(parquet.Type(-1)), // Invalid type
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.expectPanic {
-				require.Panics(t, func() {
-					_ = InterfaceToParquetType(tt.value, tt.pT)
-				})
-				return
-			}
-
-			result := InterfaceToParquetType(tt.value, tt.pT)
+			result, err := InterfaceToParquetType(tt.value, tt.pT)
+			require.NoError(t, err)
 			if tt.value == nil {
 				require.Nil(t, result)
 			}
@@ -385,7 +377,7 @@ func Test_StrIntToBinary(t *testing.T) {
 			)
 
 			// Compare results
-			require.Equal(t, expectedBinary, actualBinary, "StrIntToBinary conversion failed for input: %s (%s, length=%d, signed=%v)", testCase.inputNumStr, testCase.byteOrder, testCase.length, testCase.isSigned)
+			require.Equal(t, expectedBinary, actualBinary)
 		})
 	}
 }
@@ -533,6 +525,156 @@ func Test_StrToParquetType(t *testing.T) {
 			require.Equal(t, expectedStr, actualStr,
 				"StrToParquetType conversion failed for input: %s with Type: %v, ConvertedType: %v\nExpected: %s\nGot: %s",
 				testCase.inputStr, testCase.parquetType, testCase.convertedType, expectedStr, actualStr)
+		})
+	}
+}
+
+func Test_ParquetTypeToGoReflectType_NilChecks(t *testing.T) {
+	tests := []struct {
+		name       string
+		pT         *parquet.Type
+		rT         *parquet.FieldRepetitionType
+		expectNil  bool
+		expectType reflect.Type
+	}{
+		{
+			name:       "nil_parquet_type",
+			pT:         nil,
+			rT:         nil,
+			expectNil:  true,
+			expectType: nil,
+		},
+		{
+			name:       "nil_parquet_type_with_repetition",
+			pT:         nil,
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0],
+			expectNil:  true,
+			expectType: nil,
+		},
+		{
+			name:       "valid_type_nil_repetition",
+			pT:         &[]parquet.Type{parquet.Type_BOOLEAN}[0],
+			rT:         nil,
+			expectNil:  false,
+			expectType: reflect.TypeOf(true),
+		},
+		{
+			name:       "valid_type_required_repetition",
+			pT:         &[]parquet.Type{parquet.Type_INT32}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf(int32(0)),
+		},
+		{
+			name:       "valid_type_optional_repetition",
+			pT:         &[]parquet.Type{parquet.Type_INT32}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_OPTIONAL}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf((*int32)(nil)),
+		},
+		{
+			name:       "int64_required",
+			pT:         &[]parquet.Type{parquet.Type_INT64}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf(int64(0)),
+		},
+		{
+			name:       "int64_optional",
+			pT:         &[]parquet.Type{parquet.Type_INT64}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_OPTIONAL}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf((*int64)(nil)),
+		},
+		{
+			name:       "string_required",
+			pT:         &[]parquet.Type{parquet.Type_BYTE_ARRAY}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf(""),
+		},
+		{
+			name:       "string_optional",
+			pT:         &[]parquet.Type{parquet.Type_BYTE_ARRAY}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_OPTIONAL}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf((*string)(nil)),
+		},
+		{
+			name:       "float_required",
+			pT:         &[]parquet.Type{parquet.Type_FLOAT}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf(float32(0)),
+		},
+		{
+			name:       "double_required",
+			pT:         &[]parquet.Type{parquet.Type_DOUBLE}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf(float64(0)),
+		},
+		{
+			name:       "int96_required",
+			pT:         &[]parquet.Type{parquet.Type_INT96}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf(""),
+		},
+		{
+			name:       "fixed_len_byte_array_required",
+			pT:         &[]parquet.Type{parquet.Type_FIXED_LEN_BYTE_ARRAY}[0],
+			rT:         &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0],
+			expectNil:  false,
+			expectType: reflect.TypeOf(""),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParquetTypeToGoReflectType(tt.pT, tt.rT)
+
+			if tt.expectNil {
+				require.Nil(t, result)
+			} else {
+				require.NotNil(t, result)
+				require.Equal(t, tt.expectType, result)
+			}
+		})
+	}
+}
+
+// Test edge cases with various combinations
+func Test_ParquetTypeToGoReflectType_EdgeCases(t *testing.T) {
+	// Test with repeated repetition type (should go to required path due to nil check)
+	repeatedType := parquet.FieldRepetitionType_REPEATED
+	int32Type := parquet.Type_INT32
+
+	result := ParquetTypeToGoReflectType(&int32Type, &repeatedType)
+	require.Equal(t, reflect.TypeOf(int32(0)), result)
+
+	// Test unknown type (should return nil)
+	unknownType := parquet.Type(-1)
+	result = ParquetTypeToGoReflectType(&unknownType, nil)
+	require.Nil(t, result)
+}
+
+// Test that all the safety checks prevent panics in various scenarios
+func Test_ParquetTypeToGoReflectType_SafetyChecks(t *testing.T) {
+	testCases := []struct {
+		name string
+		pT   *parquet.Type
+		rT   *parquet.FieldRepetitionType
+	}{
+		{"nil_nil", nil, nil},
+		{"nil_required", nil, &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REQUIRED}[0]},
+		{"nil_optional", nil, &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_OPTIONAL}[0]},
+		{"nil_repeated", nil, &[]parquet.FieldRepetitionType{parquet.FieldRepetitionType_REPEATED}[0]},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ParquetTypeToGoReflectType(tc.pT, tc.rT)
 		})
 	}
 }

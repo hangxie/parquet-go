@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"sync"
@@ -440,7 +441,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 				// only record DataPage
 				if page.Header.Type != parquet.PageType_DICTIONARY_PAGE {
 					if page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil {
-						panic(errors.New("unsupported data page: " + page.Header.String()))
+						return fmt.Errorf("unsupported data page: %s", page.Header.String())
 					}
 
 					var minVal []byte
@@ -474,7 +475,11 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 
 					offsetIndex.PageLocations = append(offsetIndex.PageLocations, pageLocation)
 
-					firstRowIndex += int64(page.Header.DataPageHeader.NumValues)
+					if page.Header.DataPageHeader != nil {
+						firstRowIndex += int64(page.Header.DataPageHeader.NumValues)
+					} else if page.Header.DataPageHeaderV2 != nil {
+						firstRowIndex += int64(page.Header.DataPageHeaderV2.NumValues)
+					}
 				}
 
 				data := page.RawData

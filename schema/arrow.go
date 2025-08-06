@@ -24,6 +24,10 @@ const (
 // go parquet type contains metadata which the base writer is using to
 // determine the size of the objects.
 func ConvertArrowToParquetSchema(schema *arrow.Schema) ([]string, error) {
+	if schema == nil {
+		return nil, fmt.Errorf("schema cannot be nil")
+	}
+
 	metaData := make([]string, len(schema.Fields()))
 	var err error
 	for k, v := range schema.Fields() {

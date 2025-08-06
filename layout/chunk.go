@@ -20,6 +20,22 @@ type Chunk struct {
 // Convert several pages to one chunk
 func PagesToChunk(pages []*Page) (*Chunk, error) {
 	ln := len(pages)
+	if ln == 0 {
+		return nil, fmt.Errorf("pages slice cannot be empty")
+	}
+	if pages[0] == nil {
+		return nil, fmt.Errorf("first page cannot be nil")
+	}
+	if pages[0].Schema == nil {
+		return nil, fmt.Errorf("first page schema cannot be nil")
+	}
+	if pages[0].Schema.Type == nil {
+		return nil, fmt.Errorf("first page schema type cannot be nil")
+	}
+	if pages[0].Info == nil {
+		return nil, fmt.Errorf("first page info cannot be nil")
+	}
+
 	var numValues int64 = 0
 	var totalUncompressedSize int64 = 0
 	var totalCompressedSize int64 = 0
@@ -34,9 +50,13 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 	}
 
 	for i := range ln {
+		if pages[i] == nil || pages[i].Header == nil {
+			continue
+		}
+
 		if pages[i].Header.DataPageHeader != nil {
 			numValues += int64(pages[i].Header.DataPageHeader.NumValues)
-		} else {
+		} else if pages[i].Header.DataPageHeaderV2 != nil {
 			numValues += int64(pages[i].Header.DataPageHeaderV2.NumValues)
 		}
 		totalUncompressedSize += int64(pages[i].Header.UncompressedPageSize) + int64(len(pages[i].RawData)) - int64(pages[i].Header.CompressedPageSize)
@@ -44,7 +64,9 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 		if !omitStats {
 			minVal = common.Min(funcTable, minVal, pages[i].MinVal)
 			maxVal = common.Max(funcTable, maxVal, pages[i].MaxVal)
-			nullCount += *pages[i].NullCount
+			if pages[i].NullCount != nil {
+				nullCount += *pages[i].NullCount
+			}
 		}
 	}
 
@@ -96,6 +118,18 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 	if len(pages) < 2 {
 		return nil, nil
 	}
+	if pages[1] == nil {
+		return nil, fmt.Errorf("second page cannot be nil")
+	}
+	if pages[1].Schema == nil {
+		return nil, fmt.Errorf("second page schema cannot be nil")
+	}
+	if pages[1].Schema.Type == nil {
+		return nil, fmt.Errorf("second page schema type cannot be nil")
+	}
+	if pages[1].Info == nil {
+		return nil, fmt.Errorf("second page info cannot be nil")
+	}
 	var numValues int64 = 0
 	var totalUncompressedSize int64 = 0
 	var totalCompressedSize int64 = 0
@@ -110,6 +144,10 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 	}
 
 	for i := range pages {
+		if pages[i] == nil || pages[i].Header == nil {
+			continue
+		}
+
 		if pages[i].Header.DataPageHeader != nil {
 			numValues += int64(pages[i].Header.DataPageHeader.NumValues)
 		} else if pages[i].Header.DataPageHeaderV2 != nil {
@@ -120,7 +158,9 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 		if !omitStats && i > 0 {
 			minVal = common.Min(funcTable, minVal, pages[i].MinVal)
 			maxVal = common.Max(funcTable, maxVal, pages[i].MaxVal)
-			nullCount += *pages[i].NullCount
+			if pages[i].NullCount != nil {
+				nullCount += *pages[i].NullCount
+			}
 		}
 	}
 
@@ -171,14 +211,28 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 
 // Decode a dict chunk
 func DecodeDictChunk(chunk *Chunk) {
+	if chunk == nil || len(chunk.Pages) == 0 {
+		return
+	}
+
 	dictPage := chunk.Pages[0]
+	if dictPage == nil || dictPage.DataTable == nil {
+		return
+	}
+
 	numPages := len(chunk.Pages)
 	for i := 1; i < numPages; i++ {
+		if chunk.Pages[i] == nil || chunk.Pages[i].DataTable == nil {
+			continue
+		}
+
 		numValues := len(chunk.Pages[i].DataTable.Values)
 		for j := range numValues {
 			if chunk.Pages[i].DataTable.Values[j] != nil {
-				index := chunk.Pages[i].DataTable.Values[j].(int64)
-				chunk.Pages[i].DataTable.Values[j] = dictPage.DataTable.Values[index]
+				if index, ok := chunk.Pages[i].DataTable.Values[j].(int64); ok &&
+					index >= 0 && index < int64(len(dictPage.DataTable.Values)) {
+					chunk.Pages[i].DataTable.Values[j] = dictPage.DataTable.Values[index]
+				}
 			}
 		}
 	}
@@ -187,6 +241,13 @@ func DecodeDictChunk(chunk *Chunk) {
 
 // Read one chunk from parquet file (Deprecated)
 func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, chunkHeader *parquet.ColumnChunk) (*Chunk, error) {
+	if chunkHeader == nil {
+		return nil, fmt.Errorf("chunkHeader cannot be nil")
+	}
+	if chunkHeader.MetaData == nil {
+		return nil, fmt.Errorf("chunkHeader.MetaData cannot be nil")
+	}
+
 	chunk := new(Chunk)
 	chunk.ChunkHeader = chunkHeader
 

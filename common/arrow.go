@@ -29,10 +29,10 @@ func arrowArrayToParquetList[arrowValueT any](field arrow.Field, col arrow.Array
 	recs := make([]any, col.Len())
 	arr := col.(arrowArrayWithValues[arrowValueT])
 	for i := range arr.Len() {
+		if arr.IsNull(i) && !field.Nullable {
+			return nil, nonNullableFieldContainsNullError(field, i)
+		}
 		if arr.IsNull(i) {
-			if !field.Nullable {
-				return nil, nonNullableFieldContainsNullError(field, i)
-			}
 			recs[i] = nil
 		} else {
 			recs[i] = toParquetType(arr.Value(i))

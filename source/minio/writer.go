@@ -2,6 +2,7 @@ package minio
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/minio/minio-go/v7"
@@ -61,6 +62,10 @@ func (s *minioWriter) Close() error {
 
 // Create creates a new Minio File instance to perform writes
 func (s *minioWriter) Create(key string) (source.ParquetFileWriter, error) {
+	if s.client == nil {
+		return nil, fmt.Errorf("minio client is nil")
+	}
+
 	pf := &minioWriter{
 		minioFile: minioFile{
 			ctx:        s.ctx,

@@ -1,6 +1,8 @@
 package swiftsource
 
 import (
+	"fmt"
+
 	"github.com/ncw/swift"
 
 	"github.com/hangxie/parquet-go/v2/source"
@@ -45,6 +47,9 @@ func (file *swiftWriter) Create(name string) (source.ParquetFileWriter, error) {
 }
 
 func (file *swiftWriter) Write(p []byte) (n int, err error) {
+	if file.fileWriter == nil {
+		return 0, fmt.Errorf("fileWriter is nil")
+	}
 	return file.fileWriter.Write(p)
 }
 

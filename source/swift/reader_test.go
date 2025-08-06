@@ -111,9 +111,8 @@ func Test_SwiftReaderReadDelegation(t *testing.T) {
 	}
 
 	buf := make([]byte, 10)
-	require.Panics(t, func() {
-		_, _ = reader.Read(buf)
-	})
+	_, err := reader.Read(buf)
+	require.Error(t, err)
 }
 
 func Test_SwiftReaderSeekDelegation(t *testing.T) {
@@ -126,9 +125,8 @@ func Test_SwiftReaderSeekDelegation(t *testing.T) {
 		fileReader: nil,
 	}
 
-	require.Panics(t, func() {
-		_, _ = reader.Seek(0, io.SeekStart)
-	})
+	_, err := reader.Seek(0, io.SeekStart)
+	require.Error(t, err)
 }
 
 func Test_SwiftReaderStructure(t *testing.T) {

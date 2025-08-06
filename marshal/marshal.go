@@ -120,9 +120,14 @@ func (p *ParquetMapStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*No
 		newNode.DL = node.DL
 		if v.Type().Kind() == reflect.Interface {
 			newNode.Val = v.Elem()
-			if newNode.Val.IsValid() {
-				if *p.schemaHandler.SchemaElements[p.schemaHandler.MapIndex[newNode.PathMap.Path]].RepetitionType != parquet.FieldRepetitionType_REQUIRED {
-					newNode.DL++
+			if newNode.Val.IsValid() && p.schemaHandler != nil &&
+				p.schemaHandler.SchemaElements != nil && p.schemaHandler.MapIndex != nil {
+				if index, exists := p.schemaHandler.MapIndex[newNode.PathMap.Path]; exists &&
+					int(index) < len(p.schemaHandler.SchemaElements) {
+					if elem := p.schemaHandler.SchemaElements[index]; elem != nil &&
+						elem.RepetitionType != nil && *elem.RepetitionType != parquet.FieldRepetitionType_REQUIRED {
+						newNode.DL++
+					}
 				}
 			}
 		} else {
@@ -153,9 +158,13 @@ func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) 
 	ln := node.Val.Len()
 	pathMap := node.PathMap
 	path := node.PathMap.Path
-	if *p.schemaHandler.SchemaElements[p.schemaHandler.MapIndex[node.PathMap.Path]].RepetitionType != parquet.FieldRepetitionType_REPEATED {
-		pathMap = pathMap.Children["List"].Children["Element"]
-		path = path + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element"
+	if p.schemaHandler != nil && p.schemaHandler.SchemaElements != nil && p.schemaHandler.MapIndex != nil {
+		if index, exists := p.schemaHandler.MapIndex[node.PathMap.Path]; exists && int(index) < len(p.schemaHandler.SchemaElements) {
+			if elem := p.schemaHandler.SchemaElements[index]; elem != nil && elem.RepetitionType != nil && *elem.RepetitionType != parquet.FieldRepetitionType_REPEATED {
+				pathMap = pathMap.Children["List"].Children["Element"]
+				path = path + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element"
+			}
+		}
 	}
 	if ln <= 0 {
 		return stack
@@ -296,7 +305,11 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 				if node.Val.IsValid() {
 					v = node.Val.Interface()
 				}
-				table.Values = append(table.Values, types.InterfaceToParquetType(v, schema.Type))
+				val, err := types.InterfaceToParquetType(v, schema.Type)
+				if err != nil {
+					return nil, err
+				}
+				table.Values = append(table.Values, val)
 				table.DefinitionLevels = append(table.DefinitionLevels, node.DL)
 				table.RepetitionLevels = append(table.RepetitionLevels, node.RL)
 				continue

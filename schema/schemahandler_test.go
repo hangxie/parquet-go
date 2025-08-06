@@ -500,3 +500,161 @@ func Test_SchemaHandler_MaxRepetitionLevel(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, int32(0), level)
 }
+
+func Test_SchemaHandler_SetValueColumns_BoundsChecking(t *testing.T) {
+	tests := []struct {
+		name     string
+		handler  *SchemaHandler
+		expected []string
+	}{
+		{
+			name: "index_not_in_index_map",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "root", NumChildren: &[]int32{1}[0]},
+					{Name: "leaf", NumChildren: &[]int32{0}[0]},
+				},
+				IndexMap: map[int32]string{
+					// Missing index 1, even though SchemaElements[1] exists
+					0: "root",
+					// 1 is missing - should be handled gracefully
+				},
+			},
+			expected: []string{}, // Should be empty since leaf node index is not in map
+		},
+		{
+			name: "nil_schema_element",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "root", NumChildren: &[]int32{1}[0]},
+					nil, // Nil schema element should be skipped
+				},
+				IndexMap: map[int32]string{
+					0: "root",
+					1: "leaf", // This won't be used because SchemaElements[1] is nil
+				},
+			},
+			expected: []string{}, // Should be empty since nil element is skipped
+		},
+		{
+			name: "valid_leaf_nodes",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "root", NumChildren: &[]int32{2}[0]},
+					{Name: "leaf1", NumChildren: &[]int32{0}[0]},
+					{Name: "leaf2", NumChildren: &[]int32{0}[0]},
+				},
+				IndexMap: map[int32]string{
+					0: "root",
+					1: "path.to.leaf1",
+					2: "path.to.leaf2",
+				},
+			},
+			expected: []string{"path.to.leaf1", "path.to.leaf2"},
+		},
+		{
+			name: "mixed_valid_invalid_scenarios",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "root", NumChildren: &[]int32{3}[0]},
+					nil, // Nil element - should be skipped
+					{Name: "leaf1", NumChildren: &[]int32{0}[0]},
+					{Name: "branch", NumChildren: &[]int32{1}[0]}, // Non-leaf
+				},
+				IndexMap: map[int32]string{
+					0: "root",
+					1: "would.be.skipped", // Element is nil, so this is ignored
+					2: "path.to.leaf1",
+					3: "path.to.branch",
+					// Note: index 3 points to non-leaf, so won't be added
+				},
+			},
+			expected: []string{"path.to.leaf1"},
+		},
+		{
+			name: "empty_schema_elements",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{},
+				IndexMap:       map[int32]string{},
+			},
+			expected: []string{},
+		},
+		{
+			name: "nil_index_map",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "root", NumChildren: &[]int32{1}[0]},
+					{Name: "leaf", NumChildren: &[]int32{0}[0]},
+				},
+				IndexMap: nil, // Nil map should be handled
+			},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset ValueColumns to ensure clean state
+			tt.handler.ValueColumns = []string{}
+
+			tt.handler.setValueColumns()
+
+			// Verify the results match expectations
+			require.Equal(t, tt.expected, tt.handler.ValueColumns)
+		})
+	}
+}
+
+func Test_SchemaHandler_BoundsEdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler *SchemaHandler
+	}{
+		{
+			name: "large_index_values",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "leaf", NumChildren: &[]int32{0}[0]},
+				},
+				IndexMap: map[int32]string{
+					0:       "valid.path",
+					1000000: "invalid.path", // Large index that doesn't exist
+				},
+			},
+		},
+		{
+			name: "negative_index_values",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "leaf", NumChildren: &[]int32{0}[0]},
+				},
+				IndexMap: map[int32]string{
+					0:  "valid.path",
+					-1: "negative.path", // Negative index
+				},
+			},
+		},
+		{
+			name: "index_boundary_conditions",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "leaf1", NumChildren: &[]int32{0}[0]},
+					{Name: "leaf2", NumChildren: &[]int32{0}[0]},
+				},
+				IndexMap: map[int32]string{
+					0: "path.leaf1",
+					1: "path.leaf2",
+					2: "out.of.bounds", // Index 2 is out of bounds for array of length 2
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.handler.ValueColumns = []string{}
+
+			tt.handler.setValueColumns()
+		})
+	}
+}

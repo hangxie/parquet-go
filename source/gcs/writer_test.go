@@ -73,9 +73,8 @@ func Test_GcsWriterNilOperations(t *testing.T) {
 		gcsWriter: nil,
 	}
 
-	require.Panics(t, func() {
-		_ = writer.Close()
-	})
+	err := writer.Close()
+	require.NoError(t, err)
 }
 
 func Test_GcsWriterStructure(t *testing.T) {

@@ -63,6 +63,10 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 }
 
 func (cbt *ColumnBufferType) NextRowGroup() error {
+	if cbt.Footer == nil {
+		return io.EOF
+	}
+
 	var err error
 	rowGroups := cbt.Footer.GetRowGroups()
 	ln := int64(len(rowGroups))
@@ -121,13 +125,13 @@ func (cbt *ColumnBufferType) ReadPage() error {
 		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData)
 		if err != nil {
 			// data is nil and rl/dl=0, no pages in file
-			if err == io.EOF {
-				if cbt.DataTable == nil {
-					index := cbt.SchemaHandler.MapIndex[cbt.PathStr]
+			if err == io.EOF && cbt.DataTable == nil && cbt.SchemaHandler != nil &&
+				cbt.SchemaHandler.MapIndex != nil && cbt.SchemaHandler.SchemaElements != nil {
+				if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists &&
+					index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
 					cbt.DataTable = layout.NewEmptyTable()
 					cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
 					cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
-
 				}
 
 				cbt.DataTableNumRows = cbt.ChunkHeader.MetaData.NumValues
@@ -216,10 +220,15 @@ func (cbt *ColumnBufferType) SkipRows(num int64) int64 {
 	for cbt.DataTableNumRows < num && err == nil {
 		if cbt.DataTableNumRows >= 0 {
 			num -= cbt.DataTableNumRows + 1
-			index := cbt.SchemaHandler.MapIndex[cbt.PathStr]
-			cbt.DataTable = layout.NewEmptyTable()
-			cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
-			cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
+			if cbt.SchemaHandler != nil && cbt.SchemaHandler.MapIndex != nil &&
+				cbt.SchemaHandler.SchemaElements != nil {
+				if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists &&
+					index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
+					cbt.DataTable = layout.NewEmptyTable()
+					cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
+					cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
+				}
+			}
 			cbt.DataTableNumRows = -1
 		}
 		page, err = cbt.ReadPageForSkip()

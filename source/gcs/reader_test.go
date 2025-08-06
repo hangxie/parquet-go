@@ -23,9 +23,8 @@ func Test_GcsReaderNilOperations(t *testing.T) {
 		gcsReader: nil,
 	}
 
-	require.Panics(t, func() {
-		_ = reader.Close()
-	})
+	err := reader.Close()
+	require.NoError(t, err)
 }
 
 func Test_GcsReaderOpen(t *testing.T) {

@@ -199,10 +199,9 @@ func Test_NewSchemaHandlerFromArrow(t *testing.T) {
 		require.Equal(t, "Test_field", schemaHandler.SchemaElements[1].Name)
 	})
 
-	t.Run("nil_schema_panic", func(t *testing.T) {
-		require.Panics(t, func() {
-			_, _ = NewSchemaHandlerFromArrow(nil)
-		})
+	t.Run("nil_schema_error", func(t *testing.T) {
+		_, err := NewSchemaHandlerFromArrow(nil)
+		require.Error(t, err)
 	})
 
 	t.Run("verify_info_structure", func(t *testing.T) {

@@ -1182,14 +1182,12 @@ func Test_IntType_Equals(t *testing.T) {
 
 func Test_VariousString(t *testing.T) {
 	tests := []struct {
-		name        string
-		setupObj    func() interface{ String() string }
-		description string
+		name     string
+		setupObj func() interface{ String() string }
 	}{
 		{
 			"Statistics empty",
 			func() interface{ String() string } { return NewStatistics() },
-			"should not return empty string",
 		},
 		{
 			"Statistics with Max",
@@ -1198,7 +1196,6 @@ func Test_VariousString(t *testing.T) {
 				s.Max = []byte("maxvalue")
 				return s
 			},
-			"should include Max field",
 		},
 		{
 			"Statistics with Max and Min",
@@ -1208,7 +1205,6 @@ func Test_VariousString(t *testing.T) {
 				s.Min = []byte("minvalue")
 				return s
 			},
-			"should include Max and Min fields",
 		},
 		{
 			"Statistics with NullCount",
@@ -1220,7 +1216,6 @@ func Test_VariousString(t *testing.T) {
 				s.NullCount = &nc
 				return s
 			},
-			"should include NullCount field",
 		},
 		{
 			"Statistics complete",
@@ -1236,12 +1231,10 @@ func Test_VariousString(t *testing.T) {
 				s.MinValue = []byte("minval")
 				return s
 			},
-			"should include all fields",
 		},
 		{
 			"TimeUnit empty",
 			func() interface{ String() string } { return NewTimeUnit() },
-			"should not return empty string",
 		},
 		{
 			"TimeUnit with MILLIS",
@@ -1250,7 +1243,6 @@ func Test_VariousString(t *testing.T) {
 				tu.MILLIS = NewMilliSeconds()
 				return tu
 			},
-			"should include MILLIS field",
 		},
 		{
 			"TimeUnit with MICROS",
@@ -1259,7 +1251,6 @@ func Test_VariousString(t *testing.T) {
 				tu.MICROS = NewMicroSeconds()
 				return tu
 			},
-			"should include MICROS field",
 		},
 		{
 			"TimeUnit with NANOS",
@@ -1268,12 +1259,10 @@ func Test_VariousString(t *testing.T) {
 				tu.NANOS = NewNanoSeconds()
 				return tu
 			},
-			"should include NANOS field",
 		},
 		{
 			"TimestampType empty",
 			func() interface{ String() string } { return NewTimestampType() },
-			"should not return empty string",
 		},
 		{
 			"TimestampType with IsAdjustedToUTC",
@@ -1282,7 +1271,6 @@ func Test_VariousString(t *testing.T) {
 				tt.IsAdjustedToUTC = true
 				return tt
 			},
-			"should include IsAdjustedToUTC field",
 		},
 		{
 			"TimestampType complete",
@@ -1294,12 +1282,10 @@ func Test_VariousString(t *testing.T) {
 				tt.Unit = unit
 				return tt
 			},
-			"should include all fields",
 		},
 		{
 			"TimeType empty",
 			func() interface{ String() string } { return NewTimeType() },
-			"should not return empty string",
 		},
 		{
 			"TimeType with IsAdjustedToUTC",
@@ -1308,7 +1294,6 @@ func Test_VariousString(t *testing.T) {
 				tt.IsAdjustedToUTC = true
 				return tt
 			},
-			"should include IsAdjustedToUTC field",
 		},
 		{
 			"TimeType complete",
@@ -1320,12 +1305,10 @@ func Test_VariousString(t *testing.T) {
 				tt.Unit = unit
 				return tt
 			},
-			"should include all fields",
 		},
 		{
 			"IntType empty",
 			func() interface{ String() string } { return NewIntType() },
-			"should not return empty string",
 		},
 		{
 			"IntType with BitWidth",
@@ -1334,7 +1317,6 @@ func Test_VariousString(t *testing.T) {
 				it.BitWidth = 32
 				return it
 			},
-			"should include BitWidth field",
 		},
 		{
 			"IntType complete",
@@ -1344,7 +1326,6 @@ func Test_VariousString(t *testing.T) {
 				it.IsSigned = true
 				return it
 			},
-			"should include all fields",
 		},
 	}
 
@@ -1352,7 +1333,7 @@ func Test_VariousString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			obj := tt.setupObj()
 			result := obj.String()
-			require.NotEmpty(t, result, tt.description)
+			require.NotEmpty(t, result)
 		})
 	}
 }

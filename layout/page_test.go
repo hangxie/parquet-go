@@ -652,7 +652,7 @@ func Test_PageDecode(t *testing.T) {
 					if originalValues[i] != nil {
 						if index, ok := originalValues[i].(int64); ok {
 							expectedVal := tc.dictPage.DataTable.Values[index]
-							require.Equal(t, expectedVal, val, "Expected value at index %d to match dictionary value", i)
+							require.Equal(t, expectedVal, val)
 						}
 					} else {
 						// Null values should remain null
@@ -1778,8 +1778,7 @@ func Test_ReadPage2(t *testing.T) {
 				PathInSchema: []string{"test_col"},
 				Codec:        parquet.CompressionCodec_UNCOMPRESSED,
 			},
-			expectError: false,
-			expectPanic: true,
+			expectError: true,
 		},
 		{
 			name: "empty_data",
@@ -1803,12 +1802,6 @@ func Test_ReadPage2(t *testing.T) {
 			transport := thrift.NewTMemoryBufferLen(len(data))
 			transport.Buffer.Write(data)
 			bufferedTransport := thrift.NewTBufferedTransport(transport, 1024)
-			if tc.expectPanic {
-				require.Panics(t, func() {
-					_, _, _, _ = ReadPage2(bufferedTransport, schemaHandler, tc.colMetadata)
-				})
-				return
-			}
 
 			page, numValues, numRows, err := ReadPage2(bufferedTransport, schemaHandler, tc.colMetadata)
 			if tc.expectError {
@@ -2174,7 +2167,7 @@ func Test_TableToDataPages(t *testing.T) {
 	pages, totalSize, err := TableToDataPages(table, 1024, parquet.CompressionCodec_UNCOMPRESSED)
 	require.NoError(t, err)
 	require.NotEmpty(t, pages)
-	require.Positive(t, totalSize, "Expected positive total size, got %d", totalSize)
+	require.Positive(t, totalSize)
 }
 
 func Test_TableToDataPagesComplexScenarios(t *testing.T) {
@@ -2254,16 +2247,16 @@ func Test_TableToDataPagesComplexScenarios(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				require.Len(t, pages, tc.expectedPageCount, "Expected %d pages, got %d", tc.expectedPageCount, len(pages))
+				require.Len(t, pages, tc.expectedPageCount)
 				if len(pages) > 0 {
-					require.Positive(t, totalSize, "Expected positive total size, got %d", totalSize)
+					require.Positive(t, totalSize)
 				}
 
 				// Verify page properties
-				for i, page := range pages {
-					require.NotNil(t, page.Schema, "Page %d has nil schema", i)
-					require.NotNil(t, page.DataTable, "Page %d has nil data table", i)
-					require.NotNil(t, page.RawData, "Page %d has nil raw data", i)
+				for _, page := range pages {
+					require.NotNil(t, page.Schema)
+					require.NotNil(t, page.DataTable)
+					require.NotNil(t, page.RawData)
 				}
 			}
 		})
@@ -2285,8 +2278,8 @@ func Test_TableToDataPagesWithEmptyTable(t *testing.T) {
 
 	pages, totalSize, err := TableToDataPages(table, 1024, parquet.CompressionCodec_UNCOMPRESSED)
 	require.NoError(t, err)
-	require.Empty(t, pages, "Expected no pages for empty table, got %d", len(pages))
-	require.Zero(t, totalSize, "Expected zero total size for empty table, got %d", totalSize)
+	require.Empty(t, pages)
+	require.Zero(t, totalSize)
 }
 
 func Test_TableToDataPagesWithInvalidType(t *testing.T) {
@@ -2304,4 +2297,302 @@ func Test_TableToDataPagesWithInvalidType(t *testing.T) {
 
 	_, _, err := TableToDataPages(table, 1024, parquet.CompressionCodec_UNCOMPRESSED)
 	require.Error(t, err)
+}
+
+func Test_Page_Decode_BoundsChecking(t *testing.T) {
+	tests := []struct {
+		name       string
+		setupPages func() (*Page, *Page)
+	}{
+		{
+			name: "dictionary_index_out_of_bounds_negative",
+			setupPages: func() (*Page, *Page) {
+				dictPage := &Page{
+					DataTable: &Table{
+						Values: []any{"value1", "value2"},
+					},
+				}
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{int64(-1)}, // Negative index - should be ignored
+					},
+				}
+				return page, dictPage
+			},
+		},
+		{
+			name: "dictionary_index_out_of_bounds_too_large",
+			setupPages: func() (*Page, *Page) {
+				dictPage := &Page{
+					DataTable: &Table{
+						Values: []any{"value1", "value2"},
+					},
+				}
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{int64(10)}, // Index 10 > dictionary size 2
+					},
+				}
+				return page, dictPage
+			},
+		},
+		{
+			name: "dictionary_index_boundary_valid",
+			setupPages: func() (*Page, *Page) {
+				dictPage := &Page{
+					DataTable: &Table{
+						Values: []any{"value1", "value2", "value3"},
+					},
+				}
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{int64(2)}, // Index 2 is the last valid index
+					},
+				}
+				return page, dictPage
+			},
+		},
+		{
+			name: "dictionary_index_invalid_type_assertion",
+			setupPages: func() (*Page, *Page) {
+				dictPage := &Page{
+					DataTable: &Table{
+						Values: []any{"value1", "value2"},
+					},
+				}
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{"not_an_int64"}, // Wrong type - should be ignored
+					},
+				}
+				return page, dictPage
+			},
+		},
+		{
+			name: "dictionary_index_mixed_valid_invalid",
+			setupPages: func() (*Page, *Page) {
+				dictPage := &Page{
+					DataTable: &Table{
+						Values: []any{"value1", "value2", "value3"},
+					},
+				}
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{
+							int64(1),  // Valid
+							int64(-1), // Invalid - negative
+							int64(10), // Invalid - too large
+							"invalid", // Invalid - wrong type
+							int64(0),  // Valid
+						},
+					},
+				}
+				return page, dictPage
+			},
+		},
+		{
+			name: "empty_dictionary",
+			setupPages: func() (*Page, *Page) {
+				dictPage := &Page{
+					DataTable: &Table{
+						Values: []any{}, // Empty dictionary
+					},
+				}
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{int64(0)}, // Any index in empty dict is invalid
+					},
+				}
+				return page, dictPage
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			page, dictPage := tt.setupPages()
+
+			page.Decode(dictPage)
+
+			// Verify that the function completed without crashing
+			// Invalid indices should remain unchanged or be skipped
+		})
+	}
+}
+
+func Test_Page_Decode_NilSafety(t *testing.T) {
+	tests := []struct {
+		name       string
+		setupPages func() (*Page, *Page)
+	}{
+		{
+			name: "nil_dict_page",
+			setupPages: func() (*Page, *Page) {
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{int64(0)},
+					},
+				}
+				return page, nil
+			},
+		},
+		{
+			name: "nil_dict_page_data_table",
+			setupPages: func() (*Page, *Page) {
+				dictPage := &Page{
+					DataTable: nil, // Nil DataTable
+				}
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{int64(0)},
+					},
+				}
+				return page, dictPage
+			},
+		},
+		{
+			name: "nil_page_data_table",
+			setupPages: func() (*Page, *Page) {
+				dictPage := &Page{
+					DataTable: &Table{
+						Values: []any{"value1"},
+					},
+				}
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: nil, // Nil DataTable
+				}
+				return page, dictPage
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			page, dictPage := tt.setupPages()
+
+			page.Decode(dictPage)
+		})
+	}
+}
+
+func Test_Table_Pop_ArrayConsistency(t *testing.T) {
+	tests := []struct {
+		name     string
+		table    *Table
+		numRows  int64
+		expected bool // true if should return valid result, false if should return empty
+	}{
+		{
+			name: "inconsistent_array_lengths_repetition_shorter",
+			table: &Table{
+				Values:           []any{"value1", "value2", "value3"},
+				RepetitionLevels: []int32{0, 1}, // Shorter than Values
+				DefinitionLevels: []int32{0, 1, 2},
+			},
+			numRows:  1,
+			expected: false,
+		},
+		{
+			name: "inconsistent_array_lengths_definition_shorter",
+			table: &Table{
+				Values:           []any{"value1", "value2", "value3"},
+				RepetitionLevels: []int32{0, 1, 2},
+				DefinitionLevels: []int32{0, 1}, // Shorter than Values
+			},
+			numRows:  1,
+			expected: false,
+		},
+		{
+			name: "consistent_array_lengths",
+			table: &Table{
+				Values:           []any{"value1", "value2", "value3"},
+				RepetitionLevels: []int32{0, 1, 0},
+				DefinitionLevels: []int32{1, 1, 1},
+			},
+			numRows:  1,
+			expected: true,
+		},
+		{
+			name: "empty_arrays_consistent",
+			table: &Table{
+				Values:           []any{},
+				RepetitionLevels: []int32{},
+				DefinitionLevels: []int32{},
+			},
+			numRows:  1,
+			expected: true,
+		},
+		{
+			name: "inconsistent_empty_arrays",
+			table: &Table{
+				Values:           []any{},
+				RepetitionLevels: []int32{0}, // Non-empty while Values is empty
+				DefinitionLevels: []int32{},
+			},
+			numRows:  1,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.table.Pop(tt.numRows)
+
+			if tt.expected {
+				// Should return a valid result (may be empty if input was empty)
+				require.NotNil(t, result)
+			} else {
+				// Should return an empty table due to inconsistent arrays
+				require.NotNil(t, result)
+				require.Empty(t, result.Values)
+				require.Empty(t, result.RepetitionLevels)
+				require.Empty(t, result.DefinitionLevels)
+			}
+		})
+	}
 }

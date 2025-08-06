@@ -31,11 +31,10 @@ func NewBlobWriter(ctx context.Context, b *blob.Bucket, name string) (source.Par
 // Note that for blob storage, calling write on an existing blob overwrites that blob as opposed to appending to it.
 // Additionally Write is not guaranteed to have succeeded unless Close() also succeeds
 func (b *blobWriter) Write(p []byte) (n int, err error) {
+	if b.writer == nil && b.key == "" {
+		return 0, errors.New("Invalid call to write, you must create or open a ParquetFile for writing")
+	}
 	if b.writer == nil {
-		if b.key == "" {
-			return 0, errors.New("Invalid call to write, you must create or open a ParquetFile for writing")
-		}
-
 		if w, err := b.bucket.NewWriter(b.ctx, b.key, nil); err != nil {
 			return 0, errors.Wrapf(err, "Could not create blob writer. key=%s", b.key)
 		} else {

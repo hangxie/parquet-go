@@ -63,10 +63,14 @@ type SchemaHandler struct {
 func (sh *SchemaHandler) setValueColumns() {
 	for i := range len(sh.SchemaElements) {
 		schema := sh.SchemaElements[i]
+		if schema == nil {
+			continue
+		}
 		numChildren := schema.GetNumChildren()
 		if numChildren == 0 {
-			pathStr := sh.IndexMap[int32(i)]
-			sh.ValueColumns = append(sh.ValueColumns, pathStr)
+			if pathStr, exists := sh.IndexMap[int32(i)]; exists {
+				sh.ValueColumns = append(sh.ValueColumns, pathStr)
+			}
 		}
 	}
 }

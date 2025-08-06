@@ -349,3 +349,208 @@ func Test_cmpIntBinary(t *testing.T) {
 		})
 	}
 }
+
+func Test_Int96FuncTable_LessThan_NilChecks(t *testing.T) {
+	table := int96FuncTable{}
+
+	tests := []struct {
+		name   string
+		a      any
+		b      any
+		expect bool
+	}{
+		{
+			name:   "non_string_first_param",
+			a:      42,
+			b:      "123456789012",
+			expect: false,
+		},
+		{
+			name:   "non_string_second_param",
+			a:      "123456789012",
+			b:      42,
+			expect: false,
+		},
+		{
+			name:   "both_non_string",
+			a:      42,
+			b:      43,
+			expect: false,
+		},
+		{
+			name:   "first_string_too_short",
+			a:      "short",
+			b:      "123456789012",
+			expect: false,
+		},
+		{
+			name:   "second_string_too_short",
+			a:      "123456789012",
+			b:      "short",
+			expect: false,
+		},
+		{
+			name:   "both_strings_too_short",
+			a:      "short1",
+			b:      "short2",
+			expect: false,
+		},
+		{
+			name:   "nil_first_param",
+			a:      nil,
+			b:      "123456789012",
+			expect: false,
+		},
+		{
+			name:   "nil_second_param",
+			a:      "123456789012",
+			b:      nil,
+			expect: false,
+		},
+		{
+			name:   "both_nil",
+			a:      nil,
+			b:      nil,
+			expect: false,
+		},
+		{
+			name:   "empty_strings",
+			a:      "",
+			b:      "",
+			expect: false,
+		},
+		{
+			name:   "valid_12_byte_strings",
+			a:      "123456789012",
+			b:      "123456789013",
+			expect: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := table.LessThan(tt.a, tt.b)
+			require.Equal(t, tt.expect, result)
+		})
+	}
+}
+
+func Test_IntervalFuncTable_LessThan_NilChecks(t *testing.T) {
+	table := intervalFuncTable{}
+
+	tests := []struct {
+		name   string
+		a      any
+		b      any
+		expect bool
+	}{
+		{
+			name:   "non_string_first_param",
+			a:      42,
+			b:      "123456789012",
+			expect: false,
+		},
+		{
+			name:   "non_string_second_param",
+			a:      "123456789012",
+			b:      42,
+			expect: false,
+		},
+		{
+			name:   "both_non_string",
+			a:      42,
+			b:      43,
+			expect: false,
+		},
+		{
+			name:   "first_string_too_short",
+			a:      "short",
+			b:      "123456789012",
+			expect: false,
+		},
+		{
+			name:   "second_string_too_short",
+			a:      "123456789012",
+			b:      "short",
+			expect: false,
+		},
+		{
+			name:   "both_strings_too_short",
+			a:      "short1",
+			b:      "short2",
+			expect: false,
+		},
+		{
+			name:   "nil_first_param",
+			a:      nil,
+			b:      "123456789012",
+			expect: false,
+		},
+		{
+			name:   "nil_second_param",
+			a:      "123456789012",
+			b:      nil,
+			expect: false,
+		},
+		{
+			name:   "both_nil",
+			a:      nil,
+			b:      nil,
+			expect: false,
+		},
+		{
+			name:   "empty_strings",
+			a:      "",
+			b:      "",
+			expect: false,
+		},
+		{
+			name:   "valid_12_byte_strings_equal",
+			a:      "123456789012",
+			b:      "123456789012",
+			expect: false,
+		},
+		{
+			name:   "valid_12_byte_strings_different",
+			a:      "123456789012",
+			b:      "123456789013",
+			expect: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := table.LessThan(tt.a, tt.b)
+			require.Equal(t, tt.expect, result)
+		})
+	}
+}
+
+// Test the bounds checking with malformed data that could cause index out of bounds
+func Test_Int96FuncTable_BoundsChecking(t *testing.T) {
+	table := int96FuncTable{}
+
+	// Test with exactly 11 bytes (one less than required)
+	shortString := "12345678901"  // 11 bytes
+	validString := "123456789012" // 12 bytes
+
+	result := table.LessThan(shortString, validString)
+	require.False(t, result)
+
+	result = table.LessThan(validString, shortString)
+	require.False(t, result)
+}
+
+func Test_IntervalFuncTable_BoundsChecking(t *testing.T) {
+	table := intervalFuncTable{}
+
+	// Test with exactly 11 bytes (one less than required)
+	shortString := "12345678901"  // 11 bytes
+	validString := "123456789012" // 12 bytes
+
+	result := table.LessThan(shortString, validString)
+	require.False(t, result)
+
+	result = table.LessThan(validString, shortString)
+	require.False(t, result)
+}

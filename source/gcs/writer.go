@@ -85,5 +85,8 @@ func (g *gcsFileWriter) Close() error {
 		g.gcsClient = nil
 	}
 
-	return g.gcsWriter.Close()
+	if g.gcsWriter != nil {
+		return g.gcsWriter.Close()
+	}
+	return nil
 }

@@ -76,9 +76,8 @@ func Test_HdfsReaderMethodDelegation(t *testing.T) {
 	}
 
 	buf := make([]byte, 10)
-	require.Panics(t, func() {
-		_, _ = reader.Read(buf)
-	})
+	_, err := reader.Read(buf)
+	require.Error(t, err)
 }
 
 func Test_HdfsReaderSeekDelegation(t *testing.T) {
@@ -92,9 +91,8 @@ func Test_HdfsReaderSeekDelegation(t *testing.T) {
 		fileReader: nil,
 	}
 
-	require.Panics(t, func() {
-		_, _ = reader.Seek(0, 0)
-	})
+	_, err := reader.Seek(0, 0)
+	require.Error(t, err)
 }
 
 func Test_HdfsReader_Open(t *testing.T) {
@@ -108,9 +106,8 @@ func Test_HdfsReader_Open(t *testing.T) {
 		fileReader: nil,
 	}
 
-	require.Panics(t, func() {
-		_, _ = reader.Open("test.parquet")
-	})
+	_, err := reader.Open("test.parquet")
+	require.Error(t, err)
 }
 
 func Test_HdfsReader_Clone(t *testing.T) {

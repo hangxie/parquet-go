@@ -156,9 +156,8 @@ func Test_NewParquetColumnReader(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.expectPanic {
-				require.Panics(t, func() {
-					_, _ = NewParquetColumnReader(tt.setupReader(), tt.np)
-				})
+				_, err := NewParquetColumnReader(tt.setupReader(), tt.np)
+				require.Error(t, err)
 				return
 			}
 
@@ -181,9 +180,8 @@ func Test_ParquetReader_EdgeCases(t *testing.T) {
 			SchemaHandler: nil,
 		}
 
-		require.Panics(t, func() {
-			_ = pr.SkipRowsByPath("test", 1)
-		})
+		err := pr.SkipRowsByPath("test", 1)
+		require.Error(t, err)
 	})
 
 	t.Run("nil_column_buffers_map", func(t *testing.T) {
@@ -196,9 +194,8 @@ func Test_ParquetReader_EdgeCases(t *testing.T) {
 			ColumnBuffers: nil, // This should cause issues
 		}
 
-		require.Panics(t, func() {
-			_ = pr.SkipRowsByPath("test", 1)
-		})
+		err := pr.SkipRowsByPath("test", 1)
+		require.Error(t, err)
 	})
 }
 
@@ -255,11 +252,10 @@ func Test_ParquetReader_ReadColumnByIndex(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pr := tt.setupReader()
 
-			// Handle panic case for negative index
+			// Handle error case for negative index
 			if tt.index < 0 {
-				require.Panics(t, func() {
-					_, _, _, _ = pr.ReadColumnByIndex(tt.index, tt.num)
-				})
+				_, _, _, err := pr.ReadColumnByIndex(tt.index, tt.num)
+				require.Error(t, err)
 				return
 			}
 
@@ -268,8 +264,8 @@ func Test_ParquetReader_ReadColumnByIndex(t *testing.T) {
 			if tt.expectError {
 				require.Error(t, err)
 				// Verify error message for out of range
-				if tt.index >= int64(len(pr.SchemaHandler.ValueColumns)) {
-					expectedMsg := fmt.Sprintf("index %v out of range %v", tt.index, len(pr.SchemaHandler.ValueColumns))
+				if tt.index < 0 || tt.index >= int64(len(pr.SchemaHandler.ValueColumns)) {
+					expectedMsg := fmt.Sprintf("index %v out of range [0, %v)", tt.index, len(pr.SchemaHandler.ValueColumns))
 					require.Equal(t, expectedMsg, err.Error())
 				}
 			} else {

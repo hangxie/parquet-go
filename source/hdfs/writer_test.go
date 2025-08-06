@@ -56,9 +56,8 @@ func Test_HdfsWriterWriteDelegation(t *testing.T) {
 	}
 
 	testData := []byte("test")
-	require.Panics(t, func() {
-		_, _ = writer.Write(testData)
-	})
+	_, err := writer.Write(testData)
+	require.Error(t, err)
 }
 
 func Test_HdfsWriter_Create(t *testing.T) {
@@ -72,7 +71,6 @@ func Test_HdfsWriter_Create(t *testing.T) {
 		fileWriter: nil,
 	}
 
-	require.Panics(t, func() {
-		_, _ = writer.Create("test.parquet")
-	})
+	_, err := writer.Create("test.parquet")
+	require.Error(t, err)
 }
