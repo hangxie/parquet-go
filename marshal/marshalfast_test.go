@@ -220,14 +220,14 @@ func Test_encoderMapKey_String(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			key := tt.setupKey()
 
-			if tt.expectPanic {
-				require.Panics(t, func() {
-					_ = key.String()
-				})
-			} else {
+			if !tt.expectPanic {
 				result := key.String()
 				require.Equal(t, tt.expected, result)
+				return
 			}
+			require.Panics(t, func() {
+				_ = key.String()
+			})
 		})
 	}
 }

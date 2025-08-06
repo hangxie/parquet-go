@@ -55,15 +55,11 @@ func Test_HdfsReaderClose(t *testing.T) {
 		fileReader: nil,
 	}
 
-	// Should not panic with nil fileReader and client
 	err := reader.Close()
 	require.NoError(t, err)
 }
 
-// Note: NewHdfsFileReader and NewHdfsFileWriter require actual HDFS connection
-// These would fail in test environment without a running HDFS cluster
 func Test_NewHdfsFileReaderError(t *testing.T) {
-	// This will fail due to no HDFS connection, but tests the error path
 	_, err := NewHdfsFileReader([]string{"nonexistent:9000"}, "test-user", "test.parquet")
 	require.Error(t, err)
 }
@@ -102,7 +98,6 @@ func Test_HdfsReaderSeekDelegation(t *testing.T) {
 }
 
 func Test_HdfsReader_Open(t *testing.T) {
-	// Test Open method with nil client (will fail, but covers the method)
 	reader := &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -113,14 +108,12 @@ func Test_HdfsReader_Open(t *testing.T) {
 		fileReader: nil,
 	}
 
-	// This should panic due to nil client, covering the Open method
 	require.Panics(t, func() {
 		_, _ = reader.Open("test.parquet")
 	})
 }
 
 func Test_HdfsReader_Clone(t *testing.T) {
-	// Test Clone method (will fail due to no HDFS connection, but covers the method)
 	reader := &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"nonexistent:9000"},
@@ -131,7 +124,6 @@ func Test_HdfsReader_Clone(t *testing.T) {
 		fileReader: nil,
 	}
 
-	// This will error due to no HDFS connection, but covers the Clone method
 	_, err := reader.Clone()
-	require.Error(t, err) // Expected to fail due to no HDFS connection
+	require.Error(t, err)
 }

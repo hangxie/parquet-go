@@ -99,8 +99,6 @@ func createMinimalValidParquetData() []byte {
 	return data
 }
 
-// Test edge cases and error conditions
-
 func Test_NewParquetColumnReader(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -116,7 +114,7 @@ func Test_NewParquetColumnReader(t *testing.T) {
 			},
 			np:          1,
 			expectError: true,
-			expectPanic: true, // May panic or error depending on implementation
+			expectPanic: true,
 		},
 		{
 			name: "read_footer_error",
@@ -236,7 +234,7 @@ func Test_ParquetReader_ReadColumnByIndex(t *testing.T) {
 			},
 			index:       -1,
 			num:         3,
-			expectError: true, // Actually panics, but we'll catch it
+			expectError: true,
 		},
 		{
 			name: "exactly_at_boundary",
@@ -452,9 +450,6 @@ func Test_ParquetReader_SkipRowsByIndex(t *testing.T) {
 			// SkipRowsByIndex doesn't return error, so we just call it
 			pr.SkipRowsByIndex(tt.index, tt.num)
 
-			// Since the function doesn't return anything, we can only verify
-			// it doesn't panic and completes execution
-			// SkipRowsByIndex completed without panic
 		})
 	}
 }
