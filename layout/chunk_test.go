@@ -295,10 +295,327 @@ func Test_ReadChunk_ErrorConditions(t *testing.T) {
 			chunkHeader := tt.setupChunk()
 
 			if tt.expectPanic {
-				require.Panics(t, func() {
-					_, _ = ReadChunk(nil, nil, chunkHeader)
-				})
+				_, err := ReadChunk(nil, nil, chunkHeader)
+				require.Error(t, err)
 			}
 		})
+	}
+}
+
+func Test_PagesToChunk_NilChecks(t *testing.T) {
+	tests := []struct {
+		name        string
+		pages       []*Page
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "empty_pages_slice",
+			pages:       []*Page{},
+			expectError: true,
+			errorMsg:    "pages slice cannot be empty",
+		},
+		{
+			name:        "nil_pages_slice",
+			pages:       nil,
+			expectError: true,
+			errorMsg:    "pages slice cannot be empty",
+		},
+		{
+			name:        "first_page_nil",
+			pages:       []*Page{nil},
+			expectError: true,
+			errorMsg:    "first page cannot be nil",
+		},
+		{
+			name: "first_page_schema_nil",
+			pages: []*Page{
+				{
+					Schema: nil,
+				},
+			},
+			expectError: true,
+			errorMsg:    "first page schema cannot be nil",
+		},
+		{
+			name: "first_page_schema_type_nil",
+			pages: []*Page{
+				{
+					Schema: &parquet.SchemaElement{
+						Type: nil,
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "first page schema type cannot be nil",
+		},
+		{
+			name: "first_page_info_nil",
+			pages: []*Page{
+				{
+					Schema: &parquet.SchemaElement{
+						Type: &[]parquet.Type{parquet.Type_INT32}[0],
+					},
+					Info: nil,
+				},
+			},
+			expectError: true,
+			errorMsg:    "first page info cannot be nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := PagesToChunk(tt.pages)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_PagesToDictChunk_NilChecks(t *testing.T) {
+	tests := []struct {
+		name        string
+		pages       []*Page
+		expectError bool
+		expectNil   bool
+		errorMsg    string
+	}{
+		{
+			name:      "less_than_two_pages",
+			pages:     []*Page{{}},
+			expectNil: true,
+		},
+		{
+			name:        "second_page_nil",
+			pages:       []*Page{{}, nil},
+			expectError: true,
+			errorMsg:    "second page cannot be nil",
+		},
+		{
+			name: "second_page_schema_nil",
+			pages: []*Page{
+				{},
+				{Schema: nil},
+			},
+			expectError: true,
+			errorMsg:    "second page schema cannot be nil",
+		},
+		{
+			name: "second_page_schema_type_nil",
+			pages: []*Page{
+				{},
+				{
+					Schema: &parquet.SchemaElement{
+						Type: nil,
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "second page schema type cannot be nil",
+		},
+		{
+			name: "second_page_info_nil",
+			pages: []*Page{
+				{},
+				{
+					Schema: &parquet.SchemaElement{
+						Type: &[]parquet.Type{parquet.Type_INT32}[0],
+					},
+					Info: nil,
+				},
+			},
+			expectError: true,
+			errorMsg:    "second page info cannot be nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := PagesToDictChunk(tt.pages)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else if tt.expectNil {
+				require.NoError(t, err)
+				require.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_DecodeDictChunk_NilChecks(t *testing.T) {
+	tests := []struct {
+		name  string
+		chunk *Chunk
+	}{
+		{
+			name:  "nil_chunk",
+			chunk: nil,
+		},
+		{
+			name: "empty_pages",
+			chunk: &Chunk{
+				Pages: []*Page{},
+			},
+		},
+		{
+			name: "nil_pages",
+			chunk: &Chunk{
+				Pages: nil,
+			},
+		},
+		{
+			name: "nil_dict_page",
+			chunk: &Chunk{
+				Pages: []*Page{nil, {}},
+			},
+		},
+		{
+			name: "nil_dict_page_data_table",
+			chunk: &Chunk{
+				Pages: []*Page{
+					{DataTable: nil},
+					{},
+				},
+			},
+		},
+		{
+			name: "nil_data_page",
+			chunk: &Chunk{
+				Pages: []*Page{
+					{DataTable: &Table{}},
+					nil,
+				},
+			},
+		},
+		{
+			name: "nil_data_page_data_table",
+			chunk: &Chunk{
+				Pages: []*Page{
+					{DataTable: &Table{}},
+					{DataTable: nil},
+				},
+			},
+		},
+		{
+			name: "valid_chunk_with_safe_indices",
+			chunk: &Chunk{
+				Pages: []*Page{
+					{
+						DataTable: &Table{
+							Values: []any{"value1", "value2"},
+						},
+					},
+					{
+						DataTable: &Table{
+							Values: []any{int64(0), int64(1), int64(2)}, // Index 2 is out of bounds
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "invalid_type_assertion",
+			chunk: &Chunk{
+				Pages: []*Page{
+					{
+						DataTable: &Table{
+							Values: []any{"value1", "value2"},
+						},
+					},
+					{
+						DataTable: &Table{
+							Values: []any{"not_an_int64"}, // Wrong type
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			DecodeDictChunk(tt.chunk)
+		})
+	}
+}
+
+func Test_PagesToChunk_NullCountNilChecks(t *testing.T) {
+	// Test the specific case where NullCount might be nil
+	pageType := parquet.Type_INT32
+	info := &common.Tag{}
+	info.OmitStats = false
+
+	tests := []struct {
+		name  string
+		pages []*Page
+	}{
+		{
+			name: "nil_null_count",
+			pages: []*Page{
+				{
+					Schema: &parquet.SchemaElement{
+						Type: &pageType,
+					},
+					Info:      info,
+					NullCount: nil, // This should be handled gracefully
+				},
+			},
+		},
+		{
+			name: "valid_null_count",
+			pages: []*Page{
+				{
+					Schema: &parquet.SchemaElement{
+						Type: &pageType,
+					},
+					Info:      info,
+					NullCount: &[]int64{5}[0],
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := PagesToChunk(tt.pages)
+			// We expect this to work or fail gracefully, but not panic
+			if err != nil {
+				// It's okay if there are other errors, as long as it doesn't panic
+				t.Logf("Function returned error (expected): %v", err)
+			}
+		})
+	}
+}
+
+func Test_PagesToDictChunk_NullCountNilChecks(t *testing.T) {
+	// Test the specific case where NullCount might be nil in dict chunks
+	pageType := parquet.Type_INT32
+	info := &common.Tag{}
+	info.OmitStats = false
+
+	pages := []*Page{
+		{}, // Dict page
+		{
+			Schema: &parquet.SchemaElement{
+				Type: &pageType,
+			},
+			Info:      info,
+			NullCount: nil, // This should be handled gracefully
+		},
+	}
+
+	_, err := PagesToDictChunk(pages)
+	// We expect this to work or fail gracefully, but not panic
+	if err != nil {
+		// It's okay if there are other errors, as long as it doesn't panic
+		t.Logf("Function returned error (expected): %v", err)
 	}
 }

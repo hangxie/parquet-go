@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/hangxie/parquet-go/v2/common"
@@ -42,6 +43,13 @@ func (rowGroup *RowGroup) RowGroupToTableMap() *map[string]*Table {
 
 // Read one RowGroup from parquet file (Deprecated)
 func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileReader, schemaHandler *schema.SchemaHandler, NP int64) (*RowGroup, error) {
+	if rowGroupHeader == nil {
+		return nil, fmt.Errorf("rowGroupHeader cannot be nil")
+	}
+	if NP <= 0 {
+		return nil, fmt.Errorf("NP must be greater than 0, got %d", NP)
+	}
+
 	var err error
 	rowGroup := new(RowGroup)
 	rowGroup.RowGroupHeader = rowGroupHeader

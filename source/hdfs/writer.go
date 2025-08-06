@@ -1,6 +1,8 @@
 package hdfs
 
 import (
+	"fmt"
+
 	"github.com/colinmarc/hdfs/v2"
 
 	"github.com/hangxie/parquet-go/v2/source"
@@ -36,12 +38,18 @@ func NewHdfsFileWriter(hosts []string, user, name string) (source.ParquetFileWri
 }
 
 func (f *hdfsWriter) Create(name string) (source.ParquetFileWriter, error) {
+	if f.client == nil {
+		return nil, fmt.Errorf("client is nil")
+	}
 	var err error
 	f.fileWriter, err = f.client.Create(name)
 	return f, err
 }
 
 func (f *hdfsWriter) Write(b []byte) (n int, err error) {
+	if f.fileWriter == nil {
+		return 0, fmt.Errorf("fileWriter is nil")
+	}
 	return f.fileWriter.Write(b)
 }
 

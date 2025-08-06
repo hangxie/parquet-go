@@ -10,6 +10,10 @@ import (
 )
 
 func ParquetTypeToGoReflectType(pT *parquet.Type, rT *parquet.FieldRepetitionType) reflect.Type {
+	if pT == nil {
+		return nil
+	}
+
 	if rT == nil || *rT != parquet.FieldRepetitionType_OPTIONAL {
 		switch *pT {
 		case parquet.Type_BOOLEAN:
@@ -166,54 +170,78 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 	}
 }
 
-func InterfaceToParquetType(src any, pT *parquet.Type) any {
+func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
 	if src == nil {
-		return src
+		return src, nil
 	}
 
 	if pT == nil {
-		return src
+		return src, nil
 	}
 
 	switch *pT {
 	case parquet.Type_BOOLEAN:
 		if _, ok := src.(bool); ok {
-			return src
+			return src, nil
 		}
-		return reflect.ValueOf(src).Bool()
+		rv := reflect.ValueOf(src)
+		if !rv.IsValid() || rv.Kind() != reflect.Bool {
+			return nil, fmt.Errorf("cannot convert %T to bool", src)
+		}
+		return rv.Bool(), nil
 
 	case parquet.Type_INT32:
 		if _, ok := src.(int32); ok {
-			return src
+			return src, nil
 		}
-		return int32(reflect.ValueOf(src).Int())
+		rv := reflect.ValueOf(src)
+		if !rv.IsValid() || (rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr) {
+			return nil, fmt.Errorf("cannot convert %T to int32", src)
+		}
+		return int32(rv.Int()), nil
 
 	case parquet.Type_INT64:
 		if _, ok := src.(int64); ok {
-			return src
+			return src, nil
 		}
-		return reflect.ValueOf(src).Int()
+		rv := reflect.ValueOf(src)
+		if !rv.IsValid() || (rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr) {
+			return nil, fmt.Errorf("cannot convert %T to int64", src)
+		}
+		return rv.Int(), nil
 
 	case parquet.Type_FLOAT:
 		if _, ok := src.(float32); ok {
-			return src
+			return src, nil
 		}
-		return float32(reflect.ValueOf(src).Float())
+		rv := reflect.ValueOf(src)
+		if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
+			return nil, fmt.Errorf("cannot convert %T to float32", src)
+		}
+		return float32(rv.Float()), nil
 
 	case parquet.Type_DOUBLE:
 		if _, ok := src.(float64); ok {
-			return src
+			return src, nil
 		}
-		return reflect.ValueOf(src).Float()
+		rv := reflect.ValueOf(src)
+		if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
+			return nil, fmt.Errorf("cannot convert %T to float64", src)
+		}
+		return rv.Float(), nil
 
 	case parquet.Type_INT96, parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
 		if _, ok := src.(string); ok {
-			return src
+			return src, nil
 		}
-		return reflect.ValueOf(src).String()
+		rv := reflect.ValueOf(src)
+		if !rv.IsValid() || rv.Kind() != reflect.String {
+			return nil, fmt.Errorf("cannot convert %T to string", src)
+		}
+		return rv.String(), nil
 
 	default:
-		return src
+		return src, nil
 	}
 }
 

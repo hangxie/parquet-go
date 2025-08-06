@@ -212,22 +212,15 @@ func Test_encoderMapKey_String(t *testing.T) {
 					pathMap: nil,
 				}
 			},
-			expectPanic: true,
+			expected: "{999, <nil>}",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			key := tt.setupKey()
-
-			if !tt.expectPanic {
-				result := key.String()
-				require.Equal(t, tt.expected, result)
-				return
-			}
-			require.Panics(t, func() {
-				_ = key.String()
-			})
+			result := key.String()
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }

@@ -98,5 +98,8 @@ func (g *gcsReader) Close() error {
 		g.gcsClient = nil
 	}
 
-	return g.gcsReader.Close()
+	if g.gcsReader != nil {
+		return g.gcsReader.Close()
+	}
+	return nil
 }

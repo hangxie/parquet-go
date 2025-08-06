@@ -1,6 +1,8 @@
 package hdfs
 
 import (
+	"fmt"
+
 	"github.com/colinmarc/hdfs/v2"
 
 	"github.com/hangxie/parquet-go/v2/source"
@@ -36,6 +38,9 @@ func NewHdfsFileReader(hosts []string, user, name string) (source.ParquetFileRea
 }
 
 func (f *hdfsReader) Open(name string) (source.ParquetFileReader, error) {
+	if f.client == nil {
+		return nil, fmt.Errorf("client is nil")
+	}
 	var err error
 	f.fileReader, err = f.client.Open(name)
 	return f, err
@@ -46,10 +51,17 @@ func (f hdfsReader) Clone() (source.ParquetFileReader, error) {
 }
 
 func (f *hdfsReader) Seek(offset int64, pos int) (int64, error) {
+	if f.fileReader == nil {
+		return 0, fmt.Errorf("fileReader is nil")
+	}
 	return f.fileReader.Seek(offset, pos)
 }
 
 func (f *hdfsReader) Read(b []byte) (int, error) {
+	if f.fileReader == nil {
+		return 0, fmt.Errorf("fileReader is nil")
+	}
+
 	var cnt, n int
 	var err error
 	for cnt < len(b) {

@@ -937,20 +937,13 @@ func Test_SchemaHandler_GetTypes(t *testing.T) {
 					},
 				}
 			},
-			expectPanic: true,
+			expectedCount: 2, // root and field1
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sh := tt.setupHandler()
-
-			if tt.expectPanic {
-				require.Panics(t, func() {
-					sh.GetTypes()
-				})
-				return
-			}
 
 			types := sh.GetTypes()
 			require.Equal(t, tt.expectedCount, len(types))

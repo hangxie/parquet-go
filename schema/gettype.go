@@ -39,11 +39,16 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 			rT := sh.SchemaElements[idx].RepetitionType
 
 			if nc == 0 {
-				switch *rT {
-				case parquet.FieldRepetitionType_REPEATED:
-					elementTypes[idx] = reflect.SliceOf(types.ParquetTypeToGoReflectType(pT, nil))
-				default:
-					elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, rT)
+				if rT == nil {
+					// Default to REQUIRED if RepetitionType is nil
+					elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, nil)
+				} else {
+					switch *rT {
+					case parquet.FieldRepetitionType_REPEATED:
+						elementTypes[idx] = reflect.SliceOf(types.ParquetTypeToGoReflectType(pT, nil))
+					default:
+						elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, rT)
+					}
 				}
 			} else {
 				if cT != nil && *cT == parquet.ConvertedType_LIST &&

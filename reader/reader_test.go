@@ -9,6 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/common"
+	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v2/schema"
 	"github.com/hangxie/parquet-go/v2/source/buffer"
 	"github.com/hangxie/parquet-go/v2/source/writerfile"
 	"github.com/hangxie/parquet-go/v2/writer"
@@ -165,9 +168,8 @@ func Test_ParquetReader_ReadPartial(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "can't find path")
 
-	require.Panics(t, func() {
-		_ = pr.ReadPartial(nil, nameField)
-	})
+	err = pr.ReadPartial(nil, nameField)
+	require.Error(t, err)
 }
 
 func Test_ParquetReader_ReadPartialByNumber(t *testing.T) {
@@ -214,10 +216,9 @@ func Test_ParquetReader_ReadPartialByNumber(t *testing.T) {
 	_, err = pr.ReadPartialByNumber(1, "nonexistent_field")
 	require.Error(t, err)
 
-	// Test with negative number (currently panics - this is a bug)
-	require.Panics(t, func() {
-		_, _ = pr.ReadPartialByNumber(-1, nameField)
-	})
+	// Test with negative number (should return error)
+	_, err = pr.ReadPartialByNumber(-1, nameField)
+	require.Error(t, err)
 }
 
 func Test_ParquetReader_ReadStop(t *testing.T) {
@@ -233,27 +234,20 @@ func Test_ParquetReader_ReadStop(t *testing.T) {
 
 	// Verify that column buffers are properly cleaned up
 	// ReadStop should close all file handles in column buffers
-	// We can't easily verify this without exposing internal state,
-	// but we can at least verify the method doesn't panic
-	require.NotPanics(t, func() {
-		pr.ReadStop()
-	})
+	// We can't easily verify this without exposing internal state
+	pr.ReadStop()
 
 	// Test ReadStop with nil column buffers
 	pr2, err := parquetReader()
 	require.NoError(t, err)
 	pr2.ColumnBuffers = nil
-	require.NotPanics(t, func() {
-		pr2.ReadStop()
-	})
+	pr2.ReadStop()
 
 	// Test ReadStop with empty column buffers
 	pr3, err := parquetReader()
 	require.NoError(t, err)
 	pr3.ColumnBuffers = make(map[string]*ColumnBufferType)
-	require.NotPanics(t, func() {
-		pr3.ReadStop()
-	})
+	pr3.ReadStop()
 }
 
 func Test_ParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
@@ -319,6 +313,542 @@ func Test_ParquetReader_SkipRows(t *testing.T) {
 			num, err := rowsLeft(pr)
 			require.NoError(t, err)
 			require.Equal(t, numRecord-tc.skip, num)
+		})
+	}
+}
+
+func Test_ParquetReader_IndexMapBoundsChecking(t *testing.T) {
+	tests := []struct {
+		name         string
+		setupReader  func() *ParquetReader
+		expectPanics bool
+		desc         string
+	}{
+		{
+			name: "missing_index_in_index_map",
+			setupReader: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						SchemaElements: []*parquet.SchemaElement{
+							{Name: "root", NumChildren: &[]int32{1}[0]},
+							{Name: "leaf", NumChildren: &[]int32{0}[0]}, // Index 1, but missing from IndexMap
+						},
+						IndexMap: map[int32]string{
+							0: "root",
+							// 1 is missing - should be handled gracefully
+						},
+					},
+					ColumnBuffers: make(map[string]*ColumnBufferType),
+				}
+			},
+			expectPanics: false,
+		},
+		{
+			name: "nil_schema_element_in_array",
+			setupReader: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						SchemaElements: []*parquet.SchemaElement{
+							{Name: "root", NumChildren: &[]int32{1}[0]},
+							nil, // Nil schema element should be skipped
+						},
+						IndexMap: map[int32]string{
+							0: "root",
+							1: "leaf", // Won't be used because SchemaElements[1] is nil
+						},
+					},
+					ColumnBuffers: make(map[string]*ColumnBufferType),
+				}
+			},
+			expectPanics: false,
+		},
+		{
+			name: "index_map_with_out_of_bounds_keys",
+			setupReader: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						SchemaElements: []*parquet.SchemaElement{
+							{Name: "leaf", NumChildren: &[]int32{0}[0]},
+						},
+						IndexMap: map[int32]string{
+							0:  "valid.path",
+							10: "invalid.path", // Index 10 > array length
+						},
+					},
+					ColumnBuffers: make(map[string]*ColumnBufferType),
+				}
+			},
+			expectPanics: false,
+		},
+		{
+			name: "negative_index_in_map",
+			setupReader: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						SchemaElements: []*parquet.SchemaElement{
+							{Name: "leaf", NumChildren: &[]int32{0}[0]},
+						},
+						IndexMap: map[int32]string{
+							0:  "valid.path",
+							-1: "negative.path", // Negative index
+						},
+					},
+					ColumnBuffers: make(map[string]*ColumnBufferType),
+				}
+			},
+			expectPanics: false,
+		},
+		{
+			name: "empty_schema_elements_with_non_empty_map",
+			setupReader: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						SchemaElements: []*parquet.SchemaElement{}, // Empty array
+						IndexMap: map[int32]string{
+							0: "orphaned.path", // Index exists but no corresponding element
+						},
+					},
+					ColumnBuffers: make(map[string]*ColumnBufferType),
+				}
+			},
+			expectPanics: false,
+		},
+		{
+			name: "nil_index_map",
+			setupReader: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						SchemaElements: []*parquet.SchemaElement{
+							{Name: "leaf", NumChildren: &[]int32{0}[0]},
+						},
+						IndexMap: nil, // Nil map
+					},
+					ColumnBuffers: make(map[string]*ColumnBufferType),
+				}
+			},
+			expectPanics: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := tt.setupReader()
+
+			// Simulate the loop logic from NewParquetReader that caused issues
+			if reader.SchemaHandler != nil && reader.SchemaHandler.SchemaElements != nil {
+				for i := range len(reader.SchemaHandler.SchemaElements) {
+					schema := reader.SchemaHandler.SchemaElements[i]
+					if schema == nil {
+						continue
+					}
+					if schema.GetNumChildren() == 0 {
+						if pathStr, exists := reader.SchemaHandler.IndexMap[int32(i)]; exists {
+							// In real code, this would create a ColumnBuffer
+							// Here we just verify the path exists and is valid
+							require.NotEmpty(t, pathStr)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func Test_ColumnBufferType_MapIndexBoundsChecking(t *testing.T) {
+	tests := []struct {
+		name   string
+		buffer *ColumnBufferType
+	}{
+		{
+			name: "path_not_in_map_index",
+			buffer: &ColumnBufferType{
+				SchemaHandler: &schema.SchemaHandler{
+					MapIndex: map[string]int32{
+						"other.path": 0,
+						// PathStr is missing from map
+					},
+					SchemaElements: []*parquet.SchemaElement{
+						{Name: "element"},
+					},
+				},
+				PathStr: "missing.path",
+				Footer:  &parquet.FileMetaData{},
+			},
+		},
+		{
+			name: "map_index_points_to_out_of_bounds",
+			buffer: &ColumnBufferType{
+				SchemaHandler: &schema.SchemaHandler{
+					MapIndex: map[string]int32{
+						"test.path": 10, // Index 10 > array length
+					},
+					SchemaElements: []*parquet.SchemaElement{
+						{Name: "element"},
+					},
+				},
+				PathStr: "test.path",
+				Footer:  &parquet.FileMetaData{},
+			},
+		},
+		{
+			name: "negative_index_in_map_index",
+			buffer: &ColumnBufferType{
+				SchemaHandler: &schema.SchemaHandler{
+					MapIndex: map[string]int32{
+						"test.path": -1, // Negative index
+					},
+					SchemaElements: []*parquet.SchemaElement{
+						{Name: "element"},
+					},
+				},
+				PathStr: "test.path",
+				Footer:  &parquet.FileMetaData{},
+			},
+		},
+		{
+			name: "nil_schema_elements_array",
+			buffer: &ColumnBufferType{
+				SchemaHandler: &schema.SchemaHandler{
+					MapIndex: map[string]int32{
+						"test.path": 0,
+					},
+					SchemaElements: nil, // Nil array
+				},
+				PathStr: "test.path",
+				Footer:  &parquet.FileMetaData{},
+			},
+		},
+		{
+			name: "empty_schema_elements_array",
+			buffer: &ColumnBufferType{
+				SchemaHandler: &schema.SchemaHandler{
+					MapIndex: map[string]int32{
+						"test.path": 0,
+					},
+					SchemaElements: []*parquet.SchemaElement{}, // Empty array
+				},
+				PathStr: "test.path",
+				Footer:  &parquet.FileMetaData{},
+			},
+		},
+		{
+			name: "nil_map_index",
+			buffer: &ColumnBufferType{
+				SchemaHandler: &schema.SchemaHandler{
+					MapIndex:       nil, // Nil map
+					SchemaElements: []*parquet.SchemaElement{{Name: "element"}},
+				},
+				PathStr: "test.path",
+				Footer:  &parquet.FileMetaData{},
+			},
+		},
+		{
+			name: "valid_scenario",
+			buffer: &ColumnBufferType{
+				SchemaHandler: &schema.SchemaHandler{
+					MapIndex: map[string]int32{
+						"test.path": 0,
+					},
+					SchemaElements: []*parquet.SchemaElement{
+						{Name: "element"},
+					},
+				},
+				PathStr: "test.path",
+				Footer:  &parquet.FileMetaData{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate the logic from ReadPage
+			if tt.buffer.SchemaHandler != nil && tt.buffer.SchemaHandler.MapIndex != nil && tt.buffer.SchemaHandler.SchemaElements != nil {
+				if index, exists := tt.buffer.SchemaHandler.MapIndex[tt.buffer.PathStr]; exists && index >= 0 && int(index) < len(tt.buffer.SchemaHandler.SchemaElements) {
+					// In real code, this would access the schema element
+					// Here we just verify bounds checking works
+					_ = tt.buffer.SchemaHandler.SchemaElements[index]
+				}
+			}
+		})
+	}
+}
+
+func Test_ParquetReader_RenameSchema_NilChecks(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func() *ParquetReader
+		expect string
+	}{
+		{
+			name: "nil_schema_handler",
+			setup: func() *ParquetReader {
+				pr := &ParquetReader{
+					SchemaHandler: nil,
+				}
+				return pr
+			},
+			expect: "should handle nil SchemaHandler gracefully",
+		},
+		{
+			name: "nil_schema_handler_infos",
+			setup: func() *ParquetReader {
+				pr := &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						Infos: nil,
+					},
+				}
+				return pr
+			},
+			expect: "should handle nil SchemaHandler.Infos gracefully",
+		},
+		{
+			name: "nil_footer",
+			setup: func() *ParquetReader {
+				pr := &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						Infos: []*common.Tag{{}},
+					},
+					Footer: nil,
+				}
+				return pr
+			},
+			expect: "should handle nil Footer gracefully",
+		},
+		{
+			name: "nil_footer_schema",
+			setup: func() *ParquetReader {
+				pr := &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						Infos: []*common.Tag{{}},
+					},
+					Footer: &parquet.FileMetaData{
+						Schema: nil,
+					},
+				}
+				return pr
+			},
+			expect: "should handle nil Footer.Schema gracefully",
+		},
+		{
+			name: "nil_elements_in_arrays",
+			setup: func() *ParquetReader {
+				pr := &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						Infos: []*common.Tag{nil, {InName: "test"}},
+					},
+					Footer: &parquet.FileMetaData{
+						Schema: []*parquet.SchemaElement{nil, {Name: "old_name"}},
+					},
+				}
+				return pr
+			},
+			expect: "should handle nil elements in arrays gracefully",
+		},
+		{
+			name: "nil_row_groups",
+			setup: func() *ParquetReader {
+				pr := &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						Infos:          []*common.Tag{{InName: "test"}},
+						ExPathToInPath: map[string]string{"test": "test"},
+						SchemaElements: []*parquet.SchemaElement{{Name: "test"}},
+					},
+					Footer: &parquet.FileMetaData{
+						Schema:    []*parquet.SchemaElement{{Name: "old_name"}},
+						RowGroups: nil,
+					},
+				}
+				return pr
+			},
+			expect: "should handle nil RowGroups gracefully",
+		},
+		{
+			name: "nil_row_group_columns",
+			setup: func() *ParquetReader {
+				pr := &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						Infos:          []*common.Tag{{InName: "test"}},
+						ExPathToInPath: map[string]string{"test": "test"},
+					},
+					Footer: &parquet.FileMetaData{
+						Schema: []*parquet.SchemaElement{{Name: "old_name"}},
+						RowGroups: []*parquet.RowGroup{
+							{Columns: nil},
+						},
+					},
+				}
+				return pr
+			},
+			expect: "should handle nil RowGroup.Columns gracefully",
+		},
+		{
+			name: "nil_chunk_metadata",
+			setup: func() *ParquetReader {
+				pr := &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						Infos:          []*common.Tag{{InName: "test"}},
+						ExPathToInPath: map[string]string{"test": "test"},
+					},
+					Footer: &parquet.FileMetaData{
+						Schema: []*parquet.SchemaElement{{Name: "old_name"}},
+						RowGroups: []*parquet.RowGroup{
+							{
+								Columns: []*parquet.ColumnChunk{
+									{MetaData: nil},
+								},
+							},
+						},
+					},
+				}
+				return pr
+			},
+			expect: "should handle nil chunk.MetaData gracefully",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := tt.setup()
+
+			pr.RenameSchema()
+		})
+	}
+}
+
+func Test_ParquetReader_SkipRowsByIndex_NilChecks(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func() *ParquetReader
+		index  int64
+		expect string
+	}{
+		{
+			name: "nil_schema_handler",
+			setup: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: nil,
+				}
+			},
+			index:  0,
+			expect: "should handle nil SchemaHandler gracefully",
+		},
+		{
+			name: "nil_value_columns",
+			setup: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						ValueColumns: nil,
+					},
+				}
+			},
+			index:  0,
+			expect: "should handle nil ValueColumns gracefully",
+		},
+		{
+			name: "index_out_of_bounds",
+			setup: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						ValueColumns: []string{"col1", "col2"},
+					},
+				}
+			},
+			index:  5,
+			expect: "should handle index out of bounds gracefully",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := tt.setup()
+
+			pr.SkipRowsByIndex(tt.index, 1)
+		})
+	}
+}
+
+func Test_ColumnBufferType_ReadPage_NilChecks(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func() *ColumnBufferType
+		expect string
+	}{
+		{
+			name: "nil_schema_handler",
+			setup: func() *ColumnBufferType {
+				return &ColumnBufferType{
+					SchemaHandler: nil,
+					PathStr:       "test.path",
+					Footer:        &parquet.FileMetaData{},
+				}
+			},
+			expect: "should handle nil SchemaHandler gracefully",
+		},
+		{
+			name: "nil_map_index",
+			setup: func() *ColumnBufferType {
+				return &ColumnBufferType{
+					SchemaHandler: &schema.SchemaHandler{
+						MapIndex: nil,
+					},
+					PathStr: "test.path",
+					Footer:  &parquet.FileMetaData{},
+				}
+			},
+			expect: "should handle nil MapIndex gracefully",
+		},
+		{
+			name: "nil_schema_elements",
+			setup: func() *ColumnBufferType {
+				return &ColumnBufferType{
+					SchemaHandler: &schema.SchemaHandler{
+						MapIndex:       map[string]int32{"test.path": 0},
+						SchemaElements: nil,
+					},
+					PathStr: "test.path",
+					Footer:  &parquet.FileMetaData{},
+				}
+			},
+			expect: "should handle nil SchemaElements gracefully",
+		},
+		{
+			name: "index_out_of_bounds",
+			setup: func() *ColumnBufferType {
+				return &ColumnBufferType{
+					SchemaHandler: &schema.SchemaHandler{
+						MapIndex:       map[string]int32{"test.path": 10},
+						SchemaElements: []*parquet.SchemaElement{{}, {}},
+					},
+					PathStr: "test.path",
+					Footer:  &parquet.FileMetaData{},
+				}
+			},
+			expect: "should handle index out of bounds gracefully",
+		},
+		{
+			name: "path_not_in_map",
+			setup: func() *ColumnBufferType {
+				return &ColumnBufferType{
+					SchemaHandler: &schema.SchemaHandler{
+						MapIndex:       map[string]int32{"other.path": 0},
+						SchemaElements: []*parquet.SchemaElement{{}},
+					},
+					PathStr: "test.path",
+					Footer:  &parquet.FileMetaData{},
+				}
+			},
+			expect: "should handle path not in map gracefully",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cbt := tt.setup()
+
+			// We're testing the defensive code paths
+			// The function has internal checks that should prevent panics
+			// even if it may fail later for other reasons
+			_, _ = cbt.ReadPageForSkip()
 		})
 	}
 }

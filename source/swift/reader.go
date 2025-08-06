@@ -1,6 +1,8 @@
 package swiftsource
 
 import (
+	"fmt"
+
 	"github.com/ncw/swift"
 
 	"github.com/hangxie/parquet-go/v2/source"
@@ -48,10 +50,16 @@ func (file swiftReader) Clone() (source.ParquetFileReader, error) {
 }
 
 func (file *swiftReader) Read(b []byte) (n int, err error) {
+	if file.fileReader == nil {
+		return 0, fmt.Errorf("fileReader is nil")
+	}
 	return file.fileReader.Read(b)
 }
 
 func (file *swiftReader) Seek(offset int64, whence int) (int64, error) {
+	if file.fileReader == nil {
+		return 0, fmt.Errorf("fileReader is nil")
+	}
 	return file.fileReader.Seek(offset, whence)
 }
 

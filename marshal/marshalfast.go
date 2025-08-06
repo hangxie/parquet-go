@@ -39,14 +39,16 @@ func MarshalFast(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *m
 	for _, v := range srcInterface {
 		typ, ptr := reflect.TypeAndPtrOf(v)
 		enc := c.getEncoder(typ, pathMap)
-		enc.encode(ptr, 0, 0)
+		if err := enc.encode(ptr, 0, 0); err != nil {
+			return nil, err
+		}
 	}
 
 	return &tableMap, nil
 }
 
 type encoder interface {
-	encode(ptr unsafe.Pointer, dl, rl int32)
+	encode(ptr unsafe.Pointer, dl, rl int32) error
 }
 
 // encodeMapKey is the key used to lookup compiled encoders.
@@ -61,6 +63,9 @@ type encoderMapKey struct {
 }
 
 func (k encoderMapKey) String() string {
+	if k.pathMap == nil {
+		return fmt.Sprintf("{%d, <nil>}", k.typeID)
+	}
 	return fmt.Sprintf("{%d, %s}", k.typeID, k.pathMap.Path)
 }
 
@@ -200,18 +205,23 @@ type terminalEncoder struct {
 
 // encode converts a pointer back to an interface of the correct type and appends it
 // to the table with definition-level and repetition-level.
-func (e *terminalEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
+func (e *terminalEncoder) encode(ptr unsafe.Pointer, dl, rl int32) error {
 	var v any
 	if ptr != nil {
 		v = toIface(e.typeIface, ptr)
 	}
-	e.write(v, dl, rl)
+	return e.write(v, dl, rl)
 }
 
-func (e *terminalEncoder) write(v any, dl, rl int32) {
-	e.table.Values = append(e.table.Values, types.InterfaceToParquetType(v, e.pT))
+func (e *terminalEncoder) write(v any, dl, rl int32) error {
+	val, err := types.InterfaceToParquetType(v, e.pT)
+	if err != nil {
+		return err
+	}
+	e.table.Values = append(e.table.Values, val)
 	e.table.DefinitionLevels = append(e.table.DefinitionLevels, dl)
 	e.table.RepetitionLevels = append(e.table.RepetitionLevels, rl)
+	return nil
 }
 
 // nilEncoder handles encoding of values known to be nil.
@@ -219,8 +229,8 @@ type nilEncoder struct {
 	terminalEncoder
 }
 
-func (e *nilEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
-	e.write(nil, dl, rl)
+func (e *nilEncoder) encode(ptr unsafe.Pointer, dl, rl int32) error {
+	return e.write(nil, dl, rl)
 }
 
 type structFieldEncoder struct {
@@ -235,14 +245,17 @@ type structEncoder struct {
 	fieldEncoders []structFieldEncoder
 }
 
-func (e *structEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
+func (e *structEncoder) encode(ptr unsafe.Pointer, dl, rl int32) error {
 	for _, fe := range e.fieldEncoders {
 		var fPtr unsafe.Pointer
 		if ptr != nil {
 			fPtr = unsafe.Pointer(uintptr(ptr) + fe.offset)
 		}
-		fe.enc.encode(fPtr, dl, rl)
+		if err := fe.enc.encode(fPtr, dl, rl); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // pointerEncoder handles encoding of pointer types. If dereferences the pointer and
@@ -251,14 +264,14 @@ type pointerEncoder struct {
 	valEncoder encoder
 }
 
-func (e *pointerEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
+func (e *pointerEncoder) encode(ptr unsafe.Pointer, dl, rl int32) error {
 	if ptr != nil {
 		ptr = *(*unsafe.Pointer)(ptr)
 	}
 	if ptr != nil {
 		dl++
 	}
-	e.valEncoder.encode(ptr, dl, rl)
+	return e.valEncoder.encode(ptr, dl, rl)
 }
 
 // sliceEncoder handles encoding of slice types. It finds the length and address of the
@@ -269,23 +282,25 @@ type sliceEncoder struct {
 	valEncoder encoder
 }
 
-func (e *sliceEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
+func (e *sliceEncoder) encode(ptr unsafe.Pointer, dl, rl int32) error {
 	var sliceHeader []any
 	if ptr != nil {
 		sliceHeader = *(*[]any)(ptr)
 	}
 	if len(sliceHeader) == 0 {
-		e.valEncoder.encode(nil, dl, rl)
-		return
+		return e.valEncoder.encode(nil, dl, rl)
 	}
 	headPtr := unsafe.Pointer(&sliceHeader[0])
 	for i := range len(sliceHeader) {
 		elemPtr := unsafe.Pointer(uintptr(headPtr) + uintptr(i)*e.elemSize)
-		e.valEncoder.encode(elemPtr, dl+1, rl)
+		if err := e.valEncoder.encode(elemPtr, dl+1, rl); err != nil {
+			return err
+		}
 		if i == 0 {
 			rl++
 		}
 	}
+	return nil
 }
 
 // ifaceEncoder handles encoding of interface types. It dynamically looks up an encoder
@@ -299,17 +314,20 @@ type ifaceEncoder struct {
 	tables  []*layout.Table
 }
 
-func (e *ifaceEncoder) encode(ptr unsafe.Pointer, dl, rl int32) {
+func (e *ifaceEncoder) encode(ptr unsafe.Pointer, dl, rl int32) error {
 	iface := *(*any)(ptr)
 	typ, subPtr := reflect.TypeAndPtrOf(iface)
 	if typ == nil {
 		term := terminalEncoder{}
 		for _, t := range e.tables {
 			term.table = t
-			term.encode(nil, dl, rl)
+			if err := term.encode(nil, dl, rl); err != nil {
+				return err
+			}
 		}
 	} else {
 		enc := e.c.getEncoder(typ, e.pathMap)
-		enc.encode(subPtr, dl, rl)
+		return enc.encode(subPtr, dl, rl)
 	}
+	return nil
 }

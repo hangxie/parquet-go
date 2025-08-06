@@ -184,7 +184,17 @@ func (table uint64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int3
 type int96FuncTable struct{}
 
 func (int96FuncTable) LessThan(ai, bi any) bool {
-	a, b := []byte(ai.(string)), []byte(bi.(string))
+	aStr, aOk := ai.(string)
+	bStr, bOk := bi.(string)
+	if !aOk || !bOk {
+		return false
+	}
+
+	a, b := []byte(aStr), []byte(bStr)
+	if len(a) < 12 || len(b) < 12 {
+		return false
+	}
+
 	fa, fb := a[11]>>7, b[11]>>7
 	if fa > fb {
 		return true
@@ -238,7 +248,17 @@ func (table stringFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int3
 type intervalFuncTable struct{}
 
 func (intervalFuncTable) LessThan(ai, bi any) bool {
-	a, b := []byte(ai.(string)), []byte(bi.(string))
+	aStr, aOk := ai.(string)
+	bStr, bOk := bi.(string)
+	if !aOk || !bOk {
+		return false
+	}
+
+	a, b := []byte(aStr), []byte(bStr)
+	if len(a) < 12 || len(b) < 12 {
+		return false
+	}
+
 	for i := 11; i >= 0; i-- {
 		if a[i] > b[i] {
 			return false

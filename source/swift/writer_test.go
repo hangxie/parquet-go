@@ -74,9 +74,8 @@ func Test_SwiftWriterWriteDelegation(t *testing.T) {
 	}
 
 	testData := []byte("test")
-	require.Panics(t, func() {
-		_, _ = writer.Write(testData)
-	})
+	_, err := writer.Write(testData)
+	require.Error(t, err)
 }
 
 func Test_SwiftFileStructure(t *testing.T) {

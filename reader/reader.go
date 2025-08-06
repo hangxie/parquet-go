@@ -3,6 +3,7 @@ package reader
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -76,10 +77,14 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 	res.RenameSchema()
 	for i := range len(res.SchemaHandler.SchemaElements) {
 		schema := res.SchemaHandler.SchemaElements[i]
+		if schema == nil {
+			continue
+		}
 		if schema.GetNumChildren() == 0 {
-			pathStr := res.SchemaHandler.IndexMap[int32(i)]
-			if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr); err != nil {
-				return res, err
+			if pathStr, exists := res.SchemaHandler.IndexMap[int32(i)]; exists {
+				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr); err != nil {
+					return res, err
+				}
 			}
 		}
 	}
@@ -109,8 +114,14 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 
 // Rename schema name to inname
 func (pr *ParquetReader) RenameSchema() {
+	if pr.SchemaHandler == nil || pr.SchemaHandler.Infos == nil || pr.Footer == nil || pr.Footer.Schema == nil {
+		return
+	}
+
 	for i := range len(pr.SchemaHandler.Infos) {
-		pr.Footer.Schema[i].Name = pr.SchemaHandler.Infos[i].InName
+		if i < len(pr.Footer.Schema) && pr.Footer.Schema[i] != nil && pr.SchemaHandler.Infos[i] != nil {
+			pr.Footer.Schema[i].Name = pr.SchemaHandler.Infos[i].InName
+		}
 	}
 
 	exPathToInPath := make(map[string]string)
@@ -123,18 +134,25 @@ func (pr *ParquetReader) RenameSchema() {
 		exPathToInPath = pr.SchemaHandler.ExPathToInPath
 	}
 
-	for _, rowGroup := range pr.Footer.RowGroups {
-		for _, chunk := range rowGroup.Columns {
-			exPath := append([]string{pr.SchemaHandler.GetRootExName()}, chunk.MetaData.GetPathInSchema()...)
-			exPathStr := common.PathToStr(exPath)
+	if pr.Footer.RowGroups != nil {
+		for _, rowGroup := range pr.Footer.RowGroups {
+			if rowGroup != nil && rowGroup.Columns != nil {
+				for _, chunk := range rowGroup.Columns {
+					if chunk != nil && chunk.MetaData != nil {
+						exPath := append([]string{pr.SchemaHandler.GetRootExName()}, chunk.MetaData.GetPathInSchema()...)
+						exPathStr := common.PathToStr(exPath)
 
-			if pr.CaseInsensitive {
-				exPathStr = strings.ToLower(exPathStr)
+						if pr.CaseInsensitive {
+							exPathStr = strings.ToLower(exPathStr)
+						}
+
+						if inPathStr, exists := exPathToInPath[exPathStr]; exists {
+							inPath := common.StrToPath(inPathStr)[1:]
+							chunk.MetaData.PathInSchema = inPath
+						}
+					}
+				}
 			}
-
-			inPathStr := exPathToInPath[exPathStr]
-			inPath := common.StrToPath(inPathStr)[1:]
-			chunk.MetaData.PathInSchema = inPath
 		}
 	}
 }
@@ -145,6 +163,10 @@ func (pr *ParquetReader) GetNumRows() int64 {
 
 // Get the footer size
 func (pr *ParquetReader) GetFooterSize() (uint32, error) {
+	if pr.PFile == nil {
+		return 0, fmt.Errorf("PFile is nil")
+	}
+
 	var err error
 	buf := make([]byte, 4)
 	if _, err = pr.PFile.Seek(-8, io.SeekEnd); err != nil {
@@ -263,6 +285,10 @@ func (pr *ParquetReader) ReadPartial(dstInterface any, prefixPath string) error 
 
 // Read maxReadNumber partial objects
 func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath string) ([]any, error) {
+	if maxReadNumber < 0 {
+		return nil, fmt.Errorf("maxReadNumber cannot be negative: %d", maxReadNumber)
+	}
+
 	var err error
 	if pr.ObjPartialType == nil {
 		if pr.ObjPartialType, err = pr.SchemaHandler.GetType(prefixPath); err != nil {
@@ -289,6 +315,10 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 
 // Read rows of parquet file with a prefixPath
 func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
+	if dstInterface == nil {
+		return fmt.Errorf("dstInterface cannot be nil")
+	}
+
 	var err error
 	tmap := make(map[string]*layout.Table)
 	locker := new(sync.Mutex)

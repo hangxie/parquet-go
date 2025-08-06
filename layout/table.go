@@ -70,6 +70,12 @@ func (t *Table) Pop(numRows int64) *Table {
 	res := NewTableFromTable(t)
 	endIndex := int64(0)
 	ln := int64(len(t.Values))
+
+	// Ensure all arrays have consistent lengths
+	if ln != int64(len(t.RepetitionLevels)) || ln != int64(len(t.DefinitionLevels)) {
+		return res // Return empty table if arrays are inconsistent
+	}
+
 	i, num := int64(0), int64(-1)
 	for i = 0; i < ln; i++ {
 		if t.RepetitionLevels[i] == 0 {
@@ -86,6 +92,11 @@ func (t *Table) Pop(numRows int64) *Table {
 		}
 	}
 	endIndex = i
+
+	// Validate endIndex is within bounds
+	if endIndex > ln {
+		endIndex = ln
+	}
 
 	res.RepetitionLevels = t.RepetitionLevels[:endIndex]
 	res.DefinitionLevels = t.DefinitionLevels[:endIndex]

@@ -356,9 +356,8 @@ func Test_ReadRowGroup_ErrorConditions(t *testing.T) {
 	// we'll test error paths and basic functionality
 
 	t.Run("nil_row_group_header", func(t *testing.T) {
-		require.Panics(t, func() {
-			_, _ = ReadRowGroup(nil, nil, nil, 1)
-		})
+		_, err := ReadRowGroup(nil, nil, nil, 1)
+		require.Error(t, err)
 	})
 
 	t.Run("empty_columns", func(t *testing.T) {
@@ -384,9 +383,8 @@ func Test_ReadRowGroup_ErrorConditions(t *testing.T) {
 			},
 		}
 
-		require.Panics(t, func() {
-			_, _ = ReadRowGroup(rowGroupHeader, nil, nil, 0)
-		})
+		_, err := ReadRowGroup(rowGroupHeader, nil, nil, 0)
+		require.Error(t, err)
 	})
 }
 

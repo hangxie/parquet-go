@@ -145,7 +145,8 @@ func TableToDataPages(table *Table, pageSize int32, compressType parquet.Compres
 // Decode dict page
 func (page *Page) Decode(dictPage *Page) {
 	if dictPage == nil || page == nil ||
-		(page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil) {
+		(page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil) ||
+		dictPage.DataTable == nil || page.DataTable == nil {
 		return
 	}
 
@@ -164,8 +165,10 @@ func (page *Page) Decode(dictPage *Page) {
 	numValues := len(page.DataTable.Values)
 	for i := range numValues {
 		if page.DataTable.Values[i] != nil {
-			index := page.DataTable.Values[i].(int64)
-			page.DataTable.Values[i] = dictPage.DataTable.Values[index]
+			index, ok := page.DataTable.Values[i].(int64)
+			if ok && index >= 0 && index < int64(len(dictPage.DataTable.Values)) {
+				page.DataTable.Values[i] = dictPage.DataTable.Values[index]
+			}
 		}
 	}
 }
@@ -617,6 +620,22 @@ func (p *Page) GetValueFromRawData(schemaHandler *schema.SchemaHandler) error {
 
 // Process dictionary page
 func (p *Page) processDictionaryPage() error {
+	if p.Schema == nil {
+		return fmt.Errorf("page schema is nil")
+	}
+	if p.Schema.Type == nil {
+		return fmt.Errorf("page schema type is nil")
+	}
+	if p.Header == nil {
+		return fmt.Errorf("page header is nil")
+	}
+	if p.Header.DictionaryPageHeader == nil {
+		return fmt.Errorf("page dictionary header is nil")
+	}
+	if p.DataTable == nil {
+		return fmt.Errorf("page data table is nil")
+	}
+
 	bytesReader := bytes.NewReader(p.RawData)
 	values, err := encoding.ReadPlain(bytesReader,
 		*p.Schema.Type,
