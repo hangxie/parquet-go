@@ -11,132 +11,169 @@ import (
 )
 
 func Test_AdvancedParquetStructures(t *testing.T) {
-	ctx := context.Background()
-	transport := thrift.NewTMemoryBuffer()
-	protocol := thrift.NewTBinaryProtocolConf(transport, nil)
+	t.Run("XxHash", func(t *testing.T) {
+		ctx := context.Background()
+		transport := thrift.NewTMemoryBuffer()
+		protocol := thrift.NewTBinaryProtocolConf(transport, nil)
 
-	xxHash := NewXxHash()
-	err := xxHash.Write(ctx, protocol)
-	require.NoError(t, err)
+		xxHash := NewXxHash()
+		err := xxHash.Write(ctx, protocol)
+		require.NoError(t, err)
 
-	newXxHash := NewXxHash()
-	err = newXxHash.Read(ctx, protocol)
-	require.NoError(t, err)
-	require.True(t, xxHash.Equals(newXxHash))
+		newXxHash := NewXxHash()
+		err = newXxHash.Read(ctx, protocol)
+		require.NoError(t, err)
+		require.True(t, xxHash.Equals(newXxHash))
+	})
 
-	transport.Reset()
-	bloomHash := NewBloomFilterHash()
-	bloomHash.XXHASH = NewXxHash()
+	t.Run("BloomFilterHash", func(t *testing.T) {
+		ctx := context.Background()
+		transport := thrift.NewTMemoryBuffer()
+		protocol := thrift.NewTBinaryProtocolConf(transport, nil)
 
-	err = bloomHash.Write(ctx, protocol)
-	require.NoError(t, err)
+		bloomHash := NewBloomFilterHash()
+		bloomHash.XXHASH = NewXxHash()
 
-	newBloomHash := NewBloomFilterHash()
-	err = newBloomHash.Read(ctx, protocol)
-	require.NoError(t, err)
-	require.True(t, bloomHash.Equals(newBloomHash))
-	require.NotNil(t, newBloomHash.XXHASH)
+		err := bloomHash.Write(ctx, protocol)
+		require.NoError(t, err)
 
-	count := bloomHash.CountSetFieldsBloomFilterHash()
-	require.Equal(t, 1, count)
+		newBloomHash := NewBloomFilterHash()
+		err = newBloomHash.Read(ctx, protocol)
+		require.NoError(t, err)
+		require.True(t, bloomHash.Equals(newBloomHash))
+		require.NotNil(t, newBloomHash.XXHASH)
 
-	transport.Reset()
-	bloomComp := NewBloomFilterCompression()
-	bloomComp.UNCOMPRESSED = NewUncompressed()
+		count := bloomHash.CountSetFieldsBloomFilterHash()
+		require.Equal(t, 1, count)
+	})
 
-	err = bloomComp.Write(ctx, protocol)
-	require.NoError(t, err)
+	t.Run("BloomFilterCompression", func(t *testing.T) {
+		ctx := context.Background()
+		transport := thrift.NewTMemoryBuffer()
+		protocol := thrift.NewTBinaryProtocolConf(transport, nil)
 
-	newBloomComp := NewBloomFilterCompression()
-	require.NoError(t, newBloomComp.Read(ctx, protocol))
-	require.True(t, bloomComp.Equals(newBloomComp))
-	require.NotNil(t, newBloomComp.UNCOMPRESSED)
+		bloomComp := NewBloomFilterCompression()
+		bloomComp.UNCOMPRESSED = NewUncompressed()
 
-	compCount := bloomComp.CountSetFieldsBloomFilterCompression()
-	require.Equal(t, 1, compCount)
+		err := bloomComp.Write(ctx, protocol)
+		require.NoError(t, err)
 
-	transport.Reset()
-	uncompressed := NewUncompressed()
-	require.NoError(t, uncompressed.Write(ctx, protocol))
+		newBloomComp := NewBloomFilterCompression()
+		require.NoError(t, newBloomComp.Read(ctx, protocol))
+		require.True(t, bloomComp.Equals(newBloomComp))
+		require.NotNil(t, newBloomComp.UNCOMPRESSED)
 
-	newUncompressed := NewUncompressed()
-	require.NoError(t, newUncompressed.Read(ctx, protocol))
-	require.True(t, uncompressed.Equals(newUncompressed))
+		compCount := bloomComp.CountSetFieldsBloomFilterCompression()
+		require.Equal(t, 1, compCount)
+	})
 
-	transport.Reset()
-	bloomHeader := NewBloomFilterHeader()
-	bloomHeader.NumBytes = 1024
-	bloomHeader.Algorithm = NewBloomFilterAlgorithm()
-	bloomHeader.Algorithm.BLOCK = NewSplitBlockAlgorithm()
-	bloomHeader.Hash = NewBloomFilterHash()
-	bloomHeader.Hash.XXHASH = NewXxHash()
-	bloomHeader.Compression = NewBloomFilterCompression()
-	bloomHeader.Compression.UNCOMPRESSED = NewUncompressed()
-	require.NoError(t, bloomHeader.Write(ctx, protocol))
+	t.Run("Uncompressed", func(t *testing.T) {
+		ctx := context.Background()
+		transport := thrift.NewTMemoryBuffer()
+		protocol := thrift.NewTBinaryProtocolConf(transport, nil)
 
-	newBloomHeader := NewBloomFilterHeader()
-	require.NoError(t, newBloomHeader.Read(ctx, protocol))
-	require.Equal(t, bloomHeader.NumBytes, newBloomHeader.NumBytes)
-	require.NotNil(t, newBloomHeader.Algorithm)
-	require.NotNil(t, newBloomHeader.Algorithm.BLOCK)
-	require.NotNil(t, newBloomHeader.Hash)
-	require.NotNil(t, newBloomHeader.Hash.XXHASH)
-	require.NotNil(t, newBloomHeader.Compression)
-	require.NotNil(t, newBloomHeader.Compression.UNCOMPRESSED)
+		uncompressed := NewUncompressed()
+		require.NoError(t, uncompressed.Write(ctx, protocol))
 
-	transport.Reset()
-	pageHeader := NewPageHeader()
-	pageHeader.Type = PageType_DATA_PAGE
-	pageHeader.UncompressedPageSize = 2048
-	pageHeader.CompressedPageSize = 1024
-	crc := int32(0x12345678)
-	pageHeader.Crc = &crc
-	pageHeader.DataPageHeader = NewDataPageHeader()
-	pageHeader.DataPageHeader.NumValues = 1000
-	pageHeader.DataPageHeader.Encoding = Encoding_PLAIN
-	pageHeader.DataPageHeader.DefinitionLevelEncoding = Encoding_RLE
-	pageHeader.DataPageHeader.RepetitionLevelEncoding = Encoding_RLE
-	require.NoError(t, pageHeader.Write(ctx, protocol))
+		newUncompressed := NewUncompressed()
+		require.NoError(t, newUncompressed.Read(ctx, protocol))
+		require.True(t, uncompressed.Equals(newUncompressed))
+	})
 
-	newPageHeader := NewPageHeader()
-	require.NoError(t, newPageHeader.Read(ctx, protocol))
-	require.Equal(t, pageHeader.Type, newPageHeader.Type)
-	require.Equal(t, pageHeader.UncompressedPageSize, newPageHeader.UncompressedPageSize)
-	require.Equal(t, pageHeader.CompressedPageSize, newPageHeader.CompressedPageSize)
-	require.NotNil(t, newPageHeader.Crc)
-	require.Equal(t, *pageHeader.Crc, *newPageHeader.Crc)
-	require.NotNil(t, newPageHeader.DataPageHeader)
+	t.Run("BloomFilterHeader", func(t *testing.T) {
+		ctx := context.Background()
+		transport := thrift.NewTMemoryBuffer()
+		protocol := thrift.NewTBinaryProtocolConf(transport, nil)
 
-	transport.Reset()
-	dictPageHeader := NewPageHeader()
-	dictPageHeader.Type = PageType_DICTIONARY_PAGE
-	dictPageHeader.UncompressedPageSize = 512
-	dictPageHeader.CompressedPageSize = 256
-	dictPageHeader.DictionaryPageHeader = NewDictionaryPageHeader()
-	dictPageHeader.DictionaryPageHeader.NumValues = 100
-	dictPageHeader.DictionaryPageHeader.Encoding = Encoding_PLAIN_DICTIONARY
-	require.NoError(t, dictPageHeader.Write(ctx, protocol))
+		bloomHeader := NewBloomFilterHeader()
+		bloomHeader.NumBytes = 1024
+		bloomHeader.Algorithm = NewBloomFilterAlgorithm()
+		bloomHeader.Algorithm.BLOCK = NewSplitBlockAlgorithm()
+		bloomHeader.Hash = NewBloomFilterHash()
+		bloomHeader.Hash.XXHASH = NewXxHash()
+		bloomHeader.Compression = NewBloomFilterCompression()
+		bloomHeader.Compression.UNCOMPRESSED = NewUncompressed()
+		require.NoError(t, bloomHeader.Write(ctx, protocol))
 
-	newDictPageHeader := NewPageHeader()
-	require.NoError(t, newDictPageHeader.Read(ctx, protocol))
-	require.Equal(t, dictPageHeader.Type, newDictPageHeader.Type)
-	require.NotNil(t, newDictPageHeader.DictionaryPageHeader)
+		newBloomHeader := NewBloomFilterHeader()
+		require.NoError(t, newBloomHeader.Read(ctx, protocol))
+		require.Equal(t, bloomHeader.NumBytes, newBloomHeader.NumBytes)
+		require.NotNil(t, newBloomHeader.Algorithm)
+		require.NotNil(t, newBloomHeader.Algorithm.BLOCK)
+		require.NotNil(t, newBloomHeader.Hash)
+		require.NotNil(t, newBloomHeader.Hash.XXHASH)
+		require.NotNil(t, newBloomHeader.Compression)
+		require.NotNil(t, newBloomHeader.Compression.UNCOMPRESSED)
+	})
 
-	transport.Reset()
-	v2PageHeader := NewPageHeader()
-	v2PageHeader.Type = PageType_DATA_PAGE_V2
-	v2PageHeader.UncompressedPageSize = 4096
-	v2PageHeader.CompressedPageSize = 2048
-	v2PageHeader.DataPageHeaderV2 = NewDataPageHeaderV2()
-	v2PageHeader.DataPageHeaderV2.NumValues = 2000
-	v2PageHeader.DataPageHeaderV2.NumRows = 1980
-	v2PageHeader.DataPageHeaderV2.Encoding = Encoding_DELTA_BINARY_PACKED
-	require.NoError(t, v2PageHeader.Write(ctx, protocol))
+	t.Run("PageHeader_DATA_PAGE", func(t *testing.T) {
+		ctx := context.Background()
+		transport := thrift.NewTMemoryBuffer()
+		protocol := thrift.NewTBinaryProtocolConf(transport, nil)
 
-	newV2PageHeader := NewPageHeader()
-	require.NoError(t, newV2PageHeader.Read(ctx, protocol))
-	require.Equal(t, v2PageHeader.Type, newV2PageHeader.Type)
-	require.NotNil(t, newV2PageHeader.DataPageHeaderV2)
+		pageHeader := NewPageHeader()
+		pageHeader.Type = PageType_DATA_PAGE
+		pageHeader.UncompressedPageSize = 2048
+		pageHeader.CompressedPageSize = 1024
+		crc := int32(0x12345678)
+		pageHeader.Crc = &crc
+		pageHeader.DataPageHeader = NewDataPageHeader()
+		pageHeader.DataPageHeader.NumValues = 1000
+		pageHeader.DataPageHeader.Encoding = Encoding_PLAIN
+		pageHeader.DataPageHeader.DefinitionLevelEncoding = Encoding_RLE
+		pageHeader.DataPageHeader.RepetitionLevelEncoding = Encoding_RLE
+		require.NoError(t, pageHeader.Write(ctx, protocol))
+
+		newPageHeader := NewPageHeader()
+		require.NoError(t, newPageHeader.Read(ctx, protocol))
+		require.Equal(t, pageHeader.Type, newPageHeader.Type)
+		require.Equal(t, pageHeader.UncompressedPageSize, newPageHeader.UncompressedPageSize)
+		require.Equal(t, pageHeader.CompressedPageSize, newPageHeader.CompressedPageSize)
+		require.NotNil(t, newPageHeader.Crc)
+		require.Equal(t, *pageHeader.Crc, *newPageHeader.Crc)
+		require.NotNil(t, newPageHeader.DataPageHeader)
+	})
+
+	t.Run("PageHeader_DICTIONARY_PAGE", func(t *testing.T) {
+		ctx := context.Background()
+		transport := thrift.NewTMemoryBuffer()
+		protocol := thrift.NewTBinaryProtocolConf(transport, nil)
+
+		dictPageHeader := NewPageHeader()
+		dictPageHeader.Type = PageType_DICTIONARY_PAGE
+		dictPageHeader.UncompressedPageSize = 512
+		dictPageHeader.CompressedPageSize = 256
+		dictPageHeader.DictionaryPageHeader = NewDictionaryPageHeader()
+		dictPageHeader.DictionaryPageHeader.NumValues = 100
+		dictPageHeader.DictionaryPageHeader.Encoding = Encoding_PLAIN_DICTIONARY
+		require.NoError(t, dictPageHeader.Write(ctx, protocol))
+
+		newDictPageHeader := NewPageHeader()
+		require.NoError(t, newDictPageHeader.Read(ctx, protocol))
+		require.Equal(t, dictPageHeader.Type, newDictPageHeader.Type)
+		require.NotNil(t, newDictPageHeader.DictionaryPageHeader)
+	})
+
+	t.Run("PageHeader_DATA_PAGE_V2", func(t *testing.T) {
+		ctx := context.Background()
+		transport := thrift.NewTMemoryBuffer()
+		protocol := thrift.NewTBinaryProtocolConf(transport, nil)
+
+		v2PageHeader := NewPageHeader()
+		v2PageHeader.Type = PageType_DATA_PAGE_V2
+		v2PageHeader.UncompressedPageSize = 4096
+		v2PageHeader.CompressedPageSize = 2048
+		v2PageHeader.DataPageHeaderV2 = NewDataPageHeaderV2()
+		v2PageHeader.DataPageHeaderV2.NumValues = 2000
+		v2PageHeader.DataPageHeaderV2.NumRows = 1980
+		v2PageHeader.DataPageHeaderV2.Encoding = Encoding_DELTA_BINARY_PACKED
+		require.NoError(t, v2PageHeader.Write(ctx, protocol))
+
+		newV2PageHeader := NewPageHeader()
+		require.NoError(t, newV2PageHeader.Read(ctx, protocol))
+		require.Equal(t, v2PageHeader.Type, newV2PageHeader.Type)
+		require.NotNil(t, newV2PageHeader.DataPageHeaderV2)
+	})
 }
 
 func Test_ParquetFileFormatStructures(t *testing.T) {
