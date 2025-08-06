@@ -449,7 +449,6 @@ func Test_ParquetReader_SkipRowsByIndex(t *testing.T) {
 
 			// SkipRowsByIndex doesn't return error, so we just call it
 			pr.SkipRowsByIndex(tt.index, tt.num)
-
 		})
 	}
 }

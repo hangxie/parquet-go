@@ -229,95 +229,136 @@ func Test_DocumentType(t *testing.T) {
 }
 
 func Test_LogicalType(t *testing.T) {
-	lt := NewLogicalType()
-	require.NotNil(t, lt)
+	tests := []struct {
+		name      string
+		setupType func() interface{}
+		setField  func(*LogicalType, interface{})
+		getter    func(*LogicalType) interface{}
+		isSet     func(*LogicalType) bool
+	}{
+		{
+			name:      "STRING",
+			setupType: func() interface{} { return NewStringType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.STRING = val.(*StringType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetSTRING() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetSTRING() },
+		},
+		{
+			name:      "MAP",
+			setupType: func() interface{} { return NewMapType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.MAP = val.(*MapType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetMAP() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetMAP() },
+		},
+		{
+			name:      "LIST",
+			setupType: func() interface{} { return NewListType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.LIST = val.(*ListType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetLIST() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetLIST() },
+		},
+		{
+			name:      "ENUM",
+			setupType: func() interface{} { return NewEnumType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.ENUM = val.(*EnumType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetENUM() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetENUM() },
+		},
+		{
+			name:      "DECIMAL",
+			setupType: func() interface{} { return NewDecimalType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.DECIMAL = val.(*DecimalType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetDECIMAL() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetDECIMAL() },
+		},
+		{
+			name:      "DATE",
+			setupType: func() interface{} { return NewDateType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.DATE = val.(*DateType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetDATE() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetDATE() },
+		},
+		{
+			name:      "TIME",
+			setupType: func() interface{} { return NewTimeType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.TIME = val.(*TimeType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetTIME() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetTIME() },
+		},
+		{
+			name:      "TIMESTAMP",
+			setupType: func() interface{} { return NewTimestampType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.TIMESTAMP = val.(*TimestampType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetTIMESTAMP() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetTIMESTAMP() },
+		},
+		{
+			name:      "INTEGER",
+			setupType: func() interface{} { return NewIntType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.INTEGER = val.(*IntType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetINTEGER() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetINTEGER() },
+		},
+		{
+			name:      "JSON",
+			setupType: func() interface{} { return NewJsonType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.JSON = val.(*JsonType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetJSON() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetJSON() },
+		},
+		{
+			name:      "BSON",
+			setupType: func() interface{} { return NewBsonType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.BSON = val.(*BsonType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetBSON() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetBSON() },
+		},
+		{
+			name:      "UUID",
+			setupType: func() interface{} { return NewUUIDType() },
+			setField:  func(lt *LogicalType, val interface{}) { lt.UUID = val.(*UUIDType) },
+			getter:    func(lt *LogicalType) interface{} { return lt.GetUUID() },
+			isSet:     func(lt *LogicalType) bool { return lt.IsSetUUID() },
+		},
+	}
 
-	stringType := NewStringType()
-	lt.STRING = stringType
-	require.Equal(t, stringType, lt.GetSTRING())
-	require.True(t, lt.IsSetSTRING())
-	require.False(t, lt.IsSetMAP())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lt := NewLogicalType()
+			require.NotNil(t, lt)
 
-	count := lt.CountSetFieldsLogicalType()
-	require.Equal(t, 1, count)
+			typeInstance := tt.setupType()
+			tt.setField(lt, typeInstance)
 
-	lt2 := NewLogicalType()
-	mapType := NewMapType()
-	lt2.MAP = mapType
-	require.Equal(t, mapType, lt2.GetMAP())
-	require.True(t, lt2.IsSetMAP())
+			require.Equal(t, typeInstance, tt.getter(lt))
+			require.True(t, tt.isSet(lt))
 
-	lt3 := NewLogicalType()
-	listType := NewListType()
-	lt3.LIST = listType
-	require.Equal(t, listType, lt3.GetLIST())
-	require.True(t, lt3.IsSetLIST())
+			count := lt.CountSetFieldsLogicalType()
+			require.Equal(t, 1, count)
+		})
+	}
 
-	lt4 := NewLogicalType()
-	enumType := NewEnumType()
-	lt4.ENUM = enumType
-	require.Equal(t, enumType, lt4.GetENUM())
-	require.True(t, lt4.IsSetENUM())
+	t.Run("UNKNOWN", func(t *testing.T) {
+		lt := NewLogicalType()
+		lt.UNKNOWN = &NullType{}
+		require.NotNil(t, lt.GetUNKNOWN())
+		require.True(t, lt.IsSetUNKNOWN())
+	})
 
-	lt5 := NewLogicalType()
-	decimalType := NewDecimalType()
-	lt5.DECIMAL = decimalType
-	require.Equal(t, decimalType, lt5.GetDECIMAL())
-	require.True(t, lt5.IsSetDECIMAL())
+	t.Run("AdditionalMethods", func(t *testing.T) {
+		lt := NewLogicalType()
+		stringType := NewStringType()
+		lt.STRING = stringType
 
-	lt6 := NewLogicalType()
-	dateType := NewDateType()
-	lt6.DATE = dateType
-	require.Equal(t, dateType, lt6.GetDATE())
-	require.True(t, lt6.IsSetDATE())
+		str := lt.String()
+		require.NotEmpty(t, str)
 
-	lt7 := NewLogicalType()
-	timeType := NewTimeType()
-	lt7.TIME = timeType
-	require.Equal(t, timeType, lt7.GetTIME())
-	require.True(t, lt7.IsSetTIME())
+		ltCopy := NewLogicalType()
+		ltCopy.STRING = stringType
+		require.True(t, lt.Equals(ltCopy))
 
-	lt8 := NewLogicalType()
-	timestampType := NewTimestampType()
-	lt8.TIMESTAMP = timestampType
-	require.Equal(t, timestampType, lt8.GetTIMESTAMP())
-	require.True(t, lt8.IsSetTIMESTAMP())
-
-	lt9 := NewLogicalType()
-	intType := NewIntType()
-	lt9.INTEGER = intType
-	require.Equal(t, intType, lt9.GetINTEGER())
-	require.True(t, lt9.IsSetINTEGER())
-
-	lt10 := NewLogicalType()
-	lt10.UNKNOWN = &NullType{}
-	require.NotNil(t, lt10.GetUNKNOWN())
-	require.True(t, lt10.IsSetUNKNOWN())
-
-	lt11 := NewLogicalType()
-	jsonType := NewJsonType()
-	lt11.JSON = jsonType
-	require.Equal(t, jsonType, lt11.GetJSON())
-	require.True(t, lt11.IsSetJSON())
-
-	lt12 := NewLogicalType()
-	bsonType := NewBsonType()
-	lt12.BSON = bsonType
-	require.Equal(t, bsonType, lt12.GetBSON())
-	require.True(t, lt12.IsSetBSON())
-
-	lt13 := NewLogicalType()
-	uuidType := NewUUIDType()
-	lt13.UUID = uuidType
-	require.Equal(t, uuidType, lt13.GetUUID())
-	require.True(t, lt13.IsSetUUID())
-
-	str := lt.String()
-	require.NotEmpty(t, str)
-
-	ltCopy := NewLogicalType()
-	ltCopy.STRING = stringType
-	require.True(t, lt.Equals(ltCopy))
+		require.False(t, lt.IsSetMAP())
+	})
 }
 
 func Test_TimeUnit_Additional(t *testing.T) {
