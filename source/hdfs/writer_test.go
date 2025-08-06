@@ -35,13 +35,11 @@ func Test_HdfsWriterClose(t *testing.T) {
 		fileWriter: nil,
 	}
 
-	// Should not panic with nil fileWriter and client
 	err := writer.Close()
 	require.NoError(t, err)
 }
 
 func Test_NewHdfsFileWriterError(t *testing.T) {
-	// This will fail due to no HDFS connection, but tests the error path
 	_, err := NewHdfsFileWriter([]string{"nonexistent:9000"}, "test-user", "test.parquet")
 	require.Error(t, err)
 }
@@ -64,7 +62,6 @@ func Test_HdfsWriterWriteDelegation(t *testing.T) {
 }
 
 func Test_HdfsWriter_Create(t *testing.T) {
-	// Test Create method with nil client (will fail, but covers the method)
 	writer := &hdfsWriter{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -75,7 +72,6 @@ func Test_HdfsWriter_Create(t *testing.T) {
 		fileWriter: nil,
 	}
 
-	// This should panic due to nil client, covering the Create method
 	require.Panics(t, func() {
 		_, _ = writer.Create("test.parquet")
 	})
