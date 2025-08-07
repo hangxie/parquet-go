@@ -237,10 +237,12 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 				default:
 					value := reflect.ValueOf(val)
-					if po.Type() != value.Type() {
-						value = value.Convert(poType)
+					if value.IsValid() {
+						if po.Type() != value.Type() {
+							value = value.Convert(poType)
+						}
+						po.Set(value)
 					}
-					po.Set(value)
 					break OuterLoop
 				}
 			}
