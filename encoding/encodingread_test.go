@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
@@ -206,7 +207,7 @@ func Test_ReadPlain(t *testing.T) {
 		{
 			name:     "int96_type",
 			dataType: parquet.Type_INT96,
-			data:     []any{"helloworldab", "abcdefghijkl"},
+			data:     []any{common.ByteArray("helloworldab"), common.ByteArray("abcdefghijkl")},
 		},
 		{
 			name:     "float_type",

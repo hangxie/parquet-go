@@ -76,7 +76,7 @@ func ArrowColToParquetCol(field arrow.Field, col arrow.Array) ([]any, error) {
 	case *arrow.Date64Type:
 		recs, err = arrowArrayToParquetList(field, col, func(v arrow.Date64) any { return int32(v) })
 	case *arrow.BinaryType:
-		recs, err = arrowArrayToParquetList(field, col, func(v []byte) any { return string(v) })
+		recs, err = arrowArrayToParquetList(field, col, func(v []byte) any { return ByteArray(v) })
 	case *arrow.StringType:
 		recs, err = arrowArrayToParquetList(field, col, func(v string) any { return v })
 	case *arrow.BooleanType:
