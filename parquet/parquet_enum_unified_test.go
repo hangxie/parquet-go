@@ -40,14 +40,26 @@ func Test_EnumStringMethods(t *testing.T) {
 			cases: []EnumTestCase{
 				{"UTF8", "UTF8", ConvertedType_UTF8, false},
 				{"MAP", "MAP", ConvertedType_MAP, false},
+				{"MAP_KEY_VALUE", "MAP_KEY_VALUE", ConvertedType_MAP_KEY_VALUE, false},
 				{"LIST", "LIST", ConvertedType_LIST, false},
 				{"ENUM", "ENUM", ConvertedType_ENUM, false},
 				{"DECIMAL", "DECIMAL", ConvertedType_DECIMAL, false},
 				{"DATE", "DATE", ConvertedType_DATE, false},
 				{"TIME_MILLIS", "TIME_MILLIS", ConvertedType_TIME_MILLIS, false},
+				{"TIME_MICROS", "TIME_MICROS", ConvertedType_TIME_MICROS, false},
 				{"TIMESTAMP_MILLIS", "TIMESTAMP_MILLIS", ConvertedType_TIMESTAMP_MILLIS, false},
+				{"TIMESTAMP_MICROS", "TIMESTAMP_MICROS", ConvertedType_TIMESTAMP_MICROS, false},
+				{"UINT_8", "UINT_8", ConvertedType_UINT_8, false},
+				{"UINT_16", "UINT_16", ConvertedType_UINT_16, false},
+				{"UINT_32", "UINT_32", ConvertedType_UINT_32, false},
+				{"UINT_64", "UINT_64", ConvertedType_UINT_64, false},
+				{"INT_8", "INT_8", ConvertedType_INT_8, false},
+				{"INT_16", "INT_16", ConvertedType_INT_16, false},
+				{"INT_32", "INT_32", ConvertedType_INT_32, false},
+				{"INT_64", "INT_64", ConvertedType_INT_64, false},
 				{"JSON", "JSON", ConvertedType_JSON, false},
 				{"BSON", "BSON", ConvertedType_BSON, false},
+				{"INTERVAL", "INTERVAL", ConvertedType_INTERVAL, false},
 				{"invalid", "INVALID", ConvertedType(0), true},
 			},
 			fromString: func(s string) (interface{}, error) { return ConvertedTypeFromString(s) },
@@ -393,6 +405,13 @@ func Test_TypeFromString_EdgeCases(t *testing.T) {
 	}
 }
 
+func Test_ConvertedTypeFromString_ErrorCase(t *testing.T) {
+	// Explicit test to ensure the error case is covered
+	_, err := ConvertedTypeFromString("EXPLICIT_INVALID_TYPE")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a valid ConvertedType string")
+}
+
 func Test_ConvertedTypeFromString_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -403,6 +422,12 @@ func Test_ConvertedTypeFromString_EdgeCases(t *testing.T) {
 		{"lowercase", "utf8", true},
 		{"partial_match", "UT", true},
 		{"with_spaces", " UTF8 ", true},
+		{"invalid_type", "INVALID_TYPE", true},
+		{"random_string", "xyz123", true},
+		{"numeric_string", "123", true},
+		{"special_chars", "@#$%", true},
+		{"almost_valid", "UTF", true},
+		{"case_mismatch", "Utf8", true},
 	}
 
 	for _, tt := range tests {

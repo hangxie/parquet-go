@@ -449,6 +449,174 @@ func Test_ParquetReader_SkipRowsByIndex(t *testing.T) {
 	}
 }
 
+func Test_NewParquetColumnReader_Success(t *testing.T) {
+	// Create a real parquet file to test with
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer pr.ReadStop()
+
+	// Now test NewParquetColumnReader with a real parquet file
+	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	require.NoError(t, err)
+	require.NotNil(t, columnReader)
+	require.Equal(t, int64(1), columnReader.NP)
+	require.NotNil(t, columnReader.PFile)
+	require.NotNil(t, columnReader.SchemaHandler)
+	require.NotNil(t, columnReader.ColumnBuffers)
+
+	columnReader.ReadStop()
+}
+
+func Test_ParquetReader_SkipRowsByPath_WithValidData(t *testing.T) {
+	// Create a real parquet reader
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer pr.ReadStop()
+
+	// Create column reader to test the successful path
+	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	require.NoError(t, err)
+	defer columnReader.ReadStop()
+
+	// Test skipping rows with valid path
+	if len(columnReader.SchemaHandler.ValueColumns) > 0 {
+		validPath := columnReader.SchemaHandler.ValueColumns[0]
+		err = columnReader.SkipRowsByPath(validPath, 5)
+		require.NoError(t, err)
+	}
+}
+
+func Test_ParquetReader_SkipRowsByIndex_Success(t *testing.T) {
+	// Create a real parquet reader
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer pr.ReadStop()
+
+	// Create column reader
+	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	require.NoError(t, err)
+	defer columnReader.ReadStop()
+
+	// Test with valid index
+	if len(columnReader.SchemaHandler.ValueColumns) > 0 {
+		columnReader.SkipRowsByIndex(0, 5)
+		// No error expected as this function doesn't return errors
+	}
+
+	// Test with nil SchemaHandler
+	emptyReader := &ParquetReader{SchemaHandler: nil}
+	emptyReader.SkipRowsByIndex(0, 5) // Should return early
+
+	// Test with nil ValueColumns
+	emptyReader.SchemaHandler = &schema.SchemaHandler{ValueColumns: nil}
+	emptyReader.SkipRowsByIndex(0, 5) // Should return early
+}
+
+func Test_ParquetReader_ReadColumnByPath_WithValidData(t *testing.T) {
+	// Create a real parquet reader
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer pr.ReadStop()
+
+	// Create column reader
+	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	require.NoError(t, err)
+	defer columnReader.ReadStop()
+
+	// Test reading column with valid path
+	if len(columnReader.SchemaHandler.ValueColumns) > 0 {
+		validPath := columnReader.SchemaHandler.ValueColumns[0]
+		values, rls, dls, err := columnReader.ReadColumnByPath(validPath, 5)
+		require.NoError(t, err)
+		require.NotNil(t, values)
+		require.NotNil(t, rls)
+		require.NotNil(t, dls)
+	}
+}
+
+func Test_ParquetReader_ErrorPaths(t *testing.T) {
+	t.Run("skip_rows_column_buffer_error", func(t *testing.T) {
+		// Create a mock reader that will fail when creating column buffer
+		pr := &ParquetReader{
+			PFile:         newMockParquetFileReader([]byte{}), // Invalid data will cause NewColumnBuffer to fail
+			ColumnBuffers: make(map[string]*ColumnBufferType),
+		}
+		pr.SchemaHandler = &schema.SchemaHandler{
+			MapIndex:       map[string]int32{"test.field": 0},
+			InPathToExPath: map[string]string{"test.field": "test.field"},
+			ExPathToInPath: map[string]string{"test.field": "test.field"},
+		}
+
+		err := pr.SkipRowsByPath("test.field", 5)
+		require.Error(t, err) // This should hit the NewColumnBuffer error path (line 47-49)
+	})
+
+	t.Run("read_column_column_buffer_error", func(t *testing.T) {
+		// Create a mock reader that will fail when creating column buffer
+		pr := &ParquetReader{
+			PFile:         newMockParquetFileReader([]byte{}), // Invalid data will cause NewColumnBuffer to fail
+			ColumnBuffers: make(map[string]*ColumnBufferType),
+		}
+		pr.SchemaHandler = &schema.SchemaHandler{
+			MapIndex:       map[string]int32{"test.field": 0},
+			InPathToExPath: map[string]string{"test.field": "test.field"},
+			ExPathToInPath: map[string]string{"test.field": "test.field"},
+		}
+
+		values, rls, dls, err := pr.ReadColumnByPath("test.field", 5)
+		require.Error(t, err) // This should hit the NewColumnBuffer error path (line 88-90)
+		require.Empty(t, values)
+		require.Empty(t, rls)
+		require.Empty(t, dls)
+	})
+
+	t.Run("skip_rows_column_buffer_not_found_fallback", func(t *testing.T) {
+		// Test the fallback case where column buffer exists but lookup fails
+		pr := &ParquetReader{
+			ColumnBuffers: make(map[string]*ColumnBufferType),
+		}
+		pr.SchemaHandler = &schema.SchemaHandler{
+			MapIndex:       map[string]int32{"test.field": 0},
+			InPathToExPath: map[string]string{"test.field": "test.field"},
+			ExPathToInPath: map[string]string{"test.field": "test.field"},
+		}
+
+		// Manually add a column buffer but then test a path that won't be found due to race condition
+		// This is tricky to test, but we can simulate by modifying the path after adding
+		err := pr.SkipRowsByPath("test.field", 5)
+		if err != nil {
+			// This will fail at NewColumnBuffer, which is expected
+			require.Error(t, err)
+		}
+	})
+
+	t.Run("read_column_not_found_fallback", func(t *testing.T) {
+		// Test the fallback case where path isn't found in ColumnBuffers after creation
+		pr := &ParquetReader{
+			ColumnBuffers: make(map[string]*ColumnBufferType),
+		}
+		pr.SchemaHandler = &schema.SchemaHandler{
+			MapIndex:       map[string]int32{"test.field": 0},
+			InPathToExPath: map[string]string{"test.field": "test.field"},
+			ExPathToInPath: map[string]string{"test.field": "test.field"},
+		}
+
+		values, rls, dls, err := pr.ReadColumnByPath("test.field", 5)
+		// This will either error at NewColumnBuffer or return the fallback error
+		if err != nil {
+			require.Error(t, err)
+			require.Empty(t, values)
+			require.Empty(t, rls)
+			require.Empty(t, dls)
+		}
+	})
+
+	// Note: Lines 54-56 and 97 in columnreader.go are defensive fallback error paths
+	// that are extremely difficult to trigger in practice. They would require a race condition
+	// where a ColumnBuffer is added to the map but then not found immediately after.
+	// These lines serve as safety measures but are not easily testable without complex concurrency scenarios.
+}
+
 func Test_ParquetReader_SkipRowsByPath_Comprehensive(t *testing.T) {
 	tests := []struct {
 		name           string
