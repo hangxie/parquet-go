@@ -14,58 +14,160 @@ import (
 
 func Test_InterfaceToParquetType(t *testing.T) {
 	tests := []struct {
-		name  string
-		value any
-		pT    *parquet.Type
+		name        string
+		value       any
+		pT          *parquet.Type
+		expectError bool
+		expected    any
 	}{
+		// Direct type matches (should return as-is)
 		{
-			name:  "boolean_true",
-			value: true,
-			pT:    parquet.TypePtr(parquet.Type_BOOLEAN),
+			name:     "boolean_true_direct",
+			value:    true,
+			pT:       parquet.TypePtr(parquet.Type_BOOLEAN),
+			expected: true,
 		},
 		{
-			name:  "int32_value",
-			value: int32(42),
-			pT:    parquet.TypePtr(parquet.Type_INT32),
+			name:     "int32_direct",
+			value:    int32(42),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			expected: int32(42),
 		},
 		{
-			name:  "int64_value",
-			value: int64(42),
-			pT:    parquet.TypePtr(parquet.Type_INT64),
+			name:     "int64_direct",
+			value:    int64(42),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			expected: int64(42),
 		},
 		{
-			name:  "float32_value",
-			value: float32(3.14),
-			pT:    parquet.TypePtr(parquet.Type_FLOAT),
+			name:     "float32_direct",
+			value:    float32(3.14),
+			pT:       parquet.TypePtr(parquet.Type_FLOAT),
+			expected: float32(3.14),
 		},
 		{
-			name:  "float64_value",
-			value: float64(3.14),
-			pT:    parquet.TypePtr(parquet.Type_DOUBLE),
+			name:     "float64_direct",
+			value:    float64(3.14),
+			pT:       parquet.TypePtr(parquet.Type_DOUBLE),
+			expected: float64(3.14),
 		},
 		{
-			name:  "string_value",
-			value: "hello",
-			pT:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			name:     "string_byte_array_direct",
+			value:    "hello",
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expected: "hello",
 		},
 		{
-			name:  "nil_value",
-			value: nil,
-			pT:    parquet.TypePtr(parquet.Type_BOOLEAN),
+			name:     "string_int96_direct",
+			value:    "hello",
+			pT:       parquet.TypePtr(parquet.Type_INT96),
+			expected: "hello",
 		},
 		{
-			name:  "invalid_type",
-			value: 42,
-			pT:    parquet.TypePtr(parquet.Type(-1)), // Invalid type
+			name:     "string_fixed_len_direct",
+			value:    "hello",
+			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			expected: "hello",
+		},
+
+		// Type conversions (via reflection)
+		{
+			name:     "int_to_int32",
+			value:    int(42),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			expected: int32(42),
+		},
+		{
+			name:     "int8_to_int32",
+			value:    int8(42),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			expected: int32(42),
+		},
+		{
+			name:     "int16_to_int32",
+			value:    int16(42),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			expected: int32(42),
+		},
+		{
+			name:     "float64_to_float32",
+			value:    float64(3.14),
+			pT:       parquet.TypePtr(parquet.Type_FLOAT),
+			expected: float32(3.14),
+		},
+		{
+			name:     "float32_to_float64",
+			value:    float32(3.14),
+			pT:       parquet.TypePtr(parquet.Type_DOUBLE),
+			expected: float64(float32(3.14)), // Note: precision conversion
+		},
+		{
+			name:     "reflect_bool_to_bool",
+			value:    reflect.ValueOf(true).Interface(),
+			pT:       parquet.TypePtr(parquet.Type_BOOLEAN),
+			expected: true,
+		},
+
+		// Error cases
+		{
+			name:        "string_to_bool_error",
+			value:       "not a bool",
+			pT:          parquet.TypePtr(parquet.Type_BOOLEAN),
+			expectError: true,
+		},
+		{
+			name:        "string_to_int32_error",
+			value:       "not an int",
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			expectError: true,
+		},
+		{
+			name:        "bool_to_float_error",
+			value:       true,
+			pT:          parquet.TypePtr(parquet.Type_FLOAT),
+			expectError: true,
+		},
+		{
+			name:        "int_to_string_error",
+			value:       42,
+			pT:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expectError: true,
+		},
+
+		// Edge cases
+		{
+			name:     "nil_value",
+			value:    nil,
+			pT:       parquet.TypePtr(parquet.Type_BOOLEAN),
+			expected: nil,
+		},
+		{
+			name:     "nil_type",
+			value:    "hello",
+			pT:       nil,
+			expected: "hello",
+		},
+		{
+			name:     "unknown_type",
+			value:    42,
+			pT:       parquet.TypePtr(parquet.Type(-1)), // Invalid type
+			expected: 42,                                // Should return as-is
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := InterfaceToParquetType(tt.value, tt.pT)
-			require.NoError(t, err)
-			if tt.value == nil {
-				require.Nil(t, result)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				if tt.value == nil {
+					require.Nil(t, result)
+				} else {
+					require.Equal(t, tt.expected, result)
+				}
 			}
 		})
 	}
@@ -219,6 +321,36 @@ func Test_ParquetTypeToGoReflectType(t *testing.T) {
 			expectedType: "*int64",
 		},
 		{
+			name:         "int96_optional",
+			pT:           parquet.TypePtr(parquet.Type_INT96),
+			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_OPTIONAL),
+			expectedType: "*string",
+		},
+		{
+			name:         "float_optional",
+			pT:           parquet.TypePtr(parquet.Type_FLOAT),
+			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_OPTIONAL),
+			expectedType: "*float32",
+		},
+		{
+			name:         "double_optional",
+			pT:           parquet.TypePtr(parquet.Type_DOUBLE),
+			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_OPTIONAL),
+			expectedType: "*float64",
+		},
+		{
+			name:         "byte_array_optional",
+			pT:           parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_OPTIONAL),
+			expectedType: "*string",
+		},
+		{
+			name:         "fixed_len_byte_array_optional",
+			pT:           parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_OPTIONAL),
+			expectedType: "*string",
+		},
+		{
 			name:         "nil_repetition_type",
 			pT:           parquet.TypePtr(parquet.Type_BOOLEAN),
 			rT:           nil,
@@ -229,6 +361,24 @@ func Test_ParquetTypeToGoReflectType(t *testing.T) {
 			pT:           parquet.TypePtr(parquet.Type(-1)), // Invalid type
 			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_REQUIRED),
 			expectedType: "<nil>",
+		},
+		{
+			name:         "nil_type",
+			pT:           nil,
+			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_REQUIRED),
+			expectedType: "<nil>",
+		},
+		{
+			name:         "unknown_type_optional",
+			pT:           parquet.TypePtr(parquet.Type(-1)), // Invalid type
+			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_OPTIONAL),
+			expectedType: "<nil>",
+		},
+		{
+			name:         "repeated_type",
+			pT:           parquet.TypePtr(parquet.Type_BOOLEAN),
+			rT:           parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_REPEATED),
+			expectedType: "bool", // Non-optional behavior
 		},
 	}
 
@@ -506,6 +656,105 @@ func Test_StrToParquetType(t *testing.T) {
 			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			length:         16,
 			scale:          18,
+		},
+		{
+			name:           "unknown-basic-type",
+			inputStr:       "test",
+			expectedGoData: nil,
+			parquetType:    parquet.TypePtr(parquet.Type(-1)), // Unknown type
+		},
+		{
+			name:           "unknown-converted-type",
+			inputStr:       "test",
+			expectedGoData: nil,
+			parquetType:    parquet.TypePtr(parquet.Type_INT32),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType(-1)), // Unknown converted type
+		},
+		{
+			name:           "int16-converted",
+			inputStr:       "32767",
+			expectedGoData: int32(32767),
+			parquetType:    parquet.TypePtr(parquet.Type_INT32),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_INT_16),
+		},
+		{
+			name:           "int32-converted",
+			inputStr:       "123456",
+			expectedGoData: int32(123456),
+			parquetType:    parquet.TypePtr(parquet.Type_INT32),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_INT_32),
+		},
+		{
+			name:           "uint8-converted",
+			inputStr:       "255",
+			expectedGoData: int32(255),
+			parquetType:    parquet.TypePtr(parquet.Type_INT32),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_8),
+		},
+		{
+			name:           "uint16-converted",
+			inputStr:       "65535",
+			expectedGoData: int32(65535),
+			parquetType:    parquet.TypePtr(parquet.Type_INT32),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_16),
+		},
+		{
+			name:           "uint32-converted",
+			inputStr:       "4294967295",
+			expectedGoData: int32(-1), // Overflow behavior
+			parquetType:    parquet.TypePtr(parquet.Type_INT32),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_32),
+		},
+		{
+			name:           "time-millis-converted",
+			inputStr:       "86400000",
+			expectedGoData: int32(86400000),
+			parquetType:    parquet.TypePtr(parquet.Type_INT32),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
+		},
+		{
+			name:           "int64-converted",
+			inputStr:       "9223372036854775807",
+			expectedGoData: int64(9223372036854775807),
+			parquetType:    parquet.TypePtr(parquet.Type_INT64),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_INT_64),
+		},
+		{
+			name:           "time-micros-converted",
+			inputStr:       "86400000000",
+			expectedGoData: int64(86400000000),
+			parquetType:    parquet.TypePtr(parquet.Type_INT64),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MICROS),
+		},
+		{
+			name:           "timestamp-micros-converted",
+			inputStr:       "1640995200000000",
+			expectedGoData: int64(1640995200000000),
+			parquetType:    parquet.TypePtr(parquet.Type_INT64),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_TIMESTAMP_MICROS),
+		},
+		{
+			name:           "interval-converted",
+			inputStr:       "1234567890123",
+			expectedGoData: StrIntToBinary("1234567890123", "LittleEndian", 12, false),
+			parquetType:    parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL),
+		},
+		{
+			name:           "decimal-int64",
+			inputStr:       "123.45",
+			expectedGoData: int64(12345),
+			parquetType:    parquet.TypePtr(parquet.Type_INT64),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			scale:          2,
+		},
+		{
+			name:           "decimal-byte-array-default",
+			inputStr:       "999.999",
+			expectedGoData: StrIntToBinary("999999", "BigEndian", 0, true),
+			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY), // Will hit default case in decimal
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			scale:          3,
 		},
 	}
 

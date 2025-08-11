@@ -852,3 +852,38 @@ func Test_ColumnBufferType_ReadPage_NilChecks(t *testing.T) {
 		})
 	}
 }
+
+func Test_NewParquetReader_WithOptions(t *testing.T) {
+	// Create a simple parquet file buffer using the existing pattern
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := writer.NewParquetWriter(fw, new(Record), 1)
+	require.NoError(t, err)
+
+	// Write a few records
+	for i := int64(0); i < 5; i++ {
+		strVal := strconv.FormatInt(i, 10)
+		err = pw.Write(Record{strVal, strVal, strVal, strVal, i, i, i, i})
+		require.NoError(t, err)
+	}
+
+	err = pw.WriteStop()
+	require.NoError(t, err)
+
+	parquetBuffer := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+
+	// Test with CaseInsensitive option set to true
+	opts := ParquetReaderOptions{CaseInsensitive: true}
+	pr, err := NewParquetReader(parquetBuffer, new(Record), 1, opts)
+	require.NoError(t, err)
+	require.True(t, pr.CaseInsensitive)
+	pr.ReadStop()
+
+	// Test with CaseInsensitive option set to false
+	parquetBuffer2 := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	opts2 := ParquetReaderOptions{CaseInsensitive: false}
+	pr2, err := NewParquetReader(parquetBuffer2, new(Record), 1, opts2)
+	require.NoError(t, err)
+	require.False(t, pr2.CaseInsensitive)
+	pr2.ReadStop()
+}
