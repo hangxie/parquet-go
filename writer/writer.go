@@ -268,7 +268,7 @@ func (pw *ParquetWriter) flushObjs() error {
 	}
 
 	delta := (l + pw.NP - 1) / pw.NP
-	lock := new(sync.Mutex)
+	var lock sync.Mutex
 	var wg sync.WaitGroup
 	var errs []error = make([]error, pw.NP)
 
@@ -326,15 +326,12 @@ func (pw *ParquetWriter) flushObjs() error {
 	}
 
 	wg.Wait()
-
-	lock.Lock()
 	for _, err2 := range errs {
 		if err2 != nil {
 			err = err2
 			break
 		}
 	}
-	lock.Unlock()
 
 	for _, pagesMap := range pagesMapList {
 		for name, pages := range pagesMap {

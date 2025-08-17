@@ -321,7 +321,7 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 
 	var err error
 	tmap := make(map[string]*layout.Table)
-	locker := new(sync.Mutex)
+	var locker sync.Mutex
 	ot := reflect.TypeOf(dstInterface).Elem().Elem()
 	num := reflect.ValueOf(dstInterface).Elem().Len()
 	if num <= 0 {
