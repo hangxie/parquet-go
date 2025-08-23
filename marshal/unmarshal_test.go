@@ -2,12 +2,15 @@ package marshal
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v2/layout"
+	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/schema"
+	"github.com/hangxie/parquet-go/v2/types"
 )
 
 type Student struct {
@@ -135,4 +138,449 @@ func Test_Unmarshal_PanicZeroValue(t *testing.T) {
 	err = Unmarshal(&tableMap, 0, 1, dst, schemaHandler, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "dstInterface must be a non-nil pointer")
+}
+
+func Test_ConvertToJSONFriendly_Combined(t *testing.T) {
+	type DecimalStruct struct {
+		Decimal1 int32  `parquet:"name=decimal1, type=INT32, convertedtype=DECIMAL, scale=2, precision=9"`
+		Decimal2 int64  `parquet:"name=decimal2, type=INT64, convertedtype=DECIMAL, scale=3, precision=18"`
+		Decimal3 string `parquet:"name=decimal3, type=BYTE_ARRAY, convertedtype=DECIMAL, scale=4, precision=20"`
+		Decimal4 string `parquet:"name=decimal4, type=FIXED_LEN_BYTE_ARRAY, convertedtype=DECIMAL, scale=2, precision=10, length=12"`
+		Decimal5 int32  `parquet:"name=decimal5, type=INT32, logicaltype=DECIMAL, logicaltype.precision=9, logicaltype.scale=2"`
+		Name     string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Age      int32  `parquet:"name=age, type=INT32"`
+	}
+	decimalSchemaHandler, err := schema.NewSchemaHandlerFromStruct(new(DecimalStruct))
+	require.NoError(t, err)
+
+	type NestedStruct struct {
+		Value int32 `parquet:"name=value, type=INT32, convertedtype=DECIMAL, scale=2, precision=5"`
+	}
+	type ContainerStruct struct {
+		Nested   NestedStruct     `parquet:"name=nested"`
+		SliceVal []int32          `parquet:"name=slice_val, type=LIST, valuetype=INT32"`
+		MapVal   map[string]int32 `parquet:"name=map_val, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+		PtrVal   *int32           `parquet:"name=ptr_val, type=INT32, convertedtype=DECIMAL, scale=1, precision=4"`
+	}
+	containerSchemaHandler, err := schema.NewSchemaHandlerFromStruct(new(ContainerStruct))
+	require.NoError(t, err)
+
+	type SimpleStruct struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	simpleSchemaHandler, err := schema.NewSchemaHandlerFromStruct(new(SimpleStruct))
+	require.NoError(t, err)
+
+	type NestedDecimalStruct struct {
+		MapWithDecimals  map[string]int32 `parquet:"name=map_with_decimals, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32, valueconvertedtype=DECIMAL, valuescale=2, valueprecision=5"`
+		ListWithDecimals []int32          `parquet:"name=list_with_decimals, type=LIST, valuetype=INT32, valueconvertedtype=DECIMAL, valuescale=2, valueprecision=5"`
+	}
+	nestedDecimalSchemaHandler, err := schema.NewSchemaHandlerFromStruct(new(NestedDecimalStruct))
+	require.NoError(t, err)
+
+	ptrValue := int32(1234)
+
+	tests := []struct {
+		name          string
+		input         any
+		schemaHandler *schema.SchemaHandler
+		expected      any
+	}{
+		{
+			name: "decimal_struct_with_various_types",
+			input: DecimalStruct{
+				Decimal1: 12345,
+				Decimal2: 98765432,
+				Decimal3: types.StrIntToBinary("1000000000000000", "BigEndian", 0, true),
+				Decimal4: types.StrIntToBinary("9876543210", "BigEndian", 12, true),
+				Decimal5: -4444,
+				Name:     "TestUser",
+				Age:      25,
+			},
+			schemaHandler: decimalSchemaHandler,
+			expected: map[string]any{
+				"Decimal1": float64(123.45),
+				"Decimal2": float64(98765.432),
+				"Decimal3": float64(100000000000.0000), // BYTE_ARRAY now also returns float64
+				"Decimal4": float64(98765432.10),       // FIXED_LEN_BYTE_ARRAY now also returns float64
+				"Decimal5": float64(-44.44),
+				"Name":     "TestUser",
+				"Age":      int32(25),
+			},
+		},
+		{
+			name: "nested_structures",
+			input: ContainerStruct{
+				Nested: NestedStruct{
+					Value: 9876,
+				},
+				SliceVal: []int32{100, 200, 300},
+				MapVal: map[string]int32{
+					"key1": 111,
+					"key2": 222,
+				},
+				PtrVal: &ptrValue,
+			},
+			schemaHandler: containerSchemaHandler,
+			expected: map[string]any{
+				"Nested":   map[string]any{"Value": float64(98.76)},
+				"SliceVal": []any{int32(100), int32(200), int32(300)},
+				"MapVal":   map[string]any{"key1": int32(111), "key2": int32(222)},
+				"PtrVal":   float64(123.4),
+			},
+		},
+		{
+			name:          "nil_value",
+			input:         nil,
+			schemaHandler: simpleSchemaHandler,
+			expected:      nil,
+		},
+		{
+			name: "slice_of_structs",
+			input: []SimpleStruct{
+				{Name: "test1"},
+				{Name: "test2"},
+			},
+			schemaHandler: simpleSchemaHandler,
+			expected: []any{
+				map[string]any{"Name": "test1"},
+				map[string]any{"Name": "test2"},
+			},
+		},
+		{
+			name: "map_with_string_keys",
+			input: map[string]SimpleStruct{
+				"key1": {Name: "value1"},
+				"key2": {Name: "value2"},
+			},
+			schemaHandler: simpleSchemaHandler,
+			expected: map[string]any{
+				"key1": map[string]any{"Name": "value1"},
+				"key2": map[string]any{"Name": "value2"},
+			},
+		},
+		{
+			name: "map_with_int_keys",
+			input: map[int]SimpleStruct{
+				5: {Name: "value5"},
+				7: {Name: "value7"},
+			},
+			schemaHandler: simpleSchemaHandler,
+			expected: map[string]any{
+				"5": map[string]any{"Name": "value5"},
+				"7": map[string]any{"Name": "value7"},
+			},
+		},
+		{
+			name:          "primitive_int",
+			input:         int32(42),
+			schemaHandler: simpleSchemaHandler,
+			expected:      int32(42),
+		},
+		{
+			name:          "primitive_string",
+			input:         "hello",
+			schemaHandler: simpleSchemaHandler,
+			expected:      "hello",
+		},
+		{
+			name:          "interface_types",
+			input:         any(SimpleStruct{Name: "interface_test"}),
+			schemaHandler: simpleSchemaHandler,
+			expected:      map[string]any{"Name": "interface_test"},
+		},
+		{
+			name:          "nil_interface",
+			input:         any(nil),
+			schemaHandler: simpleSchemaHandler,
+			expected:      nil,
+		},
+		{
+			name:          "pointer_to_struct_through_interface",
+			input:         any(&SimpleStruct{Name: "ptr_interface_test"}),
+			schemaHandler: simpleSchemaHandler,
+			expected:      map[string]any{"Name": "ptr_interface_test"},
+		},
+		{
+			name: "nested_decimals",
+			input: NestedDecimalStruct{
+				MapWithDecimals: map[string]int32{
+					"price1": 12345,
+					"price2": -6789,
+				},
+				ListWithDecimals: []int32{1111, 2222, -3333},
+			},
+			schemaHandler: nestedDecimalSchemaHandler,
+			expected: map[string]any{
+				"MapWithDecimals": map[string]any{
+					"price1": float64(123.45),
+					"price2": float64(-67.89),
+				},
+				"ListWithDecimals": []any{float64(11.11), float64(22.22), float64(-33.33)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ConvertToJSONFriendly(tt.input, tt.schemaHandler)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_getFieldNameFromTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		field    reflect.StructField
+		expected string
+	}{
+		{
+			name: "json_tag_with_name",
+			field: reflect.StructField{
+				Name: "FieldName",
+				Tag:  `json:"json_name"`,
+			},
+			expected: "json_name",
+		},
+		{
+			name: "json_tag_with_options",
+			field: reflect.StructField{
+				Name: "FieldName",
+				Tag:  `json:"json_name,omitempty"`,
+			},
+			expected: "json_name",
+		},
+		{
+			name: "json_tag_with_multiple_options",
+			field: reflect.StructField{
+				Name: "FieldName",
+				Tag:  `json:"json_name,omitempty,string"`,
+			},
+			expected: "json_name",
+		},
+		{
+			name: "json_tag_dash_means_skip",
+			field: reflect.StructField{
+				Name: "FieldName",
+				Tag:  `json:"-"`,
+			},
+			expected: "FieldName", // Falls back to struct field name
+		},
+		{
+			name: "json_tag_empty_name",
+			field: reflect.StructField{
+				Name: "FieldName",
+				Tag:  `json:",omitempty"`,
+			},
+			expected: "FieldName", // Falls back to struct field name
+		},
+		{
+			name: "no_json_tag",
+			field: reflect.StructField{
+				Name: "FieldName",
+				Tag:  `parquet:"name=field_name"`,
+			},
+			expected: "FieldName", // Falls back to struct field name
+		},
+		{
+			name: "empty_tag",
+			field: reflect.StructField{
+				Name: "FieldName",
+				Tag:  "",
+			},
+			expected: "FieldName", // Falls back to struct field name
+		},
+		{
+			name: "json_tag_empty",
+			field: reflect.StructField{
+				Name: "FieldName",
+				Tag:  `json:""`,
+			},
+			expected: "FieldName", // Falls back to struct field name
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getFieldNameFromTag(tt.field)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_convertValueToJSONFriendlyWithContext(t *testing.T) {
+	type TestStruct struct {
+		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Value int32  `parquet:"name=value, type=INT32, convertedtype=DECIMAL, scale=2, precision=9"`
+	}
+
+	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(TestStruct))
+	require.NoError(t, err)
+
+	ctx := &conversionContext{
+		schemaCache: make(map[string]*parquet.SchemaElement),
+		fieldCache:  make(map[reflect.Type]map[string]fieldInfo),
+	}
+
+	tests := []struct {
+		name          string
+		input         any
+		pathPrefix    string
+		expected      any
+		expectError   bool
+		useInvalidVal bool
+	}{
+		{
+			name:          "invalid_reflect_value",
+			input:         nil, // Will be ignored due to useInvalidVal
+			pathPrefix:    "",
+			expected:      nil,
+			expectError:   false,
+			useInvalidVal: true,
+		},
+		{
+			name:        "nil_interface",
+			input:       (interface{})(nil),
+			pathPrefix:  "",
+			expected:    nil,
+			expectError: false,
+		},
+		{
+			name:        "non_nil_interface",
+			input:       interface{}("test_string"),
+			pathPrefix:  "",
+			expected:    "test_string",
+			expectError: false,
+		},
+		{
+			name:        "nil_pointer",
+			input:       (*string)(nil),
+			pathPrefix:  "",
+			expected:    nil,
+			expectError: false,
+		},
+		{
+			name: "non_nil_pointer",
+			input: func() *string {
+				s := "test_string"
+				return &s
+			}(),
+			pathPrefix:  "",
+			expected:    "test_string",
+			expectError: false,
+		},
+		{
+			name:        "slice_conversion",
+			input:       []string{"a", "b", "c"},
+			pathPrefix:  "",
+			expected:    []any{"a", "b", "c"},
+			expectError: false,
+		},
+		{
+			name: "map_conversion",
+			input: map[string]int{
+				"key1": 1,
+				"key2": 2,
+			},
+			pathPrefix: "",
+			expected: map[string]any{
+				"key1": 1,
+				"key2": 2,
+			},
+			expectError: false,
+		},
+		{
+			name: "struct_conversion",
+			input: TestStruct{
+				Name:  "test",
+				Value: 1234,
+			},
+			pathPrefix: "",
+			expected: map[string]any{
+				"Name":  "test",
+				"Value": float64(12.34), // Converted due to decimal type
+			},
+			expectError: false,
+		},
+		{
+			name:        "primitive_conversion",
+			input:       int32(42),
+			pathPrefix:  "",
+			expected:    int32(42),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var val reflect.Value
+			if tt.useInvalidVal {
+				// Use invalid reflect value directly
+				val = reflect.Value{}
+			} else {
+				val = reflect.ValueOf(tt.input)
+			}
+
+			result, err := convertValueToJSONFriendlyWithContext(val, schemaHandler, tt.pathPrefix, ctx)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func Test_convertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
+	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(struct{}))
+	require.NoError(t, err)
+
+	ctx := &conversionContext{
+		schemaCache: make(map[string]*parquet.SchemaElement),
+		fieldCache:  make(map[reflect.Type]map[string]fieldInfo),
+	}
+
+	tests := []struct {
+		name        string
+		setupValue  func() reflect.Value
+		expected    any
+		expectError bool
+	}{
+		{
+			name: "nil_interface_value",
+			setupValue: func() reflect.Value {
+				var nilInterface interface{} = nil
+				return reflect.ValueOf(&nilInterface).Elem()
+			},
+			expected:    nil,
+			expectError: false,
+		},
+		{
+			name: "nil_pointer_value",
+			setupValue: func() reflect.Value {
+				var nilPtr *string = nil
+				return reflect.ValueOf(nilPtr)
+			},
+			expected:    nil,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val := tt.setupValue()
+			result, err := convertValueToJSONFriendlyWithContext(val, schemaHandler, "", ctx)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, result)
+			}
+		})
+	}
 }

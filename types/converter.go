@@ -152,3 +152,34 @@ func DECIMAL_BYTE_ARRAY_ToString(dec []byte, precision, scale int) string {
 	}
 	return sign + sa
 }
+
+func IntervalToDuration(interval []byte) time.Duration {
+	if len(interval) != 12 {
+		return 0
+	}
+
+	months := binary.LittleEndian.Uint32(interval[0:4])
+	days := binary.LittleEndian.Uint32(interval[4:8])
+	milliseconds := binary.LittleEndian.Uint32(interval[8:12])
+
+	duration := time.Duration(months)*30*24*time.Hour +
+		time.Duration(days)*24*time.Hour +
+		time.Duration(milliseconds)*time.Millisecond
+
+	return duration
+}
+
+func TIMESTAMP_MILLISToISO8601(millis int64, adjustedToUTC bool) string {
+	t := TIMESTAMP_MILLISToTime(millis, adjustedToUTC)
+	return t.Format("2006-01-02T15:04:05.000Z")
+}
+
+func TIMESTAMP_MICROSToISO8601(micros int64, adjustedToUTC bool) string {
+	t := TIMESTAMP_MICROSToTime(micros, adjustedToUTC)
+	return t.Format("2006-01-02T15:04:05.000000Z")
+}
+
+func TIMESTAMP_NANOSToISO8601(nanos int64, adjustedToUTC bool) string {
+	t := TIMESTAMP_NANOSToTime(nanos, adjustedToUTC)
+	return t.Format("2006-01-02T15:04:05.000000000Z")
+}

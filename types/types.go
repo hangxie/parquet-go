@@ -1,9 +1,11 @@
 package types
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"reflect"
+	"strconv"
 
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
@@ -314,6 +316,382 @@ func JSONTypeToParquetType(val reflect.Value, pT *parquet.Type, cT *parquet.Conv
 	if val.Type().Kind() == reflect.Interface && val.IsNil() {
 		return nil, nil
 	}
+
+	// Handle decimal types specially to preserve precision from JSON numbers
+	if cT != nil && *cT == parquet.ConvertedType_DECIMAL {
+		switch val.Kind() {
+		case reflect.Float32, reflect.Float64:
+			// For JSON numbers coming as floats, format with appropriate precision
+			s := fmt.Sprintf("%."+fmt.Sprintf("%d", scale)+"f", val.Float())
+			return StrToParquetType(s, pT, cT, length, scale)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			// For JSON numbers coming as integers
+			s := fmt.Sprintf("%d", val.Int())
+			return StrToParquetType(s, pT, cT, length, scale)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			// For JSON numbers coming as unsigned integers
+			s := fmt.Sprintf("%d", val.Uint())
+			return StrToParquetType(s, pT, cT, length, scale)
+		case reflect.String:
+			// For JSON numbers coming as strings (from json.Number when UseNumber is used)
+			return StrToParquetType(val.String(), pT, cT, length, scale)
+		}
+	}
+
 	s := fmt.Sprintf("%v", val)
 	return StrToParquetType(s, pT, cT, length, scale)
+}
+
+// ParquetTypeToJSONType converts a parquet physical value back to its logical JSON representation
+func ParquetTypeToJSONType(val any, pT *parquet.Type, cT *parquet.ConvertedType, precision, scale int) any {
+	if val == nil {
+		return nil
+	}
+
+	// Handle INT96 timestamp conversion (before checking ConvertedType)
+	if pT != nil && *pT == parquet.Type_INT96 {
+		return convertINT96Value(val)
+	}
+
+	// If no converted type, check for binary types that need base64 encoding
+	if cT == nil {
+		if pT != nil && (*pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY) {
+			return convertBinaryValue(val)
+		}
+		return val
+	}
+
+	switch *cT {
+	case parquet.ConvertedType_DECIMAL:
+		// Convert decimal to numeric value for JSON output
+		switch *pT {
+		case parquet.Type_INT32:
+			if v, ok := val.(int32); ok {
+				return decimalIntToFloat(int64(v), scale)
+			}
+		case parquet.Type_INT64:
+			if v, ok := val.(int64); ok {
+				return decimalIntToFloat(v, scale)
+			}
+		case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			if v, ok := val.(string); ok {
+				return decimalByteArrayToFloat([]byte(v), precision, scale)
+			}
+		}
+		return val
+
+	case parquet.ConvertedType_UTF8:
+		// UTF8 strings should remain as strings
+		return val
+
+	case parquet.ConvertedType_DATE:
+		// DATE is stored as int32 days since epoch, could convert to readable format
+		// For now, keeping as int32 for JSON compatibility
+		return val
+
+	case parquet.ConvertedType_TIME_MILLIS:
+		// TIME_MILLIS is stored as int32 milliseconds, could convert to readable format
+		// For now, keeping as int32 for JSON compatibility
+		return val
+
+	case parquet.ConvertedType_TIME_MICROS:
+		// TIME_MICROS is stored as int64 microseconds, could convert to readable format
+		// For now, keeping as int64 for JSON compatibility
+		return val
+
+	case parquet.ConvertedType_TIMESTAMP_MILLIS:
+		// TIMESTAMP_MILLIS is stored as int64 milliseconds since epoch
+		// Convert to ISO8601 format
+		return convertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MILLIS)
+
+	case parquet.ConvertedType_TIMESTAMP_MICROS:
+		// TIMESTAMP_MICROS is stored as int64 microseconds since epoch
+		// Convert to ISO8601 format
+		return convertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MICROS)
+
+	case parquet.ConvertedType_INT_8:
+		// Convert back to int8 representation for JSON
+		if v, ok := val.(int32); ok {
+			return int8(v)
+		}
+		return val
+
+	case parquet.ConvertedType_INT_16:
+		// Convert back to int16 representation for JSON
+		if v, ok := val.(int32); ok {
+			return int16(v)
+		}
+		return val
+
+	case parquet.ConvertedType_INT_32:
+		// Already int32
+		return val
+
+	case parquet.ConvertedType_INT_64:
+		// Already int64
+		return val
+
+	case parquet.ConvertedType_UINT_8:
+		// Convert back to uint8 representation for JSON
+		if v, ok := val.(int32); ok {
+			return uint8(v)
+		}
+		return val
+
+	case parquet.ConvertedType_UINT_16:
+		// Convert back to uint16 representation for JSON
+		if v, ok := val.(int32); ok {
+			return uint16(v)
+		}
+		return val
+
+	case parquet.ConvertedType_UINT_32:
+		// Convert back to uint32 representation for JSON
+		if v, ok := val.(int32); ok {
+			return uint32(v)
+		}
+		return val
+
+	case parquet.ConvertedType_UINT_64:
+		// Convert back to uint64 representation for JSON
+		if v, ok := val.(int64); ok {
+			return uint64(v)
+		}
+		return val
+
+	case parquet.ConvertedType_INTERVAL:
+		// Convert INTERVAL to Go duration string
+		return convertIntervalValue(val)
+
+	default:
+		// For other converted types, return as-is
+		return val
+	}
+}
+
+// ParquetTypeToJSONTypeWithLogical converts a parquet physical value back to its logical JSON representation
+// supporting both ConvertedType and LogicalType
+func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, precision, scale int) any {
+	if val == nil {
+		return nil
+	}
+
+	// Handle INT96 timestamp conversion (before checking logical types)
+	if pT != nil && *pT == parquet.Type_INT96 {
+		return convertINT96Value(val)
+	}
+
+	// Check for LogicalType first (newer standard)
+	if lT != nil {
+		if lT.IsSetDECIMAL() {
+			decimal := lT.GetDECIMAL()
+			actualPrecision := int(decimal.GetPrecision())
+			actualScale := int(decimal.GetScale())
+			return convertDecimalValue(val, pT, actualPrecision, actualScale)
+		}
+		if lT.IsSetTIMESTAMP() {
+			return convertTimestampLogicalValue(val, lT.GetTIMESTAMP())
+		}
+		if lT.IsSetSTRING() {
+			// STRING logical type should return the string value as-is
+			return val
+		}
+		if lT.IsSetUUID() {
+			return convertUUIDValue(val)
+		}
+		// For other logical types, don't apply base64 encoding - return as-is
+		return val
+	}
+
+	// Fall back to ConvertedType (legacy)
+	if cT != nil && *cT == parquet.ConvertedType_DECIMAL {
+		return convertDecimalValue(val, pT, precision, scale)
+	}
+
+	// If no logical type and no converted type, check for binary types
+	if lT == nil && cT == nil {
+		if pT != nil && (*pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY) {
+			return convertBinaryValue(val)
+		}
+	}
+
+	// For other types, use the existing function
+	return ParquetTypeToJSONType(val, pT, cT, precision, scale)
+}
+
+// convertDecimalValue handles decimal conversion for both logical and converted types
+func convertDecimalValue(val any, pT *parquet.Type, precision, scale int) any {
+	switch *pT {
+	case parquet.Type_INT32:
+		if v, ok := val.(int32); ok {
+			return decimalIntToFloat(int64(v), scale)
+		}
+	case parquet.Type_INT64:
+		if v, ok := val.(int64); ok {
+			return decimalIntToFloat(v, scale)
+		}
+	case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		if v, ok := val.(string); ok {
+			return decimalByteArrayToFloat([]byte(v), precision, scale)
+		}
+	}
+	return val
+}
+
+// convertINT96Value handles INT96 to datetime string conversion
+func convertINT96Value(val any) any {
+	if v, ok := val.(string); ok {
+		// Convert INT96 binary data to time.Time, then format as ISO 8601 string
+		t := INT96ToTime(v)
+		return t.Format("2006-01-02T15:04:05.000000000Z")
+	}
+	return val
+}
+
+// convertIntervalValue handles INTERVAL to Go duration string conversion
+func convertIntervalValue(val any) any {
+	if val == nil {
+		return nil
+	}
+
+	switch v := val.(type) {
+	case []byte:
+		if len(v) == 12 {
+			duration := IntervalToDuration(v)
+			return duration.String()
+		}
+	case string:
+		if len(v) == 12 {
+			duration := IntervalToDuration([]byte(v))
+			return duration.String()
+		}
+	}
+
+	return val
+}
+
+// convertTimestampValue handles timestamp conversion to ISO8601 format
+func convertTimestampValue(val any, convertedType parquet.ConvertedType) any {
+	if val == nil {
+		return nil
+	}
+
+	switch convertedType {
+	case parquet.ConvertedType_TIMESTAMP_MILLIS:
+		if v, ok := val.(int64); ok {
+			return TIMESTAMP_MILLISToISO8601(v, true) // Assume UTC adjusted
+		}
+	case parquet.ConvertedType_TIMESTAMP_MICROS:
+		if v, ok := val.(int64); ok {
+			return TIMESTAMP_MICROSToISO8601(v, true) // Assume UTC adjusted
+		}
+	}
+
+	return val
+}
+
+// convertTimestampLogicalValue handles timestamp LogicalType conversion to ISO8601 format
+func convertTimestampLogicalValue(val any, timestamp *parquet.TimestampType) any {
+	if val == nil || timestamp == nil {
+		return nil
+	}
+
+	v, ok := val.(int64)
+	if !ok {
+		return val
+	}
+
+	// Determine if timestamp is UTC adjusted
+	adjustedToUTC := timestamp.IsAdjustedToUTC
+
+	// Handle different timestamp units
+	if timestamp.Unit != nil {
+		if timestamp.Unit.IsSetMILLIS() {
+			return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
+		}
+		if timestamp.Unit.IsSetMICROS() {
+			return TIMESTAMP_MICROSToISO8601(v, adjustedToUTC)
+		}
+		if timestamp.Unit.IsSetNANOS() {
+			return TIMESTAMP_NANOSToISO8601(v, adjustedToUTC)
+		}
+	}
+
+	// Default to milliseconds if unit is not specified
+	return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
+}
+
+// convertBinaryValue handles base64 encoding for binary data without logical/converted types
+func convertBinaryValue(val any) any {
+	if val == nil {
+		return nil
+	}
+
+	switch v := val.(type) {
+	case []byte:
+		return base64.StdEncoding.EncodeToString(v)
+	case string:
+		return base64.StdEncoding.EncodeToString([]byte(v))
+	}
+
+	return val
+}
+
+// convertUUIDValue handles UUID conversion from binary data to standard UUID string format
+func convertUUIDValue(val any) any {
+	if val == nil {
+		return nil
+	}
+
+	var bytes []byte
+	switch v := val.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		return val
+	}
+
+	// UUID should be exactly 16 bytes
+	if len(bytes) != 16 {
+		return val
+	}
+
+	// Format as standard UUID string: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		uint32(bytes[0])<<24|uint32(bytes[1])<<16|uint32(bytes[2])<<8|uint32(bytes[3]),
+		uint16(bytes[4])<<8|uint16(bytes[5]),
+		uint16(bytes[6])<<8|uint16(bytes[7]),
+		uint16(bytes[8])<<8|uint16(bytes[9]),
+		uint64(bytes[10])<<40|uint64(bytes[11])<<32|uint64(bytes[12])<<24|uint64(bytes[13])<<16|uint64(bytes[14])<<8|uint64(bytes[15]))
+}
+
+// decimalIntToFloat converts a decimal integer value to float64 for JSON output
+func decimalIntToFloat(dec int64, scale int) float64 {
+	if scale <= 0 {
+		return float64(dec)
+	}
+
+	// Calculate the divisor: 10^scale
+	divisor := 1.0
+	for i := 0; i < scale; i++ {
+		divisor *= 10.0
+	}
+
+	return float64(dec) / divisor
+}
+
+// decimalByteArrayToFloat converts a decimal byte array value to float64 for JSON output
+func decimalByteArrayToFloat(data []byte, precision, scale int) any {
+	// Convert the string representation to float64
+	strValue := DECIMAL_BYTE_ARRAY_ToString(data, precision, scale)
+
+	// Parse the string to float64
+	if floatVal, err := strconv.ParseFloat(strValue, 64); err == nil {
+		return floatVal
+	}
+
+	// If parsing fails, fallback to string (should not happen normally)
+	return strValue
 }

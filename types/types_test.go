@@ -2,10 +2,12 @@ package types
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -926,4 +928,840 @@ func Test_ParquetTypeToGoReflectType_SafetyChecks(t *testing.T) {
 			ParquetTypeToGoReflectType(tc.pT, tc.rT)
 		})
 	}
+}
+
+func Test_ParquetTypeToJSONType(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     any
+		pT        *parquet.Type
+		cT        *parquet.ConvertedType
+		precision int
+		scale     int
+		expected  any
+	}{
+		{
+			name:      "int32_decimal_convertedtype",
+			value:     int32(12345),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			precision: 5,
+			scale:     2,
+			expected:  float64(123.45),
+		},
+		{
+			name:      "int64_decimal_convertedtype",
+			value:     int64(98765),
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			precision: 5,
+			scale:     3,
+			expected:  float64(98.765),
+		},
+		{
+			name:      "string_decimal_byte_array",
+			value:     StrIntToBinary("1234567890", "BigEndian", 0, true),
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			precision: 12,
+			scale:     4,
+			expected:  float64(123456.7890),
+		},
+		{
+			name:      "string_decimal_fixed_len_byte_array",
+			value:     StrIntToBinary("9876543210", "BigEndian", 12, true),
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			precision: 12,
+			scale:     2,
+			expected:  float64(98765432.10),
+		},
+		{
+			name:      "non_decimal_convertedtype",
+			value:     "hello",
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8),
+			precision: 0,
+			scale:     0,
+			expected:  "hello",
+		},
+		{
+			name:      "no_convertedtype",
+			value:     int32(42),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			precision: 0,
+			scale:     0,
+			expected:  int32(42),
+		},
+		{
+			name:      "negative_decimal",
+			value:     int32(-12345),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			precision: 5,
+			scale:     2,
+			expected:  float64(-123.45),
+		},
+		{
+			name:      "zero_scale_decimal",
+			value:     int32(123),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			precision: 5,
+			scale:     0,
+			expected:  float64(123),
+		},
+		{
+			name:      "nil_value",
+			value:     nil,
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			precision: 5,
+			scale:     2,
+			expected:  nil,
+		},
+		{
+			name:      "int96_timestamp",
+			value:     "\x00\x80\xa7HJ'\x00\x00*\x89%\x00", // INT96 binary data for 2023-01-01T12:00:00Z
+			pT:        parquet.TypePtr(parquet.Type_INT96),
+			cT:        nil,
+			precision: 0,
+			scale:     0,
+			expected:  "2023-01-01T12:00:00.000000000Z",
+		},
+		{
+			name: "interval_converted_type",
+			value: func() string {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 0)        // 0 months
+				binary.LittleEndian.PutUint32(b[4:8], 1)        // 1 day
+				binary.LittleEndian.PutUint32(b[8:12], 7200000) // 2 hours in milliseconds
+				return string(b)
+			}(),
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL),
+			precision: 0,
+			scale:     0,
+			expected:  (26 * time.Hour).String(), // 1 day + 2 hours = 26 hours
+		},
+		{
+			name:      "timestamp_millis_converted_type",
+			value:     int64(1640995200000), // 2022-01-01T00:00:00Z in milliseconds
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_TIMESTAMP_MILLIS),
+			precision: 0,
+			scale:     0,
+			expected:  "2022-01-01T00:00:00.000Z",
+		},
+		{
+			name:      "timestamp_micros_converted_type",
+			value:     int64(1640995200000000), // 2022-01-01T00:00:00Z in microseconds
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_TIMESTAMP_MICROS),
+			precision: 0,
+			scale:     0,
+			expected:  "2022-01-01T00:00:00.000000Z",
+		},
+		{
+			name:      "byte_array_without_converted_type",
+			value:     "Hello World!",
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			precision: 0,
+			scale:     0,
+			expected:  base64.StdEncoding.EncodeToString([]byte("Hello World!")), // "SGVsbG8gV29ybGQh"
+		},
+		{
+			name:      "fixed_len_byte_array_without_converted_type",
+			value:     []byte{0x01, 0x02, 0x03, 0x04, 0xFF},
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        nil,
+			precision: 0,
+			scale:     0,
+			expected:  base64.StdEncoding.EncodeToString([]byte{0x01, 0x02, 0x03, 0x04, 0xFF}), // "AQIDBP8="
+		},
+		{
+			name:      "byte_array_with_utf8_converted_type",
+			value:     "Hello World!",
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8),
+			precision: 0,
+			scale:     0,
+			expected:  "Hello World!", // Should remain as string, not base64 encoded
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParquetTypeToJSONType(tt.value, tt.pT, tt.cT, tt.precision, tt.scale)
+
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_ParquetTypeToJSONTypeWithLogical(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     any
+		pT        *parquet.Type
+		cT        *parquet.ConvertedType
+		lT        *parquet.LogicalType
+		precision int
+		scale     int
+		expected  any
+	}{
+		{
+			name:      "int32_logicaltype_decimal",
+			value:     int32(44444),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createDecimalLogicalType(9, 2),
+			precision: 9,
+			scale:     2,
+			expected:  float64(444.44),
+		},
+		{
+			name:      "int64_logicaltype_decimal",
+			value:     int64(-12345),
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createDecimalLogicalType(18, 3),
+			precision: 18,
+			scale:     3,
+			expected:  float64(-12.345),
+		},
+		{
+			name:      "convertedtype_fallback",
+			value:     int32(12345),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			lT:        nil,
+			precision: 5,
+			scale:     2,
+			expected:  float64(123.45),
+		},
+		{
+			name:      "both_types_prefer_logical",
+			value:     int32(98765),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
+			lT:        createDecimalLogicalType(7, 3),
+			precision: 7,
+			scale:     3,
+			expected:  float64(98.765),
+		},
+		{
+			name:      "non_decimal_logical_type",
+			value:     "hello",
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        createStringLogicalType(),
+			precision: 0,
+			scale:     0,
+			expected:  "hello",
+		},
+		{
+			name:      "no_types",
+			value:     int32(42),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        nil,
+			precision: 0,
+			scale:     0,
+			expected:  int32(42),
+		},
+		{
+			name:      "string_decimal_logicaltype",
+			value:     StrIntToBinary("123456789", "BigEndian", 0, true),
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        createDecimalLogicalType(15, 4),
+			precision: 15,
+			scale:     4,
+			expected:  float64(12345.6789),
+		},
+		{
+			name:      "int96_timestamp_with_logical",
+			value:     "\x00\x80\xa7HJ'\x00\x00*\x89%\x00", // INT96 binary data for 2023-01-01T12:00:00Z
+			pT:        parquet.TypePtr(parquet.Type_INT96),
+			cT:        nil,
+			lT:        createStringLogicalType(), // Non-relevant logical type
+			precision: 0,
+			scale:     0,
+			expected:  "2023-01-01T12:00:00.000000000Z", // Should still convert INT96
+		},
+		{
+			name:      "timestamp_logical_type_millis",
+			value:     int64(1640995200000), // 2022-01-01T00:00:00Z in milliseconds
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createTimestampLogicalType(true, true, false, false), // millis, UTC adjusted
+			precision: 0,
+			scale:     0,
+			expected:  "2022-01-01T00:00:00.000Z",
+		},
+		{
+			name:      "timestamp_logical_type_micros",
+			value:     int64(1640995200000000), // 2022-01-01T00:00:00Z in microseconds
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createTimestampLogicalType(false, true, false, true), // micros, UTC adjusted
+			precision: 0,
+			scale:     0,
+			expected:  "2022-01-01T00:00:00.000000Z",
+		},
+		{
+			name:      "timestamp_logical_type_nanos",
+			value:     int64(1640995200000000000), // 2022-01-01T00:00:00Z in nanoseconds
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createTimestampLogicalType(false, false, true, true), // nanos, UTC adjusted
+			precision: 0,
+			scale:     0,
+			expected:  "2022-01-01T00:00:00.000000000Z",
+		},
+		{
+			name:      "timestamp_logical_type_not_utc_adjusted",
+			value:     int64(1640995200000), // 2022-01-01T00:00:00Z in milliseconds
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createTimestampLogicalType(true, false, false, false), // millis, not UTC adjusted
+			precision: 0,
+			scale:     0,
+			expected:  "2022-01-01T00:00:00.000Z",
+		},
+		{
+			name:      "byte_array_without_logical_or_converted_type",
+			value:     "Binary Data",
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        nil,
+			precision: 0,
+			scale:     0,
+			expected:  base64.StdEncoding.EncodeToString([]byte("Binary Data")), // "QmluYXJ5IERhdGE="
+		},
+		{
+			name:      "fixed_len_byte_array_without_logical_or_converted_type",
+			value:     []byte{0xDE, 0xAD, 0xBE, 0xEF},
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        nil,
+			lT:        nil,
+			precision: 0,
+			scale:     0,
+			expected:  base64.StdEncoding.EncodeToString([]byte{0xDE, 0xAD, 0xBE, 0xEF}), // "3q2+7w=="
+		},
+		{
+			name:      "byte_array_with_string_logical_type",
+			value:     "String Data",
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        createStringLogicalType(),
+			precision: 0,
+			scale:     0,
+			expected:  "String Data", // Should remain as string, not base64 encoded
+		},
+		{
+			name: "uuid_logical_type_bytes",
+			value: []byte{
+				0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+				0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+			}, // 16-byte UUID in big-endian format
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			precision: 0,
+			scale:     0,
+			expected:  "01234567-89ab-cdef-0123-456789abcdef", // Standard UUID string format
+		},
+		{
+			name: "uuid_logical_type_string_input",
+			value: string([]byte{
+				0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
+				0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+			}), // UUID as string bytes
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			precision: 0,
+			scale:     0,
+			expected:  "6ba7b810-9dad-11d1-80b4-00c04fd430c8", // Standard UUID string format
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParquetTypeToJSONTypeWithLogical(tt.value, tt.pT, tt.cT, tt.lT, tt.precision, tt.scale)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// Helper function to create a decimal logical type for testing
+func createDecimalLogicalType(precision, scale int32) *parquet.LogicalType {
+	lt := parquet.NewLogicalType()
+	lt.DECIMAL = parquet.NewDecimalType()
+	lt.DECIMAL.Precision = precision
+	lt.DECIMAL.Scale = scale
+	return lt
+}
+
+// Helper function to create a string logical type for testing
+func createStringLogicalType() *parquet.LogicalType {
+	lt := parquet.NewLogicalType()
+	lt.STRING = parquet.NewStringType()
+	return lt
+}
+
+// Helper function to create a timestamp logical type for testing
+func createTimestampLogicalType(millis, micros, nanos, utcAdjusted bool) *parquet.LogicalType {
+	lt := parquet.NewLogicalType()
+	lt.TIMESTAMP = parquet.NewTimestampType()
+
+	// Set UTC adjusted flag
+	lt.TIMESTAMP.IsAdjustedToUTC = utcAdjusted
+
+	// Set time unit
+	lt.TIMESTAMP.Unit = parquet.NewTimeUnit()
+	if millis {
+		lt.TIMESTAMP.Unit.MILLIS = parquet.NewMilliSeconds()
+	} else if micros {
+		lt.TIMESTAMP.Unit.MICROS = parquet.NewMicroSeconds()
+	} else if nanos {
+		lt.TIMESTAMP.Unit.NANOS = parquet.NewNanoSeconds()
+	} else {
+		// Default to millis if none specified
+		lt.TIMESTAMP.Unit.MILLIS = parquet.NewMilliSeconds()
+	}
+
+	return lt
+}
+
+func Test_convertIntervalValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		val      any
+		expected any
+	}{
+		{
+			name:     "nil_value",
+			val:      nil,
+			expected: nil,
+		},
+		{
+			name: "valid_interval_bytes",
+			val: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 0)        // 0 months
+				binary.LittleEndian.PutUint32(b[4:8], 1)        // 1 day
+				binary.LittleEndian.PutUint32(b[8:12], 3600000) // 1 hour in milliseconds
+				return b
+			}(),
+			expected: (25 * time.Hour).String(), // 1 day + 1 hour = 25 hours
+		},
+		{
+			name: "valid_interval_string",
+			val: func() string {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 0)     // 0 months
+				binary.LittleEndian.PutUint32(b[4:8], 0)     // 0 days
+				binary.LittleEndian.PutUint32(b[8:12], 1000) // 1 second in milliseconds
+				return string(b)
+			}(),
+			expected: time.Second.String(),
+		},
+		{
+			name:     "invalid_length_string",
+			val:      "short",
+			expected: "short",
+		},
+		{
+			name:     "invalid_length_bytes",
+			val:      []byte{1, 2, 3},
+			expected: []byte{1, 2, 3},
+		},
+		{
+			name:     "non_interval_value",
+			val:      42,
+			expected: 42,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertIntervalValue(tt.val)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_TIMESTAMP_MILLISToISO8601(t *testing.T) {
+	tests := []struct {
+		name          string
+		millis        int64
+		adjustedToUTC bool
+		expected      string
+	}{
+		{
+			name:          "epoch_time",
+			millis:        0,
+			adjustedToUTC: true,
+			expected:      "1970-01-01T00:00:00.000Z",
+		},
+		{
+			name:          "new_year_2022",
+			millis:        1640995200000, // 2022-01-01T00:00:00Z
+			adjustedToUTC: true,
+			expected:      "2022-01-01T00:00:00.000Z",
+		},
+		{
+			name:          "with_milliseconds",
+			millis:        1640995200123, // 2022-01-01T00:00:00.123Z
+			adjustedToUTC: true,
+			expected:      "2022-01-01T00:00:00.123Z",
+		},
+		{
+			name:          "past_timestamp",
+			millis:        946684800000, // 2000-01-01T00:00:00Z
+			adjustedToUTC: true,
+			expected:      "2000-01-01T00:00:00.000Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TIMESTAMP_MILLISToISO8601(tt.millis, tt.adjustedToUTC)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_TIMESTAMP_MICROSToISO8601(t *testing.T) {
+	tests := []struct {
+		name          string
+		micros        int64
+		adjustedToUTC bool
+		expected      string
+	}{
+		{
+			name:          "epoch_time",
+			micros:        0,
+			adjustedToUTC: true,
+			expected:      "1970-01-01T00:00:00.000000Z",
+		},
+		{
+			name:          "new_year_2022",
+			micros:        1640995200000000, // 2022-01-01T00:00:00Z
+			adjustedToUTC: true,
+			expected:      "2022-01-01T00:00:00.000000Z",
+		},
+		{
+			name:          "with_microseconds",
+			micros:        1640995200123456, // 2022-01-01T00:00:00.123456Z
+			adjustedToUTC: true,
+			expected:      "2022-01-01T00:00:00.123456Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TIMESTAMP_MICROSToISO8601(tt.micros, tt.adjustedToUTC)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_convertTimestampValue(t *testing.T) {
+	tests := []struct {
+		name          string
+		val           any
+		convertedType parquet.ConvertedType
+		expected      any
+	}{
+		{
+			name:          "nil_value",
+			val:           nil,
+			convertedType: parquet.ConvertedType_TIMESTAMP_MILLIS,
+			expected:      nil,
+		},
+		{
+			name:          "timestamp_millis_valid",
+			val:           int64(1640995200000), // 2022-01-01T00:00:00Z
+			convertedType: parquet.ConvertedType_TIMESTAMP_MILLIS,
+			expected:      "2022-01-01T00:00:00.000Z",
+		},
+		{
+			name:          "timestamp_micros_valid",
+			val:           int64(1640995200000000), // 2022-01-01T00:00:00Z
+			convertedType: parquet.ConvertedType_TIMESTAMP_MICROS,
+			expected:      "2022-01-01T00:00:00.000000Z",
+		},
+		{
+			name:          "non_int64_value",
+			val:           int32(123),
+			convertedType: parquet.ConvertedType_TIMESTAMP_MILLIS,
+			expected:      int32(123), // Should return unchanged
+		},
+		{
+			name:          "unsupported_converted_type",
+			val:           int64(1640995200000),
+			convertedType: parquet.ConvertedType_UTF8,
+			expected:      int64(1640995200000), // Should return unchanged
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertTimestampValue(tt.val, tt.convertedType)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_convertTimestampLogicalValue(t *testing.T) {
+	tests := []struct {
+		name      string
+		val       any
+		timestamp *parquet.TimestampType
+		expected  any
+	}{
+		{
+			name:      "nil_value",
+			val:       nil,
+			timestamp: createTimestampLogicalType(true, false, false, true).GetTIMESTAMP(),
+			expected:  nil,
+		},
+		{
+			name:      "nil_timestamp",
+			val:       int64(1640995200000),
+			timestamp: nil,
+			expected:  nil,
+		},
+		{
+			name:      "timestamp_millis_utc_adjusted",
+			val:       int64(1640995200000),                                                // 2022-01-01T00:00:00Z
+			timestamp: createTimestampLogicalType(true, false, false, true).GetTIMESTAMP(), // millis, UTC adjusted
+			expected:  "2022-01-01T00:00:00.000Z",
+		},
+		{
+			name:      "timestamp_micros_utc_adjusted",
+			val:       int64(1640995200000000),                                             // 2022-01-01T00:00:00Z
+			timestamp: createTimestampLogicalType(false, true, false, true).GetTIMESTAMP(), // micros, UTC adjusted
+			expected:  "2022-01-01T00:00:00.000000Z",
+		},
+		{
+			name:      "timestamp_nanos_utc_adjusted",
+			val:       int64(1640995200000000000),                                          // 2022-01-01T00:00:00Z
+			timestamp: createTimestampLogicalType(false, false, true, true).GetTIMESTAMP(), // nanos, UTC adjusted
+			expected:  "2022-01-01T00:00:00.000000000Z",
+		},
+		{
+			name:      "timestamp_millis_not_utc_adjusted",
+			val:       int64(1640995200000),                                                 // 2022-01-01T00:00:00Z
+			timestamp: createTimestampLogicalType(true, false, false, false).GetTIMESTAMP(), // millis, not UTC adjusted
+			expected:  "2022-01-01T00:00:00.000Z",
+		},
+		{
+			name:      "non_int64_value",
+			val:       int32(123),
+			timestamp: createTimestampLogicalType(true, false, false, true).GetTIMESTAMP(),
+			expected:  int32(123), // Should return unchanged
+		},
+		{
+			name: "default_to_millis_when_no_unit",
+			val:  int64(1640995200000),
+			timestamp: func() *parquet.TimestampType {
+				ts := parquet.NewTimestampType()
+				ts.IsAdjustedToUTC = true
+				// Don't set Unit to test default behavior
+				return ts
+			}(),
+			expected: "2022-01-01T00:00:00.000Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertTimestampLogicalValue(tt.val, tt.timestamp)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_convertBinaryValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		val      any
+		expected any
+	}{
+		{
+			name:     "nil_value",
+			val:      nil,
+			expected: nil,
+		},
+		{
+			name:     "string_input",
+			val:      "Hello, World!",
+			expected: base64.StdEncoding.EncodeToString([]byte("Hello, World!")), // "SGVsbG8sIFdvcmxkIQ=="
+		},
+		{
+			name:     "byte_slice_input",
+			val:      []byte{0x48, 0x65, 0x6C, 0x6C, 0x6F},                                    // "Hello" in bytes
+			expected: base64.StdEncoding.EncodeToString([]byte{0x48, 0x65, 0x6C, 0x6C, 0x6F}), // "SGVsbG8="
+		},
+		{
+			name:     "binary_data",
+			val:      []byte{0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD},
+			expected: base64.StdEncoding.EncodeToString([]byte{0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD}), // "AAECAz/+/Q=="
+		},
+		{
+			name:     "empty_string",
+			val:      "",
+			expected: base64.StdEncoding.EncodeToString([]byte("")), // ""
+		},
+		{
+			name:     "empty_byte_slice",
+			val:      []byte{},
+			expected: base64.StdEncoding.EncodeToString([]byte{}), // ""
+		},
+		{
+			name:     "non_binary_value",
+			val:      42,
+			expected: 42, // Should return unchanged
+		},
+		{
+			name:     "float_value",
+			val:      3.14,
+			expected: 3.14, // Should return unchanged
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertBinaryValue(tt.val)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_convertUUIDValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		val      any
+		expected any
+	}{
+		{
+			name:     "nil_value",
+			val:      nil,
+			expected: nil,
+		},
+		{
+			name: "valid_uuid_bytes",
+			val: []byte{
+				0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+				0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+			},
+			expected: "01234567-89ab-cdef-0123-456789abcdef",
+		},
+		{
+			name: "valid_uuid_string",
+			val: string([]byte{
+				0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
+				0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+			}),
+			expected: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		},
+		{
+			name: "zero_uuid",
+			val: []byte{
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			},
+			expected: "00000000-0000-0000-0000-000000000000",
+		},
+		{
+			name: "max_uuid",
+			val: []byte{
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			},
+			expected: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+		},
+		{
+			name:     "invalid_length_short",
+			val:      []byte{0x01, 0x02, 0x03},
+			expected: []byte{0x01, 0x02, 0x03}, // Should return unchanged
+		},
+		{
+			name: "invalid_length_long",
+			val: []byte{
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+				0x11, // 17 bytes - too long
+			},
+			expected: []byte{
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+				0x11,
+			}, // Should return unchanged
+		},
+		{
+			name:     "non_binary_value",
+			val:      42,
+			expected: 42, // Should return unchanged
+		},
+		{
+			name:     "empty_bytes",
+			val:      []byte{},
+			expected: []byte{}, // Should return unchanged (wrong length)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertUUIDValue(tt.val)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_convertDecimalValue(t *testing.T) {
+	pT := parquet.TypePtr(parquet.Type_INT32)
+
+	// int32 - now returns float64 instead of string
+	res := convertDecimalValue(int32(12345), pT, 10, 2)
+	require.Equal(t, float64(123.45), res)
+
+	// int64 - now returns float64 instead of string
+	pT = parquet.TypePtr(parquet.Type_INT64)
+	res = convertDecimalValue(int64(12345), pT, 10, 2)
+	require.Equal(t, float64(123.45), res)
+
+	// string - now returns float64 instead of string
+	pT = parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+	val := StrIntToBinary("12345", "BigEndian", 0, true)
+	res = convertDecimalValue(val, pT, 10, 2)
+	require.Equal(t, float64(123.45), res)
+
+	// default
+	res = convertDecimalValue(float32(123.45), pT, 10, 2)
+	require.Equal(t, float32(123.45), res)
+}
+
+func Test_convertINT96Value(t *testing.T) {
+	// nil
+	res := convertINT96Value(nil)
+	require.Nil(t, res)
+
+	// string
+	timeStr := "2023-01-01T12:00:00.000000000Z"
+	ts, _ := time.Parse(time.RFC3339Nano, timeStr)
+	int96 := TimeToINT96(ts)
+	res = convertINT96Value(int96)
+	require.Equal(t, timeStr, res)
+
+	// default
+	res = convertINT96Value(123)
+	require.Equal(t, 123, res)
 }

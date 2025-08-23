@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/layout"
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/schema"
+	"github.com/hangxie/parquet-go/v2/types"
 )
 
 // Record Map KeyValue pair
@@ -25,6 +27,18 @@ type MapRecord struct {
 type SliceRecord struct {
 	Values []reflect.Value
 	Index  int
+}
+
+// conversionContext holds cached data for performance optimization
+type conversionContext struct {
+	schemaCache map[string]*parquet.SchemaElement
+	fieldCache  map[reflect.Type]map[string]fieldInfo
+	mutex       sync.RWMutex
+}
+
+type fieldInfo struct {
+	name  string
+	index []int
 }
 
 // Convert the table map to objects slice. dstInterface is a slice of pointers of objects
@@ -262,4 +276,229 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 	}
 
 	return nil
+}
+
+// ConvertToJSONFriendly converts parquet data to JSON-friendly format by applying logical type conversions
+func ConvertToJSONFriendly(data any, schemaHandler *schema.SchemaHandler) (any, error) {
+	ctx := &conversionContext{
+		schemaCache: make(map[string]*parquet.SchemaElement),
+		fieldCache:  make(map[reflect.Type]map[string]fieldInfo),
+	}
+	return convertValueToJSONFriendlyWithContext(reflect.ValueOf(data), schemaHandler, "", ctx)
+}
+
+// getFieldNameFromTag extracts the name from JSON tag since the struct from parquet reading uses JSON tags
+func getFieldNameFromTag(field reflect.StructField) string {
+	jsonTag := field.Tag.Get("json")
+	if jsonTag != "" {
+		// Parse JSON tag to get the field name (format: "name,option1,option2")
+		parts := strings.Split(jsonTag, ",")
+		if len(parts) > 0 && parts[0] != "" && parts[0] != "-" {
+			return parts[0]
+		}
+	}
+
+	// Fallback to Go struct field name
+	return field.Name
+}
+
+// convertValueToJSONFriendlyWithContext recursively converts a value to JSON-friendly format with caching context
+func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+	if !val.IsValid() {
+		return nil, nil
+	}
+
+	switch val.Kind() {
+	case reflect.Interface:
+		if val.IsNil() {
+			return nil, nil
+		}
+		return convertValueToJSONFriendlyWithContext(val.Elem(), schemaHandler, pathPrefix, ctx)
+
+	case reflect.Ptr:
+		if val.IsNil() {
+			return nil, nil
+		}
+		return convertValueToJSONFriendlyWithContext(val.Elem(), schemaHandler, pathPrefix, ctx)
+
+	case reflect.Slice:
+		return convertSliceToJSONFriendly(val, schemaHandler, pathPrefix, ctx)
+
+	case reflect.Map:
+		return convertMapToJSONFriendly(val, schemaHandler, pathPrefix, ctx)
+
+	case reflect.Struct:
+		return convertStructToJSONFriendly(val, schemaHandler, pathPrefix, ctx)
+
+	default:
+		return convertPrimitiveToJSONFriendly(val, schemaHandler, pathPrefix, ctx)
+	}
+}
+
+// convertSliceToJSONFriendly optimized slice conversion
+func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+	result := make([]any, val.Len())
+	var elementPath string
+	if pathPrefix != "" {
+		var builder strings.Builder
+		builder.WriteString(pathPrefix)
+		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString("List")
+		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString("Element")
+		elementPath = builder.String()
+	}
+
+	for i := range val.Len() {
+		converted, err := convertValueToJSONFriendlyWithContext(val.Index(i), schemaHandler, elementPath, ctx)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = converted
+	}
+	return result, nil
+}
+
+// convertMapToJSONFriendly optimized map conversion
+func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+	result := make(map[string]any)
+	var keyPath, valuePath string
+
+	if pathPrefix != "" {
+		var builder strings.Builder
+		builder.WriteString(pathPrefix)
+		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString("Key_value")
+		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString("Key")
+		keyPath = builder.String()
+
+		builder.Reset()
+		builder.WriteString(pathPrefix)
+		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString("Key_value")
+		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString("Value")
+		valuePath = builder.String()
+	}
+
+	for _, key := range val.MapKeys() {
+		converted, err := convertValueToJSONFriendlyWithContext(key, schemaHandler, keyPath, ctx)
+		if err != nil {
+			return nil, err
+		}
+		keyStr := fmt.Sprint(converted)
+
+		converted, err = convertValueToJSONFriendlyWithContext(val.MapIndex(key), schemaHandler, valuePath, ctx)
+		if err != nil {
+			return nil, err
+		}
+		result[keyStr] = converted
+	}
+	return result, nil
+}
+
+// convertStructToJSONFriendly optimized struct conversion with field caching
+func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+	result := make(map[string]any)
+	valType := val.Type()
+
+	ctx.mutex.RLock()
+	fieldMap, exists := ctx.fieldCache[valType]
+	ctx.mutex.RUnlock()
+
+	if !exists {
+		fieldMap = make(map[string]fieldInfo)
+		for i := range val.NumField() {
+			field := valType.Field(i)
+			if field.IsExported() {
+				fieldName := getFieldNameFromTag(field)
+				fieldMap[field.Name] = fieldInfo{
+					name:  fieldName,
+					index: field.Index,
+				}
+			}
+		}
+		ctx.mutex.Lock()
+		ctx.fieldCache[valType] = fieldMap
+		ctx.mutex.Unlock()
+	}
+
+	for i := range val.NumField() {
+		field := valType.Field(i)
+		fieldVal := val.Field(i)
+
+		if !fieldVal.CanInterface() {
+			continue
+		}
+
+		fInfo, exists := fieldMap[field.Name]
+		if !exists {
+			continue
+		}
+
+		var fieldPath string
+		if pathPrefix != "" {
+			var builder strings.Builder
+			builder.WriteString(pathPrefix)
+			builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+			builder.WriteString(field.Name)
+			fieldPath = builder.String()
+		} else {
+			fieldPath = field.Name
+		}
+
+		converted, err := convertValueToJSONFriendlyWithContext(fieldVal, schemaHandler, fieldPath, ctx)
+		if err != nil {
+			return nil, err
+		}
+		result[fInfo.name] = converted
+	}
+	return result, nil
+}
+
+// convertPrimitiveToJSONFriendly optimized primitive conversion with schema caching
+func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+	if pathPrefix == "" {
+		return val.Interface(), nil
+	}
+
+	var expectedSchemaPath string
+	if strings.HasPrefix(pathPrefix, "Parquet_go_root") {
+		expectedSchemaPath = pathPrefix
+	} else {
+		var builder strings.Builder
+		builder.WriteString("Parquet_go_root")
+		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString(pathPrefix)
+		expectedSchemaPath = builder.String()
+	}
+
+	ctx.mutex.RLock()
+	schemaElement, cached := ctx.schemaCache[expectedSchemaPath]
+	ctx.mutex.RUnlock()
+
+	if !cached {
+		schemaIndex, exists := schemaHandler.MapIndex[expectedSchemaPath]
+		if !exists || int(schemaIndex) >= len(schemaHandler.SchemaElements) {
+			return val.Interface(), nil
+		}
+		schemaElement = schemaHandler.SchemaElements[schemaIndex]
+		ctx.mutex.Lock()
+		ctx.schemaCache[expectedSchemaPath] = schemaElement
+		ctx.mutex.Unlock()
+	}
+
+	if schemaElement == nil {
+		return val.Interface(), nil
+	}
+
+	pT, cT, lT := schemaElement.Type, schemaElement.ConvertedType, schemaElement.LogicalType
+	precision, scale := int(schemaElement.GetPrecision()), int(schemaElement.GetScale())
+	converted := types.ParquetTypeToJSONTypeWithLogical(val.Interface(), pT, cT, lT, precision, scale)
+
+	if converted != val.Interface() {
+		return converted, nil
+	}
+	return val.Interface(), nil
 }
