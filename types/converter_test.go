@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/binary"
 	"testing"
 	"time"
 
@@ -212,4 +213,79 @@ func Test_TimeToTIME_MILLIS(t *testing.T) {
 	result2 := TimeToTIME_MILLIS(localTime, false)
 	expected2 := int64(12*3600+30*60+45)*1000 + 123
 	require.Equal(t, expected2, result2, "TimeToTIME_MILLIS(UTC=false) expected %d, got %d", expected2, result2)
+}
+
+func Test_IntervalToDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		interval []byte
+		expected time.Duration
+	}{
+		{
+			name:     "zero_interval",
+			interval: make([]byte, 12), // All zeros
+			expected: 0,
+		},
+		{
+			name: "one_month_interval",
+			interval: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 1)  // 1 month
+				binary.LittleEndian.PutUint32(b[4:8], 0)  // 0 days
+				binary.LittleEndian.PutUint32(b[8:12], 0) // 0 milliseconds
+				return b
+			}(),
+			expected: 30 * 24 * time.Hour, // Approximately 1 month (30 days)
+		},
+		{
+			name: "one_day_interval",
+			interval: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 0)  // 0 months
+				binary.LittleEndian.PutUint32(b[4:8], 1)  // 1 day
+				binary.LittleEndian.PutUint32(b[8:12], 0) // 0 milliseconds
+				return b
+			}(),
+			expected: 24 * time.Hour,
+		},
+		{
+			name: "one_hour_interval",
+			interval: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 0)        // 0 months
+				binary.LittleEndian.PutUint32(b[4:8], 0)        // 0 days
+				binary.LittleEndian.PutUint32(b[8:12], 3600000) // 1 hour in milliseconds
+				return b
+			}(),
+			expected: time.Hour,
+		},
+		{
+			name: "complex_interval",
+			interval: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 2)        // 2 months
+				binary.LittleEndian.PutUint32(b[4:8], 15)       // 15 days
+				binary.LittleEndian.PutUint32(b[8:12], 7200000) // 2 hours in milliseconds
+				return b
+			}(),
+			expected: 2*30*24*time.Hour + 15*24*time.Hour + 2*time.Hour,
+		},
+		{
+			name:     "invalid_length_short",
+			interval: []byte{1, 2, 3},
+			expected: 0,
+		},
+		{
+			name:     "invalid_length_long",
+			interval: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IntervalToDuration(tt.interval)
+			require.Equal(t, tt.expected, result)
+		})
+	}
 }
