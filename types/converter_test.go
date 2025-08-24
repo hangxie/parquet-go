@@ -224,7 +224,7 @@ func Test_IntervalToString(t *testing.T) {
 		{
 			name:     "zero_interval",
 			interval: make([]byte, 12), // All zeros
-			expected: "0.00 sec",
+			expected: "0.000 sec",
 		},
 		{
 			name: "one_month_interval",
@@ -257,7 +257,7 @@ func Test_IntervalToString(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 3600000) // 1 hour in milliseconds
 				return b
 			}(),
-			expected: "3600.00 sec",
+			expected: "3600.000 sec",
 		},
 		{
 			name: "complex_interval",
@@ -268,7 +268,7 @@ func Test_IntervalToString(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 7200000) // 2 hours in milliseconds
 				return b
 			}(),
-			expected: "2 mon 15 day 7200.00 sec",
+			expected: "2 mon 15 day 7200.000 sec",
 		},
 		{
 			name: "months_and_seconds_only",
@@ -279,7 +279,7 @@ func Test_IntervalToString(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 1500) // 1.5 seconds in milliseconds
 				return b
 			}(),
-			expected: "3 mon 1.50 sec",
+			expected: "3 mon 1.500 sec",
 		},
 		{
 			name: "days_and_seconds_only",
@@ -290,7 +290,7 @@ func Test_IntervalToString(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 500) // 0.5 seconds in milliseconds
 				return b
 			}(),
-			expected: "7 day 0.50 sec",
+			expected: "7 day 0.500 sec",
 		},
 		{
 			name: "fractional_seconds",
@@ -301,7 +301,7 @@ func Test_IntervalToString(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 25) // 0.025 seconds in milliseconds
 				return b
 			}(),
-			expected: "0.03 sec",
+			expected: "0.025 sec",
 		},
 		{
 			name:     "invalid_length_short",

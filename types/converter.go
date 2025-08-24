@@ -166,7 +166,7 @@ func IntervalToString(interval []byte) string {
 	// Convert milliseconds to seconds with decimals
 	seconds := float64(milliseconds) / 1000.0
 
-	// Format as "XX mon XX day XX.xx sec"
+	// Format as "XX mon XX day XX.xxx sec"
 	var parts []string
 	if months > 0 {
 		parts = append(parts, fmt.Sprintf("%d mon", months))
@@ -175,7 +175,7 @@ func IntervalToString(interval []byte) string {
 		parts = append(parts, fmt.Sprintf("%d day", days))
 	}
 	if seconds > 0 || len(parts) == 0 {
-		parts = append(parts, fmt.Sprintf("%.2f sec", seconds))
+		parts = append(parts, fmt.Sprintf("%.3f sec", seconds))
 	}
 
 	return strings.Join(parts, " ")
