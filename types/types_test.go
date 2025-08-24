@@ -1090,6 +1090,51 @@ func Test_ParquetTypeToJSONType(t *testing.T) {
 			scale:     0,
 			expected:  "Hello World!", // Should remain as string, not base64 encoded
 		},
+		{
+			name:      "time_millis_converted_type",
+			value:     int32(45296789), // 12:34:56.789
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
+			precision: 0,
+			scale:     0,
+			expected:  "12:34:56.789",
+		},
+		{
+			name:      "time_micros_converted_type",
+			value:     int64(45296789012), // 12:34:56.789012
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MICROS),
+			precision: 0,
+			scale:     0,
+			expected:  "12:34:56.789012",
+		},
+		{
+			name:      "time_millis_zero",
+			value:     int32(0),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
+			precision: 0,
+			scale:     0,
+			expected:  "00:00:00.000",
+		},
+		{
+			name:      "time_micros_zero",
+			value:     int64(0),
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MICROS),
+			precision: 0,
+			scale:     0,
+			expected:  "00:00:00.000000",
+		},
+		{
+			name:      "time_millis_wrong_type",
+			value:     "not_an_int",
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
+			precision: 0,
+			scale:     0,
+			expected:  "not_an_int", // Should return original value if type assertion fails
+		},
 	}
 
 	for _, tt := range tests {
@@ -1288,6 +1333,56 @@ func Test_ParquetTypeToJSONTypeWithLogical(t *testing.T) {
 			scale:     0,
 			expected:  "6ba7b810-9dad-11d1-80b4-00c04fd430c8", // Standard UUID string format
 		},
+		{
+			name:      "time_logical_type_millis",
+			value:     int32(45296789), // 12:34:56.789
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createTimeLogicalType(true, false, false), // millis
+			precision: 0,
+			scale:     0,
+			expected:  "12:34:56.789",
+		},
+		{
+			name:      "time_logical_type_micros",
+			value:     int64(45296789012), // 12:34:56.789012
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createTimeLogicalType(false, true, false), // micros
+			precision: 0,
+			scale:     0,
+			expected:  "12:34:56.789012",
+		},
+		{
+			name:      "time_logical_type_nanos",
+			value:     int64(45296789012345), // 12:34:56.789012345
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createTimeLogicalType(false, false, true), // nanos
+			precision: 0,
+			scale:     0,
+			expected:  "12:34:56.789012345",
+		},
+		{
+			name:      "time_logical_type_zero_millis",
+			value:     int32(0),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createTimeLogicalType(true, false, false), // millis
+			precision: 0,
+			scale:     0,
+			expected:  "00:00:00.000",
+		},
+		{
+			name:      "time_logical_type_wrong_type",
+			value:     "not_an_int",
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createTimeLogicalType(true, false, false), // millis
+			precision: 0,
+			scale:     0,
+			expected:  "not_an_int", // Should return original value if type assertion fails
+		},
 	}
 
 	for _, tt := range tests {
@@ -1334,6 +1429,30 @@ func createTimestampLogicalType(millis, micros, nanos, utcAdjusted bool) *parque
 		// Default to millis if none specified
 		lt.TIMESTAMP.Unit.MILLIS = parquet.NewMilliSeconds()
 	}
+
+	return lt
+}
+
+// Helper function to create a time logical type for testing
+func createTimeLogicalType(millis, micros, nanos bool) *parquet.LogicalType {
+	lt := parquet.NewLogicalType()
+	lt.TIME = parquet.NewTimeType()
+
+	// Set time unit
+	lt.TIME.Unit = parquet.NewTimeUnit()
+	if millis {
+		lt.TIME.Unit.MILLIS = parquet.NewMilliSeconds()
+	} else if micros {
+		lt.TIME.Unit.MICROS = parquet.NewMicroSeconds()
+	} else if nanos {
+		lt.TIME.Unit.NANOS = parquet.NewNanoSeconds()
+	} else {
+		// Default to millis if none specified
+		lt.TIME.Unit.MILLIS = parquet.NewMilliSeconds()
+	}
+
+	// For TIME, the isAdjustedToUTC is not relevant (it's always local time)
+	lt.TIME.IsAdjustedToUTC = false
 
 	return lt
 }

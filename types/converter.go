@@ -195,3 +195,29 @@ func TIMESTAMP_NANOSToISO8601(nanos int64, adjustedToUTC bool) string {
 	t := TIMESTAMP_NANOSToTime(nanos, adjustedToUTC)
 	return t.Format("2006-01-02T15:04:05.000000000Z")
 }
+
+func TIME_MILLISToTimeFormat(millis int32) string {
+	totalNanos := int64(millis) * int64(time.Millisecond)
+	hours := totalNanos / int64(time.Hour)
+	totalNanos %= int64(time.Hour)
+	minutes := totalNanos / int64(time.Minute)
+	totalNanos %= int64(time.Minute)
+	seconds := totalNanos / int64(time.Second)
+	totalNanos %= int64(time.Second)
+	nanos := totalNanos
+
+	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, nanos/int64(time.Millisecond))
+}
+
+func TIME_MICROSToTimeFormat(micros int64) string {
+	totalNanos := micros * int64(time.Microsecond)
+	hours := totalNanos / int64(time.Hour)
+	totalNanos %= int64(time.Hour)
+	minutes := totalNanos / int64(time.Minute)
+	totalNanos %= int64(time.Minute)
+	seconds := totalNanos / int64(time.Second)
+	totalNanos %= int64(time.Second)
+	nanos := totalNanos
+
+	return fmt.Sprintf("%02d:%02d:%02d.%06d", hours, minutes, seconds, nanos/int64(time.Microsecond))
+}
