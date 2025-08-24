@@ -215,6 +215,88 @@ func Test_TimeToTIME_MILLIS(t *testing.T) {
 	require.Equal(t, expected2, result2, "TimeToTIME_MILLIS(UTC=false) expected %d, got %d", expected2, result2)
 }
 
+func Test_TIME_MILLISToTimeFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		millis   int32
+		expected string
+	}{
+		{
+			name:     "zero time",
+			millis:   0,
+			expected: "00:00:00.000",
+		},
+		{
+			name:     "12:34:56.789",
+			millis:   45296789, // 12*3600*1000 + 34*60*1000 + 56*1000 + 789
+			expected: "12:34:56.789",
+		},
+		{
+			name:     "00:00:01.001",
+			millis:   1001,
+			expected: "00:00:01.001",
+		},
+		{
+			name:     "23:59:59.999",
+			millis:   86399999, // 23*3600*1000 + 59*60*1000 + 59*1000 + 999
+			expected: "23:59:59.999",
+		},
+		{
+			name:     "09:05:03.123",
+			millis:   32703123, // 9*3600*1000 + 5*60*1000 + 3*1000 + 123
+			expected: "09:05:03.123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TIME_MILLISToTimeFormat(tt.millis)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_TIME_MICROSToTimeFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		micros   int64
+		expected string
+	}{
+		{
+			name:     "zero time",
+			micros:   0,
+			expected: "00:00:00.000000",
+		},
+		{
+			name:     "12:34:56.789012",
+			micros:   45296789012, // 12*3600*1000000 + 34*60*1000000 + 56*1000000 + 789012
+			expected: "12:34:56.789012",
+		},
+		{
+			name:     "00:00:01.000001",
+			micros:   1000001,
+			expected: "00:00:01.000001",
+		},
+		{
+			name:     "23:59:59.999999",
+			micros:   86399999999, // 23*3600*1000000 + 59*60*1000000 + 59*1000000 + 999999
+			expected: "23:59:59.999999",
+		},
+		{
+			name:     "09:05:03.123456",
+			micros:   32703123456, // 9*3600*1000000 + 5*60*1000000 + 3*1000000 + 123456
+			expected: "09:05:03.123456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TIME_MICROSToTimeFormat(tt.micros)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func Test_IntervalToString(t *testing.T) {
 	tests := []struct {
 		name     string

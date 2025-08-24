@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
@@ -390,13 +391,17 @@ func ParquetTypeToJSONType(val any, pT *parquet.Type, cT *parquet.ConvertedType,
 		return val
 
 	case parquet.ConvertedType_TIME_MILLIS:
-		// TIME_MILLIS is stored as int32 milliseconds, could convert to readable format
-		// For now, keeping as int32 for JSON compatibility
+		// TIME_MILLIS is stored as int32 milliseconds, convert to readable time format
+		if v, ok := val.(int32); ok {
+			return TIME_MILLISToTimeFormat(v)
+		}
 		return val
 
 	case parquet.ConvertedType_TIME_MICROS:
-		// TIME_MICROS is stored as int64 microseconds, could convert to readable format
-		// For now, keeping as int64 for JSON compatibility
+		// TIME_MICROS is stored as int64 microseconds, convert to readable time format
+		if v, ok := val.(int64); ok {
+			return TIME_MICROSToTimeFormat(v)
+		}
 		return val
 
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
@@ -491,6 +496,9 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 		}
 		if lT.IsSetTIMESTAMP() {
 			return convertTimestampLogicalValue(val, lT.GetTIMESTAMP())
+		}
+		if lT.IsSetTIME() {
+			return convertTimeLogicalValue(val, lT.GetTIME())
 		}
 		if lT.IsSetSTRING() {
 			// STRING logical type should return the string value as-is
@@ -617,6 +625,45 @@ func convertTimestampLogicalValue(val any, timestamp *parquet.TimestampType) any
 
 	// Default to milliseconds if unit is not specified
 	return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
+}
+
+// convertTimeLogicalValue handles time LogicalType conversion to time format
+func convertTimeLogicalValue(val any, timeType *parquet.TimeType) any {
+	if val == nil || timeType == nil {
+		return val
+	}
+
+	// Handle different time units
+	if timeType.Unit != nil {
+		if timeType.Unit.IsSetMILLIS() {
+			if v, ok := val.(int32); ok {
+				return TIME_MILLISToTimeFormat(v)
+			}
+		}
+		if timeType.Unit.IsSetMICROS() {
+			if v, ok := val.(int64); ok {
+				return TIME_MICROSToTimeFormat(v)
+			}
+		}
+		if timeType.Unit.IsSetNANOS() {
+			// NANOS would be stored as int64, but we can treat it similarly to micros
+			if v, ok := val.(int64); ok {
+				// Convert nanos to the same format but preserve nanosecond precision
+				totalNanos := v
+				hours := totalNanos / int64(time.Hour)
+				totalNanos %= int64(time.Hour)
+				minutes := totalNanos / int64(time.Minute)
+				totalNanos %= int64(time.Minute)
+				seconds := totalNanos / int64(time.Second)
+				totalNanos %= int64(time.Second)
+				nanos := totalNanos
+
+				return fmt.Sprintf("%02d:%02d:%02d.%09d", hours, minutes, seconds, nanos)
+			}
+		}
+	}
+
+	return val
 }
 
 // convertBinaryValue handles base64 encoding for binary data without logical/converted types
