@@ -548,7 +548,7 @@ func convertINT96Value(val any) any {
 	return val
 }
 
-// convertIntervalValue handles INTERVAL to Go duration string conversion
+// convertIntervalValue handles INTERVAL to formatted string conversion
 func convertIntervalValue(val any) any {
 	if val == nil {
 		return nil
@@ -557,13 +557,11 @@ func convertIntervalValue(val any) any {
 	switch v := val.(type) {
 	case []byte:
 		if len(v) == 12 {
-			duration := IntervalToDuration(v)
-			return duration.String()
+			return IntervalToString(v)
 		}
 	case string:
 		if len(v) == 12 {
-			duration := IntervalToDuration([]byte(v))
-			return duration.String()
+			return IntervalToString([]byte(v))
 		}
 	}
 

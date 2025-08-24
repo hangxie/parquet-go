@@ -1043,7 +1043,7 @@ func Test_ParquetTypeToJSONType(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL),
 			precision: 0,
 			scale:     0,
-			expected:  (26 * time.Hour).String(), // 1 day + 2 hours = 26 hours
+			expected:  "1 day 7200.00 sec", // 1 day + 2 hours = 1 day + 7200 seconds
 		},
 		{
 			name:      "timestamp_millis_converted_type",
@@ -1358,7 +1358,7 @@ func Test_convertIntervalValue(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 3600000) // 1 hour in milliseconds
 				return b
 			}(),
-			expected: (25 * time.Hour).String(), // 1 day + 1 hour = 25 hours
+			expected: "1 day 3600.00 sec",
 		},
 		{
 			name: "valid_interval_string",
@@ -1369,7 +1369,18 @@ func Test_convertIntervalValue(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 1000) // 1 second in milliseconds
 				return string(b)
 			}(),
-			expected: time.Second.String(),
+			expected: "1.00 sec",
+		},
+		{
+			name: "interval_with_months_days_seconds",
+			val: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 2)     // 2 months
+				binary.LittleEndian.PutUint32(b[4:8], 15)    // 15 days
+				binary.LittleEndian.PutUint32(b[8:12], 1500) // 1.5 seconds
+				return b
+			}(),
+			expected: "2 mon 15 day 1.50 sec",
 		},
 		{
 			name:     "invalid_length_string",

@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
@@ -153,20 +154,31 @@ func DECIMAL_BYTE_ARRAY_ToString(dec []byte, precision, scale int) string {
 	return sign + sa
 }
 
-func IntervalToDuration(interval []byte) time.Duration {
+func IntervalToString(interval []byte) string {
 	if len(interval) != 12 {
-		return 0
+		return ""
 	}
 
 	months := binary.LittleEndian.Uint32(interval[0:4])
 	days := binary.LittleEndian.Uint32(interval[4:8])
 	milliseconds := binary.LittleEndian.Uint32(interval[8:12])
 
-	duration := time.Duration(months)*30*24*time.Hour +
-		time.Duration(days)*24*time.Hour +
-		time.Duration(milliseconds)*time.Millisecond
+	// Convert milliseconds to seconds with decimals
+	seconds := float64(milliseconds) / 1000.0
 
-	return duration
+	// Format as "XX mon XX day XX.xx sec"
+	var parts []string
+	if months > 0 {
+		parts = append(parts, fmt.Sprintf("%d mon", months))
+	}
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%d day", days))
+	}
+	if seconds > 0 || len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("%.2f sec", seconds))
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func TIMESTAMP_MILLISToISO8601(millis int64, adjustedToUTC bool) string {

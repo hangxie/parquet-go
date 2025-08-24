@@ -215,16 +215,16 @@ func Test_TimeToTIME_MILLIS(t *testing.T) {
 	require.Equal(t, expected2, result2, "TimeToTIME_MILLIS(UTC=false) expected %d, got %d", expected2, result2)
 }
 
-func Test_IntervalToDuration(t *testing.T) {
+func Test_IntervalToString(t *testing.T) {
 	tests := []struct {
 		name     string
 		interval []byte
-		expected time.Duration
+		expected string
 	}{
 		{
 			name:     "zero_interval",
 			interval: make([]byte, 12), // All zeros
-			expected: 0,
+			expected: "0.00 sec",
 		},
 		{
 			name: "one_month_interval",
@@ -235,7 +235,7 @@ func Test_IntervalToDuration(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 0) // 0 milliseconds
 				return b
 			}(),
-			expected: 30 * 24 * time.Hour, // Approximately 1 month (30 days)
+			expected: "1 mon",
 		},
 		{
 			name: "one_day_interval",
@@ -246,7 +246,7 @@ func Test_IntervalToDuration(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 0) // 0 milliseconds
 				return b
 			}(),
-			expected: 24 * time.Hour,
+			expected: "1 day",
 		},
 		{
 			name: "one_hour_interval",
@@ -257,7 +257,7 @@ func Test_IntervalToDuration(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 3600000) // 1 hour in milliseconds
 				return b
 			}(),
-			expected: time.Hour,
+			expected: "3600.00 sec",
 		},
 		{
 			name: "complex_interval",
@@ -268,23 +268,61 @@ func Test_IntervalToDuration(t *testing.T) {
 				binary.LittleEndian.PutUint32(b[8:12], 7200000) // 2 hours in milliseconds
 				return b
 			}(),
-			expected: 2*30*24*time.Hour + 15*24*time.Hour + 2*time.Hour,
+			expected: "2 mon 15 day 7200.00 sec",
+		},
+		{
+			name: "months_and_seconds_only",
+			interval: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 3)     // 3 months
+				binary.LittleEndian.PutUint32(b[4:8], 0)     // 0 days
+				binary.LittleEndian.PutUint32(b[8:12], 1500) // 1.5 seconds in milliseconds
+				return b
+			}(),
+			expected: "3 mon 1.50 sec",
+		},
+		{
+			name: "days_and_seconds_only",
+			interval: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 0)    // 0 months
+				binary.LittleEndian.PutUint32(b[4:8], 7)    // 7 days
+				binary.LittleEndian.PutUint32(b[8:12], 500) // 0.5 seconds in milliseconds
+				return b
+			}(),
+			expected: "7 day 0.50 sec",
+		},
+		{
+			name: "fractional_seconds",
+			interval: func() []byte {
+				b := make([]byte, 12)
+				binary.LittleEndian.PutUint32(b[0:4], 0)   // 0 months
+				binary.LittleEndian.PutUint32(b[4:8], 0)   // 0 days
+				binary.LittleEndian.PutUint32(b[8:12], 25) // 0.025 seconds in milliseconds
+				return b
+			}(),
+			expected: "0.03 sec",
 		},
 		{
 			name:     "invalid_length_short",
 			interval: []byte{1, 2, 3},
-			expected: 0,
+			expected: "",
 		},
 		{
 			name:     "invalid_length_long",
 			interval: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
-			expected: 0,
+			expected: "",
+		},
+		{
+			name:     "nil_interval",
+			interval: nil,
+			expected: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := IntervalToDuration(tt.interval)
+			result := IntervalToString(tt.interval)
 			require.Equal(t, tt.expected, result)
 		})
 	}
