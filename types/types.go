@@ -407,12 +407,12 @@ func ParquetTypeToJSONType(val any, pT *parquet.Type, cT *parquet.ConvertedType,
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
 		// TIMESTAMP_MILLIS is stored as int64 milliseconds since epoch
 		// Convert to ISO8601 format
-		return convertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MILLIS)
+		return ConvertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MILLIS)
 
 	case parquet.ConvertedType_TIMESTAMP_MICROS:
 		// TIMESTAMP_MICROS is stored as int64 microseconds since epoch
 		// Convert to ISO8601 format
-		return convertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MICROS)
+		return ConvertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MICROS)
 
 	case parquet.ConvertedType_INT_8:
 		// Convert back to int8 representation for JSON
@@ -492,13 +492,13 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 			decimal := lT.GetDECIMAL()
 			actualPrecision := int(decimal.GetPrecision())
 			actualScale := int(decimal.GetScale())
-			return convertDecimalValue(val, pT, actualPrecision, actualScale)
+			return ConvertDecimalValue(val, pT, actualPrecision, actualScale)
 		}
 		if lT.IsSetTIMESTAMP() {
 			return convertTimestampLogicalValue(val, lT.GetTIMESTAMP())
 		}
 		if lT.IsSetTIME() {
-			return convertTimeLogicalValue(val, lT.GetTIME())
+			return ConvertTimeLogicalValue(val, lT.GetTIME())
 		}
 		if lT.IsSetSTRING() {
 			// STRING logical type should return the string value as-is
@@ -513,7 +513,7 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 
 	// Fall back to ConvertedType (legacy)
 	if cT != nil && *cT == parquet.ConvertedType_DECIMAL {
-		return convertDecimalValue(val, pT, precision, scale)
+		return ConvertDecimalValue(val, pT, precision, scale)
 	}
 
 	// If no logical type and no converted type, check for binary types
@@ -527,8 +527,8 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 	return ParquetTypeToJSONType(val, pT, cT, precision, scale)
 }
 
-// convertDecimalValue handles decimal conversion for both logical and converted types
-func convertDecimalValue(val any, pT *parquet.Type, precision, scale int) any {
+// ConvertDecimalValue handles decimal conversion for both logical and converted types
+func ConvertDecimalValue(val any, pT *parquet.Type, precision, scale int) any {
 	switch *pT {
 	case parquet.Type_INT32:
 		if v, ok := val.(int32); ok {
@@ -576,8 +576,8 @@ func convertIntervalValue(val any) any {
 	return val
 }
 
-// convertTimestampValue handles timestamp conversion to ISO8601 format
-func convertTimestampValue(val any, convertedType parquet.ConvertedType) any {
+// ConvertTimestampValue handles timestamp conversion to ISO8601 format
+func ConvertTimestampValue(val any, convertedType parquet.ConvertedType) any {
 	if val == nil {
 		return nil
 	}
@@ -627,8 +627,8 @@ func convertTimestampLogicalValue(val any, timestamp *parquet.TimestampType) any
 	return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
 }
 
-// convertTimeLogicalValue handles time LogicalType conversion to time format
-func convertTimeLogicalValue(val any, timeType *parquet.TimeType) any {
+// ConvertTimeLogicalValue handles time LogicalType conversion to time format
+func ConvertTimeLogicalValue(val any, timeType *parquet.TimeType) any {
 	if val == nil || timeType == nil {
 		return val
 	}

@@ -1602,7 +1602,7 @@ func Test_TIMESTAMP_MICROSToISO8601(t *testing.T) {
 	}
 }
 
-func Test_convertTimestampValue(t *testing.T) {
+func Test_ConvertTimestampValue(t *testing.T) {
 	tests := []struct {
 		name          string
 		val           any
@@ -1643,7 +1643,7 @@ func Test_convertTimestampValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := convertTimestampValue(tt.val, tt.convertedType)
+			result := ConvertTimestampValue(tt.val, tt.convertedType)
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -1856,26 +1856,26 @@ func Test_convertUUIDValue(t *testing.T) {
 	}
 }
 
-func Test_convertDecimalValue(t *testing.T) {
+func Test_ConvertDecimalValue(t *testing.T) {
 	pT := parquet.TypePtr(parquet.Type_INT32)
 
 	// int32 - now returns float64 instead of string
-	res := convertDecimalValue(int32(12345), pT, 10, 2)
+	res := ConvertDecimalValue(int32(12345), pT, 10, 2)
 	require.Equal(t, float64(123.45), res)
 
 	// int64 - now returns float64 instead of string
 	pT = parquet.TypePtr(parquet.Type_INT64)
-	res = convertDecimalValue(int64(12345), pT, 10, 2)
+	res = ConvertDecimalValue(int64(12345), pT, 10, 2)
 	require.Equal(t, float64(123.45), res)
 
 	// string - now returns float64 instead of string
 	pT = parquet.TypePtr(parquet.Type_BYTE_ARRAY)
 	val := StrIntToBinary("12345", "BigEndian", 0, true)
-	res = convertDecimalValue(val, pT, 10, 2)
+	res = ConvertDecimalValue(val, pT, 10, 2)
 	require.Equal(t, float64(123.45), res)
 
 	// default
-	res = convertDecimalValue(float32(123.45), pT, 10, 2)
+	res = ConvertDecimalValue(float32(123.45), pT, 10, 2)
 	require.Equal(t, float32(123.45), res)
 }
 
