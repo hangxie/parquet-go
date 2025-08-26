@@ -500,6 +500,9 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 		if lT.IsSetTIME() {
 			return ConvertTimeLogicalValue(val, lT.GetTIME())
 		}
+		if lT.IsSetDATE() {
+			return ConvertDateLogicalValue(val)
+		}
 		if lT.IsSetSTRING() {
 			// STRING logical type should return the string value as-is
 			return val
@@ -661,6 +664,23 @@ func ConvertTimeLogicalValue(val any, timeType *parquet.TimeType) any {
 				return fmt.Sprintf("%02d:%02d:%02d.%09d", hours, minutes, seconds, nanos)
 			}
 		}
+	}
+
+	return val
+}
+
+// ConvertDateLogicalValue handles DATE LogicalType conversion to date format "2006-01-02"
+func ConvertDateLogicalValue(val any) any {
+	if val == nil {
+		return val
+	}
+
+	// DATE is stored as int32 days since Unix epoch (1970-01-01)
+	if v, ok := val.(int32); ok {
+		// Convert days since epoch to time.Time
+		epochDate := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+		resultDate := epochDate.AddDate(0, 0, int(v))
+		return resultDate.Format("2006-01-02")
 	}
 
 	return val

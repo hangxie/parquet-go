@@ -1895,3 +1895,54 @@ func Test_convertINT96Value(t *testing.T) {
 	res = convertINT96Value(123)
 	require.Equal(t, 123, res)
 }
+
+func Test_ConvertDateLogicalValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		val      any
+		expected any
+	}{
+		{
+			name:     "nil_value",
+			val:      nil,
+			expected: nil,
+		},
+		{
+			name:     "epoch_day_zero",
+			val:      int32(0), // 1970-01-01
+			expected: "1970-01-01",
+		},
+		{
+			name:     "positive_days",
+			val:      int32(19358), // 2023-01-01
+			expected: "2023-01-01",
+		},
+		{
+			name:     "negative_days",
+			val:      int32(-1), // 1969-12-31
+			expected: "1969-12-31",
+		},
+		{
+			name:     "leap_year_date",
+			val:      int32(19417), // 2023-02-29 would be invalid, using 2023-03-01
+			expected: "2023-03-01",
+		},
+		{
+			name:     "non_int32_value",
+			val:      "not_an_int32",
+			expected: "not_an_int32", // Should return unchanged
+		},
+		{
+			name:     "int64_value",
+			val:      int64(19358),
+			expected: int64(19358), // Should return unchanged as it's not int32
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertDateLogicalValue(tt.val)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
