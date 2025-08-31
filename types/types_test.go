@@ -1775,7 +1775,7 @@ func Test_convertBinaryValue(t *testing.T) {
 	}
 }
 
-func Test_convertUUIDValue(t *testing.T) {
+func Test_ConvertUUIDValue(t *testing.T) {
 	tests := []struct {
 		name     string
 		val      any
@@ -1850,7 +1850,7 @@ func Test_convertUUIDValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := convertUUIDValue(tt.val)
+			result := ConvertUUIDValue(tt.val)
 			require.Equal(t, tt.expected, result)
 		})
 	}

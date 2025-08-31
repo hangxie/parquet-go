@@ -508,7 +508,7 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 			return val
 		}
 		if lT.IsSetUUID() {
-			return convertUUIDValue(val)
+			return ConvertUUIDValue(val)
 		}
 		// For other logical types, don't apply base64 encoding - return as-is
 		return val
@@ -702,8 +702,8 @@ func convertBinaryValue(val any) any {
 	return val
 }
 
-// convertUUIDValue handles UUID conversion from binary data to standard UUID string format
-func convertUUIDValue(val any) any {
+// ConvertUUIDValue handles UUID conversion from binary data to standard UUID string format
+func ConvertUUIDValue(val any) any {
 	if val == nil {
 		return nil
 	}
