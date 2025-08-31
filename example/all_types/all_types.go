@@ -129,7 +129,7 @@ func main() {
 			Double:            float64(i) * 0.5,
 			ByteArray:         fmt.Sprintf("ByteArray-%d", i),
 			Enum:              fmt.Sprintf("Enum-%d", i),
-			Uuid:              uuidStringToBytes("12345678-ABCD-4444-" + strings.Repeat(strI, 4) + "-567890ABCDEF"),
+			Uuid:              string(bytes.Repeat([]byte{byte(i)}, 16)),
 			Json:              `{"` + strI + `":` + strI + `}`,
 			FixedLenByteArray: fmt.Sprintf("Fixed-%04d", i),
 			Utf8:              fmt.Sprintf("UTF8-%d", i),
