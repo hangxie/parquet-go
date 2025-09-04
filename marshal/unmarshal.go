@@ -77,7 +77,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 			tableEnd[name] = ln
 		}
 		if tableBgn[name] < 0 {
-			return
+			return err
 		}
 	}
 

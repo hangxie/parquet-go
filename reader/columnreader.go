@@ -101,7 +101,7 @@ func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []a
 func (pr *ParquetReader) ReadColumnByIndex(index, num int64) (values []any, rls, dls []int32, err error) {
 	if index < 0 || index >= int64(len(pr.SchemaHandler.ValueColumns)) {
 		err = fmt.Errorf("index %v out of range [0, %v)", index, len(pr.SchemaHandler.ValueColumns))
-		return
+		return values, rls, dls, err
 	}
 	pathStr := pr.SchemaHandler.ValueColumns[index]
 	return pr.ReadColumnByPath(pathStr, num)

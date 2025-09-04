@@ -33,9 +33,18 @@ jobs:
   coverage-report:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: go.sum
+      - name: Running tests
+        run: make test
       - name: Update coverage badge
         uses: ncruces/go-coverage-report@main
         with:
           report: true
           chart: true
           amend: true
+          coverage-file: build/test/coverage.out
