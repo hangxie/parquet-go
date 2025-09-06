@@ -396,3 +396,49 @@ func Test_http_reader_no_range_support(t *testing.T) {
 		}
 	}
 }
+
+func Test_NewHttpReader_ConcurrentSafety(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", "1000")
+		w.Header().Set("Content-Range", "bytes 0-0/1000")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("x"))
+	}))
+	defer server.Close()
+
+	const numGoroutines = 100
+	results := make(chan error, numGoroutines)
+
+	// Test concurrent calls with different configurations to trigger race conditions
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			// Alternate between dedicated transport and shared transport
+			dedicatedTransport := idx%2 == 0
+			ignoreTLS := idx%3 == 0
+
+			reader, err := NewHttpReader(server.URL, dedicatedTransport, ignoreTLS, nil)
+			if err != nil {
+				results <- err
+				return
+			}
+			defer func() {
+				_ = reader.Close()
+			}()
+
+			// Verify we got a valid reader
+			if reader == nil {
+				results <- fmt.Errorf("reader is nil")
+				return
+			}
+
+			results <- nil
+		}(i)
+	}
+
+	// Collect all results
+	for i := 0; i < numGoroutines; i++ {
+		err := <-results
+		require.NoError(t, err)
+	}
+}
