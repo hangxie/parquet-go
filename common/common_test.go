@@ -536,6 +536,8 @@ func Test_newLogicalTypeFromConvertedType(t *testing.T) {
 }
 
 func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
+	v1 := int8(1)
+	crs := "OGC:CRS84"
 	testCases := map[string]struct {
 		fields   map[string]string
 		expected parquet.LogicalType
@@ -647,6 +649,32 @@ func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
 			parquet.LogicalType{STRING: &parquet.StringType{}},
 			"unknown logicaltype:",
 		},
+		// Newly added logical types
+		"float16": {
+			map[string]string{"logicaltype": "FLOAT16"},
+			parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			"",
+		},
+		"variant-with-version": {
+			map[string]string{"logicaltype": "VARIANT", "logicaltype.specification_version": "1"},
+			parquet.LogicalType{VARIANT: &parquet.VariantType{SpecificationVersion: &v1}},
+			"",
+		},
+		"geometry-with-crs": {
+			map[string]string{"logicaltype": "GEOMETRY", "logicaltype.crs": "OGC:CRS84"},
+			parquet.LogicalType{GEOMETRY: &parquet.GeometryType{CRS: &crs}},
+			"",
+		},
+		"geography-with-crs-and-algo": {
+			map[string]string{"logicaltype": "GEOGRAPHY", "logicaltype.crs": "OGC:CRS84", "logicaltype.algorithm": "VINCENTY"},
+			parquet.LogicalType{GEOGRAPHY: &parquet.GeographyType{CRS: &crs, Algorithm: parquet.EdgeInterpolationAlgorithmPtr(parquet.EdgeInterpolationAlgorithm_VINCENTY)}},
+			"",
+		},
+		"geography-bad-algo": {
+			map[string]string{"logicaltype": "GEOGRAPHY", "logicaltype.algorithm": "UNKNOWN"},
+			parquet.LogicalType{GEOGRAPHY: &parquet.GeographyType{}},
+			"logicaltype geography error, unknown algorithm:",
+		},
 	}
 
 	for name, tc := range testCases {
@@ -686,6 +714,37 @@ func Test_newTimeUnitFromString(t *testing.T) {
 				require.Contains(t, err.Error(), tc.errMsg)
 			}
 		})
+	}
+}
+
+func Test_newEdgeInterpolationAlgorithmFromString(t *testing.T) {
+	tests := []struct {
+		in     string
+		want   parquet.EdgeInterpolationAlgorithm
+		errStr string
+	}{
+		{"SPHERICAL", parquet.EdgeInterpolationAlgorithm_SPHERICAL, ""},
+		{"VINCENTY", parquet.EdgeInterpolationAlgorithm_VINCENTY, ""},
+		{"THOMAS", parquet.EdgeInterpolationAlgorithm_THOMAS, ""},
+		{"ANDOYER", parquet.EdgeInterpolationAlgorithm_ANDOYER, ""},
+		{"KARNEY", parquet.EdgeInterpolationAlgorithm_KARNEY, ""},
+		{"", 0, ""},
+		{"bad", 0, "unknown algorithm:"},
+	}
+	for _, tc := range tests {
+		got, err := newEdgeInterpolationAlgorithmFromString(tc.in)
+		if tc.errStr == "" {
+			require.NoError(t, err)
+			if tc.in == "" {
+				require.Nil(t, got)
+			} else {
+				require.NotNil(t, got)
+				require.Equal(t, tc.want, *got)
+			}
+		} else {
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.errStr)
+		}
 	}
 }
 

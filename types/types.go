@@ -2,7 +2,9 @@ package types
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"strconv"
@@ -494,6 +496,10 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 			actualScale := int(decimal.GetScale())
 			return ConvertDecimalValue(val, pT, actualPrecision, actualScale)
 		}
+		// Newer logical types handling
+		if lT.IsSetFLOAT16() {
+			return ConvertFloat16LogicalValue(val)
+		}
 		if lT.IsSetTIMESTAMP() {
 			return convertTimestampLogicalValue(val, lT.GetTIMESTAMP())
 		}
@@ -507,8 +513,17 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 			// STRING logical type should return the string value as-is
 			return val
 		}
+		if lT.IsSetINTEGER() {
+			return ConvertIntegerLogicalValue(val, pT, lT.GetINTEGER())
+		}
 		if lT.IsSetUUID() {
 			return ConvertUUIDValue(val)
+		}
+		if lT.IsSetGEOMETRY() {
+			return ConvertGeometryLogicalValue(val, lT.GetGEOMETRY())
+		}
+		if lT.IsSetGEOGRAPHY() {
+			return ConvertGeographyLogicalValue(val, lT.GetGEOGRAPHY())
 		}
 		// For other logical types, don't apply base64 encoding - return as-is
 		return val
@@ -702,6 +717,129 @@ func convertBinaryValue(val any) any {
 	return val
 }
 
+// ConvertFloat16LogicalValue converts FIXED[2] IEEE 754 half-precision to float32
+func ConvertFloat16LogicalValue(val any) any {
+	if val == nil {
+		return nil
+	}
+
+	var b []byte
+	switch v := val.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
+		return val
+	}
+
+	if len(b) != 2 {
+		return val
+	}
+
+	// Assume big-endian order as commonly used in Parquet fixed byte arrays
+	u := uint16(b[0])<<8 | uint16(b[1])
+	sign := ((u >> 15) & 0x1) != 0
+	exp := (u >> 10) & 0x1F
+	frac := u & 0x3FF
+
+	var f float32
+	if exp == 0x1F { // Inf/NaN
+		if frac != 0 {
+			// NaN: keep raw
+			return val
+		}
+		if sign {
+			f = float32(math.Inf(-1))
+		} else {
+			f = float32(math.Inf(1))
+		}
+	} else if exp == 0 { // subnormal or zero
+		mant := float32(frac) / 1024.0
+		f = mant / float32(1<<14)
+		if sign {
+			f = -f
+		}
+	} else { // normalized
+		mant := 1.0 + float32(frac)/1024.0
+		exponent := int(exp) - 15
+		// compute mant * 2^exponent
+		if exponent >= 0 {
+			p := 1 << exponent
+			f = mant * float32(p)
+		} else {
+			p := 1 << (-exponent)
+			f = mant / float32(p)
+		}
+		if sign {
+			f = -f
+		}
+	}
+
+	return f
+}
+
+// ConvertIntegerLogicalValue converts value based on INTEGER logical type width/sign
+func ConvertIntegerLogicalValue(val any, pT *parquet.Type, intType *parquet.IntType) any {
+	if val == nil || intType == nil {
+		return val
+	}
+
+	bitWidth := intType.GetBitWidth()
+	signed := intType.GetIsSigned()
+
+	// Helper closures to cast from int32 and int64
+	cast32 := func(v int32) any {
+		if signed {
+			switch bitWidth {
+			case 8:
+				return int8(v)
+			case 16:
+				return int16(v)
+			case 32:
+				return v
+			default:
+				return v
+			}
+		} else {
+			switch bitWidth {
+			case 8:
+				return uint8(v)
+			case 16:
+				return uint16(v)
+			case 32:
+				return uint32(v)
+			default:
+				return uint32(v)
+			}
+		}
+	}
+
+	cast64 := func(v int64) any {
+		if signed {
+			if bitWidth == 64 {
+				return v
+			}
+			// For 32-bit integer stored in int64, downcast safely
+			return int32(v)
+		} else {
+			if bitWidth == 64 {
+				return uint64(v)
+			}
+			return uint32(v)
+		}
+	}
+
+	switch v := val.(type) {
+	case int32:
+		return cast32(v)
+	case int64:
+		return cast64(v)
+	default:
+		return val
+	}
+}
+
 // ConvertUUIDValue handles UUID conversion from binary data to standard UUID string format
 func ConvertUUIDValue(val any) any {
 	if val == nil {
@@ -730,6 +868,109 @@ func ConvertUUIDValue(val any) any {
 		uint16(bytes[6])<<8|uint16(bytes[7]),
 		uint16(bytes[8])<<8|uint16(bytes[9]),
 		uint64(bytes[10])<<40|uint64(bytes[11])<<32|uint64(bytes[12])<<24|uint64(bytes[13])<<16|uint64(bytes[14])<<8|uint64(bytes[15]))
+}
+
+// ConvertGeometryLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex and CRS
+func ConvertGeometryLogicalValue(val any, geom *parquet.GeometryType) any {
+	if val == nil {
+		return nil
+	}
+	var b []byte
+	switch v := val.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
+		return val
+	}
+	crs := "OGC:CRS84"
+	if geom != nil && geom.CRS != nil && *geom.CRS != "" {
+		crs = *geom.CRS
+	}
+	switch geometryJSONMode {
+	case GeospatialModeGeoJSON:
+		if gj, ok := wkbToGeoJSON(b); ok {
+			if crs != "OGC:CRS84" && geospatialReprojector != nil {
+				if rj, ok2 := geospatialReprojector(crs, gj); ok2 {
+					gj = rj
+				}
+			}
+			if geospatialGeoJSONAsFeature {
+				return makeGeoJSONFeature(gj, map[string]any{"crs": crs})
+			}
+			return gj
+		}
+		// fallback
+		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs}
+	case GeospatialModeBase64:
+		return map[string]any{"wkb_b64": base64.StdEncoding.EncodeToString(b), "crs": crs}
+	case GeospatialModeHybrid:
+		if gj, ok := wkbToGeoJSON(b); ok {
+			m := wrapGeoJSONHybrid(gj, b, geospatialHybridUseBase64, true)
+			m["crs"] = crs
+			return m
+		}
+		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs}
+	default: // hex
+		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs}
+	}
+}
+
+// ConvertGeographyLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex, CRS and algorithm
+func ConvertGeographyLogicalValue(val any, geo *parquet.GeographyType) any {
+	if val == nil {
+		return nil
+	}
+	var b []byte
+	switch v := val.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
+		return val
+	}
+	crs := "OGC:CRS84"
+	if geo != nil && geo.CRS != nil && *geo.CRS != "" {
+		crs = *geo.CRS
+	}
+	algo := "SPHERICAL"
+	if geo != nil && geo.Algorithm != nil {
+		algo = geo.Algorithm.String()
+	}
+	switch geographyJSONMode {
+	case GeospatialModeGeoJSON:
+		if gj, ok := wkbToGeoJSON(b); ok {
+			if crs != "OGC:CRS84" && geospatialReprojector != nil {
+				if rj, ok2 := geospatialReprojector(crs, gj); ok2 {
+					gj = rj
+				}
+			}
+			if geospatialGeoJSONAsFeature {
+				return makeGeoJSONFeature(gj, map[string]any{"crs": crs, "algorithm": algo})
+			}
+			return gj
+		}
+		// fallback
+		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
+	case GeospatialModeBase64:
+		return map[string]any{"wkb_b64": base64.StdEncoding.EncodeToString(b), "crs": crs, "algorithm": algo}
+	case GeospatialModeHybrid:
+		if gj, ok := wkbToGeoJSON(b); ok {
+			if crs != "OGC:CRS84" && geospatialReprojector != nil {
+				if rj, ok2 := geospatialReprojector(crs, gj); ok2 {
+					gj = rj
+				}
+			}
+			m := wrapGeoJSONHybrid(gj, b, geospatialHybridUseBase64, true)
+			m["crs"], m["algorithm"] = crs, algo
+			return m
+		}
+		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
+	default: // hex
+		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
+	}
 }
 
 // decimalIntToFloat converts a decimal integer value to float64 for JSON output

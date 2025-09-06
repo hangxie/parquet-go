@@ -1,7 +1,9 @@
 package common
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"reflect"
 
 	"github.com/hangxie/parquet-go/v2/parquet"
@@ -42,6 +44,88 @@ var convertedTypeFuncTable = map[parquet.ConvertedType]FuncTable{
 	parquet.ConvertedType_TIME_MILLIS:      int32FuncTable{},
 	parquet.ConvertedType_TIMESTAMP_MICROS: int64FuncTable{},
 	parquet.ConvertedType_TIMESTAMP_MILLIS: int64FuncTable{},
+}
+
+// float16FuncTable provides numeric ordering for FLOAT16 logical type stored in FIXED[2]
+type float16FuncTable struct{}
+
+func (float16FuncTable) LessThan(a, b any) bool {
+	fa, oka := halfToFloat32(a)
+	fb, okb := halfToFloat32(b)
+	if oka && okb {
+		return fa < fb
+	}
+	// Fallback: lexicographic compare on raw bytes
+	ab := toBytes(a)
+	bb := toBytes(b)
+	if ab == nil || bb == nil {
+		return false
+	}
+	return bytes.Compare(ab, bb) < 0
+}
+
+func (table float16FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+	return Min(table, minVal, val), Max(table, maxVal, val), 2
+}
+
+func toBytes(v any) []byte {
+	switch t := v.(type) {
+	case string:
+		b := []byte(t)
+		if len(b) > 0 {
+			return b
+		}
+		return []byte{}
+	case []byte:
+		return t
+	default:
+		return nil
+	}
+}
+
+// halfToFloat32 decodes big-endian IEEE 754 binary16 to float32
+func halfToFloat32(v any) (float32, bool) {
+	b := toBytes(v)
+	if b == nil || len(b) != 2 {
+		return 0, false
+	}
+	u := uint16(b[0])<<8 | uint16(b[1])
+	sign := (u>>15)&0x1 != 0
+	exp := (u >> 10) & 0x1F
+	frac := u & 0x03FF
+
+	var f float32
+	switch exp {
+	case 0x1F: // Inf/NaN
+		if frac != 0 {
+			return 0, false
+		}
+		if sign {
+			f = float32(math.Inf(-1))
+		} else {
+			f = float32(math.Inf(1))
+		}
+	case 0: // subnormal/zero
+		mant := float32(frac) / 1024.0
+		f = mant / float32(1<<14)
+		if sign {
+			f = -f
+		}
+	default:
+		mant := 1.0 + float32(frac)/1024.0
+		exponent := int(exp) - 15
+		if exponent >= 0 {
+			p := 1 << exponent
+			f = mant * float32(p)
+		} else {
+			p := 1 << (-exponent)
+			f = mant / float32(p)
+		}
+		if sign {
+			f = -f
+		}
+	}
+	return f, true
 }
 
 func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.LogicalType) (FuncTable, error) {
@@ -96,6 +180,12 @@ func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.Lo
 				return int64FuncTable{}, nil
 			}
 		} else if logT.BSON != nil || logT.JSON != nil || logT.STRING != nil || logT.UUID != nil {
+			return stringFuncTable{}, nil
+		} else if logT.FLOAT16 != nil {
+			// FLOAT16 stored in FIXED[2]; use numeric ordering
+			return float16FuncTable{}, nil
+		} else if logT.VARIANT != nil || logT.GEOMETRY != nil || logT.GEOGRAPHY != nil {
+			// Treat as binary for sizing/min/max
 			return stringFuncTable{}, nil
 		}
 	}

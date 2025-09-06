@@ -189,6 +189,31 @@ func newTimeUnitFromString(unitStr string) (*parquet.TimeUnit, error) {
 	return unit, nil
 }
 
+func newEdgeInterpolationAlgorithmFromString(algoStr string) (*parquet.EdgeInterpolationAlgorithm, error) {
+	if algoStr == "" {
+		return nil, nil
+	}
+	switch strings.ToUpper(algoStr) {
+	case "SPHERICAL":
+		v := parquet.EdgeInterpolationAlgorithm_SPHERICAL
+		return parquet.EdgeInterpolationAlgorithmPtr(v), nil
+	case "VINCENTY":
+		v := parquet.EdgeInterpolationAlgorithm_VINCENTY
+		return parquet.EdgeInterpolationAlgorithmPtr(v), nil
+	case "THOMAS":
+		v := parquet.EdgeInterpolationAlgorithm_THOMAS
+		return parquet.EdgeInterpolationAlgorithmPtr(v), nil
+	case "ANDOYER":
+		v := parquet.EdgeInterpolationAlgorithm_ANDOYER
+		return parquet.EdgeInterpolationAlgorithmPtr(v), nil
+	case "KARNEY":
+		v := parquet.EdgeInterpolationAlgorithm_KARNEY
+		return parquet.EdgeInterpolationAlgorithmPtr(v), nil
+	default:
+		return nil, fmt.Errorf("logicaltype geography error, unknown algorithm: %s", algoStr)
+	}
+}
+
 func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, error) {
 	val, ok := mp["logicaltype"]
 	if !ok {
@@ -248,6 +273,35 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		logicalType.BSON = parquet.NewBsonType()
 	case "UUID":
 		logicalType.UUID = parquet.NewUUIDType()
+	case "FLOAT16":
+		logicalType.FLOAT16 = parquet.NewFloat16Type()
+	case "VARIANT":
+		logicalType.VARIANT = parquet.NewVariantType()
+		if vStr, ok := mp["logicaltype.specification_version"]; ok && vStr != "" {
+			iv, err := str2Int32(vStr)
+			if err != nil {
+				return nil, fmt.Errorf("cannot parse logicaltype.specification_version as int32: %s", err.Error())
+			}
+			v := int8(iv)
+			logicalType.VARIANT.SpecificationVersion = &v
+		}
+	case "GEOMETRY":
+		logicalType.GEOMETRY = parquet.NewGeometryType()
+		if crs, ok := mp["logicaltype.crs"]; ok && crs != "" {
+			logicalType.GEOMETRY.CRS = &crs
+		}
+	case "GEOGRAPHY":
+		logicalType.GEOGRAPHY = parquet.NewGeographyType()
+		if crs, ok := mp["logicaltype.crs"]; ok && crs != "" {
+			logicalType.GEOGRAPHY.CRS = &crs
+		}
+		if algoStr, ok := mp["logicaltype.algorithm"]; ok && algoStr != "" {
+			algo, err := newEdgeInterpolationAlgorithmFromString(algoStr)
+			if err != nil {
+				return nil, err
+			}
+			logicalType.GEOGRAPHY.Algorithm = algo
+		}
 	default:
 		return nil, fmt.Errorf("unknown logicaltype: %s", val)
 	}
