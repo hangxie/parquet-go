@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/hex"
+	"math"
 	"reflect"
 	"testing"
 
@@ -60,6 +61,14 @@ func Test_FindFuncTable(t *testing.T) {
 		"BYTE_ARRAY-nil-JSON":               {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{JSON: &parquet.JsonType{}}, stringFuncTable{}},
 		"BYTE_ARRAY-nil-STRING":             {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{STRING: &parquet.StringType{}}, stringFuncTable{}},
 		"BYTE_ARRAY-nil-UUID":               {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{UUID: &parquet.UUIDType{}}, stringFuncTable{}},
+		// FLOAT16 logical type on FIXED_LEN_BYTE_ARRAY should use numeric ordering (float16FuncTable)
+		"FIXED_LEN_BYTE_ARRAY-nil-FLOAT16": {
+			ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), nil, &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}}, float16FuncTable{},
+		},
+		// Treat VARIANT/GEOMETRY/GEOGRAPHY as binary
+		"BYTE_ARRAY-nil-VARIANT":   {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{VARIANT: &parquet.VariantType{}}, stringFuncTable{}},
+		"BYTE_ARRAY-nil-GEOMETRY":  {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{GEOMETRY: &parquet.GeometryType{}}, stringFuncTable{}},
+		"BYTE_ARRAY-nil-GEOGRAPHY": {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{GEOGRAPHY: &parquet.GeographyType{}}, stringFuncTable{}},
 	}
 
 	for name, tc := range testCases {
@@ -78,6 +87,105 @@ func Test_FindFuncTable(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "cannot find func table for given types")
 	})
+}
+
+func Test_float16FuncTable(t *testing.T) {
+	// 0x3C00 -> 1.0; 0x3800 -> 0.5; 0xC000 -> -2.0 (big-endian)
+	be := func(u16 uint16) string { return string([]byte{byte(u16 >> 8), byte(u16)}) }
+
+	ftab := float16FuncTable{}
+	require.True(t, ftab.LessThan(be(0x3800), be(0x3C00)))  // 0.5 < 1.0
+	require.False(t, ftab.LessThan(be(0x3C00), be(0x3800))) // 1.0 < 0.5 is false
+	require.True(t, ftab.LessThan(be(0xC000), be(0x3800)))  // -2.0 < 0.5
+
+	// MinMaxSize should propagate min/max and size=2
+	min, max, sz := ftab.MinMaxSize(be(0x3C00), be(0x3800), be(0xC000))
+	// min(1.0, -2.0) => -2.0; max(0.5, -2.0) => 0.5
+	require.Equal(t, be(0xC000), min)
+	require.Equal(t, be(0x3800), max)
+	require.Equal(t, int32(2), sz)
+}
+
+func Test_float16FuncTable_FallbackLexicographic(t *testing.T) {
+	ftab := float16FuncTable{}
+
+	// Inputs not decodable as float16 (len != 2) use lexicographic order on raw bytes
+	require.True(t, ftab.LessThan("a", "b"))  // "a" < "b"
+	require.False(t, ftab.LessThan("b", "a")) // "b" < "a" is false
+	require.True(t, ftab.LessThan([]byte{1}, []byte{2}))
+
+	// If either side cannot convert to bytes, LessThan returns false
+	require.False(t, ftab.LessThan(123, "a"))
+	require.False(t, ftab.LessThan("a", 123))
+}
+
+func Test_halfToFloat32(t *testing.T) {
+    be := func(u16 uint16) string { return string([]byte{byte(u16 >> 8), byte(u16)}) }
+
+    // expected for smallest positive subnormal: (1/1024) * 2^-14
+    subnorm := float32(1.0/1024.0) / float32(1<<14)
+
+    type tc struct {
+        name    string
+        in      any
+        ok      bool
+        expect  *float32 // used when ok && not inf; nil when checking inf
+        approx  bool     // compare with epsilon when true
+        infSign int      // 0 none, +1 +Inf, -1 -Inf
+    }
+
+    f32 := func(v float32) *float32 { return &v }
+
+    cases := []tc{
+        {name: "one", in: be(0x3C00), ok: true, expect: f32(1.0)},
+        {name: "neg-two", in: be(0xC000), ok: true, expect: f32(-2.0)},
+        {name: "subnormal+", in: be(0x0001), ok: true, expect: &subnorm, approx: true},
+        {name: "subnormal-", in: be(0x8001), ok: true, expect: f32(-subnorm), approx: true},
+        {name: "zero", in: be(0x0000), ok: true, expect: f32(0.0)},
+        {name: "+inf", in: be(0x7C00), ok: true, infSign: +1},
+        {name: "-inf", in: be(0xFC00), ok: true, infSign: -1},
+        {name: "nan", in: be(0x7E00), ok: false},
+        {name: "wrong-len", in: string([]byte{0x00}), ok: false},
+    }
+
+    for _, c := range cases {
+        t.Run(c.name, func(t *testing.T) {
+            v, ok := halfToFloat32(c.in)
+            require.Equal(t, c.ok, ok)
+            if !ok {
+                return
+            }
+            if c.infSign != 0 {
+                require.True(t, math.IsInf(float64(v), c.infSign))
+                return
+            }
+            require.NotNil(t, c.expect)
+            if c.approx {
+                require.InEpsilon(t, *c.expect, v, 1e-6)
+            } else {
+                require.Equal(t, *c.expect, v)
+            }
+        })
+    }
+}
+
+func Test_toBytes(t *testing.T) {
+	// Non-empty string
+	b := toBytes("ab")
+	require.Equal(t, []byte("ab"), b)
+
+	// Empty string -> empty slice, not nil
+	b = toBytes("")
+	require.NotNil(t, b)
+	require.Equal(t, 0, len(b))
+
+	// []byte input
+	src := []byte{0, 1, 2}
+	b = toBytes(src)
+	require.Equal(t, src, b)
+
+	// Unsupported type -> nil
+	require.Nil(t, toBytes(123))
 }
 
 func Test_LessThan(t *testing.T) {
@@ -259,6 +367,8 @@ func Test_MinMaxSize(t *testing.T) {
 		"decimal-1": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x01", "\x00\x01", "\x04", 2},
 		"decimal-2": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x03", "\x02", "\x04", 2},
 		"decimal-3": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x05", "\x02", "\x00\x05", 2},
+		"float16-1": {float16FuncTable{}, string([]byte{0x3c, 0x00}), string([]byte{0x40, 0x00}), string([]byte{0x38, 0x00}), string([]byte{0x38, 0x00}), string([]byte{0x40, 0x00}), 2}, // 1.0,2.0,0.5
+		"float16-2": {float16FuncTable{}, string([]byte{0xc0, 0x00}), string([]byte{0x3c, 0x00}), string([]byte{0x40, 0x00}), string([]byte{0xc0, 0x00}), string([]byte{0x40, 0x00}), 2}, // -2.0,1.0,2.0
 	}
 
 	for name, tc := range testCases {

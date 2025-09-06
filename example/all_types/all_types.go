@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -38,9 +39,13 @@ type AllTypes struct {
 	ByteArray         string              `parquet:"name=byteArray, type=BYTE_ARRAY"`
 	Enum              string              `parquet:"name=Enum, type=BYTE_ARRAY, convertedtype=ENUM"`
 	Uuid              string              `parquet:"name=Uuid, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID"`
+	Float16Val        string              `parquet:"name=Float16Val, type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16"`
 	Json              string              `parquet:"name=Json, type=BYTE_ARRAY, convertedtype=JSON"`
+	Json2             string              `parquet:"name=Json2, type=BYTE_ARRAY, logicaltype=JSON"`
+	Bson2             string              `parquet:"name=Bson2, type=BYTE_ARRAY, logicaltype=BSON"`
 	FixedLenByteArray string              `parquet:"name=fixedLenByteArray, type=FIXED_LEN_BYTE_ARRAY, length=10"`
 	Utf8              string              `parquet:"name=Utf8, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	String2           string              `parquet:"name=String2, type=BYTE_ARRAY, logicaltype=STRING"`
 	ConvertedInt8     int32               `parquet:"name=Int_8, type=INT32, convertedtype=INT32, convertedtype=INT_8"`
 	ConvertedInt16    int32               `parquet:"name=Int_16, type=INT32, convertedtype=INT_16"`
 	ConvertedInt32    int32               `parquet:"name=Int_32, type=INT32, convertedtype=INT_32"`
@@ -62,6 +67,8 @@ type AllTypes struct {
 	TimestampMicros2  int64               `parquet:"name=TimestampMicros2, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=MICROS"`
 	TimestampNanos2   int64               `parquet:"name=TimestampNanos2, type=INT64, logicaltype=TIMESTAMP, logicaltype.isadjustedtoutc=false, logicaltype.unit=NANOS"`
 	Interval          string              `parquet:"name=Interval, type=FIXED_LEN_BYTE_ARRAY, convertedtype=INTERVAL, length=12"`
+	Int8Logical       int32               `parquet:"name=Int8Logical, type=INT32, logicaltype=INTEGER, logicaltype.bitwidth=8, logicaltype.issigned=true"`
+	Uint16Logical     int32               `parquet:"name=Uint16Logical, type=INT32, logicaltype=INTEGER, logicaltype.bitwidth=16, logicaltype.issigned=false"`
 	Decimal1          int32               `parquet:"name=Decimal1, type=INT32, convertedtype=DECIMAL, scale=2, precision=9"`
 	Decimal2          int64               `parquet:"name=Decimal2, type=INT64, convertedtype=DECIMAL, scale=2, precision=18"`
 	Decimal3          string              `parquet:"name=Decimal3, type=FIXED_LEN_BYTE_ARRAY, convertedtype=DECIMAL, scale=2, precision=10, length=12"`
@@ -73,6 +80,11 @@ type AllTypes struct {
 	Repeated          []int32             `parquet:"name=Repeated, type=INT32, repetitiontype=REPEATED"`
 	NestedMap         map[string]InnerMap `parquet:"name=NestedMap, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=STRUCT"`
 	NestedList        []InnerMap          `parquet:"name=NestedList, type=LIST, valuetype=STRUCT"`
+	// New geospatial logical types
+	Geometry  string `parquet:"name=Geometry, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
+	Geography string `parquet:"name=Geography, type=BYTE_ARRAY, logicaltype=GEOGRAPHY, logicaltype.crs=OGC:CRS84, logicaltype.algorithm=SPHERICAL"`
+	// Note: VARIANT is not widely supported by Apache tooling; use JSON for compatibility
+	Variant string `parquet:"name=Variant, type=BYTE_ARRAY, logicaltype=VARIANT, logicaltype.specification_version=1"`
 }
 
 // uuidStringToBytes converts a UUID string to 16-byte binary representation
@@ -98,12 +110,68 @@ func uuidStringToBytes(uuidStr string) string {
 	return string(bytes)
 }
 
+// float32ToFloat16 converts a float32 into IEEE 754 binary16 (big-endian 2 bytes)
+func float32ToFloat16(f float32) string {
+	// Handle NaN/Inf explicitly
+	if f != f { // NaN
+		return string([]byte{0x7e, 0x00})
+	}
+	if f > 65504 { // max half
+		return string([]byte{0x7c, 0x00})
+	}
+	if f < -65504 {
+		return string([]byte{0xfc, 0x00})
+	}
+	bits := math.Float32bits(f)
+	sign := uint16((bits >> 31) & 0x1)
+	exp := int32((bits>>23)&0xff) - 127 + 15 // re-bias
+	mant := uint32(bits & 0x7fffff)
+
+	var half uint16
+	if exp <= 0 {
+		// subnormal or zero in half
+		if exp < -10 {
+			half = sign << 15 // zero
+		} else {
+			// add implicit leading 1 to mantissa
+			mant = (mant | 0x800000) >> uint32(1-exp)
+			// round to nearest
+			mant = (mant + 0x1000) >> 13
+			half = (sign << 15) | uint16(mant)
+		}
+	} else if exp >= 31 {
+		// overflow -> inf
+		half = (sign << 15) | (0x1f << 10)
+	} else {
+		// normalized
+		// round mantissa
+		mant = mant + 0x1000
+		if mant&0x800000 != 0 {
+			// mant overflow -> adjust exp
+			mant = 0
+			exp++
+			if exp >= 31 {
+				half = (sign << 15) | (0x1f << 10)
+				return string([]byte{byte(half >> 8), byte(half)})
+			}
+		}
+		half = (sign << 15) | (uint16(exp) << 10) | uint16(mant>>13)
+	}
+	return string([]byte{byte(half >> 8), byte(half)})
+}
+
 func main() {
 	fw, err := local.NewLocalFileWriter("all-types.parquet")
 	if err != nil {
 		fmt.Println("Can't create local file", err)
 		return
 	}
+
+	// Decode GEOMETRY to GeoJSON and include raw WKB hex in JSON output
+	types.SetGeometryJSONMode(types.GeospatialModeHybrid)
+	types.SetGeospatialHybridRawBase64(false)
+	// Use default coordinate precision (6 decimals) for GeoJSON
+	// types.SetGeospatialCoordinatePrecision(6)
 
 	pw, err := writer.NewParquetWriter(fw, new(AllTypes), 4)
 	if err != nil {
@@ -130,9 +198,11 @@ func main() {
 			ByteArray:         fmt.Sprintf("ByteArray-%d", i),
 			Enum:              fmt.Sprintf("Enum-%d", i),
 			Uuid:              string(bytes.Repeat([]byte{byte(i)}, 16)),
+			Float16Val:        float32ToFloat16(float32(i) + 0.5),
 			Json:              `{"` + strI + `":` + strI + `}`,
 			FixedLenByteArray: fmt.Sprintf("Fixed-%04d", i),
 			Utf8:              fmt.Sprintf("UTF8-%d", i),
+			String2:           fmt.Sprintf("String2-%d", i),
 			ConvertedInt8:     int32(i),
 			ConvertedInt16:    int32(i),
 			ConvertedInt32:    int32(i),
@@ -154,6 +224,8 @@ func main() {
 			TimestampMicros2:  int64(i) + 1_640_995_200_000_000,
 			TimestampNanos2:   int64(i) + 1_640_995_200_000_000_000,
 			Interval:          string(bytes.Repeat(interval, 3)),
+			Int8Logical:       int32(i%128 - 64),
+			Uint16Logical:     int32(i * 1000),
 			Decimal1:          decimals[i],
 			Decimal2:          int64(decimals[i]),
 			Decimal3:          types.StrIntToBinary(fmt.Sprintf("%0.2f", float32(decimals[i]/100.0)), "BigEndian", 12, true),
@@ -165,6 +237,11 @@ func main() {
 			Repeated:          []int32{},
 			NestedMap:         map[string]InnerMap{},
 			NestedList:        []InnerMap{},
+			Geometry:          sampleGeometry(i),
+			Geography:         sampleGeography(i),
+			Json2:             `{"k":"v","i":` + strI + `}`,
+			Bson2:             string([]byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, byte(i), 0x00, 0x00, 0x00, 0x00}),
+			Variant:           `{"type":"Example","value":` + strI + `}`,
 		}
 		if i%2 == 0 {
 			value.DecimalPointer = nil
@@ -230,4 +307,151 @@ func main() {
 
 	pr.ReadStop()
 	_ = fr.Close()
+}
+
+// wkbPoint builds a little-endian WKB for 2D Point(x,y)
+func wkbPoint(x, y float64) string {
+	buf := make([]byte, 0, 1+4+16)
+	// little-endian byte order marker
+	buf = append(buf, 1)
+	// geometry type = 1 (Point)
+	tmp4 := make([]byte, 4)
+	binary.LittleEndian.PutUint32(tmp4, 1)
+	buf = append(buf, tmp4...)
+	// coordinates
+	tmp8 := make([]byte, 8)
+	binary.LittleEndian.PutUint64(tmp8, math.Float64bits(x))
+	buf = append(buf, tmp8...)
+	binary.LittleEndian.PutUint64(tmp8, math.Float64bits(y))
+	buf = append(buf, tmp8...)
+	return string(buf)
+}
+
+// wkbLineString builds a little-endian WKB for 2D LineString
+func wkbLineString(coords [][2]float64) string {
+	buf := make([]byte, 0, 1+4+4+len(coords)*16)
+	buf = append(buf, 1) // LE
+	t := make([]byte, 4)
+	binary.LittleEndian.PutUint32(t, 2)
+	buf = append(buf, t...)
+	n := make([]byte, 4)
+	binary.LittleEndian.PutUint32(n, uint32(len(coords)))
+	buf = append(buf, n...)
+	tmp := make([]byte, 8)
+	for _, c := range coords {
+		binary.LittleEndian.PutUint64(tmp, math.Float64bits(c[0]))
+		buf = append(buf, tmp...)
+		binary.LittleEndian.PutUint64(tmp, math.Float64bits(c[1]))
+		buf = append(buf, tmp...)
+	}
+	return string(buf)
+}
+
+// wkbPolygon builds a little-endian WKB for 2D Polygon with one or more rings
+func wkbPolygon(rings [][][2]float64) string {
+	buf := make([]byte, 0)
+	buf = append(buf, 1)
+	t := make([]byte, 4)
+	binary.LittleEndian.PutUint32(t, 3)
+	buf = append(buf, t...)
+	rn := make([]byte, 4)
+	binary.LittleEndian.PutUint32(rn, uint32(len(rings)))
+	buf = append(buf, rn...)
+	tmp4 := make([]byte, 4)
+	tmp8 := make([]byte, 8)
+	for _, ring := range rings {
+		binary.LittleEndian.PutUint32(tmp4, uint32(len(ring)))
+		buf = append(buf, tmp4...)
+		for _, c := range ring {
+			binary.LittleEndian.PutUint64(tmp8, math.Float64bits(c[0]))
+			buf = append(buf, tmp8...)
+			binary.LittleEndian.PutUint64(tmp8, math.Float64bits(c[1]))
+			buf = append(buf, tmp8...)
+		}
+	}
+	return string(buf)
+}
+
+// wkbMultiPoint builds a little-endian WKB for MultiPoint from a list of points
+func wkbMultiPoint(points [][2]float64) string {
+	buf := make([]byte, 0)
+	buf = append(buf, 1)
+	t := make([]byte, 4)
+	binary.LittleEndian.PutUint32(t, 4)
+	buf = append(buf, t...)
+	n := make([]byte, 4)
+	binary.LittleEndian.PutUint32(n, uint32(len(points)))
+	buf = append(buf, n...)
+	for _, p := range points {
+		// Each point is its own WKB geometry
+		buf = append(buf, []byte(wkbPoint(p[0], p[1]))...)
+	}
+	return string(buf)
+}
+
+// wkbMultiLineString builds a little-endian WKB for MultiLineString
+func wkbMultiLineString(lines [][][2]float64) string {
+	buf := make([]byte, 0)
+	buf = append(buf, 1)
+	t := make([]byte, 4)
+	binary.LittleEndian.PutUint32(t, 5)
+	buf = append(buf, t...)
+	n := make([]byte, 4)
+	binary.LittleEndian.PutUint32(n, uint32(len(lines)))
+	buf = append(buf, n...)
+	for _, ls := range lines {
+		buf = append(buf, []byte(wkbLineString(ls))...)
+	}
+	return string(buf)
+}
+
+// wkbMultiPolygon builds a little-endian WKB for MultiPolygon
+func wkbMultiPolygon(polys [][][][2]float64) string {
+	buf := make([]byte, 0)
+	buf = append(buf, 1)
+	t := make([]byte, 4)
+	binary.LittleEndian.PutUint32(t, 6)
+	buf = append(buf, t...)
+	n := make([]byte, 4)
+	binary.LittleEndian.PutUint32(n, uint32(len(polys)))
+	buf = append(buf, n...)
+	for _, poly := range polys {
+		buf = append(buf, []byte(wkbPolygon(poly))...)
+	}
+	return string(buf)
+}
+
+// sampleGeometry returns varied geometry types across rows
+func sampleGeometry(i int) string {
+	switch i % 5 {
+	case 0:
+		return wkbPoint(float64(i), float64(i)+1)
+	case 1:
+		return wkbLineString([][2]float64{{0, 0}, {float64(i), float64(i)}})
+	case 2:
+		return wkbPolygon([][][2]float64{{{0, 0}, {float64(i), 0}, {float64(i), float64(i)}, {0, float64(i)}, {0, 0}}})
+	case 3:
+		return wkbMultiPoint([][2]float64{{float64(i), float64(i) + 0.1}, {float64(i) + 1, float64(i) + 1}})
+	default:
+		return wkbMultiLineString([][][2]float64{{{0, 0}, {1, 1}}, {{2, 2}, {3, 3}}})
+	}
+}
+
+// sampleGeography returns varied geography types across rows
+func sampleGeography(i int) string {
+	switch i % 5 {
+	case 0:
+		return wkbPoint(-122.4+float64(i)*0.01, 37.8+float64(i)*0.01)
+	case 1:
+		return wkbLineString([][2]float64{{-122.4, 37.8}, {-122.41, 37.81}})
+	case 2:
+		return wkbPolygon([][][2]float64{{{-122.5, 37.8}, {-122.4, 37.8}, {-122.4, 37.9}, {-122.5, 37.9}, {-122.5, 37.8}}})
+	case 3:
+		return wkbMultiPoint([][2]float64{{-122.4, 37.8}, {-122.41, 37.81}, {-122.42, 37.82}})
+	default:
+		return wkbMultiPolygon([][][][2]float64{
+			{{{-122.5, 37.8}, {-122.4, 37.8}, {-122.4, 37.9}, {-122.5, 37.9}, {-122.5, 37.8}}},
+			{{{-122.45, 37.85}, {-122.44, 37.85}, {-122.44, 37.86}, {-122.45, 37.86}, {-122.45, 37.85}}},
+		})
+	}
 }
