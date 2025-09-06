@@ -42,11 +42,15 @@ func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHea
 		client = defaultClient
 	} else {
 		// make sure remote support range
-		transport := http.DefaultTransport
+		var transport *http.Transport
 		if dedicatedTransport {
 			transport = &http.Transport{}
+		} else {
+			// Clone the default transport to avoid race conditions
+			defaultTransport := http.DefaultTransport.(*http.Transport)
+			transport = defaultTransport.Clone()
 		}
-		transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: ignoreTLSError}
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: ignoreTLSError}
 		client = &http.Client{Transport: transport}
 	}
 
