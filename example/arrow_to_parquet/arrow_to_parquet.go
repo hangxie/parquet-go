@@ -62,7 +62,7 @@ func main() {
 			colBuilder.Append(2)
 		}
 	}
-	rec := b.NewRecord()
+	rec := b.NewRecordBatch()
 
 	w, err := writer.NewArrowWriter(schema, fw, 1)
 	if err != nil {

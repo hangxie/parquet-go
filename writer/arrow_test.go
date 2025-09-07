@@ -44,7 +44,7 @@ var testSchema = arrow.NewSchema(
 )
 
 // testRecord populates the schema testSchema with proper values
-func testRecord(mem memory.Allocator) arrow.Record {
+func testRecord(mem memory.Allocator) arrow.RecordBatch {
 	col1 := func() arrow.Array {
 		ib := array.NewInt8Builder(mem)
 		defer ib.Release()
@@ -231,7 +231,7 @@ func testRecord(mem memory.Allocator) arrow.Record {
 		col8, col9, col10, col11, col12, col13, col14, col15, col16, col17,
 		col18, col19,
 	}
-	return array.NewRecord(testSchema, cols, -1)
+	return array.NewRecordBatch(testSchema, cols, -1)
 }
 
 // testNullableSchema is schema for the testing the support for nullability
@@ -271,7 +271,7 @@ var testNullableSchema = arrow.NewSchema(
 )
 
 // testRecordWithNulls populates the schema testNullableSchema
-func testRecordWithNulls(mem memory.Allocator) arrow.Record {
+func testRecordWithNulls(mem memory.Allocator) arrow.RecordBatch {
 	col1 := func() arrow.Array {
 		ib := array.NewInt8Builder(mem)
 		defer ib.Release()
@@ -469,7 +469,7 @@ func testRecordWithNulls(mem memory.Allocator) arrow.Record {
 		col8, col9, col10, col11, col12, col13, col14, col15, col16, col17,
 		col18, col19,
 	}
-	return array.NewRecord(testNullableSchema, cols, -1)
+	return array.NewRecordBatch(testNullableSchema, cols, -1)
 }
 
 // TestE2EValid tests the whole cycle of creating a parquet file from arrow

@@ -62,11 +62,11 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter,
 // The function transforms the data from the record, which the go arrow library
 // gives as array of columns, to array of rows which the parquet-go library
 // can understand as it does not accepts data by columns, but rather by rows.
-func (w *ArrowWriter) WriteArrow(record arrow.Record) error {
+func (w *ArrowWriter) WriteArrow(batch arrow.RecordBatch) error {
 	table := make([][]any, 0)
-	for i, column := range record.Columns() {
+	for i, column := range batch.Columns() {
 		columnFromRecord, err := common.ArrowColToParquetCol(
-			record.Schema().Field(i), column)
+			batch.Schema().Field(i), column)
 		if err != nil {
 			return err
 		}
@@ -77,8 +77,7 @@ func (w *ArrowWriter) WriteArrow(record arrow.Record) error {
 	}
 	transposedTable := common.TransposeTable(table)
 	for _, row := range transposedTable {
-		err := w.Write(row)
-		if err != nil {
+		if err := w.Write(row); err != nil {
 			return err
 		}
 	}
