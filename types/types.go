@@ -535,7 +535,7 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 	}
 
 	// If no logical type and no converted type, check for binary types
-	if lT == nil && cT == nil {
+	if cT == nil {
 		if pT != nil && (*pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY) {
 			return convertBinaryValue(val)
 		}
@@ -744,7 +744,8 @@ func ConvertFloat16LogicalValue(val any) any {
 	frac := u & 0x3FF
 
 	var f float32
-	if exp == 0x1F { // Inf/NaN
+	switch exp {
+	case 0x1F: // Inf/NaN
 		if frac != 0 {
 			// NaN: keep raw
 			return val
@@ -754,13 +755,13 @@ func ConvertFloat16LogicalValue(val any) any {
 		} else {
 			f = float32(math.Inf(1))
 		}
-	} else if exp == 0 { // subnormal or zero
+	case 0: // subnormal or zero
 		mant := float32(frac) / 1024.0
 		f = mant / float32(1<<14)
 		if sign {
 			f = -f
 		}
-	} else { // normalized
+	default: // normalized
 		mant := 1.0 + float32(frac)/1024.0
 		exponent := int(exp) - 15
 		// compute mant * 2^exponent
