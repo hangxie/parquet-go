@@ -80,7 +80,7 @@ var jsonSchema string = `
 
 func main() {
 	var err error
-	fw, err := local.NewLocalFileWriter("json_schema.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/json_schema.parquet")
 	if err != nil {
 		log.Println("Can't create local file", err)
 		return
@@ -141,7 +141,7 @@ func main() {
 	_ = fw.Close()
 
 	///read
-	fr, err := local.NewLocalFileReader("json_schema.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/json_schema.parquet")
 	if err != nil {
 		log.Println("Can't open file")
 		return

@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	fw, err := local.NewLocalFileWriter("arrow.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/arrow.parquet")
 	if err != nil {
 		log.Println("Can't create file", err)
 		return
@@ -80,7 +80,7 @@ func main() {
 	log.Println("Write Finished")
 	_ = fw.Close()
 
-	fr, err := local.NewLocalFileReader("arrow.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/arrow.parquet")
 	if err != nil {
 		log.Println("Can't open file for read", err)
 		return

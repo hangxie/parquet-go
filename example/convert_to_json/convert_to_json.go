@@ -27,7 +27,7 @@ type Student struct {
 
 func main() {
 	var err error
-	fw, err := local.NewLocalFileWriter("to_json.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/to_json.parquet")
 	if err != nil {
 		log.Println("Can't create local file", err)
 		return
@@ -69,7 +69,7 @@ func main() {
 	_ = fw.Close()
 
 	///read
-	fr, err := local.NewLocalFileReader("to_json.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/to_json.parquet")
 	if err != nil {
 		log.Println("Can't open file")
 		return

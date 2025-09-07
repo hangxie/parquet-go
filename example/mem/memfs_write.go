@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/hangxie/parquet-go/v2/common"
@@ -38,7 +39,7 @@ func main() {
 		}
 
 		// write file to disk
-		if err := os.WriteFile(name, dat, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join("/tmp", name), dat, 0o644); err != nil {
 			log.Printf("error writing result file: %v", err)
 		}
 		return nil
@@ -77,7 +78,7 @@ func main() {
 	_ = fw.Close()
 
 	///read
-	fr, err := local.NewLocalFileReader("flat.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/flat.parquet")
 	if err != nil {
 		log.Println("Can't open file")
 		return

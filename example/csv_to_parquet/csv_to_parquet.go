@@ -23,7 +23,7 @@ type Shoe struct {
 func main() {
 	var err error
 
-	fw, err := local.NewLocalFileWriter("shoes.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/shoes.parquet")
 	if err != nil {
 		log.Println("Can't create local file", err)
 		return

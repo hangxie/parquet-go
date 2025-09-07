@@ -24,7 +24,7 @@ type B struct {
 
 func main() {
 	var err error
-	fw, err := local.NewLocalFileWriter("a.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/a.parquet")
 	if err != nil {
 		log.Println("Can't create local file", err)
 		return
@@ -61,7 +61,7 @@ func main() {
 	_ = fw.Close()
 
 	///read all
-	fr, err := local.NewLocalFileReader("a.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/a.parquet")
 	if err != nil {
 		log.Println("Can't open file")
 		return
@@ -84,7 +84,7 @@ func main() {
 	_ = fr.Close()
 
 	///read column by path
-	fr, err = local.NewLocalFileReader("a.parquet")
+	fr, err = local.NewLocalFileReader("/tmp/a.parquet")
 	if err != nil {
 		log.Println("Can't open file")
 		return

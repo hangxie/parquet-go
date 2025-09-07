@@ -30,7 +30,7 @@ type Row struct {
 
 func main() {
 	// write
-	fw, err := local.NewLocalFileWriter("new-logical.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/new-logical.parquet")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func main() {
 	_ = fw.Close()
 
 	// read + convert to JSON-friendly (applies logical-type conversions)
-	fr, err := local.NewLocalFileReader("new-logical.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/new-logical.parquet")
 	if err != nil {
 		log.Fatal(err)
 	}

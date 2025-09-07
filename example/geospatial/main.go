@@ -34,7 +34,7 @@ func main() {
 	})
 
 	// Write a few rows
-	fw, err := local.NewLocalFileWriter("geospatial.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/geospatial.parquet")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func main() {
 	_ = fw.Close()
 
 	// Read and convert to JSON-friendly (applies our geospatial JSON mode)
-	fr, err := local.NewLocalFileReader("geospatial.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/geospatial.parquet")
 	if err != nil {
 		log.Fatal(err)
 	}

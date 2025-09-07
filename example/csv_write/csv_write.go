@@ -21,7 +21,7 @@ func main() {
 	}
 
 	// write
-	fw, err := local.NewLocalFileWriter("csv.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/csv.parquet")
 	if err != nil {
 		log.Println("Can't open file", err)
 		return
