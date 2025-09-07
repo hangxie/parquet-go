@@ -120,53 +120,49 @@ func Test_float16FuncTable_FallbackLexicographic(t *testing.T) {
 }
 
 func Test_halfToFloat32(t *testing.T) {
-    be := func(u16 uint16) string { return string([]byte{byte(u16 >> 8), byte(u16)}) }
+	be := func(u16 uint16) string { return string([]byte{byte(u16 >> 8), byte(u16)}) }
 
-    // expected for smallest positive subnormal: (1/1024) * 2^-14
-    subnorm := float32(1.0/1024.0) / float32(1<<14)
+	// expected for smallest positive subnormal: (1/1024) * 2^-14
+	subnorm := float32(1.0/1024.0) / float32(1<<14)
+	f32 := func(v float32) *float32 { return &v }
 
-    type tc struct {
-        name    string
-        in      any
-        ok      bool
-        expect  *float32 // used when ok && not inf; nil when checking inf
-        approx  bool     // compare with epsilon when true
-        infSign int      // 0 none, +1 +Inf, -1 -Inf
-    }
+	testCases := map[string]struct {
+		in      any
+		ok      bool
+		expect  *float32 // used when ok && not inf; nil when checking inf
+		approx  bool     // compare with epsilon when true
+		infSign int      // 0 none, +1 +Inf, -1 -Inf
+	}{
+		"one":        {in: be(0x3C00), ok: true, expect: f32(1.0)},
+		"neg-two":    {in: be(0xC000), ok: true, expect: f32(-2.0)},
+		"subnormal+": {in: be(0x0001), ok: true, expect: &subnorm, approx: true},
+		"subnormal-": {in: be(0x8001), ok: true, expect: f32(-subnorm), approx: true},
+		"zero":       {in: be(0x0000), ok: true, expect: f32(0.0)},
+		"+inf":       {in: be(0x7C00), ok: true, infSign: +1},
+		"-inf":       {in: be(0xFC00), ok: true, infSign: -1},
+		"nan":        {in: be(0x7E00), ok: false},
+		"wrong-len":  {in: string([]byte{0x00}), ok: false},
+	}
 
-    f32 := func(v float32) *float32 { return &v }
-
-    cases := []tc{
-        {name: "one", in: be(0x3C00), ok: true, expect: f32(1.0)},
-        {name: "neg-two", in: be(0xC000), ok: true, expect: f32(-2.0)},
-        {name: "subnormal+", in: be(0x0001), ok: true, expect: &subnorm, approx: true},
-        {name: "subnormal-", in: be(0x8001), ok: true, expect: f32(-subnorm), approx: true},
-        {name: "zero", in: be(0x0000), ok: true, expect: f32(0.0)},
-        {name: "+inf", in: be(0x7C00), ok: true, infSign: +1},
-        {name: "-inf", in: be(0xFC00), ok: true, infSign: -1},
-        {name: "nan", in: be(0x7E00), ok: false},
-        {name: "wrong-len", in: string([]byte{0x00}), ok: false},
-    }
-
-    for _, c := range cases {
-        t.Run(c.name, func(t *testing.T) {
-            v, ok := halfToFloat32(c.in)
-            require.Equal(t, c.ok, ok)
-            if !ok {
-                return
-            }
-            if c.infSign != 0 {
-                require.True(t, math.IsInf(float64(v), c.infSign))
-                return
-            }
-            require.NotNil(t, c.expect)
-            if c.approx {
-                require.InEpsilon(t, *c.expect, v, 1e-6)
-            } else {
-                require.Equal(t, *c.expect, v)
-            }
-        })
-    }
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			v, ok := halfToFloat32(tc.in)
+			require.Equal(t, tc.ok, ok)
+			if !ok {
+				return
+			}
+			if tc.infSign != 0 {
+				require.True(t, math.IsInf(float64(v), tc.infSign))
+				return
+			}
+			require.NotNil(t, tc.expect)
+			if tc.approx {
+				require.InEpsilon(t, *tc.expect, v, 1e-6)
+			} else {
+				require.Equal(t, *tc.expect, v)
+			}
+		})
+	}
 }
 
 func Test_toBytes(t *testing.T) {
@@ -367,8 +363,8 @@ func Test_MinMaxSize(t *testing.T) {
 		"decimal-1": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x01", "\x00\x01", "\x04", 2},
 		"decimal-2": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x03", "\x02", "\x04", 2},
 		"decimal-3": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x05", "\x02", "\x00\x05", 2},
-		"float16-1": {float16FuncTable{}, string([]byte{0x3c, 0x00}), string([]byte{0x40, 0x00}), string([]byte{0x38, 0x00}), string([]byte{0x38, 0x00}), string([]byte{0x40, 0x00}), 2}, // 1.0,2.0,0.5
-		"float16-2": {float16FuncTable{}, string([]byte{0xc0, 0x00}), string([]byte{0x3c, 0x00}), string([]byte{0x40, 0x00}), string([]byte{0xc0, 0x00}), string([]byte{0x40, 0x00}), 2}, // -2.0,1.0,2.0
+		"float16-1": {float16FuncTable{}, "\x3c\x00", "\x40\x00", "\x38\x00", "\x38\x00", "\x40\x00", 2}, // 1.0,2.0,0.5
+		"float16-2": {float16FuncTable{}, "\xc0\x00", "\x3c\x00", "\x40\x00", "\xc0\x00", "\x40\x00", 2}, // -2.0,1.0,2.0
 	}
 
 	for name, tc := range testCases {
@@ -463,84 +459,72 @@ func Test_cmpIntBinary(t *testing.T) {
 func Test_Int96FuncTable_LessThan_NilChecks(t *testing.T) {
 	table := int96FuncTable{}
 
-	tests := []struct {
-		name   string
+	testCases := map[string]struct {
 		a      any
 		b      any
 		expect bool
 	}{
-		{
-			name:   "non_string_first_param",
+		"non_string_first_param": {
 			a:      42,
 			b:      "123456789012",
 			expect: false,
 		},
-		{
-			name:   "non_string_second_param",
+		"non_string_second_param": {
 			a:      "123456789012",
 			b:      42,
 			expect: false,
 		},
-		{
-			name:   "both_non_string",
+		"both_non_string": {
 			a:      42,
 			b:      43,
 			expect: false,
 		},
-		{
-			name:   "first_string_too_short",
+		"first_string_too_short": {
 			a:      "short",
 			b:      "123456789012",
 			expect: false,
 		},
-		{
-			name:   "second_string_too_short",
+		"second_string_too_short": {
 			a:      "123456789012",
 			b:      "short",
 			expect: false,
 		},
-		{
-			name:   "both_strings_too_short",
+		"both_strings_too_short": {
 			a:      "short1",
 			b:      "short2",
 			expect: false,
 		},
-		{
-			name:   "nil_first_param",
+		"nil_first_param": {
 			a:      nil,
 			b:      "123456789012",
 			expect: false,
 		},
-		{
-			name:   "nil_second_param",
+		"nil_second_param": {
 			a:      "123456789012",
 			b:      nil,
 			expect: false,
 		},
-		{
-			name:   "both_nil",
+		"both_nil": {
 			a:      nil,
 			b:      nil,
 			expect: false,
 		},
-		{
-			name:   "empty_strings",
+		"empty_strings": {
 			a:      "",
 			b:      "",
 			expect: false,
 		},
-		{
-			name:   "valid_12_byte_strings",
+		"valid_12_byte_strings": {
 			a:      "123456789012",
 			b:      "123456789013",
 			expect: true,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := table.LessThan(tt.a, tt.b)
-			require.Equal(t, tt.expect, result)
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			result := table.LessThan(tc.a, tc.b)
+			require.Equal(t, tc.expect, result)
 		})
 	}
 }
@@ -548,90 +532,77 @@ func Test_Int96FuncTable_LessThan_NilChecks(t *testing.T) {
 func Test_IntervalFuncTable_LessThan_NilChecks(t *testing.T) {
 	table := intervalFuncTable{}
 
-	tests := []struct {
-		name   string
+	testCases := map[string]struct {
 		a      any
 		b      any
 		expect bool
 	}{
-		{
-			name:   "non_string_first_param",
+		"non_string_first_param": {
 			a:      42,
 			b:      "123456789012",
 			expect: false,
 		},
-		{
-			name:   "non_string_second_param",
+		"non_string_second_param": {
 			a:      "123456789012",
 			b:      42,
 			expect: false,
 		},
-		{
-			name:   "both_non_string",
+		"both_non_string": {
 			a:      42,
 			b:      43,
 			expect: false,
 		},
-		{
-			name:   "first_string_too_short",
+		"first_string_too_short": {
 			a:      "short",
 			b:      "123456789012",
 			expect: false,
 		},
-		{
-			name:   "second_string_too_short",
+		"second_string_too_short": {
 			a:      "123456789012",
 			b:      "short",
 			expect: false,
 		},
-		{
-			name:   "both_strings_too_short",
+		"both_strings_too_short": {
 			a:      "short1",
 			b:      "short2",
 			expect: false,
 		},
-		{
-			name:   "nil_first_param",
+		"nil_first_param": {
 			a:      nil,
 			b:      "123456789012",
 			expect: false,
 		},
-		{
-			name:   "nil_second_param",
+		"nil_second_param": {
 			a:      "123456789012",
 			b:      nil,
 			expect: false,
 		},
-		{
-			name:   "both_nil",
+		"both_nil": {
 			a:      nil,
 			b:      nil,
 			expect: false,
 		},
-		{
-			name:   "empty_strings",
+		"empty_strings": {
 			a:      "",
 			b:      "",
 			expect: false,
 		},
-		{
-			name:   "valid_12_byte_strings_equal",
+		"valid_12_byte_strings_equal": {
 			a:      "123456789012",
 			b:      "123456789012",
 			expect: false,
 		},
-		{
-			name:   "valid_12_byte_strings_different",
+		"valid_12_byte_strings_different": {
 			a:      "123456789012",
 			b:      "123456789013",
 			expect: true,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := table.LessThan(tt.a, tt.b)
-			require.Equal(t, tt.expect, result)
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			result := table.LessThan(tc.a, tc.b)
+			require.Equal(t, tc.expect, result)
 		})
 	}
 }
