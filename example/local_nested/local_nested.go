@@ -105,7 +105,7 @@ func writeNested() {
 	stus = append(stus, stu01, stu02)
 
 	// write nested
-	fw, err := local.NewLocalFileWriter("nested.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/nested.parquet")
 	if err != nil {
 		log.Println("Can't create file", err)
 		return
@@ -128,7 +128,7 @@ func writeNested() {
 	log.Println("Write Finished")
 
 	// read nested
-	fr, err := local.NewLocalFileReader("nested.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/nested.parquet")
 	if err != nil {
 		log.Println("Can't open file", err)
 		return

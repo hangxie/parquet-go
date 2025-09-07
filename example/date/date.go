@@ -22,7 +22,7 @@ type DateItem struct {
 func main() {
 	var err error
 
-	outputFile := "date.parquet"
+	outputFile := "/tmp/date.parquet"
 	fw, err := local.NewLocalFileWriter(outputFile)
 	if err != nil {
 		log.Println("Can't create local file", err)
@@ -57,7 +57,7 @@ func main() {
 	_ = fw.Close()
 
 	///read
-	fr, err := local.NewLocalFileReader("date.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/date.parquet")
 	if err != nil {
 		log.Println("Can't open file")
 		return

@@ -26,7 +26,7 @@ type Student struct {
 
 func main() {
 	var err error
-	fw, err := local.NewLocalFileWriter("partial2_without_predefined_schema.parquet")
+	fw, err := local.NewLocalFileWriter("/tmp/partial2_without_predefined_schema.parquet")
 	if err != nil {
 		log.Println("Can't create local file", err)
 		return
@@ -68,7 +68,7 @@ func main() {
 	_ = fw.Close()
 
 	///read
-	fr, err := local.NewLocalFileReader("partial2_without_predefined_schema.parquet")
+	fr, err := local.NewLocalFileReader("/tmp/partial2_without_predefined_schema.parquet")
 	if err != nil {
 		log.Println("Can't open file")
 		return
