@@ -1136,6 +1136,24 @@ func Test_ParquetTypeToJSONType(t *testing.T) {
 			scale:     0,
 			expected:  "not_an_int", // Should return original value if type assertion fails
 		},
+		{
+			name:      "bson_converted_type_bytes_input",
+			value:     []byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x01, 0x00, 0x00, 0x00, 0x00},
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+			precision: 0,
+			scale:     0,
+			expected:  "FgAAABBpAAEAAAAA", // Base64 encoded BSON data
+		},
+		{
+			name:      "bson_converted_type_nil_value",
+			value:     nil,
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+			precision: 0,
+			scale:     0,
+			expected:  nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1383,6 +1401,46 @@ func Test_ParquetTypeToJSONTypeWithLogical(t *testing.T) {
 			precision: 0,
 			scale:     0,
 			expected:  "not_an_int", // Should return original value if type assertion fails
+		},
+		{
+			name:      "bson_logical_type_string_input",
+			value:     string([]byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}),
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{BSON: &parquet.BsonType{}},
+			precision: 0,
+			scale:     0,
+			expected:  "FgAAABBpAAEAAAAA", // Base64 encoded BSON data
+		},
+		{
+			name:      "bson_logical_type_bytes_input",
+			value:     []byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x02, 0x00, 0x00, 0x00, 0x00},
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{BSON: &parquet.BsonType{}},
+			precision: 0,
+			scale:     0,
+			expected:  "FgAAABBpAAIAAAAA", // Base64 encoded BSON data
+		},
+		{
+			name:      "bson_converted_type_string_input",
+			value:     string([]byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x03, 0x00, 0x00, 0x00, 0x00}),
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+			lT:        nil,
+			precision: 0,
+			scale:     0,
+			expected:  "FgAAABBpAAMAAAAA", // Base64 encoded BSON data
+		},
+		{
+			name:      "bson_logical_type_nil_value",
+			value:     nil,
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{BSON: &parquet.BsonType{}},
+			precision: 0,
+			scale:     0,
+			expected:  nil,
 		},
 	}
 
@@ -2366,4 +2424,55 @@ func Test_ConvertGeography_Defaults_NilGeoPointer(t *testing.T) {
 	require.Equal(t, "OGC:CRS84", out["crs"])       // default CRS
 	require.Equal(t, "SPHERICAL", out["algorithm"]) // default algorithm
 	require.Equal(t, base64.StdEncoding.EncodeToString(invalid), out["wkb_b64"])
+}
+
+func Test_ConvertBSONLogicalValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		val      any
+		expected any
+	}{
+		{
+			name:     "nil_value",
+			val:      nil,
+			expected: nil,
+		},
+		{
+			name:     "byte_slice_input",
+			val:      []byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x01, 0x00, 0x00, 0x00, 0x00},
+			expected: "FgAAABBpAAEAAAAA", // Base64 encoded BSON data
+		},
+		{
+			name:     "string_input",
+			val:      string([]byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x02, 0x00, 0x00, 0x00, 0x00}),
+			expected: "FgAAABBpAAIAAAAA", // Base64 encoded BSON data
+		},
+		{
+			name:     "empty_byte_slice",
+			val:      []byte{},
+			expected: "",
+		},
+		{
+			name:     "empty_string",
+			val:      "",
+			expected: "",
+		},
+		{
+			name:     "non_binary_value",
+			val:      123,
+			expected: 123, // Should return as-is for non-binary values
+		},
+		{
+			name:     "complex_bson_document",
+			val:      []byte{0x27, 0x00, 0x00, 0x00, 0x02, 'k', 'e', 'y', 0x00, 0x06, 0x00, 0x00, 0x00, 'v', 'a', 'l', 'u', 'e', 0x00, 0x10, 'n', 'u', 'm', 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00},
+			expected: "JwAAAAJrZXkABgAAAHZhbHVlABBudW0AKgAAAAA=", // Base64 encoded BSON document
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertBSONLogicalValue(tt.val)
+			require.Equal(t, tt.expected, result)
+		})
+	}
 }

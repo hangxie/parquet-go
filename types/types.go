@@ -470,6 +470,10 @@ func ParquetTypeToJSONType(val any, pT *parquet.Type, cT *parquet.ConvertedType,
 		// Convert INTERVAL to Go duration string
 		return convertIntervalValue(val)
 
+	case parquet.ConvertedType_BSON:
+		// Convert BSON to base64 string for JSON compatibility
+		return ConvertBSONLogicalValue(val)
+
 	default:
 		// For other converted types, return as-is
 		return val
@@ -524,6 +528,9 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 		}
 		if lT.IsSetGEOGRAPHY() {
 			return ConvertGeographyLogicalValue(val, lT.GetGEOGRAPHY())
+		}
+		if lT.IsSetBSON() {
+			return ConvertBSONLogicalValue(val)
 		}
 		// For other logical types, don't apply base64 encoding - return as-is
 		return val
@@ -591,6 +598,25 @@ func convertIntervalValue(val any) any {
 		}
 	}
 
+	return val
+}
+
+// ConvertBSONLogicalValue handles BSON to base64 string conversion for JSON compatibility
+func ConvertBSONLogicalValue(val any) any {
+	if val == nil {
+		return nil
+	}
+
+	switch v := val.(type) {
+	case []byte:
+		// Convert BSON bytes to base64 for JSON representation
+		return base64.StdEncoding.EncodeToString(v)
+	case string:
+		// Convert BSON string to base64 for JSON representation
+		return base64.StdEncoding.EncodeToString([]byte(v))
+	}
+
+	// If not bytes or string, return as-is
 	return val
 }
 
