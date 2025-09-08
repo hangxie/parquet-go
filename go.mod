@@ -14,7 +14,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.87.3
 	github.com/bobg/gcsobj v0.3.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
-	github.com/goccy/go-reflect v1.2.0
 	github.com/klauspost/compress v1.18.0
 	github.com/ncw/swift v1.0.53
 	github.com/pierrec/lz4/v4 v4.1.22
