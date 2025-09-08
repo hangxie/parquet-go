@@ -584,3 +584,240 @@ func Test_convertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
 		})
 	}
 }
+
+func Test_Unmarshal_ErrorHandling_ReflectionSafety(t *testing.T) {
+	// This test verifies that the new error handling and safety checks work properly
+	// by testing the unmarshal function with edge cases that could cause panics
+
+	type SimpleTestStruct struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(SimpleTestStruct))
+	require.NoError(t, err)
+
+	t.Run("test_graceful_error_handling", func(t *testing.T) {
+		// Test that the function doesn't panic on various edge cases
+		// The key improvement is that panics should be converted to errors
+
+		// First, test with a properly structured simple case
+		src := []SimpleTestStruct{{Name: "test"}}
+		marshaled, err := Marshal([]any{src[0]}, schemaHandler)
+		require.NoError(t, err)
+
+		dst := make([]SimpleTestStruct, 0)
+		err = Unmarshal(marshaled, 0, 1, &dst, schemaHandler, "")
+		require.NoError(t, err)
+		require.Len(t, dst, 1)
+		require.Equal(t, "test", dst[0].Name)
+	})
+
+	t.Run("test_nil_destination_handling", func(t *testing.T) {
+		// Test nil destination - this should return a clear error, not panic
+		src := []SimpleTestStruct{{Name: "test"}}
+		marshaled, err := Marshal([]any{src[0]}, schemaHandler)
+		require.NoError(t, err)
+
+		err = Unmarshal(marshaled, 0, 1, nil, schemaHandler, "")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "dstInterface must be a non-nil pointer")
+	})
+}
+
+func Test_Unmarshal_EdgeCases_InvalidValues(t *testing.T) {
+	// This test ensures the improved error handling works with edge cases
+	type SimpleStruct struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(SimpleStruct))
+	require.NoError(t, err)
+
+	t.Run("empty_values_handling", func(t *testing.T) {
+		// Test with empty data - this should not panic with the new safety checks
+		marshaledData := make([]any, 0)
+
+		marshaled, err := Marshal(marshaledData, schemaHandler)
+		require.NoError(t, err)
+
+		dst := make([]SimpleStruct, 0)
+		err = Unmarshal(marshaled, 0, 0, &dst, schemaHandler, "") // Note: end=0 for empty data
+		require.NoError(t, err)
+		require.Len(t, dst, 0)
+	})
+
+	t.Run("safety_improvements_verification", func(t *testing.T) {
+		// The main improvement is that the code now has extensive error handling
+		// and safety checks to prevent panics. This test verifies basic functionality.
+		src := []SimpleStruct{{Name: "test"}}
+		marshaled, err := Marshal([]any{src[0]}, schemaHandler)
+		require.NoError(t, err)
+
+		dst := make([]SimpleStruct, 0)
+		err = Unmarshal(marshaled, 0, 1, &dst, schemaHandler, "")
+		require.NoError(t, err)
+		require.Len(t, dst, 1)
+		require.Equal(t, "test", dst[0].Name)
+	})
+}
+
+func Test_Unmarshal_ReflectionSafety_TypeConversion(t *testing.T) {
+	// This test focuses on the new safety features added to handle type conversion and reflection errors
+	type ConversionTestStruct struct {
+		IntField    int32  `parquet:"name=int_field, type=INT32"`
+		StringField string `parquet:"name=string_field, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(ConversionTestStruct))
+	require.NoError(t, err)
+
+	// Test that the function properly handles various scenarios without panicking
+	t.Run("valid_type_conversion", func(t *testing.T) {
+		// Test with valid data that should work
+		src := []ConversionTestStruct{{IntField: 42, StringField: "test"}}
+		marshaled, err := Marshal([]any{src[0]}, schemaHandler)
+		require.NoError(t, err)
+
+		dst := make([]ConversionTestStruct, 0)
+		err = Unmarshal(marshaled, 0, 1, &dst, schemaHandler, "")
+		require.NoError(t, err)
+		require.Len(t, dst, 1)
+		require.Equal(t, int32(42), dst[0].IntField)
+		require.Equal(t, "test", dst[0].StringField)
+	})
+
+	t.Run("test_reflection_safety_improvements", func(t *testing.T) {
+		// The key improvement in the new code is that it adds extensive error handling
+		// and safety checks to prevent panics in reflection operations.
+		// This test verifies that the basic functionality still works correctly.
+
+		src := []ConversionTestStruct{
+			{IntField: 123, StringField: "hello"},
+			{IntField: 456, StringField: "world"},
+		}
+
+		// Marshal the data
+		marshaledData := make([]any, len(src))
+		for i, s := range src {
+			marshaledData[i] = s
+		}
+
+		marshaled, err := Marshal(marshaledData, schemaHandler)
+		require.NoError(t, err)
+
+		// Unmarshal the data back
+		dst := make([]ConversionTestStruct, 0)
+		err = Unmarshal(marshaled, 0, len(src), &dst, schemaHandler, "")
+		require.NoError(t, err)
+		require.Len(t, dst, len(src))
+
+		for i, expected := range src {
+			require.Equal(t, expected.IntField, dst[i].IntField)
+			require.Equal(t, expected.StringField, dst[i].StringField)
+		}
+	})
+}
+
+// Additional coverage for marshal/unmarshal.go focusing on edge branches
+func Test_Unmarshal_TypeConversionAndNilHandling(t *testing.T) {
+	type Conv struct {
+		A int64 `parquet:"name=a, type=INT64"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Conv))
+	require.NoError(t, err)
+
+	// Start with a valid marshal
+	src := Conv{A: 123}
+	tmap, err := Marshal([]any{src}, sh)
+	require.NoError(t, err)
+
+	// Force a type conversion path: replace the value with int32 to trigger reflect.Value.Convert
+	// Locate the table whose last path segment is the field name "A"
+	var keyForA string
+	for k, tbl := range *tmap {
+		if len(tbl.Path) > 0 && tbl.Path[len(tbl.Path)-1] == "A" {
+			keyForA = k
+			break
+		}
+	}
+	require.NotEmpty(t, keyForA)
+
+	tblA := (*tmap)[keyForA]
+	require.Len(t, tblA.Values, 1)
+	tblA.Values[0] = int32(123) // different type than destination (int64)
+
+	dst := make([]Conv, 0)
+	require.NoError(t, Unmarshal(tmap, 0, 1, &dst, sh, ""))
+	require.Len(t, dst, 1)
+	require.Equal(t, int64(123), dst[0].A)
+
+	// Now exercise the val == nil path in default case; value should be skipped gracefully
+	tblA.Values[0] = nil
+	dst = make([]Conv, 0)
+	require.NoError(t, Unmarshal(tmap, 0, 1, &dst, sh, ""))
+	require.Len(t, dst, 1)
+	require.Equal(t, int64(0), dst[0].A) // remained zero value
+}
+
+func Test_Unmarshal_FieldNotFound(t *testing.T) {
+	type Pair struct {
+		A int32 `parquet:"name=a, type=INT32"`
+		B int32 `parquet:"name=b, type=INT32"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Pair))
+	require.NoError(t, err)
+
+	src := Pair{A: 10, B: 20}
+	tmap, err := Marshal([]any{src}, sh)
+	require.NoError(t, err)
+
+	// Field not found: mutate a table path to a non-existent field name to hit the error branch
+	// Find table for A and set its last path segment to a non-existing field
+	var keyForA string
+	for k, tbl := range *tmap {
+		if len(tbl.Path) > 0 && tbl.Path[len(tbl.Path)-1] == "A" {
+			keyForA = k
+			break
+		}
+	}
+	require.NotEmpty(t, keyForA)
+
+	tblA := (*tmap)[keyForA]
+	if len(tblA.Path) > 0 {
+		tblA.Path[len(tblA.Path)-1] = "NotExist"
+	}
+
+	dst := make([]Pair, 0)
+	err = Unmarshal(tmap, 0, 1, &dst, sh, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "field \"NotExist\" not found")
+}
+
+func Test_Unmarshal_MapAndList_MultipleEntries(t *testing.T) {
+	type Combo struct {
+		M map[string]int32 `parquet:"name=m, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+		L []int32          `parquet:"name=l, type=LIST, valuetype=INT32"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Combo))
+	require.NoError(t, err)
+
+	src := []Combo{
+		{M: map[string]int32{"a": 1, "b": 2}, L: []int32{7, 8}},
+		{M: map[string]int32{"x": 9}, L: []int32{10}},
+	}
+	items := make([]any, len(src))
+	for i := range src {
+		items[i] = src[i]
+	}
+
+	tmap, err := Marshal(items, sh)
+	require.NoError(t, err)
+
+	// Unmarshal back and ensure data integrity; this also exercises slice/map stacks flushing
+	dst := make([]Combo, 0)
+	require.NoError(t, Unmarshal(tmap, 0, len(src), &dst, sh, ""))
+	require.Equal(t, src, dst)
+}

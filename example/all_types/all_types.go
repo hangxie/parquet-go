@@ -41,6 +41,7 @@ type AllTypes struct {
 	Uuid              string              `parquet:"name=Uuid, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID"`
 	Float16Val        string              `parquet:"name=Float16Val, type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16"`
 	Json              string              `parquet:"name=Json, type=BYTE_ARRAY, convertedtype=JSON"`
+	Bson              string              `parquet:"name=Bson, type=BYTE_ARRAY, logicaltype=BSON"`
 	Json2             string              `parquet:"name=Json2, type=BYTE_ARRAY, logicaltype=JSON"`
 	Bson2             string              `parquet:"name=Bson2, type=BYTE_ARRAY, logicaltype=BSON"`
 	FixedLenByteArray string              `parquet:"name=fixedLenByteArray, type=FIXED_LEN_BYTE_ARRAY, length=10"`
@@ -188,6 +189,14 @@ func main() {
 		strI := fmt.Sprintf("%d", i)
 		interval := make([]byte, 4)
 		binary.LittleEndian.PutUint32(interval, uint32(i))
+		jsonObj := map[string]int{
+			strI: i,
+		}
+		jsonStr, _ := json.Marshal(jsonObj)
+		// try to avoid unnecessary entries in go.mod
+		// "go.mongodb.org/mongo-driver/bson"
+		// bsonStr, _ := bson.Marshal(jsonObj)
+		bsonStr := []byte{0x0c, 0x00, 0x00, 0x00, 0x10, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 		value := AllTypes{
 			Bool:              i%2 == 0,
 			Int32:             int32(i),
@@ -199,7 +208,10 @@ func main() {
 			Enum:              fmt.Sprintf("Enum-%d", i),
 			Uuid:              string(bytes.Repeat([]byte{byte(i)}, 16)),
 			Float16Val:        float32ToFloat16(float32(i) + 0.5),
-			Json:              `{"` + strI + `":` + strI + `}`,
+			Json:              string(jsonStr),
+			Bson:              string(bsonStr),
+			Json2:             string(jsonStr),
+			Bson2:             string(bsonStr),
 			FixedLenByteArray: fmt.Sprintf("Fixed-%04d", i),
 			Utf8:              fmt.Sprintf("UTF8-%d", i),
 			String2:           fmt.Sprintf("String2-%d", i),
@@ -239,8 +251,6 @@ func main() {
 			NestedList:        []InnerMap{},
 			Geometry:          sampleGeometry(i),
 			Geography:         sampleGeography(i),
-			Json2:             `{"k":"v","i":` + strI + `}`,
-			Bson2:             string([]byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, byte(i), 0x00, 0x00, 0x00, 0x00}),
 			Variant:           `{"type":"Example","value":` + strI + `}`,
 		}
 		if i%2 == 0 {

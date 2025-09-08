@@ -227,6 +227,9 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 					}
 
 					po = po.Elem()
+					if !po.IsValid() {
+						return fmt.Errorf("pointer dereference resulted in invalid value")
+					}
 
 				case reflect.Struct:
 					index++
@@ -250,11 +253,84 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 					}
 
 				default:
-					value := reflect.ValueOf(val)
-					if po.Type() != value.Type() {
-						value = value.Convert(poType)
+					if !po.IsValid() {
+						return fmt.Errorf("invalid reflect value encountered before setting value")
 					}
-					po.Set(value)
+
+					// Handle nil values gracefully
+					if val == nil {
+						// Skip nil values - this might be expected for optional fields
+						break OuterLoop
+					}
+
+					value := reflect.ValueOf(val)
+					if !value.IsValid() {
+						// Skip invalid values - this might be expected for optional fields
+						break OuterLoop
+					}
+
+					// Re-check validity and get type safely
+					if !po.IsValid() {
+						return fmt.Errorf("reflect value became invalid before type comparison")
+					}
+
+					// Use defer/recover to safely get the type
+					var poTypeForConvert reflect.Type
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								poTypeForConvert = nil
+							}
+						}()
+						poTypeForConvert = po.Type()
+					}()
+
+					if poTypeForConvert == nil {
+						return fmt.Errorf("unable to get type from reflect value, possibly corrupted")
+					}
+
+					// Safely get value type
+					var valueType reflect.Type
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								valueType = nil
+							}
+						}()
+						valueType = value.Type()
+					}()
+
+					if valueType == nil {
+						// This should not happen since we checked value.IsValid() above
+						return fmt.Errorf("unable to get type from valid value, this is unexpected")
+					}
+
+					if poTypeForConvert != valueType {
+						var convertErr error
+						func() {
+							defer func() {
+								if r := recover(); r != nil {
+									convertErr = fmt.Errorf("type conversion failed: %v", r)
+								}
+							}()
+							value = value.Convert(poTypeForConvert)
+						}()
+						if convertErr != nil {
+							return convertErr
+						}
+					}
+					var setErr error
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								setErr = fmt.Errorf("setting value failed: %v", r)
+							}
+						}()
+						po.Set(value)
+					}()
+					if setErr != nil {
+						return setErr
+					}
 					break OuterLoop
 				}
 			}
