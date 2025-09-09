@@ -84,6 +84,14 @@ type AllTypes struct {
 	// New geospatial logical types
 	Geometry  string `parquet:"name=Geometry, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
 	Geography string `parquet:"name=Geography, type=BYTE_ARRAY, logicaltype=GEOGRAPHY, logicaltype.crs=OGC:CRS84, logicaltype.algorithm=SPHERICAL"`
+	// RFC 7946 geometry type fields (GEOMETRY)
+	GeometryPoint              string `parquet:"name=GeometryPoint, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
+	GeometryMultiPoint         string `parquet:"name=GeometryMultiPoint, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
+	GeometryLineString         string `parquet:"name=GeometryLineString, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
+	GeometryMultiLineString    string `parquet:"name=GeometryMultiLineString, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
+	GeometryPolygon            string `parquet:"name=GeometryPolygon, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
+	GeometryMultiPolygon       string `parquet:"name=GeometryMultiPolygon, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
+	GeometryGeometryCollection string `parquet:"name=GeometryGeometryCollection, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
 	// Note: VARIANT is not widely supported by Apache tooling; use JSON for compatibility
 	Variant string `parquet:"name=Variant, type=BYTE_ARRAY, logicaltype=VARIANT, logicaltype.specification_version=1"`
 }
@@ -168,11 +176,21 @@ func main() {
 		return
 	}
 
-	// Decode GEOMETRY to GeoJSON and include raw WKB hex in JSON output
+	// Output in geojson format
+	// types.SetGeometryJSONMode(types.GeospatialModeGeoJSON)
+	// types.SetGeographyJSONMode(types.GeospatialModeGeoJSON)
+
+	// output in hybrid format, ie geojson + raw
 	types.SetGeometryJSONMode(types.GeospatialModeHybrid)
-	types.SetGeospatialHybridRawBase64(false)
+	types.SetGeographyJSONMode(types.GeospatialModeHybrid)
+	// raw data can be hex or base64
+	types.SetGeospatialHybridRawBase64(true)
 	// Use default coordinate precision (6 decimals) for GeoJSON
-	// types.SetGeospatialCoordinatePrecision(6)
+	types.SetGeospatialCoordinatePrecision(6)
+
+	// output in raw format in base64 encoding
+	// types.SetGeometryJSONMode(types.GeospatialModeBase64)
+	// types.SetGeographyJSONMode(types.GeospatialModeBase64)
 
 	pw, err := writer.NewParquetWriter(fw, new(AllTypes), 4)
 	if err != nil {
@@ -251,7 +269,21 @@ func main() {
 			NestedList:        []InnerMap{},
 			Geometry:          sampleGeometry(i),
 			Geography:         sampleGeography(i),
-			Variant:           `{"type":"Example","value":` + strI + `}`,
+			// Populate all RFC 7946 geometry type fields
+			GeometryPoint:           wkbPoint(float64(i), float64(i)+0.5),
+			GeometryMultiPoint:      wkbMultiPoint([][2]float64{{float64(i), float64(i) + 0.1}, {float64(i) + 1, float64(i) + 1}}),
+			GeometryLineString:      wkbLineString([][2]float64{{0, 0}, {float64(i), float64(i)}}),
+			GeometryMultiLineString: wkbMultiLineString([][][2]float64{{{0, 0}, {1, 1}}, {{2, 2}, {3, 3}}}),
+			GeometryPolygon:         wkbPolygon([][][2]float64{{{0, 0}, {float64(i), 0}, {float64(i), float64(i)}, {0, float64(i)}, {0, 0}}}),
+			GeometryMultiPolygon: wkbMultiPolygon([][][][2]float64{
+				{{{0, 0}, {2, 0}, {2, 2}, {0, 2}, {0, 0}}},
+				{{{3, 3}, {4, 3}, {4, 4}, {3, 4}, {3, 3}}},
+			}),
+			GeometryGeometryCollection: wkbGeometryCollection([]string{
+				wkbPoint(float64(i), float64(i)+0.25),
+				wkbLineString([][2]float64{{0, 0}, {1, 1}}),
+			}),
+			Variant: `{"type":"Example","value":` + strI + `}`,
 		}
 		if i%2 == 0 {
 			value.DecimalPointer = nil
@@ -431,9 +463,27 @@ func wkbMultiPolygon(polys [][][][2]float64) string {
 	return string(buf)
 }
 
+// wkbGeometryCollection builds a little-endian WKB for GeometryCollection
+// Each element in geoms should be a complete WKB geometry (as returned by
+// helpers like wkbPoint, wkbLineString, etc.)
+func wkbGeometryCollection(geoms []string) string {
+	buf := make([]byte, 0)
+	buf = append(buf, 1) // LE
+	t := make([]byte, 4)
+	binary.LittleEndian.PutUint32(t, 7) // GeometryCollection type id
+	buf = append(buf, t...)
+	n := make([]byte, 4)
+	binary.LittleEndian.PutUint32(n, uint32(len(geoms)))
+	buf = append(buf, n...)
+	for _, g := range geoms {
+		buf = append(buf, []byte(g)...)
+	}
+	return string(buf)
+}
+
 // sampleGeometry returns varied geometry types across rows
 func sampleGeometry(i int) string {
-	switch i % 5 {
+	switch i % 7 {
 	case 0:
 		return wkbPoint(float64(i), float64(i)+1)
 	case 1:
@@ -442,14 +492,24 @@ func sampleGeometry(i int) string {
 		return wkbPolygon([][][2]float64{{{0, 0}, {float64(i), 0}, {float64(i), float64(i)}, {0, float64(i)}, {0, 0}}})
 	case 3:
 		return wkbMultiPoint([][2]float64{{float64(i), float64(i) + 0.1}, {float64(i) + 1, float64(i) + 1}})
-	default:
+	case 4:
 		return wkbMultiLineString([][][2]float64{{{0, 0}, {1, 1}}, {{2, 2}, {3, 3}}})
+	case 5:
+		return wkbMultiPolygon([][][][2]float64{
+			{{{0, 0}, {2, 0}, {2, 2}, {0, 2}, {0, 0}}},
+			{{{3, 3}, {4, 3}, {4, 4}, {3, 4}, {3, 3}}},
+		})
+	default:
+		return wkbGeometryCollection([]string{
+			wkbPoint(float64(i), float64(i)+0.5),
+			wkbLineString([][2]float64{{0, 0}, {1, 1}}),
+		})
 	}
 }
 
 // sampleGeography returns varied geography types across rows
 func sampleGeography(i int) string {
-	switch i % 5 {
+	switch i % 7 {
 	case 0:
 		return wkbPoint(-122.4+float64(i)*0.01, 37.8+float64(i)*0.01)
 	case 1:
@@ -458,10 +518,17 @@ func sampleGeography(i int) string {
 		return wkbPolygon([][][2]float64{{{-122.5, 37.8}, {-122.4, 37.8}, {-122.4, 37.9}, {-122.5, 37.9}, {-122.5, 37.8}}})
 	case 3:
 		return wkbMultiPoint([][2]float64{{-122.4, 37.8}, {-122.41, 37.81}, {-122.42, 37.82}})
-	default:
+	case 4:
+		return wkbMultiLineString([][][2]float64{{{-122.4, 37.8}, {-122.41, 37.81}}, {{-122.42, 37.82}, {-122.43, 37.83}}})
+	case 5:
 		return wkbMultiPolygon([][][][2]float64{
 			{{{-122.5, 37.8}, {-122.4, 37.8}, {-122.4, 37.9}, {-122.5, 37.9}, {-122.5, 37.8}}},
 			{{{-122.45, 37.85}, {-122.44, 37.85}, {-122.44, 37.86}, {-122.45, 37.86}, {-122.45, 37.85}}},
+		})
+	default:
+		return wkbGeometryCollection([]string{
+			wkbPoint(-122.4, 37.8),
+			wkbLineString([][2]float64{{-122.41, 37.81}, {-122.42, 37.82}}),
 		})
 	}
 }
