@@ -21,6 +21,8 @@ type Row struct {
 	Geom string `parquet:"name=Geom, type=BYTE_ARRAY, logicaltype=GEOMETRY"`
 	// Geography (spherical) with interpolation algorithm
 	Geog string `parquet:"name=Geog, type=BYTE_ARRAY, logicaltype=GEOGRAPHY"`
+	// Additional geometry types for comprehensive testing
+	GeomType string `parquet:"name=GeomType, type=BYTE_ARRAY, convertedtype=UTF8"`
 }
 
 func main() {
@@ -45,8 +47,12 @@ func main() {
 	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	rows := []Row{
-		{Geom: wkbPoint(1, 2), Geog: wkbLineString([][2]float64{{-122.4, 37.8}, {-122.41, 37.81}})},
-		{Geom: wkbPolygon([][][2]float64{{{0, 0}, {10, 0}, {10, 10}, {0, 10}, {0, 0}}}), Geog: wkbPoint(-0.1276, 51.5074)},
+		{Geom: wkbPoint(1, 2), Geog: wkbLineString([][2]float64{{-122.4, 37.8}, {-122.41, 37.81}}), GeomType: "Point"},
+		{Geom: wkbPolygon([][][2]float64{{{0, 0}, {10, 0}, {10, 10}, {0, 10}, {0, 0}}}), Geog: wkbPoint(-0.1276, 51.5074), GeomType: "Polygon"},
+		{Geom: wkbMultiPoint([][]float64{{10, 20}, {30, 40}}), Geog: wkbMultiLineString([][][2]float64{{{0, 0}, {1, 1}}, {{2, 2}, {3, 3}}}), GeomType: "MultiPoint"},
+		{Geom: wkbMultiLineString([][][2]float64{{{0, 0}, {1, 1}, {2, 2}}, {{10, 10}, {11, 11}}}), Geog: wkbMultiPolygon([][][][2]float64{{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}}, {{{2, 2}, {3, 2}, {3, 3}, {2, 3}, {2, 2}}}}), GeomType: "MultiLineString"},
+		{Geom: wkbMultiPolygon([][][][2]float64{{{{0, 0}, {5, 0}, {5, 5}, {0, 5}, {0, 0}}}, {{{10, 10}, {15, 10}, {15, 15}, {10, 15}, {10, 10}}}}), Geog: wkbGeometryCollection([]string{wkbPoint(100, 200), wkbLineString([][2]float64{{300, 400}, {500, 600}})}), GeomType: "MultiPolygon"},
+		{Geom: wkbGeometryCollection([]string{wkbPoint(0, 0), wkbLineString([][2]float64{{1, 1}, {2, 2}}), wkbPolygon([][][2]float64{{{3, 3}, {4, 3}, {4, 4}, {3, 4}, {3, 3}}})}), Geog: wkbPoint(0, 0), GeomType: "GeometryCollection"},
 	}
 	for _, r := range rows {
 		if err := pw.Write(r); err != nil {
@@ -129,6 +135,50 @@ func wkbPolygon(rings [][][2]float64) string {
 			binary.LittleEndian.PutUint64(tmp8, mathFloat64bits(c[1]))
 			buf = append(buf, tmp8...)
 		}
+	}
+	return string(buf)
+}
+
+func wkbMultiPoint(points [][]float64) string {
+	buf := wkbPrefix(nil, 4)
+	tmp4 := make([]byte, 4)
+	binary.LittleEndian.PutUint32(tmp4, uint32(len(points)))
+	buf = append(buf, tmp4...)
+	for _, p := range points {
+		buf = append(buf, wkbPoint(p[0], p[1])...)
+	}
+	return string(buf)
+}
+
+func wkbMultiLineString(lines [][][2]float64) string {
+	buf := wkbPrefix(nil, 5)
+	tmp4 := make([]byte, 4)
+	binary.LittleEndian.PutUint32(tmp4, uint32(len(lines)))
+	buf = append(buf, tmp4...)
+	for _, line := range lines {
+		buf = append(buf, wkbLineString(line)...)
+	}
+	return string(buf)
+}
+
+func wkbMultiPolygon(polygons [][][][2]float64) string {
+	buf := wkbPrefix(nil, 6)
+	tmp4 := make([]byte, 4)
+	binary.LittleEndian.PutUint32(tmp4, uint32(len(polygons)))
+	buf = append(buf, tmp4...)
+	for _, poly := range polygons {
+		buf = append(buf, wkbPolygon(poly)...)
+	}
+	return string(buf)
+}
+
+func wkbGeometryCollection(geometries []string) string {
+	buf := wkbPrefix(nil, 7)
+	tmp4 := make([]byte, 4)
+	binary.LittleEndian.PutUint32(tmp4, uint32(len(geometries)))
+	buf = append(buf, tmp4...)
+	for _, geom := range geometries {
+		buf = append(buf, geom...)
 	}
 	return string(buf)
 }
