@@ -17,6 +17,17 @@ const (
 	GeospatialModeHybrid                            // both: {geojson:..., wkb_hex/base64:..., crs, algorithm}
 )
 
+// WKB geometry type constants
+const (
+	WKBPoint              uint32 = 1
+	WKBLineString         uint32 = 2
+	WKBPolygon            uint32 = 3
+	WKBMultiPoint         uint32 = 4
+	WKBMultiLineString    uint32 = 5
+	WKBMultiPolygon       uint32 = 6
+	WKBGeometryCollection uint32 = 7
+)
+
 var (
 	// Defaults: GEOGRAPHY -> GeoJSON, GEOMETRY -> Hex
 	geographyJSONMode = GeospatialModeGeoJSON
@@ -110,25 +121,25 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 	}
 
 	switch gType {
-	case 1: // Point
+	case WKBPoint:
 		coords, _, ok := parsePoint(b, be, off)
 		if !ok {
 			return nil, false
 		}
 		return map[string]any{"type": "Point", "coordinates": coords}, true
-	case 2: // LineString
+	case WKBLineString:
 		coords, _, ok := parseLineString(b, be, off)
 		if !ok {
 			return nil, false
 		}
 		return map[string]any{"type": "LineString", "coordinates": coords}, true
-	case 3: // Polygon
+	case WKBPolygon:
 		coords, _, ok := parsePolygon(b, be, off)
 		if !ok {
 			return nil, false
 		}
 		return map[string]any{"type": "Polygon", "coordinates": coords}, true
-	case 4: // MultiPoint
+	case WKBMultiPoint:
 		n, ok := u32(off)
 		if !ok {
 			return nil, false
@@ -146,7 +157,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 
 			// Read and verify point type
 			pointType, ok := u32(off)
-			if !ok || pointType != 1 {
+			if !ok || pointType != WKBPoint {
 				return nil, false
 			}
 			off += 4
@@ -170,7 +181,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 			off += 16
 		}
 		return map[string]any{"type": "MultiPoint", "coordinates": coords}, true
-	case 5: // MultiLineString
+	case WKBMultiLineString:
 		n, ok := u32(off)
 		if !ok {
 			return nil, false
@@ -188,7 +199,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 
 			// Read and verify linestring type
 			lineType, ok := u32(off)
-			if !ok || lineType != 2 {
+			if !ok || lineType != WKBLineString {
 				return nil, false
 			}
 			off += 4
@@ -231,7 +242,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 			lines = append(lines, coords)
 		}
 		return map[string]any{"type": "MultiLineString", "coordinates": lines}, true
-	case 6: // MultiPolygon
+	case WKBMultiPolygon:
 		n, ok := u32(off)
 		if !ok {
 			return nil, false
@@ -249,7 +260,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 
 			// Read and verify polygon type
 			polyType, ok := u32(off)
-			if !ok || polyType != 3 {
+			if !ok || polyType != WKBPolygon {
 				return nil, false
 			}
 			off += 4
@@ -312,7 +323,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 			polygons = append(polygons, rings)
 		}
 		return map[string]any{"type": "MultiPolygon", "coordinates": polygons}, true
-	case 7: // GeometryCollection
+	case WKBGeometryCollection:
 		n, ok := u32(off)
 		if !ok {
 			return nil, false
@@ -460,28 +471,28 @@ func calculateWKBSize(b []byte) (int, bool) {
 	off := 5 // byte order + type
 
 	switch gType {
-	case 1: // Point
+	case WKBPoint:
 		_, newOff, ok := parsePoint(b, be, off)
 		if !ok {
 			return 0, false
 		}
 		return newOff, true
 
-	case 2: // LineString
+	case WKBLineString:
 		_, newOff, ok := parseLineString(b, be, off)
 		if !ok {
 			return 0, false
 		}
 		return newOff, true
 
-	case 3: // Polygon
+	case WKBPolygon:
 		_, newOff, ok := parsePolygon(b, be, off)
 		if !ok {
 			return 0, false
 		}
 		return newOff, true
 
-	case 4: // MultiPoint
+	case WKBMultiPoint:
 		if off+4 > len(b) {
 			return 0, false
 		}
@@ -495,7 +506,7 @@ func calculateWKBSize(b []byte) (int, bool) {
 		// Each point has its own byte order + type + coordinates
 		return off + int(numPoints)*(1+4+16), true
 
-	case 5: // MultiLineString
+	case WKBMultiLineString:
 		if off+4 > len(b) {
 			return 0, false
 		}
@@ -526,7 +537,7 @@ func calculateWKBSize(b []byte) (int, bool) {
 		}
 		return off, true
 
-	case 6: // MultiPolygon
+	case WKBMultiPolygon:
 		if off+4 > len(b) {
 			return 0, false
 		}
@@ -570,7 +581,7 @@ func calculateWKBSize(b []byte) (int, bool) {
 		}
 		return off, true
 
-	case 7: // GeometryCollection
+	case WKBGeometryCollection:
 		if off+4 > len(b) {
 			return 0, false
 		}
