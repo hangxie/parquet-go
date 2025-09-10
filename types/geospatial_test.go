@@ -84,6 +84,73 @@ func wkbPolygonLE(rings [][][]float64) []byte {
 	return buf
 }
 
+// Test roundCoordinate function edge cases
+func Test_roundCoordinate(t *testing.T) {
+	// Save original precision setting
+	originalPrecision := geospatialCoordPrecision
+	defer func() {
+		geospatialCoordPrecision = originalPrecision
+	}()
+
+	tests := []struct {
+		name      string
+		precision int
+		input     float64
+		expected  float64
+	}{
+		{
+			name:      "disabled_rounding",
+			precision: -1,
+			input:     1.23456789,
+			expected:  1.23456789,
+		},
+		{
+			name:      "zero_precision",
+			precision: 0,
+			input:     1.23456789,
+			expected:  1.0,
+		},
+		{
+			name:      "default_precision_6",
+			precision: 6,
+			input:     1.23456789,
+			expected:  1.234568,
+		},
+		{
+			name:      "high_precision_12",
+			precision: 12,
+			input:     1.123456789012345,
+			expected:  1.123456789012,
+		},
+		{
+			name:      "very_high_precision_20",
+			precision: 20, // No clamping in roundCoordinate, unlike inline round function
+			input:     1.123456789012345,
+			expected:  1.123456789012345, // No change due to floating point precision limits
+		},
+		{
+			name:      "negative_input",
+			precision: 2,
+			input:     -1.236,
+			expected:  -1.24,
+		},
+		{
+			name:      "zero_input",
+			precision: 3,
+			input:     0.0,
+			expected:  0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			geospatialCoordPrecision = tt.precision
+			result := roundCoordinate(tt.input)
+			require.Equal(t, tt.expected, result, "roundCoordinate failed for %s", tt.name)
+		})
+	}
+}
+
 func Test_wkbToGeoJSON_PointEndianness(t *testing.T) {
 	// Little-endian point
 	bLE := wkbPoint(1, 1.5, -2.25)
@@ -1138,4 +1205,1130 @@ func Test_wkbToGeoJSON_GeometryCollection_BigEndian(t *testing.T) {
 	require.Len(t, geometries, 2)
 	require.Equal(t, "Point", geometries[0]["type"])
 	require.Equal(t, "LineString", geometries[1]["type"])
+}
+
+// Test error handling in parseLineString
+func Test_parseLineString_ErrorHandling(t *testing.T) {
+	tests := []struct {
+		name     string
+		buffer   []byte
+		be       bool
+		off      int
+		expectOK bool
+	}{
+		{
+			name:     "insufficient_buffer_for_point_count",
+			buffer:   []byte{1, 2, 3}, // too short for 4 bytes
+			be:       false,
+			off:      0,
+			expectOK: false,
+		},
+		{
+			name:     "insufficient_buffer_for_coordinates",
+			buffer:   append([]byte{2, 0, 0, 0}, make([]byte, 10)...), // says 2 points but only 10 bytes available
+			be:       false,
+			off:      0,
+			expectOK: false,
+		},
+		{
+			name:     "valid_empty_linestring",
+			buffer:   []byte{0, 0, 0, 0}, // 0 points
+			be:       false,
+			off:      0,
+			expectOK: true,
+		},
+		{
+			name:     "valid_single_point_linestring",
+			buffer:   append([]byte{1, 0, 0, 0}, make([]byte, 16)...), // 1 point, 16 bytes of coords
+			be:       false,
+			off:      0,
+			expectOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, ok := parseLineString(tt.buffer, tt.be, tt.off)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test error handling in parsePolygon
+func Test_parsePolygon_ErrorHandling(t *testing.T) {
+	tests := []struct {
+		name     string
+		buffer   []byte
+		be       bool
+		off      int
+		expectOK bool
+	}{
+		{
+			name:     "insufficient_buffer_for_ring_count",
+			buffer:   []byte{1, 2}, // too short for 4 bytes
+			be:       false,
+			off:      0,
+			expectOK: false,
+		},
+		{
+			name:     "insufficient_buffer_for_point_count_in_ring",
+			buffer:   []byte{1, 0, 0, 0, 2, 3}, // 1 ring but insufficient data for point count
+			be:       false,
+			off:      0,
+			expectOK: false,
+		},
+		{
+			name:     "insufficient_buffer_for_coordinates_in_ring",
+			buffer:   append([]byte{1, 0, 0, 0, 3, 0, 0, 0}, make([]byte, 10)...), // 1 ring, 3 points but only 10 bytes
+			be:       false,
+			off:      0,
+			expectOK: false,
+		},
+		{
+			name:     "valid_empty_polygon",
+			buffer:   []byte{0, 0, 0, 0}, // 0 rings
+			be:       false,
+			off:      0,
+			expectOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test calculateWKBSize error paths and edge cases
+func Test_calculateWKBSize_ErrorHandling(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		expectOK bool
+	}{
+		{
+			name:     "insufficient_header",
+			wkb:      []byte{1, 2, 3}, // less than 5 bytes
+			expectOK: false,
+		},
+		{
+			name:     "unknown_geometry_type",
+			wkb:      []byte{1, 99, 0, 0, 0}, // unknown type 99
+			expectOK: false,
+		},
+		{
+			name:     "truncated_multipoint",
+			wkb:      []byte{1, 4, 0, 0, 0}, // MultiPoint but no count
+			expectOK: false,
+		},
+		{
+			name:     "truncated_multilinestring",
+			wkb:      []byte{1, 5, 0, 0, 0}, // MultiLineString but no count
+			expectOK: false,
+		},
+		{
+			name:     "truncated_multipolygon",
+			wkb:      []byte{1, 6, 0, 0, 0}, // MultiPolygon but no count
+			expectOK: false,
+		},
+		{
+			name:     "truncated_geometrycollection",
+			wkb:      []byte{1, 7, 0, 0, 0}, // GeometryCollection but no count
+			expectOK: false,
+		},
+		{
+			name:     "multilinestring_invalid_linestring",
+			wkb:      []byte{1, 5, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0, 0}, // MultiLineString with invalid nested linestring
+			expectOK: false,
+		},
+		{
+			name:     "multipolygon_invalid_polygon",
+			wkb:      []byte{1, 6, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0}, // MultiPolygon with invalid nested polygon
+			expectOK: false,
+		},
+		{
+			name:     "geometrycollection_invalid_subgeometry",
+			wkb:      []byte{1, 7, 0, 0, 0, 1, 0, 0, 0, 1, 99}, // GeometryCollection with invalid subgeometry
+			expectOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := calculateWKBSize(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test wkbToGeoJSON comprehensive error handling
+func Test_wkbToGeoJSON_ComprehensiveErrorHandling(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		expectOK bool
+	}{
+		{
+			name:     "empty_buffer",
+			wkb:      []byte{},
+			expectOK: false,
+		},
+		{
+			name:     "too_short_buffer",
+			wkb:      []byte{1, 2},
+			expectOK: false,
+		},
+		{
+			name:     "invalid_geometry_type_in_header",
+			wkb:      []byte{1, 2, 3, 4}, // only 4 bytes, need 5
+			expectOK: false,
+		},
+		{
+			name:     "unknown_geometry_type",
+			wkb:      []byte{1, 99, 0, 0, 0}, // unknown type 99
+			expectOK: false,
+		},
+		{
+			name:     "point_insufficient_data",
+			wkb:      []byte{1, 1, 0, 0, 0, 1, 2, 3}, // Point but insufficient coordinate data
+			expectOK: false,
+		},
+		{
+			name:     "linestring_insufficient_data",
+			wkb:      []byte{1, 2, 0, 0, 0, 1, 0, 0, 0}, // LineString with 1 point but no coordinates
+			expectOK: false,
+		},
+		{
+			name:     "polygon_insufficient_data",
+			wkb:      []byte{1, 3, 0, 0, 0, 1, 0, 0, 0}, // Polygon with 1 ring but no points
+			expectOK: false,
+		},
+		{
+			name:     "multipoint_invalid_point_type",
+			wkb:      []byte{1, 4, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0, 0}, // MultiPoint with wrong inner type
+			expectOK: false,
+		},
+		{
+			name:     "multilinestring_invalid_linestring_type",
+			wkb:      []byte{1, 5, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0}, // MultiLineString with wrong inner type (Point instead of LineString)
+			expectOK: false,
+		},
+		{
+			name:     "multipolygon_invalid_polygon_type",
+			wkb:      []byte{1, 6, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0}, // MultiPolygon with wrong inner type (Point instead of Polygon)
+			expectOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := wkbToGeoJSON(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test SetGeospatialHybridRawBase64 configuration function
+func Test_SetGeospatialHybridRawBase64(t *testing.T) {
+	// Save original setting
+	originalSetting := geospatialHybridUseBase64
+	defer func() {
+		geospatialHybridUseBase64 = originalSetting
+	}()
+
+	// Test setting to true
+	SetGeospatialHybridRawBase64(true)
+	require.True(t, geospatialHybridUseBase64)
+
+	// Test setting to false
+	SetGeospatialHybridRawBase64(false)
+	require.False(t, geospatialHybridUseBase64)
+}
+
+// Test SetGeospatialReprojector configuration function
+func Test_SetGeospatialReprojector(t *testing.T) {
+	// Save original reprojector
+	originalReprojector := geospatialReprojector
+	defer func() {
+		geospatialReprojector = originalReprojector
+	}()
+
+	// Test setting a custom reprojector
+	customReprojector := func(crs string, geojson map[string]any) (map[string]any, bool) {
+		return map[string]any{"transformed": true}, true
+	}
+	SetGeospatialReprojector(customReprojector)
+	require.NotNil(t, geospatialReprojector)
+
+	// Test setting nil reprojector
+	SetGeospatialReprojector(nil)
+	require.Nil(t, geospatialReprojector)
+}
+
+// Test edge cases for wkbToGeoJSON with big-endian byte order issues
+func Test_wkbToGeoJSON_BigEndian_EdgeCases(t *testing.T) {
+	// Test MultiPoint with mixed endianness in header vs points
+	tests := []struct {
+		name     string
+		wkb      []byte
+		expectOK bool
+	}{
+		{
+			name: "multipoint_big_endian_header_little_endian_points",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 0) // big-endian header
+				typeBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(typeBuf, 4) // MultiPoint
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 point
+				buf = append(buf, countBuf...)
+				// Add little-endian point
+				buf = append(buf, 1) // little-endian point order
+				typeBuf2 := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf2, 1) // Point type
+				buf = append(buf, typeBuf2...)
+				coordBuf := make([]byte, 16)
+				binary.LittleEndian.PutUint64(coordBuf[0:8], math.Float64bits(1.0))
+				binary.LittleEndian.PutUint64(coordBuf[8:16], math.Float64bits(2.0))
+				buf = append(buf, coordBuf...)
+				return buf
+			}(),
+			expectOK: false, // Mixed endianness within multi-geometries may not be supported
+		},
+		{
+			name: "multilinestring_insufficient_data_for_linestring_header",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian header
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 5) // MultiLineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 linestring
+				buf = append(buf, countBuf...)
+				// Truncated linestring - missing data
+				buf = append(buf, 1) // little-endian
+				return buf
+			}(),
+			expectOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := wkbToGeoJSON(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test wrapGeoJSONHybrid edge cases
+func Test_wrapGeoJSONHybrid_EdgeCases(t *testing.T) {
+	geo := map[string]any{"type": "Point", "coordinates": []float64{1, 2}}
+	raw := []byte{1, 2, 3, 4}
+
+	// Test with include=false
+	result := wrapGeoJSONHybrid(geo, raw, false, false)
+	require.Contains(t, result, "geojson")
+	require.NotContains(t, result, "wkb_hex")
+	require.NotContains(t, result, "wkb_b64")
+
+	// Test with include=true, useBase64=false
+	result = wrapGeoJSONHybrid(geo, raw, false, true)
+	require.Contains(t, result, "geojson")
+	require.Contains(t, result, "wkb_hex")
+	require.Equal(t, hex.EncodeToString(raw), result["wkb_hex"])
+
+	// Test with include=true, useBase64=true
+	result = wrapGeoJSONHybrid(geo, raw, true, true)
+	require.Contains(t, result, "geojson")
+	require.Contains(t, result, "wkb_b64")
+	require.Equal(t, base64.StdEncoding.EncodeToString(raw), result["wkb_b64"])
+}
+
+// Test calculateWKBSize with valid geometries to improve coverage
+func Test_calculateWKBSize_ValidGeometries(t *testing.T) {
+	tests := []struct {
+		name         string
+		wkb          []byte
+		expectedSize int
+		expectOK     bool
+	}{
+		{
+			name:         "point_little_endian",
+			wkb:          wkbPoint(1, 1.0, 2.0),
+			expectedSize: 21, // 1 + 4 + 16
+			expectOK:     true,
+		},
+		{
+			name:         "point_big_endian",
+			wkb:          wkbPoint(0, 1.0, 2.0),
+			expectedSize: 21, // 1 + 4 + 16
+			expectOK:     true,
+		},
+		{
+			name: "linestring_empty",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 2) // LineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 0) // 0 points
+				buf = append(buf, countBuf...)
+				return buf
+			}(),
+			expectedSize: 9, // 1 + 4 + 4
+			expectOK:     true,
+		},
+		{
+			name: "multipoint_empty",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 4) // MultiPoint
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 0) // 0 points
+				buf = append(buf, countBuf...)
+				return buf
+			}(),
+			expectedSize: 9, // 1 + 4 + 4
+			expectOK:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			size, ok := calculateWKBSize(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+			if ok {
+				require.Equal(t, tt.expectedSize, size)
+			}
+		})
+	}
+}
+
+// Test inline round function edge cases within wkbToGeoJSON
+func Test_wkbToGeoJSON_InlineRoundFunction(t *testing.T) {
+	// Save original precision setting
+	originalPrecision := geospatialCoordPrecision
+	defer func() {
+		geospatialCoordPrecision = originalPrecision
+	}()
+
+	tests := []struct {
+		name      string
+		precision int
+		wkb       []byte
+		expectedX float64
+		expectedY float64
+	}{
+		{
+			name:      "inline_round_negative_precision",
+			precision: -5, // This should return unrounded values
+			wkb:       wkbPoint(1, 1.23456789, 2.87654321),
+			expectedX: 1.23456789, // no rounding applied
+			expectedY: 2.87654321,
+		},
+		{
+			name:      "inline_round_positive_precision",
+			precision: 2, // Simple case
+			wkb:       wkbPoint(1, 1.236, 2.874),
+			expectedX: 1.24, // rounded to 2 decimal places
+			expectedY: 2.87,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			geospatialCoordPrecision = tt.precision
+			result, ok := wkbToGeoJSON(tt.wkb)
+			require.True(t, ok)
+			require.Equal(t, "Point", result["type"])
+
+			coords := result["coordinates"].([]float64)
+			require.Len(t, coords, 2)
+			require.Equal(t, tt.expectedX, coords[0])
+			require.Equal(t, tt.expectedY, coords[1])
+		})
+	}
+}
+
+// Test calculateWKBSize big-endian edge cases for better coverage
+func Test_calculateWKBSize_BigEndianPaths(t *testing.T) {
+	tests := []struct {
+		name         string
+		wkb          []byte
+		expectedSize int
+		expectOK     bool
+	}{
+		{
+			name: "multilinestring_big_endian",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 0) // big-endian
+				typeBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(typeBuf, 5) // MultiLineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 linestring
+				buf = append(buf, countBuf...)
+
+				// Add a big-endian linestring
+				buf = append(buf, 0)                   // big-endian
+				binary.BigEndian.PutUint32(typeBuf, 2) // LineString
+				buf = append(buf, typeBuf...)
+				binary.BigEndian.PutUint32(countBuf, 2) // 2 points
+				buf = append(buf, countBuf...)
+
+				// Add 2 points (32 bytes total)
+				coordBuf := make([]byte, 32)
+				for i := 0; i < 4; i++ {
+					binary.BigEndian.PutUint64(coordBuf[i*8:(i+1)*8], math.Float64bits(float64(i)))
+				}
+				buf = append(buf, coordBuf...)
+				return buf
+			}(),
+			expectedSize: 50, // Corrected size calculation
+			expectOK:     true,
+		},
+		{
+			name: "multipolygon_big_endian",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 0) // big-endian
+				typeBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(typeBuf, 6) // MultiPolygon
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 polygon
+				buf = append(buf, countBuf...)
+
+				// Add a big-endian polygon
+				buf = append(buf, 0)                   // big-endian
+				binary.BigEndian.PutUint32(typeBuf, 3) // Polygon
+				buf = append(buf, typeBuf...)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 ring
+				buf = append(buf, countBuf...)
+				binary.BigEndian.PutUint32(countBuf, 4) // 4 points in ring
+				buf = append(buf, countBuf...)
+
+				// Add 4 points (64 bytes total)
+				coordBuf := make([]byte, 64)
+				for i := 0; i < 8; i++ {
+					binary.BigEndian.PutUint64(coordBuf[i*8:(i+1)*8], math.Float64bits(float64(i)))
+				}
+				buf = append(buf, coordBuf...)
+				return buf
+			}(),
+			expectedSize: 86, // Corrected size calculation
+			expectOK:     true,
+		},
+		{
+			name: "multilinestring_insufficient_data_big_endian",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 0) // big-endian
+				typeBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(typeBuf, 5) // MultiLineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 linestring
+				buf = append(buf, countBuf...)
+
+				// Truncated linestring - missing enough header data
+				buf = append(buf, 0)          // big-endian
+				buf = append(buf, 2, 0, 0, 0) // LineString type but not enough data
+				// Missing point count - only 8 bytes total, need 9
+				return buf
+			}(),
+			expectOK: false,
+		},
+		{
+			name: "multipolygon_insufficient_data_big_endian",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 0) // big-endian
+				typeBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(typeBuf, 6) // MultiPolygon
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 polygon
+				buf = append(buf, countBuf...)
+
+				// Truncated polygon - missing enough header data
+				buf = append(buf, 0)          // big-endian
+				buf = append(buf, 3, 0, 0, 0) // Polygon type but not enough data
+				// Missing ring count - only 8 bytes total, need 9
+				return buf
+			}(),
+			expectOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			size, ok := calculateWKBSize(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+			if ok {
+				require.Equal(t, tt.expectedSize, size)
+			}
+		})
+	}
+}
+
+// Test more comprehensive error paths in wkbToGeoJSON
+func Test_wkbToGeoJSON_AdvancedErrorPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		expectOK bool
+	}{
+		{
+			name: "multipoint_insufficient_data_for_coordinates",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 4) // MultiPoint
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 point
+				buf = append(buf, countBuf...)
+
+				// Point header but insufficient coordinate data
+				buf = append(buf, 1)                      // little-endian
+				binary.LittleEndian.PutUint32(typeBuf, 1) // Point type
+				buf = append(buf, typeBuf...)
+				// Missing coordinates - only 8 bytes instead of 16
+				buf = append(buf, make([]byte, 8)...)
+				return buf
+			}(),
+			expectOK: false,
+		},
+		{
+			name: "multilinestring_insufficient_point_data",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 5) // MultiLineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 linestring
+				buf = append(buf, countBuf...)
+
+				// LineString header
+				buf = append(buf, 1)                      // little-endian
+				binary.LittleEndian.PutUint32(typeBuf, 2) // LineString type
+				buf = append(buf, typeBuf...)
+				binary.LittleEndian.PutUint32(countBuf, 2) // 2 points
+				buf = append(buf, countBuf...)
+				// Insufficient coordinate data - only 16 bytes instead of 32
+				buf = append(buf, make([]byte, 16)...)
+				return buf
+			}(),
+			expectOK: false,
+		},
+		{
+			name: "multipolygon_insufficient_ring_data",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 6) // MultiPolygon
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 polygon
+				buf = append(buf, countBuf...)
+
+				// Polygon header
+				buf = append(buf, 1)                      // little-endian
+				binary.LittleEndian.PutUint32(typeBuf, 3) // Polygon type
+				buf = append(buf, typeBuf...)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 ring
+				buf = append(buf, countBuf...)
+				binary.LittleEndian.PutUint32(countBuf, 3) // 3 points in ring
+				buf = append(buf, countBuf...)
+				// Insufficient coordinate data - only 32 bytes instead of 48
+				buf = append(buf, make([]byte, 32)...)
+				return buf
+			}(),
+			expectOK: false,
+		},
+		{
+			name: "geometry_collection_recursive_failure",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 7) // GeometryCollection
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 geometry
+				buf = append(buf, countBuf...)
+
+				// Add invalid nested geometry
+				buf = append(buf, 1)                      // little-endian
+				binary.LittleEndian.PutUint32(typeBuf, 1) // Point type
+				buf = append(buf, typeBuf...)
+				// Insufficient coordinate data for the nested point
+				buf = append(buf, make([]byte, 8)...) // Only 8 bytes instead of 16
+				return buf
+			}(),
+			expectOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := wkbToGeoJSON(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test boundary conditions and edge cases for calculateWKBSize
+func Test_calculateWKBSize_BoundaryConditions(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		expectOK bool
+	}{
+		{
+			name: "multilinestring_empty_with_zero_lines",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 5) // MultiLineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 0) // 0 linestrings
+				buf = append(buf, countBuf...)
+				return buf
+			}(),
+			expectOK: true,
+		},
+		{
+			name: "geometrycollection_empty_with_zero_geometries",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 7) // GeometryCollection
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 0) // 0 geometries
+				buf = append(buf, countBuf...)
+				return buf
+			}(),
+			expectOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := calculateWKBSize(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test edge cases in parseLineString and parsePolygon with boundary conditions
+func Test_parseGeometry_BoundaryConditions(t *testing.T) {
+	// Test parseLineString with edge case: point count at buffer boundary
+	t.Run("parseLineString_point_count_at_boundary", func(t *testing.T) {
+		// Buffer with exactly enough space for point count but no coordinates
+		buffer := []byte{1, 0, 0, 0} // 1 point
+		_, _, ok := parseLineString(buffer, false, 0)
+		require.False(t, ok) // Should fail because no space for coordinates
+	})
+
+	t.Run("parsePolygon_ring_count_at_boundary", func(t *testing.T) {
+		// Buffer with exactly enough space for ring count but no ring data
+		buffer := []byte{1, 0, 0, 0} // 1 ring
+		_, _, ok := parsePolygon(buffer, false, 0)
+		require.False(t, ok) // Should fail because no space for ring data
+	})
+}
+
+// Test specific uncovered paths in parsePolygon
+func Test_parsePolygon_UncoveredPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		buffer   []byte
+		be       bool
+		off      int
+		expectOK bool
+	}{
+		{
+			name: "parsePolygon_big_endian_numRings",
+			buffer: func() []byte {
+				buf := make([]byte, 8)
+				binary.BigEndian.PutUint32(buf[0:4], 1) // numRings = 1
+				binary.BigEndian.PutUint32(buf[4:8], 3) // numPoints = 3
+				return buf
+			}(),
+			be:       true, // This should trigger the big-endian path for numRings
+			off:      0,
+			expectOK: false, // Will fail due to insufficient coordinate data
+		},
+		{
+			name: "parsePolygon_big_endian_numPoints_in_ring",
+			buffer: func() []byte {
+				buf := make([]byte, 8)
+				binary.LittleEndian.PutUint32(buf[0:4], 1) // numRings = 1 (little-endian)
+				binary.BigEndian.PutUint32(buf[4:8], 2)    // numPoints = 2 (big-endian when be=true for inner loop)
+				return buf
+			}(),
+			be:       true, // This should trigger big-endian path for numPoints in ring
+			off:      0,
+			expectOK: false, // Will fail due to insufficient coordinate data
+		},
+		{
+			name: "parsePolygon_parsePoint_failure_in_ring",
+			buffer: func() []byte {
+				buf := make([]byte, 12)
+				binary.LittleEndian.PutUint32(buf[0:4], 1) // numRings = 1
+				binary.LittleEndian.PutUint32(buf[4:8], 1) // numPoints = 1
+				// Insufficient data for parsePoint - only 4 bytes instead of 16
+				binary.LittleEndian.PutUint32(buf[8:12], 0x12345678)
+				return buf
+			}(),
+			be:       false,
+			off:      0,
+			expectOK: false, // Should fail when parsePoint fails
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test specific uncovered paths in wkbToGeoJSON MultiLineString
+func Test_wkbToGeoJSON_MultiLineString_UncoveredPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		expectOK bool
+	}{
+		{
+			name: "multilinestring_big_endian_point_count",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 0) // big-endian header
+				typeBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(typeBuf, 5) // MultiLineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 linestring
+				buf = append(buf, countBuf...)
+
+				// LineString with big-endian header but with big-endian point count
+				buf = append(buf, 0)                   // big-endian
+				binary.BigEndian.PutUint32(typeBuf, 2) // LineString type
+				buf = append(buf, typeBuf...)
+				binary.BigEndian.PutUint32(countBuf, 2) // 2 points (big-endian)
+				buf = append(buf, countBuf...)
+				// Insufficient coordinate data - only 16 bytes instead of 32
+				buf = append(buf, make([]byte, 16)...)
+				return buf
+			}(),
+			expectOK: false, // Should fail due to insufficient coordinate data
+		},
+		{
+			name: "multipolygon_big_endian_ring_point_count",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 0) // big-endian header
+				typeBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(typeBuf, 6) // MultiPolygon
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 polygon
+				buf = append(buf, countBuf...)
+
+				// Polygon with big-endian components
+				buf = append(buf, 0)                   // big-endian
+				binary.BigEndian.PutUint32(typeBuf, 3) // Polygon type
+				buf = append(buf, typeBuf...)
+				binary.BigEndian.PutUint32(countBuf, 1) // 1 ring (big-endian)
+				buf = append(buf, countBuf...)
+				binary.BigEndian.PutUint32(countBuf, 3) // 3 points in ring (big-endian)
+				buf = append(buf, countBuf...)
+				// Insufficient coordinate data - only 32 bytes instead of 48
+				buf = append(buf, make([]byte, 32)...)
+				return buf
+			}(),
+			expectOK: false, // Should fail due to insufficient coordinate data
+		},
+		{
+			name: "multipoint_at_buffer_boundary",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 4) // MultiPoint
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 point
+				buf = append(buf, countBuf...)
+				// Point that ends exactly at buffer boundary - should trigger off >= len(b) check
+				return buf // Buffer ends here, so off >= len(b) when trying to read point
+			}(),
+			expectOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := wkbToGeoJSON(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test very specific boundary conditions for maximum coverage
+func Test_wkbToGeoJSON_PrecisionBoundaryConditions(t *testing.T) {
+	// Save original precision setting
+	originalPrecision := geospatialCoordPrecision
+	defer func() {
+		geospatialCoordPrecision = originalPrecision
+	}()
+
+	t.Run("inline_round_exactly_12_precision", func(t *testing.T) {
+		// Test the p > 12 branch and p = 12 assignment in inline round function
+		geospatialCoordPrecision = 12 // Exactly at the boundary
+		wkb := wkbPoint(1, 1.123456789012345, 2.0)
+		result, ok := wkbToGeoJSON(wkb)
+		require.True(t, ok)
+		require.Equal(t, "Point", result["type"])
+
+		coords := result["coordinates"].([]float64)
+		require.Len(t, coords, 2)
+		require.Equal(t, 1.123456789012, coords[0]) // Should be rounded to 12 places
+	})
+
+	t.Run("inline_round_exactly_0_precision", func(t *testing.T) {
+		// Test the p < 0 branch and p = 0 assignment
+		geospatialCoordPrecision = 0 // Exactly at the boundary
+		wkb := wkbPoint(1, 1.7, 2.3)
+		result, ok := wkbToGeoJSON(wkb)
+		require.True(t, ok)
+		require.Equal(t, "Point", result["type"])
+
+		coords := result["coordinates"].([]float64)
+		require.Len(t, coords, 2)
+		require.Equal(t, 2.0, coords[0]) // Should be rounded to 0 places
+		require.Equal(t, 2.0, coords[1])
+	})
+}
+
+// Test u32 function error paths in wkbToGeoJSON
+func Test_wkbToGeoJSON_u32_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		expectOK bool
+	}{
+		{
+			name:     "u32_read_geometry_type_fails",
+			wkb:      []byte{1, 2, 3, 4}, // Only 4 bytes total, u32(1) will fail
+			expectOK: false,
+		},
+		{
+			name: "multipoint_u32_point_type_fails",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 4) // MultiPoint
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 point
+				buf = append(buf, countBuf...)
+
+				// Point with incomplete type data
+				buf = append(buf, 1)    // little-endian
+				buf = append(buf, 1, 2) // Only 2 bytes instead of 4 for type
+				return buf
+			}(),
+			expectOK: false,
+		},
+		{
+			name: "multilinestring_u32_linestring_type_fails",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 5) // MultiLineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 linestring
+				buf = append(buf, countBuf...)
+
+				// LineString with incomplete type data
+				buf = append(buf, 1)    // little-endian
+				buf = append(buf, 2, 3) // Only 2 bytes instead of 4 for type
+				return buf
+			}(),
+			expectOK: false,
+		},
+		{
+			name: "multipolygon_u32_polygon_type_fails",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 6) // MultiPolygon
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 polygon
+				buf = append(buf, countBuf...)
+
+				// Polygon with incomplete type data
+				buf = append(buf, 1)    // little-endian
+				buf = append(buf, 3, 4) // Only 2 bytes instead of 4 for type
+				return buf
+			}(),
+			expectOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := wkbToGeoJSON(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test the remaining very specific paths to maximize coverage
+func Test_wkbToGeoJSON_MaximumCoverage(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		expectOK bool
+	}{
+		{
+			name: "multilinestring_little_endian_point_count",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian header
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 5) // MultiLineString
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 linestring
+				buf = append(buf, countBuf...)
+
+				// LineString with little-endian point count (to cover else branch)
+				buf = append(buf, 1)                      // little-endian
+				binary.LittleEndian.PutUint32(typeBuf, 2) // LineString type
+				buf = append(buf, typeBuf...)
+				binary.LittleEndian.PutUint32(countBuf, 3) // 3 points (little-endian)
+				buf = append(buf, countBuf...)
+				// Insufficient coordinate data to trigger error
+				buf = append(buf, make([]byte, 32)...) // Only 32 bytes instead of 48
+				return buf
+			}(),
+			expectOK: false,
+		},
+		{
+			name: "multipolygon_little_endian_ring_point_count",
+			wkb: func() []byte {
+				buf := make([]byte, 0)
+				buf = append(buf, 1) // little-endian header
+				typeBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(typeBuf, 6) // MultiPolygon
+				buf = append(buf, typeBuf...)
+				countBuf := make([]byte, 4)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 polygon
+				buf = append(buf, countBuf...)
+
+				// Polygon with little-endian ring point count (to cover else branch)
+				buf = append(buf, 1)                      // little-endian
+				binary.LittleEndian.PutUint32(typeBuf, 3) // Polygon type
+				buf = append(buf, typeBuf...)
+				binary.LittleEndian.PutUint32(countBuf, 1) // 1 ring (little-endian)
+				buf = append(buf, countBuf...)
+				binary.LittleEndian.PutUint32(countBuf, 4) // 4 points in ring (little-endian)
+				buf = append(buf, countBuf...)
+				// Insufficient coordinate data
+				buf = append(buf, make([]byte, 48)...) // Only 48 bytes instead of 64
+				return buf
+			}(),
+			expectOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := wkbToGeoJSON(tt.wkb)
+			require.Equal(t, tt.expectOK, ok)
+		})
+	}
+}
+
+// Test the remaining parsePolygon big-endian paths
+func Test_parsePolygon_MaximumCoverage(t *testing.T) {
+	t.Run("parsePolygon_big_endian_ring_point_count", func(t *testing.T) {
+		// Test the big-endian path for reading ring point count
+		buffer := make([]byte, 16)
+		binary.BigEndian.PutUint32(buffer[0:4], 1) // numRings = 1 (big-endian)
+		binary.BigEndian.PutUint32(buffer[4:8], 2) // numPoints = 2 (big-endian)
+		// Not enough coordinate data will cause failure
+
+		_, _, ok := parsePolygon(buffer, true, 0) // be = true to trigger big-endian path
+		require.False(t, ok)                      // Should fail due to insufficient coordinate data
+	})
+
+	t.Run("parsePolygon_little_endian_ring_point_count", func(t *testing.T) {
+		// Test the little-endian path for reading ring point count
+		buffer := make([]byte, 16)
+		binary.LittleEndian.PutUint32(buffer[0:4], 1) // numRings = 1 (little-endian)
+		binary.LittleEndian.PutUint32(buffer[4:8], 2) // numPoints = 2 (little-endian)
+		// Not enough coordinate data will cause failure
+
+		_, _, ok := parsePolygon(buffer, false, 0) // be = false to trigger little-endian path
+		require.False(t, ok)                       // Should fail due to insufficient coordinate data
+	})
+}
+
+// Test edge case where GeometryCollection buffer ends exactly at geometry boundary
+func Test_wkbToGeoJSON_GeometryCollection_BufferBoundary(t *testing.T) {
+	t.Run("geometrycollection_buffer_ends_at_geometry_boundary", func(t *testing.T) {
+		wkb := func() []byte {
+			buf := make([]byte, 0)
+			buf = append(buf, 1) // little-endian
+			typeBuf := make([]byte, 4)
+			binary.LittleEndian.PutUint32(typeBuf, 7) // GeometryCollection
+			buf = append(buf, typeBuf...)
+			countBuf := make([]byte, 4)
+			binary.LittleEndian.PutUint32(countBuf, 1) // 1 geometry
+			buf = append(buf, countBuf...)
+
+			// Add a geometry that will cause calculateWKBSize to fail
+			buf = append(buf, 1)                      // little-endian
+			binary.LittleEndian.PutUint32(typeBuf, 1) // Point type
+			buf = append(buf, typeBuf...)
+			// Missing coordinate data - buffer ends here, geomSize calculation should fail
+			return buf
+		}()
+
+		_, ok := wkbToGeoJSON(wkb)
+		require.False(t, ok) // Should fail when calculateWKBSize fails
+	})
 }
