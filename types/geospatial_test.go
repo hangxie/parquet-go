@@ -39,6 +39,288 @@ func wkbPoint(order byte, x, y float64) []byte {
 	return buf
 }
 
+// helpers to construct little-endian WKB for selected integration cases
+func buildWKBLineString(coords [][]float64) []byte {
+	buf := []byte{1, 2, 0, 0, 0}
+	n := uint32(len(coords))
+	buf = append(buf, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
+	for _, c := range coords {
+		buf = append(buf, f64le(c[0])...)
+		buf = append(buf, f64le(c[1])...)
+	}
+	return buf
+}
+
+func buildWKBPolygon(rings [][][]float64) []byte {
+	buf := []byte{1, 3, 0, 0, 0}
+	rn := uint32(len(rings))
+	buf = append(buf, byte(rn), byte(rn>>8), byte(rn>>16), byte(rn>>24))
+	for _, ring := range rings {
+		n := uint32(len(ring))
+		buf = append(buf, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
+		for _, c := range ring {
+			buf = append(buf, f64le(c[0])...)
+			buf = append(buf, f64le(c[1])...)
+		}
+	}
+	return buf
+}
+
+func f64le(v float64) []byte {
+	u := math.Float64bits(v)
+	return []byte{byte(u), byte(u >> 8), byte(u >> 16), byte(u >> 24), byte(u >> 32), byte(u >> 40), byte(u >> 48), byte(u >> 56)}
+}
+
+// Moved from types/types_test.go: tests exercising geospatial.go behaviours
+func Test_ConvertGeometryAndGeographyLogicalValue(t *testing.T) {
+	// sample WKB: little-endian, Point(1,2)
+	sample := []byte{
+		1, 1, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 240, 63,
+		0, 0, 0, 0, 0, 0, 0, 64,
+	}
+
+	// Geometry (GeoJSON mode returns GeoJSON Feature)
+	geom := parquet.NewGeometryType()
+	crs := "EPSG:3857"
+	geom.CRS = &crs
+	SetGeometryJSONMode(GeospatialModeGeoJSON)
+	gRes := ConvertGeometryLogicalValue(sample, geom)
+	feat, ok := gRes.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Feature", feat["type"])
+	ggeom := feat["geometry"].(map[string]any)
+	require.Equal(t, "Point", ggeom["type"])
+	require.Equal(t, []float64{1, 2}, ggeom["coordinates"])
+	gprops := feat["properties"].(map[string]any)
+	require.Equal(t, crs, gprops["crs"]) // properties carries crs
+
+	// Geography with algorithm
+	geog := parquet.NewGeographyType()
+	crs2 := "OGC:CRS84"
+	geog.CRS = &crs2
+	algo := parquet.EdgeInterpolationAlgorithm_VINCENTY
+	geog.Algorithm = &algo
+	SetGeographyJSONMode(GeospatialModeGeoJSON)
+	gaRes := ConvertGeographyLogicalValue(sample, geog)
+	feat2, ok := gaRes.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Feature", feat2["type"])
+	g2 := feat2["geometry"].(map[string]any)
+	require.Equal(t, "Point", g2["type"])
+	require.Equal(t, []float64{1, 2}, g2["coordinates"])
+	props2 := feat2["properties"].(map[string]any)
+	require.Equal(t, "OGC:CRS84", props2["crs"])
+	require.Equal(t, "VINCENTY", props2["algorithm"])
+
+	// nil/empty safety
+	require.Nil(t, ConvertGeometryLogicalValue(nil, geom))
+	require.Nil(t, ConvertGeographyLogicalValue(nil, geog))
+
+	// Reprojection hook test: fake reprojection that adds +1 to coords
+	SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+		if crs == "EPSG:3857" && gj["type"] == "Point" {
+			coords := gj["coordinates"].([]float64)
+			return map[string]any{"type": "Point", "coordinates": []float64{coords[0] + 1, coords[1] + 1}}, true
+		}
+		return nil, false
+	})
+	gRes2 := ConvertGeometryLogicalValue(sample, geom).(map[string]any)
+	ggeom2 := gRes2["geometry"].(map[string]any)
+	require.Equal(t, []float64{2, 3}, ggeom2["coordinates"]) // reprojected
+	gaRes2 := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	g3 := gaRes2["geometry"].(map[string]any)
+	require.Equal(t, []float64{1, 2}, g3["coordinates"]) // unchanged for CRS84
+	SetGeospatialReprojector(nil)
+
+	// LineString and Polygon parsing
+	ls := buildWKBLineString([][]float64{{0, 0}, {1, 1}})
+	SetGeometryJSONMode(GeospatialModeGeoJSON)
+	gLS := ConvertGeometryLogicalValue(ls, geom).(map[string]any)
+	ggLS := gLS["geometry"].(map[string]any)
+	require.Equal(t, "LineString", ggLS["type"])
+	require.Equal(t, [][]float64{{0, 0}, {1, 1}}, ggLS["coordinates"])
+
+	poly := buildWKBPolygon([][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}})
+	gPoly := ConvertGeometryLogicalValue(poly, geom).(map[string]any)
+	gPolyGeo := gPoly["geometry"].(map[string]any)
+	require.Equal(t, "Polygon", gPolyGeo["type"])
+	require.Equal(t, [][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}}, gPolyGeo["coordinates"])
+
+	// Hybrid raw selection: base64 vs hex
+	SetGeographyJSONMode(GeospatialModeHybrid)
+	SetGeospatialHybridRawBase64(true)
+	gaHybrid := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	_, hasHex := gaHybrid["wkb_hex"]
+	b64, hasB64 := gaHybrid["wkb_b64"].(string)
+	require.False(t, hasHex)
+	require.True(t, hasB64)
+	require.NotEmpty(t, b64)
+	SetGeospatialHybridRawBase64(false)
+}
+
+func Test_GeometryAndGeography_AdditionalBranches(t *testing.T) {
+	invalid := []byte{1, 99, 0, 0, 0}
+	geom := parquet.NewGeometryType()
+	crs := "EPSG:4326"
+	geom.CRS = &crs
+	SetGeometryJSONMode(GeospatialModeGeoJSON)
+	g := ConvertGeometryLogicalValue(invalid, geom).(map[string]any)
+	require.Equal(t, crs, g["crs"])
+	require.NotEmpty(t, g["wkb_hex"].(string))
+
+	SetGeometryJSONMode(GeospatialModeBase64)
+	g2 := ConvertGeometryLogicalValue(string(invalid), geom).(map[string]any)
+	require.Equal(t, base64.StdEncoding.EncodeToString(invalid), g2["wkb_b64"])
+	require.Equal(t, crs, g2["crs"])
+
+	SetGeometryJSONMode(GeospatialModeHybrid)
+	g3 := ConvertGeometryLogicalValue(invalid, geom).(map[string]any)
+	require.Equal(t, crs, g3["crs"])
+	require.NotEmpty(t, g3["wkb_hex"]) // hex fallback
+
+	geog := parquet.NewGeographyType()
+	crs2 := "OGC:CRS84"
+	geog.CRS = &crs2
+	geog.Algorithm = nil
+	SetGeographyJSONMode(GeospatialModeBase64)
+	ga := ConvertGeographyLogicalValue(invalid, geog).(map[string]any)
+	require.Equal(t, "SPHERICAL", ga["algorithm"]) // default
+	require.Equal(t, crs2, ga["crs"])
+	require.Equal(t, base64.StdEncoding.EncodeToString(invalid), ga["wkb_b64"])
+
+	crs3 := "EPSG:3857"
+	geog2 := parquet.NewGeographyType()
+	geog2.CRS = &crs3
+	algo := parquet.EdgeInterpolationAlgorithm_VINCENTY
+	geog2.Algorithm = &algo
+	SetGeographyJSONMode(GeospatialModeHybrid)
+	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
+	SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+		if crs == crs3 {
+			coords := gj["coordinates"].([]float64)
+			return map[string]any{"type": "Point", "coordinates": []float64{coords[0] + 0.5, coords[1] + 0.5}}, true
+		}
+		return nil, false
+	})
+	defer SetGeospatialReprojector(nil)
+	out := ConvertGeographyLogicalValue(sample, geog2).(map[string]any)
+	require.Equal(t, crs3, out["crs"])
+	require.Equal(t, "VINCENTY", out["algorithm"])
+	gj := out["geojson"].(map[string]any)
+	require.Equal(t, "Point", gj["type"])
+	require.Equal(t, []float64{1.5, 2.5}, gj["coordinates"]) // shifted
+}
+
+func Test_GeometryAndGeography_MoreModes(t *testing.T) {
+	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
+	SetGeometryJSONMode(GeospatialModeHex)
+	geom := parquet.NewGeometryType()
+	crs := "OGC:CRS84"
+	geom.CRS = &crs
+	g := ConvertGeometryLogicalValue(sample, geom).(map[string]any)
+	require.Equal(t, crs, g["crs"])
+	require.NotEmpty(t, g["wkb_hex"]) // raw hex
+
+	SetGeometryJSONMode(GeospatialModeHybrid)
+	SetGeospatialHybridRawBase64(true)
+	gh := ConvertGeometryLogicalValue(sample, geom).(map[string]any)
+	require.Equal(t, crs, gh["crs"])
+	require.NotNil(t, gh["geojson"]) // includes parsed geojson
+	require.NotEmpty(t, gh["wkb_b64"])
+	require.NotContains(t, gh, "wkb_hex")
+	SetGeospatialHybridRawBase64(false)
+
+	SetGeographyJSONMode(GeospatialModeGeoJSON)
+	invalid := []byte{1, 99, 0, 0, 0}
+	geog := parquet.NewGeographyType()
+	crs2 := "OGC:CRS84"
+	geog.CRS = &crs2
+	out := ConvertGeographyLogicalValue(invalid, geog).(map[string]any)
+	require.Equal(t, crs2, out["crs"])
+	require.Equal(t, "SPHERICAL", out["algorithm"]) // default
+	require.NotEmpty(t, out["wkb_hex"])             // fallback hex
+
+	SetGeographyJSONMode(GeospatialModeHex)
+	out2 := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	require.Equal(t, crs2, out2["crs"])
+	require.Equal(t, "SPHERICAL", out2["algorithm"]) // still default
+	require.NotEmpty(t, out2["wkb_hex"])             // hex
+
+	SetGeographyJSONMode(GeospatialModeHybrid)
+	SetGeospatialHybridRawBase64(true)
+	out3 := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	require.Equal(t, crs2, out3["crs"])
+	require.Equal(t, "SPHERICAL", out3["algorithm"]) // default
+	require.NotNil(t, out3["geojson"])
+	require.NotEmpty(t, out3["wkb_b64"]) // base64 chosen
+	require.NotContains(t, out3, "wkb_hex")
+	SetGeospatialHybridRawBase64(false)
+}
+
+func Test_Geography_HybridFallbackAndStringInput(t *testing.T) {
+	invalid := []byte{1, 99, 0, 0, 0}
+	geog := parquet.NewGeographyType()
+	crs := "OGC:CRS84"
+	geog.CRS = &crs
+	SetGeographyJSONMode(GeospatialModeHybrid)
+	SetGeospatialHybridRawBase64(true)
+	out := ConvertGeographyLogicalValue(invalid, geog).(map[string]any)
+	require.Equal(t, crs, out["crs"])
+	require.NotEmpty(t, out["wkb_hex"]) // fallback is hex regardless
+	SetGeospatialHybridRawBase64(false)
+
+	SetGeographyJSONMode(GeospatialModeHex)
+	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
+	out2 := ConvertGeographyLogicalValue(string(sample), geog).(map[string]any)
+	require.Equal(t, crs, out2["crs"])
+	require.NotEmpty(t, out2["wkb_hex"]) // hex
+
+	SetGeographyJSONMode(GeospatialModeHybrid)
+	SetGeospatialHybridRawBase64(false)
+	out3 := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	require.Equal(t, crs, out3["crs"])
+	require.NotNil(t, out3["geojson"])   // include geojson
+	require.NotEmpty(t, out3["wkb_hex"]) // hex raw selected
+	require.NotContains(t, out3, "wkb_b64")
+}
+
+func Test_ConvertGeography_ReprojectorNoOp(t *testing.T) {
+	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
+	geog := parquet.NewGeographyType()
+	crs := "EPSG:3857"
+	geog.CRS = &crs
+	SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+		return nil, false
+	})
+	defer SetGeospatialReprojector(nil)
+	SetGeographyJSONMode(GeospatialModeGeoJSON)
+	out := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	g := out["geometry"].(map[string]any)
+	require.Equal(t, []float64{1, 2}, g["coordinates"]) // unchanged
+}
+
+func Test_ConvertGeography_GeoJSON_NoReproject(t *testing.T) {
+	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
+	geog := parquet.NewGeographyType()
+	crs := "EPSG:4326"
+	geog.CRS = &crs
+	SetGeospatialReprojector(nil)
+	SetGeographyJSONMode(GeospatialModeGeoJSON)
+	out := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	g := out["geometry"].(map[string]any)
+	require.Equal(t, []float64{1, 2}, g["coordinates"]) // unchanged geometry only
+}
+
+func Test_ConvertGeography_Defaults_NilGeoPointer(t *testing.T) {
+	invalid := []byte{1, 99, 0, 0, 0}
+	SetGeographyJSONMode(GeospatialModeBase64)
+	out := ConvertGeographyLogicalValue(invalid, nil).(map[string]any)
+	require.Equal(t, "OGC:CRS84", out["crs"])       // default CRS
+	require.Equal(t, "SPHERICAL", out["algorithm"]) // default algorithm
+	require.Equal(t, base64.StdEncoding.EncodeToString(invalid), out["wkb_b64"])
+}
+
 func wkbLineStringLE(coords [][]float64) []byte {
 	buf := make([]byte, 0, 1+4+4+len(coords)*16)
 	buf = append(buf, 1) // little-endian
