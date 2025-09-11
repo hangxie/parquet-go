@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/binary"
 	"testing"
 	"time"
 
@@ -309,80 +308,38 @@ func Test_IntervalToString(t *testing.T) {
 			expected: "0.000 sec",
 		},
 		{
-			name: "one_month_interval",
-			interval: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 1)  // 1 month
-				binary.LittleEndian.PutUint32(b[4:8], 0)  // 0 days
-				binary.LittleEndian.PutUint32(b[8:12], 0) // 0 milliseconds
-				return b
-			}(),
+			name:     "one_month_interval",
+			interval: []byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			expected: "1 mon",
 		},
 		{
-			name: "one_day_interval",
-			interval: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 0)  // 0 months
-				binary.LittleEndian.PutUint32(b[4:8], 1)  // 1 day
-				binary.LittleEndian.PutUint32(b[8:12], 0) // 0 milliseconds
-				return b
-			}(),
+			name:     "one_day_interval",
+			interval: []byte{0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0},
 			expected: "1 day",
 		},
 		{
-			name: "one_hour_interval",
-			interval: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 0)        // 0 months
-				binary.LittleEndian.PutUint32(b[4:8], 0)        // 0 days
-				binary.LittleEndian.PutUint32(b[8:12], 3600000) // 1 hour in milliseconds
-				return b
-			}(),
+			name:     "one_hour_interval",
+			interval: []byte{0, 0, 0, 0, 0, 0, 0, 0, 128, 238, 54, 0},
 			expected: "3600.000 sec",
 		},
 		{
-			name: "complex_interval",
-			interval: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 2)        // 2 months
-				binary.LittleEndian.PutUint32(b[4:8], 15)       // 15 days
-				binary.LittleEndian.PutUint32(b[8:12], 7200000) // 2 hours in milliseconds
-				return b
-			}(),
+			name:     "complex_interval",
+			interval: []byte{2, 0, 0, 0, 15, 0, 0, 0, 0, 221, 109, 0},
 			expected: "2 mon 15 day 7200.000 sec",
 		},
 		{
-			name: "months_and_seconds_only",
-			interval: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 3)     // 3 months
-				binary.LittleEndian.PutUint32(b[4:8], 0)     // 0 days
-				binary.LittleEndian.PutUint32(b[8:12], 1500) // 1.5 seconds in milliseconds
-				return b
-			}(),
+			name:     "months_and_seconds_only",
+			interval: []byte{3, 0, 0, 0, 0, 0, 0, 0, 220, 5, 0, 0},
 			expected: "3 mon 1.500 sec",
 		},
 		{
-			name: "days_and_seconds_only",
-			interval: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 0)    // 0 months
-				binary.LittleEndian.PutUint32(b[4:8], 7)    // 7 days
-				binary.LittleEndian.PutUint32(b[8:12], 500) // 0.5 seconds in milliseconds
-				return b
-			}(),
+			name:     "days_and_seconds_only",
+			interval: []byte{0, 0, 0, 0, 7, 0, 0, 0, 244, 1, 0, 0},
 			expected: "7 day 0.500 sec",
 		},
 		{
-			name: "fractional_seconds",
-			interval: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 0)   // 0 months
-				binary.LittleEndian.PutUint32(b[4:8], 0)   // 0 days
-				binary.LittleEndian.PutUint32(b[8:12], 25) // 0.025 seconds in milliseconds
-				return b
-			}(),
+			name:     "fractional_seconds",
+			interval: []byte{0, 0, 0, 0, 0, 0, 0, 0, 25, 0, 0, 0},
 			expected: "0.025 sec",
 		},
 		{

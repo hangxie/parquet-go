@@ -1170,14 +1170,8 @@ func Test_ParquetTypeToJSONType(t *testing.T) {
 			expected:  "2023-01-01T12:00:00.000000000Z",
 		},
 		{
-			name: "interval_converted_type",
-			value: func() string {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 0)        // 0 months
-				binary.LittleEndian.PutUint32(b[4:8], 1)        // 1 day
-				binary.LittleEndian.PutUint32(b[8:12], 7200000) // 2 hours in milliseconds
-				return string(b)
-			}(),
+			name:      "interval_converted_type",
+			value:     string([]byte{0, 0, 0, 0, 1, 0, 0, 0, 0, 221, 109, 0}),
 			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL),
 			precision: 0,
@@ -1695,36 +1689,18 @@ func Test_convertIntervalValue(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name: "valid_interval_bytes",
-			val: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 0)        // 0 months
-				binary.LittleEndian.PutUint32(b[4:8], 1)        // 1 day
-				binary.LittleEndian.PutUint32(b[8:12], 3600000) // 1 hour in milliseconds
-				return b
-			}(),
+			name:     "valid_interval_bytes",
+			val:      []byte{0, 0, 0, 0, 1, 0, 0, 0, 128, 238, 54, 0},
 			expected: "1 day 3600.000 sec",
 		},
 		{
-			name: "valid_interval_string",
-			val: func() string {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 0)     // 0 months
-				binary.LittleEndian.PutUint32(b[4:8], 0)     // 0 days
-				binary.LittleEndian.PutUint32(b[8:12], 1000) // 1 second in milliseconds
-				return string(b)
-			}(),
+			name:     "valid_interval_string",
+			val:      string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0}),
 			expected: "1.000 sec",
 		},
 		{
-			name: "interval_with_months_days_seconds",
-			val: func() []byte {
-				b := make([]byte, 12)
-				binary.LittleEndian.PutUint32(b[0:4], 2)     // 2 months
-				binary.LittleEndian.PutUint32(b[4:8], 15)    // 15 days
-				binary.LittleEndian.PutUint32(b[8:12], 1500) // 1.5 seconds
-				return b
-			}(),
+			name:     "interval_with_months_days_seconds",
+			val:      []byte{2, 0, 0, 0, 15, 0, 0, 0, 220, 5, 0, 0},
 			expected: "2 mon 15 day 1.500 sec",
 		},
 		{
