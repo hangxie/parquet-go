@@ -71,6 +71,284 @@ func SetGeospatialGeoJSONAsFeature(asFeature bool) { geospatialGeoJSONAsFeature 
 // Default is 6. Use -1 to disable rounding.
 func SetGeospatialCoordinatePrecision(precision int) { geospatialCoordPrecision = precision }
 
+// BoundingBoxCalculator accumulates coordinate bounds from geospatial data
+type BoundingBoxCalculator struct {
+	minX, minY, maxX, maxY float64
+	initialized            bool
+}
+
+// NewBoundingBoxCalculator creates a new bounding box calculator
+func NewBoundingBoxCalculator() *BoundingBoxCalculator {
+	return &BoundingBoxCalculator{}
+}
+
+// AddPoint adds a coordinate point to the bounding box calculation
+func (b *BoundingBoxCalculator) AddPoint(x, y float64) {
+	if !b.initialized {
+		b.minX, b.maxX = x, x
+		b.minY, b.maxY = y, y
+		b.initialized = true
+		return
+	}
+
+	b.minX = min(b.minX, x)
+	b.maxX = max(b.maxX, x)
+	b.minY = min(b.minY, y)
+	b.maxY = max(b.maxY, y)
+}
+
+// GetBounds returns the calculated bounding box coordinates
+func (b *BoundingBoxCalculator) GetBounds() (minX, minY, maxX, maxY float64, ok bool) {
+	if !b.initialized {
+		return 0, 0, 0, 0, false
+	}
+	return b.minX, b.minY, b.maxX, b.maxY, true
+}
+
+func u32(b []byte, offset int, bigEndian bool) (uint32, bool) {
+	if offset+4 > len(b) {
+		return 0, false
+	}
+	if bigEndian {
+		return binary.BigEndian.Uint32(b[offset : offset+4]), true
+	}
+	return binary.LittleEndian.Uint32(b[offset : offset+4]), true
+}
+
+// AddWKB recursively processes WKB data to extract all coordinate points
+func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
+	if len(wkb) < 5 {
+		return nil
+	}
+
+	order := wkb[0]
+	be := order == 0
+
+	gType, ok := u32(wkb, 1, be)
+	if !ok {
+		return nil
+	}
+	off := 5
+
+	switch gType {
+	case WKBPoint:
+		coords, _, ok := parsePoint(wkb, be, off)
+		if ok && len(coords) == 2 {
+			b.AddPoint(coords[0], coords[1])
+		}
+	case WKBLineString:
+		coords, _, ok := parseLineString(wkb, be, off)
+		if ok {
+			for _, point := range coords {
+				if len(point) == 2 {
+					b.AddPoint(point[0], point[1])
+				}
+			}
+		}
+	case WKBPolygon:
+		coords, _, ok := parsePolygon(wkb, be, off)
+		if ok {
+			for _, ring := range coords {
+				for _, point := range ring {
+					if len(point) == 2 {
+						b.AddPoint(point[0], point[1])
+					}
+				}
+			}
+		}
+	case WKBMultiPoint:
+		tempCalc := NewBoundingBoxCalculator()
+		n, ok := u32(wkb, off, be)
+		if !ok {
+			return nil
+		}
+		off += 4
+		for i := uint32(0); i < n; i++ {
+			if off >= len(wkb) {
+				return nil
+			}
+			pointOrder := wkb[off]
+			pointBE := pointOrder == 0
+			off++
+
+			pointType, ok := u32(wkb, off, be)
+			if !ok || pointType != WKBPoint {
+				return nil
+			}
+			off += 4
+
+			if off+16 > len(wkb) {
+				return nil
+			}
+
+			var x, y float64
+			if pointBE {
+				x = math.Float64frombits(binary.BigEndian.Uint64(wkb[off : off+8]))
+				y = math.Float64frombits(binary.BigEndian.Uint64(wkb[off+8 : off+16]))
+			} else {
+				x = math.Float64frombits(binary.LittleEndian.Uint64(wkb[off : off+8]))
+				y = math.Float64frombits(binary.LittleEndian.Uint64(wkb[off+8 : off+16]))
+			}
+			tempCalc.AddPoint(x, y)
+			off += 16
+		}
+		if minX, minY, maxX, maxY, ok := tempCalc.GetBounds(); ok {
+			b.AddPoint(minX, minY)
+			b.AddPoint(maxX, maxY)
+		}
+	case WKBMultiLineString:
+		tempCalc := NewBoundingBoxCalculator()
+		n, ok := u32(wkb, off, be)
+		if !ok {
+			return nil
+		}
+		off += 4
+		for i := uint32(0); i < n; i++ {
+			if off >= len(wkb) {
+				return nil
+			}
+			lineOrder := wkb[off]
+			lineBE := lineOrder == 0
+			off++
+
+			lineType, ok := u32(wkb, off, be)
+			if !ok || lineType != WKBLineString {
+				return nil
+			}
+			off += 4
+
+			if off+4 > len(wkb) {
+				return nil
+			}
+
+			var pointCount uint32
+			if lineBE {
+				pointCount = binary.BigEndian.Uint32(wkb[off : off+4])
+			} else {
+				pointCount = binary.LittleEndian.Uint32(wkb[off : off+4])
+			}
+			off += 4
+
+			if off+int(pointCount)*16 > len(wkb) {
+				return nil
+			}
+			for j := uint32(0); j < pointCount; j++ {
+				if off+16 > len(wkb) {
+					return nil
+				}
+
+				var x, y float64
+				if lineBE {
+					x = math.Float64frombits(binary.BigEndian.Uint64(wkb[off : off+8]))
+					y = math.Float64frombits(binary.BigEndian.Uint64(wkb[off+8 : off+16]))
+				} else {
+					x = math.Float64frombits(binary.LittleEndian.Uint64(wkb[off : off+8]))
+					y = math.Float64frombits(binary.LittleEndian.Uint64(wkb[off+8 : off+16]))
+				}
+				tempCalc.AddPoint(x, y)
+				off += 16
+			}
+		}
+		if minX, minY, maxX, maxY, ok := tempCalc.GetBounds(); ok {
+			b.AddPoint(minX, minY)
+			b.AddPoint(maxX, maxY)
+		}
+	case WKBMultiPolygon:
+		tempCalc := NewBoundingBoxCalculator()
+		n, ok := u32(wkb, off, be)
+		if !ok {
+			return nil
+		}
+		off += 4
+		for i := uint32(0); i < n; i++ {
+			if off >= len(wkb) {
+				return nil
+			}
+			polyOrder := wkb[off]
+			polyBE := polyOrder == 0
+			off++
+
+			polyType, ok := u32(wkb, off, be)
+			if !ok || polyType != WKBPolygon {
+				return nil
+			}
+			off += 4
+
+			if off+4 > len(wkb) {
+				return nil
+			}
+
+			var ringCount uint32
+			if polyBE {
+				ringCount = binary.BigEndian.Uint32(wkb[off : off+4])
+			} else {
+				ringCount = binary.LittleEndian.Uint32(wkb[off : off+4])
+			}
+			off += 4
+
+			for r := uint32(0); r < ringCount; r++ {
+				if off+4 > len(wkb) {
+					return nil
+				}
+
+				var pointCount uint32
+				if polyBE {
+					pointCount = binary.BigEndian.Uint32(wkb[off : off+4])
+				} else {
+					pointCount = binary.LittleEndian.Uint32(wkb[off : off+4])
+				}
+				off += 4
+
+				if off+int(pointCount)*16 > len(wkb) {
+					return nil
+				}
+				for j := uint32(0); j < pointCount; j++ {
+					if off+16 > len(wkb) {
+						return nil
+					}
+
+					var x, y float64
+					if polyBE {
+						x = math.Float64frombits(binary.BigEndian.Uint64(wkb[off : off+8]))
+						y = math.Float64frombits(binary.BigEndian.Uint64(wkb[off+8 : off+16]))
+					} else {
+						x = math.Float64frombits(binary.LittleEndian.Uint64(wkb[off : off+8]))
+						y = math.Float64frombits(binary.LittleEndian.Uint64(wkb[off+8 : off+16]))
+					}
+					tempCalc.AddPoint(x, y)
+					off += 16
+				}
+			}
+		}
+		if minX, minY, maxX, maxY, ok := tempCalc.GetBounds(); ok {
+			b.AddPoint(minX, minY)
+			b.AddPoint(maxX, maxY)
+		}
+	case WKBGeometryCollection:
+		n, ok := u32(wkb, off, be)
+		if !ok {
+			return nil
+		}
+		off += 4
+		for i := uint32(0); i < n; i++ {
+			geomStart := off
+			geomSize, ok := calculateWKBSize(wkb[off:])
+			if !ok {
+				return nil
+			}
+			geomEnd := geomStart + geomSize
+			if geomEnd > len(wkb) {
+				return nil
+			}
+			geomWKB := wkb[geomStart:geomEnd]
+			// Ignore error for recursive geometry processing
+			_ = b.AddWKB(geomWKB)
+			off = geomEnd
+		}
+	}
+	return nil
+}
+
 // roundCoordinate rounds coordinates based on precision setting
 func roundCoordinate(v float64) float64 {
 	if geospatialCoordPrecision < 0 {
@@ -88,17 +366,8 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 	}
 	order := b[0] // 0 = BigEndian, 1 = LittleEndian
 	be := order == 0
-	u32 := func(off int) (uint32, bool) {
-		if off+4 > len(b) {
-			return 0, false
-		}
-		if be {
-			return binary.BigEndian.Uint32(b[off : off+4]), true
-		}
-		return binary.LittleEndian.Uint32(b[off : off+4]), true
-	}
 
-	gType, ok := u32(1)
+	gType, ok := u32(b, 1, be)
 	if !ok {
 		return nil, false
 	}
@@ -140,7 +409,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 		}
 		return map[string]any{"type": "Polygon", "coordinates": coords}, true
 	case WKBMultiPoint:
-		n, ok := u32(off)
+		n, ok := u32(b, off, be)
 		if !ok {
 			return nil, false
 		}
@@ -156,7 +425,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 			off++
 
 			// Read and verify point type
-			pointType, ok := u32(off)
+			pointType, ok := u32(b, off, be)
 			if !ok || pointType != WKBPoint {
 				return nil, false
 			}
@@ -182,7 +451,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 		}
 		return map[string]any{"type": "MultiPoint", "coordinates": coords}, true
 	case WKBMultiLineString:
-		n, ok := u32(off)
+		n, ok := u32(b, off, be)
 		if !ok {
 			return nil, false
 		}
@@ -198,7 +467,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 			off++
 
 			// Read and verify linestring type
-			lineType, ok := u32(off)
+			lineType, ok := u32(b, off, be)
 			if !ok || lineType != WKBLineString {
 				return nil, false
 			}
@@ -243,7 +512,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 		}
 		return map[string]any{"type": "MultiLineString", "coordinates": lines}, true
 	case WKBMultiPolygon:
-		n, ok := u32(off)
+		n, ok := u32(b, off, be)
 		if !ok {
 			return nil, false
 		}
@@ -259,7 +528,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 			off++
 
 			// Read and verify polygon type
-			polyType, ok := u32(off)
+			polyType, ok := u32(b, off, be)
 			if !ok || polyType != WKBPolygon {
 				return nil, false
 			}
@@ -324,7 +593,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 		}
 		return map[string]any{"type": "MultiPolygon", "coordinates": polygons}, true
 	case WKBGeometryCollection:
-		n, ok := u32(off)
+		n, ok := u32(b, off, be)
 		if !ok {
 			return nil, false
 		}
@@ -493,28 +762,18 @@ func calculateWKBSize(b []byte) (int, bool) {
 		return newOff, true
 
 	case WKBMultiPoint:
-		if off+4 > len(b) {
+		numPoints, ok := u32(b, off, be)
+		if !ok {
 			return 0, false
-		}
-		var numPoints uint32
-		if be {
-			numPoints = binary.BigEndian.Uint32(b[off : off+4])
-		} else {
-			numPoints = binary.LittleEndian.Uint32(b[off : off+4])
 		}
 		off += 4
 		// Each point has its own byte order + type + coordinates
 		return off + int(numPoints)*(1+4+16), true
 
 	case WKBMultiLineString:
-		if off+4 > len(b) {
+		numLines, ok := u32(b, off, be)
+		if !ok {
 			return 0, false
-		}
-		var numLines uint32
-		if be {
-			numLines = binary.BigEndian.Uint32(b[off : off+4])
-		} else {
-			numLines = binary.LittleEndian.Uint32(b[off : off+4])
 		}
 		off += 4
 
@@ -538,14 +797,9 @@ func calculateWKBSize(b []byte) (int, bool) {
 		return off, true
 
 	case WKBMultiPolygon:
-		if off+4 > len(b) {
+		numPolys, ok := u32(b, off, be)
+		if !ok {
 			return 0, false
-		}
-		var numPolys uint32
-		if be {
-			numPolys = binary.BigEndian.Uint32(b[off : off+4])
-		} else {
-			numPolys = binary.LittleEndian.Uint32(b[off : off+4])
 		}
 		off += 4
 
@@ -582,14 +836,9 @@ func calculateWKBSize(b []byte) (int, bool) {
 		return off, true
 
 	case WKBGeometryCollection:
-		if off+4 > len(b) {
+		numGeoms, ok := u32(b, off, be)
+		if !ok {
 			return 0, false
-		}
-		var numGeoms uint32
-		if be {
-			numGeoms = binary.BigEndian.Uint32(b[off : off+4])
-		} else {
-			numGeoms = binary.LittleEndian.Uint32(b[off : off+4])
 		}
 		off += 4
 

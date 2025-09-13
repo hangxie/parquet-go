@@ -14,6 +14,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/encoding"
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/schema"
+	"github.com/hangxie/parquet-go/v2/types"
 )
 
 // Page is used to store the page data
@@ -40,6 +41,10 @@ type Page struct {
 	Info *common.Tag
 
 	PageSize int32
+
+	// Geospatial statistics for GEOMETRY/GEOGRAPHY columns
+	GeospatialBBox  *parquet.BoundingBox
+	GeospatialTypes []int32
 }
 
 // Create a new page
@@ -125,6 +130,14 @@ func TableToDataPages(table *Table, pageSize int32, compressType parquet.Compres
 			page.MinVal = minVal
 			page.NullCount = &nullCount
 		}
+
+		// Compute geospatial statistics for GEOMETRY and GEOGRAPHY columns
+		if !omitStats && logT != nil && (logT.IsSetGEOMETRY() || logT.IsSetGEOGRAPHY()) {
+			bbox, geoTypes := computePageGeospatialStatistics(page.DataTable.Values, page.DataTable.DefinitionLevels, table.MaxDefinitionLevel)
+			page.GeospatialBBox = bbox
+			page.GeospatialTypes = geoTypes
+		}
+
 		page.Schema = table.Schema
 		page.CompressType = compressType
 		page.Path = table.Path
@@ -1004,4 +1017,84 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 	} else {
 		return nil, 0, 0, fmt.Errorf("error page type %v", pageHeader.GetType())
 	}
+}
+
+// computePageGeospatialStatistics calculates bounding box and geometry types for a page of geospatial data
+func computePageGeospatialStatistics(values []any, definitionLevels []int32, maxDefinitionLevel int32) (*parquet.BoundingBox, []int32) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	calc := types.NewBoundingBoxCalculator()
+	geoTypesMap := make(map[int32]bool)
+
+	for i, val := range values {
+		// Only process non-null values (those with the maximum definition level)
+		if i < len(definitionLevels) && definitionLevels[i] != maxDefinitionLevel {
+			continue
+		}
+		if val == nil {
+			continue
+		}
+
+		// Convert value to WKB bytes
+		var wkbBytes []byte
+		switch v := val.(type) {
+		case []byte:
+			wkbBytes = v
+		case string:
+			wkbBytes = []byte(v)
+		default:
+			continue // Skip non-binary values
+		}
+
+		// Add to bounding box calculation
+		if err := calc.AddWKB(wkbBytes); err != nil {
+			continue // Skip invalid WKB data
+		}
+
+		// Extract geometry type from WKB
+		if geoType := extractGeometryType(wkbBytes); geoType > 0 {
+			geoTypesMap[geoType] = true
+		}
+	}
+
+	// Get bounding box
+	minX, minY, maxX, maxY, ok := calc.GetBounds()
+	if !ok {
+		return nil, nil
+	}
+
+	bbox := &parquet.BoundingBox{
+		Xmin: minX,
+		Xmax: maxX,
+		Ymin: minY,
+		Ymax: maxY,
+	}
+
+	// Convert geometry types map to slice
+	var geoTypes []int32
+	for gType := range geoTypesMap {
+		geoTypes = append(geoTypes, gType)
+	}
+
+	return bbox, geoTypes
+}
+
+// extractGeometryType extracts the geometry type from WKB data
+func extractGeometryType(wkb []byte) int32 {
+	if len(wkb) < 5 {
+		return 0
+	}
+
+	// Read byte order and geometry type
+	order := wkb[0]
+	var gType uint32
+	if order == 0 { // big-endian
+		gType = uint32(wkb[1])<<24 | uint32(wkb[2])<<16 | uint32(wkb[3])<<8 | uint32(wkb[4])
+	} else { // little-endian
+		gType = uint32(wkb[4])<<24 | uint32(wkb[3])<<16 | uint32(wkb[2])<<8 | uint32(wkb[1])
+	}
+
+	return int32(gType)
 }
