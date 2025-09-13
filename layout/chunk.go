@@ -109,6 +109,17 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 		metaData.Statistics.NullCount = &nullCount
 	}
 
+	// Aggregate geospatial statistics from pages
+	if logT != nil && (logT.IsSetGEOMETRY() || logT.IsSetGEOGRAPHY()) {
+		bbox, geoTypes := aggregateGeospatialStatistics(pages)
+		if bbox != nil {
+			metaData.GeospatialStatistics = &parquet.GeospatialStatistics{
+				Bbox:            bbox,
+				GeospatialTypes: geoTypes,
+			}
+		}
+	}
+
 	chunk.ChunkHeader.MetaData = metaData
 	return chunk, nil
 }
@@ -205,6 +216,17 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 		metaData.Statistics.NullCount = &nullCount
 	}
 
+	// Aggregate geospatial statistics from pages
+	if logT != nil && (logT.IsSetGEOMETRY() || logT.IsSetGEOGRAPHY()) {
+		bbox, geoTypes := aggregateGeospatialStatistics(pages)
+		if bbox != nil {
+			metaData.GeospatialStatistics = &parquet.GeospatialStatistics{
+				Bbox:            bbox,
+				GeospatialTypes: geoTypes,
+			}
+		}
+	}
+
 	chunk.ChunkHeader.MetaData = metaData
 	return chunk, nil
 }
@@ -266,4 +288,60 @@ func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sc
 		DecodeDictChunk(chunk)
 	}
 	return chunk, nil
+}
+
+// aggregateGeospatialStatistics combines geospatial statistics from multiple pages
+func aggregateGeospatialStatistics(pages []*Page) (*parquet.BoundingBox, []int32) {
+	if len(pages) == 0 {
+		return nil, nil
+	}
+
+	var combinedBBox *parquet.BoundingBox
+	geoTypesMap := make(map[int32]bool)
+
+	for _, page := range pages {
+		if page == nil || page.GeospatialBBox == nil {
+			continue
+		}
+
+		// Combine bounding boxes
+		if combinedBBox == nil {
+			combinedBBox = &parquet.BoundingBox{
+				Xmin: page.GeospatialBBox.Xmin,
+				Xmax: page.GeospatialBBox.Xmax,
+				Ymin: page.GeospatialBBox.Ymin,
+				Ymax: page.GeospatialBBox.Ymax,
+			}
+		} else {
+			if page.GeospatialBBox.Xmin < combinedBBox.Xmin {
+				combinedBBox.Xmin = page.GeospatialBBox.Xmin
+			}
+			if page.GeospatialBBox.Xmax > combinedBBox.Xmax {
+				combinedBBox.Xmax = page.GeospatialBBox.Xmax
+			}
+			if page.GeospatialBBox.Ymin < combinedBBox.Ymin {
+				combinedBBox.Ymin = page.GeospatialBBox.Ymin
+			}
+			if page.GeospatialBBox.Ymax > combinedBBox.Ymax {
+				combinedBBox.Ymax = page.GeospatialBBox.Ymax
+			}
+		}
+
+		// Combine geometry types
+		for _, gType := range page.GeospatialTypes {
+			geoTypesMap[gType] = true
+		}
+	}
+
+	if combinedBBox == nil {
+		return nil, nil
+	}
+
+	// Convert geometry types map to slice
+	var geoTypes []int32
+	for gType := range geoTypesMap {
+		geoTypes = append(geoTypes, gType)
+	}
+
+	return combinedBBox, geoTypes
 }
