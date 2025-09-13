@@ -66,9 +66,7 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 	for c := range NP {
 		bgn := c * delta
 		end := bgn + delta
-		if end > ln {
-			end = ln
-		}
+		end = min(end, ln)
 		if bgn >= ln {
 			bgn, end = ln, ln
 		}
