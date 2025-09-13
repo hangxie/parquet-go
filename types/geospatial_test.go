@@ -2174,3 +2174,183 @@ func Test_wkbToGeoJSON_GeometryCollection_BufferBoundary(t *testing.T) {
 		require.False(t, ok) // Should fail when calculateWKBSize fails
 	})
 }
+
+func Test_BoundingBoxCalculator(t *testing.T) {
+	t.Run("single_point", func(t *testing.T) {
+		calc := NewBoundingBoxCalculator()
+		calc.AddPoint(10.5, 20.3)
+
+		minX, minY, maxX, maxY, ok := calc.GetBounds()
+		require.True(t, ok)
+		require.Equal(t, 10.5, minX)
+		require.Equal(t, 20.3, minY)
+		require.Equal(t, 10.5, maxX)
+		require.Equal(t, 20.3, maxY)
+	})
+
+	t.Run("multiple_points", func(t *testing.T) {
+		calc := NewBoundingBoxCalculator()
+		calc.AddPoint(10.5, 20.3)
+		calc.AddPoint(5.2, 25.7)
+		calc.AddPoint(15.8, 18.1)
+
+		minX, minY, maxX, maxY, ok := calc.GetBounds()
+		require.True(t, ok)
+		require.Equal(t, 5.2, minX)
+		require.Equal(t, 18.1, minY)
+		require.Equal(t, 15.8, maxX)
+		require.Equal(t, 25.7, maxY)
+	})
+
+	t.Run("empty_calculator", func(t *testing.T) {
+		calc := NewBoundingBoxCalculator()
+
+		_, _, _, _, ok := calc.GetBounds()
+		require.False(t, ok)
+	})
+
+	t.Run("point_wkb", func(t *testing.T) {
+		wkb := wkbPoint(1, 10.5, 20.3) // little-endian
+		calc := NewBoundingBoxCalculator()
+
+		err := calc.AddWKB(wkb)
+		require.NoError(t, err)
+
+		minX, minY, maxX, maxY, ok := calc.GetBounds()
+		require.True(t, ok)
+		require.Equal(t, 10.5, minX)
+		require.Equal(t, 20.3, minY)
+		require.Equal(t, 10.5, maxX)
+		require.Equal(t, 20.3, maxY)
+	})
+
+	t.Run("linestring_wkb", func(t *testing.T) {
+		coords := [][]float64{{0, 0}, {10, 5}, {5, 15}}
+		wkb := buildWKBLineString(coords)
+		calc := NewBoundingBoxCalculator()
+
+		err := calc.AddWKB(wkb)
+		require.NoError(t, err)
+
+		minX, minY, maxX, maxY, ok := calc.GetBounds()
+		require.True(t, ok)
+		require.Equal(t, 0.0, minX)
+		require.Equal(t, 0.0, minY)
+		require.Equal(t, 10.0, maxX)
+		require.Equal(t, 15.0, maxY)
+	})
+
+	t.Run("polygon_wkb", func(t *testing.T) {
+		// Simple square polygon
+		coords := [][][]float64{{{0, 0}, {10, 0}, {10, 10}, {0, 10}, {0, 0}}}
+		wkb := buildWKBPolygon(coords)
+		calc := NewBoundingBoxCalculator()
+
+		err := calc.AddWKB(wkb)
+		require.NoError(t, err)
+
+		minX, minY, maxX, maxY, ok := calc.GetBounds()
+		require.True(t, ok)
+		require.Equal(t, 0.0, minX)
+		require.Equal(t, 0.0, minY)
+		require.Equal(t, 10.0, maxX)
+		require.Equal(t, 10.0, maxY)
+	})
+
+	t.Run("invalid_wkb", func(t *testing.T) {
+		// Too short WKB
+		wkb := []byte{1, 2}
+		calc := NewBoundingBoxCalculator()
+
+		err := calc.AddWKB(wkb)
+		require.NoError(t, err) // Should not error, just ignore invalid data
+
+		_, _, _, _, ok := calc.GetBounds()
+		require.False(t, ok) // Should have no bounds since no valid data was added
+	})
+}
+
+func Test_CalculateBoundingBox(t *testing.T) {
+	t.Run("point", func(t *testing.T) {
+		wkb := wkbPoint(1, 10.5, 20.3)
+
+		minX, minY, maxX, maxY, ok := CalculateBoundingBox(wkb)
+		require.True(t, ok)
+		require.Equal(t, 10.5, minX)
+		require.Equal(t, 20.3, minY)
+		require.Equal(t, 10.5, maxX)
+		require.Equal(t, 20.3, maxY)
+	})
+
+	t.Run("linestring", func(t *testing.T) {
+		coords := [][]float64{{-5, -3}, {10, 5}, {2, 15}}
+		wkb := buildWKBLineString(coords)
+
+		minX, minY, maxX, maxY, ok := CalculateBoundingBox(wkb)
+		require.True(t, ok)
+		require.Equal(t, -5.0, minX)
+		require.Equal(t, -3.0, minY)
+		require.Equal(t, 10.0, maxX)
+		require.Equal(t, 15.0, maxY)
+	})
+
+	t.Run("invalid_wkb", func(t *testing.T) {
+		wkb := []byte{1, 2}
+
+		_, _, _, _, ok := CalculateBoundingBox(wkb)
+		require.False(t, ok)
+	})
+}
+
+func Test_CalculateMultipleBoundingBoxes(t *testing.T) {
+	t.Run("multiple_points", func(t *testing.T) {
+		wkb1 := wkbPoint(1, 10.5, 20.3)
+		wkb2 := wkbPoint(1, 5.2, 25.7)
+		wkb3 := wkbPoint(1, 15.8, 18.1)
+
+		wkbList := [][]byte{wkb1, wkb2, wkb3}
+
+		minX, minY, maxX, maxY, ok := CalculateMultipleBoundingBoxes(wkbList)
+		require.True(t, ok)
+		require.Equal(t, 5.2, minX)
+		require.Equal(t, 18.1, minY)
+		require.Equal(t, 15.8, maxX)
+		require.Equal(t, 25.7, maxY)
+	})
+
+	t.Run("mixed_geometries", func(t *testing.T) {
+		pointWKB := wkbPoint(1, 10.5, 20.3)
+		lineCoords := [][]float64{{0, 0}, {5, 15}}
+		lineWKB := buildWKBLineString(lineCoords)
+
+		wkbList := [][]byte{pointWKB, lineWKB}
+
+		minX, minY, maxX, maxY, ok := CalculateMultipleBoundingBoxes(wkbList)
+		require.True(t, ok)
+		require.Equal(t, 0.0, minX)
+		require.Equal(t, 0.0, minY)
+		require.Equal(t, 10.5, maxX)
+		require.Equal(t, 20.3, maxY)
+	})
+
+	t.Run("empty_list", func(t *testing.T) {
+		wkbList := [][]byte{}
+
+		_, _, _, _, ok := CalculateMultipleBoundingBoxes(wkbList)
+		require.False(t, ok)
+	})
+
+	t.Run("with_invalid_wkb", func(t *testing.T) {
+		validWKB := wkbPoint(1, 10.5, 20.3)
+		invalidWKB := []byte{1, 2}
+
+		wkbList := [][]byte{validWKB, invalidWKB}
+
+		minX, minY, maxX, maxY, ok := CalculateMultipleBoundingBoxes(wkbList)
+		require.True(t, ok) // Should still work with valid data
+		require.Equal(t, 10.5, minX)
+		require.Equal(t, 20.3, minY)
+		require.Equal(t, 10.5, maxX)
+		require.Equal(t, 20.3, maxY)
+	})
+}

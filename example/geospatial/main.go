@@ -83,6 +83,26 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("%v\n", out)
+
+	// Display geospatial statistics for both geometry columns
+	fmt.Println("\nGeospatial Statistics:")
+	for i, col := range pr.Footer.RowGroups[0].Columns {
+		colName := pr.SchemaHandler.SchemaElements[i+1].Name // +1 to skip root element
+		if col.MetaData.GeospatialStatistics != nil {
+			geoStats := col.MetaData.GeospatialStatistics
+			fmt.Printf("Column '%s':\n", colName)
+			if geoStats.Bbox != nil {
+				fmt.Printf("  Bounding Box: X[%.2f, %.2f] Y[%.2f, %.2f]\n",
+					geoStats.Bbox.Xmin, geoStats.Bbox.Xmax,
+					geoStats.Bbox.Ymin, geoStats.Bbox.Ymax)
+			}
+			if len(geoStats.GeospatialTypes) > 0 {
+				fmt.Printf("  Geometry Types: %v\n", geoStats.GeospatialTypes)
+			}
+		} else {
+			fmt.Printf("Column '%s': No geospatial statistics\n", colName)
+		}
+	}
 	pr.ReadStop()
 	_ = fr.Close()
 }
