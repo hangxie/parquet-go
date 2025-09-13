@@ -67,7 +67,7 @@ test: deps tools  ## Run unit tests
 	@mkdir -p $(BUILD_DIR)/test
 	@set -euo pipefail ; \
 		cd $(BUILD_DIR)/test; \
-		CGO_ENABLED=1 go test -v -race -count 1 -trimpath \
+		CGO_ENABLED=1 go test -race -count 1 -trimpath \
 			-coverprofile=coverage.out.tmp $(CURDIR)/... \
 			| tee go-test.output ; \
 		cat coverage.out.tmp | grep -v /parquet/ > coverage.out; \
