@@ -57,12 +57,8 @@ func (t *Table) Merge(tables ...*Table) {
 		t.Values = append(t.Values, tables[i].Values...)
 		t.RepetitionLevels = append(t.RepetitionLevels, tables[i].RepetitionLevels...)
 		t.DefinitionLevels = append(t.DefinitionLevels, tables[i].DefinitionLevels...)
-		if tables[i].MaxDefinitionLevel > t.MaxDefinitionLevel {
-			t.MaxDefinitionLevel = tables[i].MaxDefinitionLevel
-		}
-		if tables[i].MaxRepetitionLevel > t.MaxRepetitionLevel {
-			t.MaxRepetitionLevel = tables[i].MaxRepetitionLevel
-		}
+		t.MaxDefinitionLevel = max(t.MaxDefinitionLevel, tables[i].MaxDefinitionLevel)
+		t.MaxRepetitionLevel = max(t.MaxRepetitionLevel, tables[i].MaxRepetitionLevel)
 	}
 }
 
@@ -84,12 +80,8 @@ func (t *Table) Pop(numRows int64) *Table {
 				break
 			}
 		}
-		if res.MaxRepetitionLevel < t.RepetitionLevels[i] {
-			res.MaxRepetitionLevel = t.RepetitionLevels[i]
-		}
-		if res.MaxDefinitionLevel < t.DefinitionLevels[i] {
-			res.MaxDefinitionLevel = t.DefinitionLevels[i]
-		}
+		res.MaxRepetitionLevel = max(res.MaxRepetitionLevel, t.RepetitionLevels[i])
+		res.MaxDefinitionLevel = max(res.MaxDefinitionLevel, t.DefinitionLevels[i])
 	}
 	endIndex = i
 
