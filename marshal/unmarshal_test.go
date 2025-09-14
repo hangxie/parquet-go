@@ -3,6 +3,7 @@ package marshal
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -533,6 +534,58 @@ func Test_convertValueToJSONFriendlyWithContext(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_ConvertToJSONFriendly_NonDefaultRootName(t *testing.T) {
+	// Test the fix for hardcoded "Parquet_go_root" assumption
+	// Create a schema with a custom root name to verify the fix works
+
+	type TestStruct struct {
+		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Value int32  `parquet:"name=value, type=INT32, convertedtype=DECIMAL, scale=2, precision=9"`
+	}
+
+	// Create schema with custom root name
+	customRootSchema, err := schema.NewSchemaHandlerFromStruct(new(TestStruct))
+	require.NoError(t, err)
+
+	// Change the root name to test non-default scenario
+	customRootSchema.Infos[0].InName = "Custom_Root"
+	customRootSchema.Infos[0].ExName = "custom_root"
+
+	// Update the maps to reflect the new root name
+	oldMapIndex := make(map[string]int32)
+	for k, v := range customRootSchema.MapIndex {
+		oldMapIndex[k] = v
+	}
+
+	customRootSchema.MapIndex = make(map[string]int32)
+	for k, v := range oldMapIndex {
+		newKey := strings.Replace(k, "Parquet_go_root", "Custom_Root", 1)
+		customRootSchema.MapIndex[newKey] = v
+	}
+
+	for k, v := range customRootSchema.IndexMap {
+		newValue := strings.Replace(v, "Parquet_go_root", "Custom_Root", 1)
+		customRootSchema.IndexMap[k] = newValue
+	}
+
+	require.Equal(t, "Custom_Root", customRootSchema.GetRootInName())
+
+	// Test ConvertToJSONFriendly with custom root name
+	testData := TestStruct{
+		Name:  "TestUser",
+		Value: 12345,
+	}
+
+	result, err := ConvertToJSONFriendly(testData, customRootSchema)
+	require.NoError(t, err)
+
+	expected := map[string]any{
+		"Name":  "TestUser",
+		"Value": float64(123.45), // Converted due to decimal type
+	}
+	require.Equal(t, expected, result)
 }
 
 func Test_convertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {

@@ -539,15 +539,12 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 		return val.Interface(), nil
 	}
 
+	rootName := schemaHandler.GetRootInName()
 	var expectedSchemaPath string
-	if strings.HasPrefix(pathPrefix, "Parquet_go_root") {
+	if strings.HasPrefix(pathPrefix, rootName) {
 		expectedSchemaPath = pathPrefix
 	} else {
-		var builder strings.Builder
-		builder.WriteString("Parquet_go_root")
-		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
-		builder.WriteString(pathPrefix)
-		expectedSchemaPath = builder.String()
+		expectedSchemaPath = rootName + common.PAR_GO_PATH_DELIMITER + pathPrefix
 	}
 
 	ctx.mutex.RLock()
