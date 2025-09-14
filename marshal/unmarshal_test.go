@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/schema"
 	"github.com/hangxie/parquet-go/v2/types"
 )
@@ -420,10 +419,7 @@ func Test_convertValueToJSONFriendlyWithContext(t *testing.T) {
 	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(TestStruct))
 	require.NoError(t, err)
 
-	ctx := &conversionContext{
-		schemaCache: make(map[string]*parquet.SchemaElement),
-		fieldCache:  make(map[reflect.Type]map[string]fieldInfo),
-	}
+	ctx := &conversionContext{}
 
 	tests := []struct {
 		name          string
@@ -592,10 +588,7 @@ func Test_convertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
 	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(struct{}))
 	require.NoError(t, err)
 
-	ctx := &conversionContext{
-		schemaCache: make(map[string]*parquet.SchemaElement),
-		fieldCache:  make(map[reflect.Type]map[string]fieldInfo),
-	}
+	ctx := &conversionContext{}
 
 	tests := []struct {
 		name        string

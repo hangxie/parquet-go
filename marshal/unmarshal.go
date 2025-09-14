@@ -31,9 +31,8 @@ type SliceRecord struct {
 
 // conversionContext holds cached data for performance optimization
 type conversionContext struct {
-	schemaCache map[string]*parquet.SchemaElement
-	fieldCache  map[reflect.Type]map[string]fieldInfo
-	mutex       sync.RWMutex
+	schemaCache sync.Map // map[string]*parquet.SchemaElement
+	fieldCache  sync.Map // map[reflect.Type]map[string]fieldInfo
 }
 
 type fieldInfo struct {
@@ -356,10 +355,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 // ConvertToJSONFriendly converts parquet data to JSON-friendly format by applying logical type conversions
 func ConvertToJSONFriendly(data any, schemaHandler *schema.SchemaHandler) (any, error) {
-	ctx := &conversionContext{
-		schemaCache: make(map[string]*parquet.SchemaElement),
-		fieldCache:  make(map[reflect.Type]map[string]fieldInfo),
-	}
+	ctx := &conversionContext{}
 	return convertValueToJSONFriendlyWithContext(reflect.ValueOf(data), schemaHandler, "", ctx)
 }
 
@@ -479,9 +475,8 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 	result := make(map[string]any)
 	valType := val.Type()
 
-	ctx.mutex.RLock()
-	fieldMap, exists := ctx.fieldCache[valType]
-	ctx.mutex.RUnlock()
+	fieldMapInterface, exists := ctx.fieldCache.Load(valType)
+	var fieldMap map[string]fieldInfo
 
 	if !exists {
 		fieldMap = make(map[string]fieldInfo)
@@ -495,9 +490,9 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 				}
 			}
 		}
-		ctx.mutex.Lock()
-		ctx.fieldCache[valType] = fieldMap
-		ctx.mutex.Unlock()
+		ctx.fieldCache.Store(valType, fieldMap)
+	} else {
+		fieldMap = fieldMapInterface.(map[string]fieldInfo)
 	}
 
 	for i := range val.NumField() {
@@ -547,9 +542,8 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 		expectedSchemaPath = rootName + common.PAR_GO_PATH_DELIMITER + pathPrefix
 	}
 
-	ctx.mutex.RLock()
-	schemaElement, cached := ctx.schemaCache[expectedSchemaPath]
-	ctx.mutex.RUnlock()
+	schemaElementInterface, cached := ctx.schemaCache.Load(expectedSchemaPath)
+	var schemaElement *parquet.SchemaElement
 
 	if !cached {
 		schemaIndex, exists := schemaHandler.MapIndex[expectedSchemaPath]
@@ -557,9 +551,9 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 			return val.Interface(), nil
 		}
 		schemaElement = schemaHandler.SchemaElements[schemaIndex]
-		ctx.mutex.Lock()
-		ctx.schemaCache[expectedSchemaPath] = schemaElement
-		ctx.mutex.Unlock()
+		ctx.schemaCache.Store(expectedSchemaPath, schemaElement)
+	} else {
+		schemaElement = schemaElementInterface.(*parquet.SchemaElement)
 	}
 
 	if schemaElement == nil {
