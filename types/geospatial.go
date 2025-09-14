@@ -130,7 +130,8 @@ func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
 	}
 	off := 5
 
-	switch gType {
+	// gType may contain extended wkbType (https://libgeos.org/specifications/wkb/#iso-wkb)
+	switch gType % 1000 {
 	case WKBPoint:
 		coords, _, ok := parsePoint(wkb, be, off)
 		if ok && len(coords) == 2 {
@@ -389,7 +390,8 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 		return math.Round(v*pow) / pow
 	}
 
-	switch gType {
+	// gType may contain extended wkbType (https://libgeos.org/specifications/wkb/#iso-wkb)
+	switch gType % 1000 {
 	case WKBPoint:
 		coords, _, ok := parsePoint(b, be, off)
 		if !ok {
@@ -739,7 +741,8 @@ func calculateWKBSize(b []byte) (int, bool) {
 
 	off := 5 // byte order + type
 
-	switch gType {
+	// gType may contain extended wkbType (https://libgeos.org/specifications/wkb/#iso-wkb)
+	switch gType % 1000 {
 	case WKBPoint:
 		_, newOff, ok := parsePoint(b, be, off)
 		if !ok {
