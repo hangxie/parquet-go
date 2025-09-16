@@ -161,7 +161,36 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 						}
 					}
 
-					if rl == repetitionLevels[index] || sliceRec.Index < 0 {
+					// Apply old list format logic for the inner array level in old list format files
+					// Old list format pattern: [..., array, array] where we're at the second array
+					// This pattern can appear at any depth in nested schemas, not just at depth 3
+					// Examples: [Root, Field, array, array] or [Root, A, B, C, ListField, array, array]
+					// Minimum path length of 2 is required to safely check path[index-1]
+					isOldListFormatArray := len(path) >= 2 &&
+						index < len(path) && strings.EqualFold(path[index], "array") &&
+						index > 0 && strings.EqualFold(path[index-1], "array") &&
+						index < len(schemaHandler.SchemaElements) &&
+						schemaHandler.SchemaElements[schemaIndexs[index]].Type != nil
+
+					var shouldIncrement bool
+					if isOldListFormatArray {
+						// This is the inner array level - use old list format logic
+						if sliceRec.Index < 0 {
+							// First element
+							shouldIncrement = true
+						} else if rl <= 1 {
+							// rl=0 (new record) or rl=1 (new inner array) -> increment
+							shouldIncrement = true
+						} else {
+							// rl=2 (continue inner array) -> don't increment
+							shouldIncrement = false
+						}
+					} else {
+						// Use normal logic for other levels
+						shouldIncrement = rl == repetitionLevels[index] || sliceRec.Index < 0
+					}
+
+					if shouldIncrement {
 						sliceRec.Index++
 					}
 
@@ -171,9 +200,27 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 					po = sliceRec.Values[sliceRec.Index]
 
+					// For old list format at the leaf level, assign the value to the array field
+					if isOldListFormatArray && po.Kind() == reflect.Struct &&
+						po.NumField() == 1 && strings.EqualFold(po.Type().Field(0).Name, "array") &&
+						po.Type().Field(0).Type.Kind() == reflect.Slice {
+
+						arrayField := po.Field(0)
+						if arrayField.Kind() == reflect.Slice {
+							elemValue := reflect.ValueOf(val)
+							// Convert if needed
+							if elemValue.Type() != arrayField.Type().Elem() {
+								if elemValue.Type().ConvertibleTo(arrayField.Type().Elem()) {
+									elemValue = elemValue.Convert(arrayField.Type().Elem())
+								}
+							}
+							arrayField.Set(reflect.Append(arrayField, elemValue))
+						}
+					}
+
 					if cTIsList {
 						index++
-						if definitionLevels[index] > dl {
+						if index < len(definitionLevels) && definitionLevels[index] > dl {
 							break OuterLoop
 						}
 					}
@@ -232,7 +279,10 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 				case reflect.Struct:
 					index++
-					if definitionLevels[index] > dl {
+					if index < len(definitionLevels) && definitionLevels[index] > dl {
+						break OuterLoop
+					}
+					if index >= len(path) {
 						break OuterLoop
 					}
 					name := path[index]
@@ -472,8 +522,35 @@ func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHan
 
 // convertStructToJSONFriendly optimized struct conversion with field caching
 func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
-	result := make(map[string]any)
 	valType := val.Type()
+
+	// Special handling for old list format: if struct has single "array" field with slice data,
+	// return the slice directly instead of wrapping in map
+	// Detect old list format by checking if the field name is "array" (case-insensitive)
+	isOldListFormatStruct := val.NumField() == 1 &&
+		strings.EqualFold(valType.Field(0).Name, "array") &&
+		valType.Field(0).Type.Kind() == reflect.Slice
+
+	if isOldListFormatStruct {
+		field := valType.Field(0)
+		if strings.EqualFold(field.Name, "array") && field.Type.Kind() == reflect.Slice {
+			fieldVal := val.Field(0)
+			// Return the slice content directly
+			var fieldPath string
+			if pathPrefix != "" {
+				var builder strings.Builder
+				builder.WriteString(pathPrefix)
+				builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+				builder.WriteString(field.Name)
+				fieldPath = builder.String()
+			} else {
+				fieldPath = field.Name
+			}
+			return convertValueToJSONFriendlyWithContext(fieldVal, schemaHandler, fieldPath, ctx)
+		}
+	}
+
+	result := make(map[string]any)
 
 	fieldMapInterface, exists := ctx.fieldCache.Load(valType)
 	var fieldMap map[string]fieldInfo
