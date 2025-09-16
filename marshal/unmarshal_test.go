@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/layout"
+	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/schema"
 	"github.com/hangxie/parquet-go/v2/types"
 )
@@ -866,4 +869,131 @@ func Test_Unmarshal_MapAndList_MultipleEntries(t *testing.T) {
 	dst := make([]Combo, 0)
 	require.NoError(t, Unmarshal(tmap, 0, len(src), &dst, sh, ""))
 	require.Equal(t, src, dst)
+}
+
+// Test helper types and functions for old list format testing
+type TestTarget [][]int32
+
+type OldListTestStruct struct {
+	Array []int32 `json:"array"`
+}
+
+// createOldListSchema creates the standard old list schema pattern used across tests
+func createOldListSchema() *schema.SchemaHandler {
+	schemaElements := []*parquet.SchemaElement{
+		{Name: "Parquet_go_root", RepetitionType: nil, NumChildren: common.ToPtr(int32(1))},
+		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), ConvertedType: common.ToPtr(parquet.ConvertedType_LIST), NumChildren: common.ToPtr(int32(1))},
+		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), Type: common.ToPtr(parquet.Type_INT32)},
+	}
+
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	// Set up the critical MapIndex entries for old list detection
+	schemaHandler.MapIndex["Parquet_go_root"] = 1
+	schemaHandler.MapIndex["Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"array"] = 1
+	schemaHandler.MapIndex["Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"array"+common.PAR_GO_PATH_DELIMITER+"array"] = 2
+
+	return schemaHandler
+}
+
+// createOldListTable creates a table map for old list testing
+func createOldListTable(path []string, values []any, repetitionLevels, definitionLevels []int32) *map[string]*layout.Table {
+	pathKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + strings.Join(path, common.PAR_GO_PATH_DELIMITER)
+	return &map[string]*layout.Table{
+		pathKey: {
+			Path:             path,
+			Values:           values,
+			RepetitionLevels: repetitionLevels,
+			DefinitionLevels: definitionLevels,
+		},
+	}
+}
+
+// createConversionContext creates a standard conversion context for JSON conversion tests
+func createConversionContext() *conversionContext {
+	return &conversionContext{
+		fieldCache: sync.Map{},
+	}
+}
+
+// Test_OldStyleList targets test old style list
+func Test_OldStyleList(t *testing.T) {
+	t.Run("unmarshal_old_list_multi_inner_segments", func(t *testing.T) {
+		schemaHandler := createOldListSchema()
+
+		values := []any{int32(1), int32(2), int32(3), int32(4), int32(5), int32(6), int32(7), int32(8)}
+		repetitionLevels := []int32{0, 2, 1, 2, 0, 2, 1, 2, 0, 2, 1, 2}
+		definitionLevels := []int32{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2}
+		tableMap := createOldListTable([]string{"Parquet_go_root", "array", "array"}, values, repetitionLevels, definitionLevels)
+
+		result := make([]TestTarget, 0)
+		require.NoError(t, Unmarshal(tableMap, 0, 3, &result, schemaHandler, ""))
+		require.Len(t, result, 3)
+	})
+
+	t.Run("convertStructToJSONFriendly_old_list_format", func(t *testing.T) {
+		val := reflect.ValueOf(OldListTestStruct{Array: []int32{1, 2, 3}})
+		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(OldListTestStruct))
+		require.NoError(t, err)
+
+		ctx := createConversionContext()
+
+		result, err := convertStructToJSONFriendly(val, schemaHandler, "", ctx)
+		require.NoError(t, err)
+
+		// Should return the slice content directly, not wrapped in a map
+		sliceResult, ok := result.([]interface{})
+		require.True(t, ok)
+		require.Len(t, sliceResult, 3)
+	})
+
+	t.Run("convertStructToJSONFriendly_with_path_prefix", func(t *testing.T) {
+		val := reflect.ValueOf(OldListTestStruct{Array: []int32{42}})
+		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(OldListTestStruct))
+		require.NoError(t, err)
+
+		ctx := createConversionContext()
+
+		result, err := convertStructToJSONFriendly(val, schemaHandler, "root.nested", ctx)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+	})
+
+	t.Run("unmarshal_nil_value_handling", func(t *testing.T) {
+		type TestStruct struct {
+			Value *int32 `parquet:"name=value, type=INT32, repetitiontype=OPTIONAL"`
+		}
+
+		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(TestStruct))
+		require.NoError(t, err)
+
+		tableMap := createOldListTable([]string{"value"}, []interface{}{nil}, []int32{0}, []int32{0})
+		result := make([]TestStruct, 0)
+		err = Unmarshal(tableMap, 0, 1, &result, schemaHandler, "")
+		require.NoError(t, err)
+	})
+
+	t.Run("convertStructToJSONFriendly_unexported_fields", func(t *testing.T) {
+		type MixedFieldStruct struct {
+			ExportedField   int32 `json:"exported"`
+			unexportedField int32 // This should be skipped
+		}
+
+		val := reflect.ValueOf(MixedFieldStruct{
+			ExportedField:   42,
+			unexportedField: 100,
+		})
+
+		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(MixedFieldStruct))
+		require.NoError(t, err)
+		ctx := createConversionContext()
+		result, err := convertStructToJSONFriendly(val, schemaHandler, "", ctx)
+		require.NoError(t, err)
+
+		resultMap, ok := result.(map[string]interface{})
+		require.True(t, ok)
+
+		require.Contains(t, resultMap, "exported")
+		require.Equal(t, int32(42), resultMap["exported"])
+		require.NotContains(t, resultMap, "unexportedField")
+	})
 }
