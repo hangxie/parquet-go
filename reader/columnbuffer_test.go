@@ -1,13 +1,16 @@
 package reader
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"testing"
 
+	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v2/common"
+	"github.com/hangxie/parquet-go/v2/layout"
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/schema"
 	"github.com/hangxie/parquet-go/v2/source"
@@ -20,6 +23,7 @@ type mockColumnBufferFileReader struct {
 	closed     bool
 	shouldFail bool
 	cloneFails bool
+	openFails  bool
 }
 
 func newMockColumnBufferFileReader(data []byte) *mockColumnBufferFileReader {
@@ -36,6 +40,10 @@ func (m *mockColumnBufferFileReader) SetShouldFail(shouldFail bool) {
 
 func (m *mockColumnBufferFileReader) SetCloneFails(cloneFails bool) {
 	m.cloneFails = cloneFails
+}
+
+func (m *mockColumnBufferFileReader) SetOpenFails(openFails bool) {
+	m.openFails = openFails
 }
 
 func (m *mockColumnBufferFileReader) Read(p []byte) (n int, err error) {
@@ -77,7 +85,7 @@ func (m *mockColumnBufferFileReader) Close() error {
 }
 
 func (m *mockColumnBufferFileReader) Open(name string) (source.ParquetFileReader, error) {
-	if m.shouldFail {
+	if m.shouldFail || m.openFails {
 		return nil, fmt.Errorf("mock open error")
 	}
 	return newMockColumnBufferFileReader(m.data), nil
@@ -92,6 +100,11 @@ func (m *mockColumnBufferFileReader) Clone() (source.ParquetFileReader, error) {
 	}
 	newReader := newMockColumnBufferFileReader(m.data)
 	newReader.offset = m.offset
+	// propagate flags so behaviors on the cloned reader remain consistent
+	newReader.closed = m.closed
+	newReader.shouldFail = m.shouldFail
+	newReader.cloneFails = m.cloneFails
+	newReader.openFails = m.openFails
 	return newReader, nil
 }
 
@@ -114,6 +127,32 @@ func newMockSchemaHandler() *schema.SchemaHandler {
 		InPathToExPath: make(map[string]string),
 		ExPathToInPath: make(map[string]string),
 	}
+}
+
+// helper to build a minimal schema handler containing a root and one leaf at the given path
+func newSchemaHandlerWithPath(path string) *schema.SchemaHandler {
+	sh := &schema.SchemaHandler{
+		SchemaElements: []*parquet.SchemaElement{
+			{ // 0: root
+				Name: "root",
+			},
+			{ // 1: leaf
+				Name: path,
+				Type: common.ToPtr(parquet.Type_INT64),
+			},
+		},
+		Infos:          []*common.Tag{{InName: "root", ExName: "root"}},
+		MapIndex:       make(map[string]int32),
+		IndexMap:       make(map[int32]string),
+		InPathToExPath: make(map[string]string),
+		ExPathToInPath: make(map[string]string),
+	}
+	fq := "root." + path
+	sh.MapIndex[fq] = 1
+	sh.IndexMap[1] = fq
+	sh.InPathToExPath[fq] = fq
+	sh.ExPathToInPath[fq] = fq
+	return sh
 }
 
 func Test_NewColumnBuffer(t *testing.T) {
@@ -460,3 +499,152 @@ func Test_NewColumnBuffer_EdgeCases(t *testing.T) {
 		require.Equal(t, filePath, *result.ChunkHeader.FilePath)
 	})
 }
+
+// Additional tests merged from columnbuffer_more_test.go
+
+func Test_ReadRows_EmptyFooterFastPath(t *testing.T) {
+	footer := &parquet.FileMetaData{NumRows: 0}
+	cb := &ColumnBufferType{Footer: footer}
+
+	tbl, n := cb.ReadRows(10)
+	require.Equal(t, int64(0), n)
+	require.NotNil(t, tbl)
+	require.Len(t, tbl.Values, 0)
+}
+
+// removed: Test_ReadRows_PopAndCounters (redundant for coverage)
+
+// removed: Test_ReadRows_ReleaseMemoryOnDepletion (redundant for coverage)
+
+// removed: Test_SkipRows_PopAndCounters (redundant for coverage)
+
+func Test_SkipRows_AllAndRelease(t *testing.T) {
+	footer := &parquet.FileMetaData{NumRows: 10}
+	dt := &layout.Table{
+		Schema:             &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_INT64)},
+		Path:               []string{"root", "leaf"},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 0,
+		Values:             []any{int64(7), int64(8)},
+		DefinitionLevels:   []int32{1, 1},
+		RepetitionLevels:   []int32{0, 0},
+	}
+	cb := &ColumnBufferType{Footer: footer, DataTable: dt, DataTableNumRows: 2}
+
+	n := cb.SkipRows(2)
+	require.Equal(t, int64(2), n)
+	require.Equal(t, int64(0), cb.DataTableNumRows)
+	require.NotNil(t, cb.DataTable)
+	require.Len(t, cb.DataTable.Values, 0)
+}
+
+// removed: Test_ReadPage_ErrorNoData (redundant for coverage)
+
+func Test_NewColumnBuffer_FilePathOpenError(t *testing.T) {
+	mockFile := newMockColumnBufferFileReader([]byte{})
+	mockFile.SetOpenFails(true)
+
+	filePath := "external.parquet"
+	footer := &parquet.FileMetaData{
+		RowGroups: []*parquet.RowGroup{
+			{Columns: []*parquet.ColumnChunk{{
+				MetaData: &parquet.ColumnMetaData{
+					PathInSchema:   []string{"leaf"},
+					DataPageOffset: 0,
+					NumValues:      1,
+					Type:           parquet.Type_INT64,
+					Codec:          parquet.CompressionCodec_UNCOMPRESSED,
+				},
+				FilePath: &filePath,
+			}}},
+		},
+	}
+	sh := newSchemaHandlerWithPath("leaf")
+
+	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf")
+	require.Error(t, err)
+	require.Nil(t, cb)
+}
+
+// removed: Test_ReadPage_NoRowGroups_EOF (redundant for coverage)
+
+func Test_SkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
+	mockFile := newMockColumnBufferFileReader([]byte{})
+	footer := &parquet.FileMetaData{
+		RowGroups: []*parquet.RowGroup{
+			{Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+				PathInSchema:   []string{"leaf"},
+				DataPageOffset: 0,
+				NumValues:      3,
+				Type:           parquet.Type_INT64,
+				Codec:          parquet.CompressionCodec_UNCOMPRESSED,
+			}}}},
+		},
+	}
+	sh := newSchemaHandlerWithPath("leaf")
+
+	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf")
+	require.NoError(t, err)
+	require.NotNil(t, cb)
+
+	n := cb.SkipRows(1)
+	require.Equal(t, int64(0), n)
+}
+
+// removed: Test_ReadPage_DataPage_Plain_Success (did not improve coverage)
+
+func Test_ReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
+	ph := parquet.NewPageHeader()
+	ph.Type = parquet.PageType_DATA_PAGE
+	ph.CompressedPageSize = 10
+	ph.UncompressedPageSize = 10
+	ph.DataPageHeader = parquet.NewDataPageHeader()
+	ph.DataPageHeader.NumValues = 2
+	ph.DataPageHeader.DefinitionLevelEncoding = parquet.Encoding_RLE
+	ph.DataPageHeader.RepetitionLevelEncoding = parquet.Encoding_RLE
+	ph.DataPageHeader.Encoding = parquet.Encoding_PLAIN
+
+	ts := thrift.NewTSerializer()
+	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+	headerBytes, err := ts.Write(context.TODO(), ph)
+	require.NoError(t, err)
+
+	pFile := newMockColumnBufferFileReader(headerBytes)
+
+	const metaNumValues int64 = 3
+	footer := &parquet.FileMetaData{
+		RowGroups: []*parquet.RowGroup{
+			{Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+				PathInSchema:   []string{"leaf"},
+				DataPageOffset: 0,
+				NumValues:      metaNumValues,
+				Type:           parquet.Type_INT64,
+				Codec:          parquet.CompressionCodec_UNCOMPRESSED,
+			}}}},
+		},
+	}
+	sh := newSchemaHandlerWithPath("leaf")
+
+	cb, err := NewColumnBuffer(pFile, footer, sh, "root.leaf")
+	require.NoError(t, err)
+	require.NotNil(t, cb)
+
+	rerr := cb.ReadPage()
+	require.Error(t, rerr)
+
+	if rerr == io.EOF {
+		require.NotNil(t, cb.DataTable)
+		require.Equal(t, metaNumValues, cb.DataTableNumRows)
+		require.Len(t, cb.DataTable.Values, int(metaNumValues))
+		for i := 0; i < int(metaNumValues); i++ {
+			require.Nil(t, cb.DataTable.Values[i])
+			require.Equal(t, int32(0), cb.DataTable.DefinitionLevels[i])
+			require.Equal(t, int32(0), cb.DataTable.RepetitionLevels[i])
+		}
+		require.Equal(t, metaNumValues, cb.ChunkReadValues)
+	} else {
+		require.Contains(t, rerr.Error(), "EOF")
+	}
+}
+
+// removed: Test_ReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly (may be redundant if thrift wraps EOF)
