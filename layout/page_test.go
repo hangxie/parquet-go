@@ -146,26 +146,26 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 
 				// Check min/max statistics based on expectation
 				if tt.expectMinMaxStats {
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.Max, "Expected min/max statistics for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.Min, "Expected min/max statistics for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.MaxValue, "Expected MaxValue for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.MinValue, "Expected MinValue for %s", tt.name)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.Max)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.Min)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.MaxValue)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.MinValue)
 				} else {
-					require.Nil(t, page.Header.DataPageHeader.Statistics.Max, "Expected no Max statistics for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeader.Statistics.Min, "Expected no Min statistics for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeader.Statistics.MaxValue, "Expected no MaxValue for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeader.Statistics.MinValue, "Expected no MinValue for %s", tt.name)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.Max)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.Min)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.MaxValue)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.MinValue)
 				}
 
 				// Null count should always be present (not skipped)
 				if tt.expectNullCountStat {
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.NullCount, "Expected NullCount for %s", tt.name)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.NullCount)
 				}
 
 				// Verify geospatial statistics are preserved for geospatial types
 				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
-					require.NotNil(t, page.GeospatialBBox, "Expected GeospatialBBox to be preserved for %s", tt.name)
-					require.NotNil(t, page.GeospatialTypes, "Expected GeospatialTypes to be preserved for %s", tt.name)
+					require.NotNil(t, page.GeospatialBBox)
+					require.NotNil(t, page.GeospatialTypes)
 				}
 			})
 
@@ -219,26 +219,26 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 
 				// Check min/max statistics based on expectation
 				if tt.expectMinMaxStats {
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Max, "Expected min/max statistics for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Min, "Expected min/max statistics for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue, "Expected MaxValue for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MinValue, "Expected MinValue for %s", tt.name)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Max)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Min)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MinValue)
 				} else {
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Max, "Expected no Max statistics for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Min, "Expected no Min statistics for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue, "Expected no MaxValue for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MinValue, "Expected no MinValue for %s", tt.name)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Max)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Min)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MinValue)
 				}
 
 				// Null count should always be present (not skipped)
 				if tt.expectNullCountStat {
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.NullCount, "Expected NullCount for %s", tt.name)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.NullCount)
 				}
 
 				// Verify geospatial statistics are preserved for geospatial types
 				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
-					require.NotNil(t, page.GeospatialBBox, "Expected GeospatialBBox to be preserved for %s", tt.name)
-					require.NotNil(t, page.GeospatialTypes, "Expected GeospatialTypes to be preserved for %s", tt.name)
+					require.NotNil(t, page.GeospatialBBox)
+					require.NotNil(t, page.GeospatialTypes)
 				}
 			})
 		})
