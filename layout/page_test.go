@@ -56,12 +56,14 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 	tests := []struct {
 		name                string
 		logicalType         *parquet.LogicalType
+		convertedType       *parquet.ConvertedType
 		expectMinMaxStats   bool
 		expectNullCountStat bool
 	}{
 		{
 			name:                "regular_byte_array_field",
 			logicalType:         nil,
+			convertedType:       nil,
 			expectMinMaxStats:   true,
 			expectNullCountStat: true,
 		},
@@ -70,6 +72,7 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			logicalType: &parquet.LogicalType{
 				GEOMETRY: &parquet.GeometryType{},
 			},
+			convertedType:       nil,
 			expectMinMaxStats:   false,
 			expectNullCountStat: true,
 		},
@@ -78,6 +81,14 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			logicalType: &parquet.LogicalType{
 				GEOGRAPHY: &parquet.GeographyType{},
 			},
+			convertedType:       nil,
+			expectMinMaxStats:   false,
+			expectNullCountStat: true,
+		},
+		{
+			name:                "interval_field",
+			logicalType:         nil,
+			convertedType:       common.ToPtr(parquet.ConvertedType_INTERVAL),
 			expectMinMaxStats:   false,
 			expectNullCountStat: true,
 		},
@@ -88,14 +99,18 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			t.Run("data_page_v1", func(t *testing.T) {
 				page := NewDataPage()
 				page.Schema = &parquet.SchemaElement{
-					Type:        common.ToPtr(parquet.Type_BYTE_ARRAY),
-					Name:        "test_col",
-					LogicalType: tt.logicalType,
+					Type:          common.ToPtr(parquet.Type_BYTE_ARRAY),
+					Name:          "test_col",
+					LogicalType:   tt.logicalType,
+					ConvertedType: tt.convertedType,
 				}
 				page.Info = common.NewTag()
 
-				// Only set min/max values for non-geospatial types
-				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+				// Only set min/max values for types that should have them
+				isGeospatial := tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY())
+				isInterval := tt.convertedType != nil && *tt.convertedType == parquet.ConvertedType_INTERVAL
+
+				if !isGeospatial && !isInterval {
 					page.MaxVal = string(wkbPoint)
 					page.MinVal = string(wkbPoint)
 				}
@@ -131,40 +146,44 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 
 				// Check min/max statistics based on expectation
 				if tt.expectMinMaxStats {
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.Max, "Expected min/max statistics for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.Min, "Expected min/max statistics for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.MaxValue, "Expected MaxValue for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.MinValue, "Expected MinValue for %s", tt.name)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.Max)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.Min)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.MaxValue)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.MinValue)
 				} else {
-					require.Nil(t, page.Header.DataPageHeader.Statistics.Max, "Expected no Max statistics for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeader.Statistics.Min, "Expected no Min statistics for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeader.Statistics.MaxValue, "Expected no MaxValue for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeader.Statistics.MinValue, "Expected no MinValue for %s", tt.name)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.Max)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.Min)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.MaxValue)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.MinValue)
 				}
 
 				// Null count should always be present (not skipped)
 				if tt.expectNullCountStat {
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.NullCount, "Expected NullCount for %s", tt.name)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.NullCount)
 				}
 
 				// Verify geospatial statistics are preserved for geospatial types
 				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
-					require.NotNil(t, page.GeospatialBBox, "Expected GeospatialBBox to be preserved for %s", tt.name)
-					require.NotNil(t, page.GeospatialTypes, "Expected GeospatialTypes to be preserved for %s", tt.name)
+					require.NotNil(t, page.GeospatialBBox)
+					require.NotNil(t, page.GeospatialTypes)
 				}
 			})
 
 			t.Run("data_page_v2", func(t *testing.T) {
 				page := NewDataPage()
 				page.Schema = &parquet.SchemaElement{
-					Type:        common.ToPtr(parquet.Type_BYTE_ARRAY),
-					Name:        "test_col",
-					LogicalType: tt.logicalType,
+					Type:          common.ToPtr(parquet.Type_BYTE_ARRAY),
+					Name:          "test_col",
+					LogicalType:   tt.logicalType,
+					ConvertedType: tt.convertedType,
 				}
 				page.Info = common.NewTag()
 
-				// Only set min/max values for non-geospatial types
-				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+				// Only set min/max values for types that should have them
+				isGeospatial := tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY())
+				isInterval := tt.convertedType != nil && *tt.convertedType == parquet.ConvertedType_INTERVAL
+
+				if !isGeospatial && !isInterval {
 					page.MaxVal = string(wkbPoint)
 					page.MinVal = string(wkbPoint)
 				}
@@ -200,26 +219,26 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 
 				// Check min/max statistics based on expectation
 				if tt.expectMinMaxStats {
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Max, "Expected min/max statistics for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Min, "Expected min/max statistics for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue, "Expected MaxValue for %s", tt.name)
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MinValue, "Expected MinValue for %s", tt.name)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Max)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Min)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MinValue)
 				} else {
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Max, "Expected no Max statistics for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Min, "Expected no Min statistics for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue, "Expected no MaxValue for %s", tt.name)
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MinValue, "Expected no MinValue for %s", tt.name)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Max)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Min)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MinValue)
 				}
 
 				// Null count should always be present (not skipped)
 				if tt.expectNullCountStat {
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.NullCount, "Expected NullCount for %s", tt.name)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.NullCount)
 				}
 
 				// Verify geospatial statistics are preserved for geospatial types
 				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
-					require.NotNil(t, page.GeospatialBBox, "Expected GeospatialBBox to be preserved for %s", tt.name)
-					require.NotNil(t, page.GeospatialTypes, "Expected GeospatialTypes to be preserved for %s", tt.name)
+					require.NotNil(t, page.GeospatialBBox)
+					require.NotNil(t, page.GeospatialTypes)
 				}
 			})
 		})
