@@ -1223,7 +1223,7 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 				}
 
 				// Add geospatial statistics if it's a geospatial type
-				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
+				if isGeospatial {
 					page1.GeospatialBBox = &parquet.BoundingBox{Xmin: 10.5, Xmax: 10.5, Ymin: 20.3, Ymax: 20.3}
 					page1.GeospatialTypes = []int32{1}
 					page2.GeospatialBBox = &parquet.BoundingBox{Xmin: 10.5, Xmax: 10.5, Ymin: 20.3, Ymax: 20.3}
@@ -1255,8 +1255,8 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 				// Null count should always be present
 				require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.NullCount)
 
-				// Verify geospatial statistics are present for geospatial types
-				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
+				// Verify geospatial statistics are present for geospatial types only
+				if isGeospatial {
 					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics)
 					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics.Bbox)
 					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics.GeospatialTypes)
@@ -1308,7 +1308,7 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 				}
 
 				// Add geospatial statistics if it's a geospatial type
-				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
+				if isGeospatial {
 					dataPage.GeospatialBBox = &parquet.BoundingBox{Xmin: 10.5, Xmax: 10.5, Ymin: 20.3, Ymax: 20.3}
 					dataPage.GeospatialTypes = []int32{1}
 				}
@@ -1338,8 +1338,8 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 				// Null count should always be present
 				require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.NullCount)
 
-				// Verify geospatial statistics are present for geospatial types
-				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
+				// Verify geospatial statistics are present for geospatial types only
+				if isGeospatial {
 					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics)
 					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics.Bbox)
 					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics.GeospatialTypes)
