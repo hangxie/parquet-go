@@ -1136,11 +1136,13 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 	tests := []struct {
 		name              string
 		logicalType       *parquet.LogicalType
+		convertedType     *parquet.ConvertedType
 		expectMinMaxStats bool
 	}{
 		{
 			name:              "regular_byte_array_chunk",
 			logicalType:       nil,
+			convertedType:     nil,
 			expectMinMaxStats: true,
 		},
 		{
@@ -1148,6 +1150,7 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 			logicalType: &parquet.LogicalType{
 				GEOMETRY: &parquet.GeometryType{},
 			},
+			convertedType:     nil,
 			expectMinMaxStats: false,
 		},
 		{
@@ -1155,6 +1158,13 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 			logicalType: &parquet.LogicalType{
 				GEOGRAPHY: &parquet.GeographyType{},
 			},
+			convertedType:     nil,
+			expectMinMaxStats: false,
+		},
+		{
+			name:              "interval_chunk",
+			logicalType:       nil,
+			convertedType:     common.ToPtr(parquet.ConvertedType_INTERVAL),
 			expectMinMaxStats: false,
 		},
 	}
@@ -1171,16 +1181,20 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 						},
 					},
 					Schema: &parquet.SchemaElement{
-						Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-						LogicalType: tt.logicalType,
+						Type:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+						LogicalType:   tt.logicalType,
+						ConvertedType: tt.convertedType,
 					},
 					Info:      &common.Tag{},
 					NullCount: common.ToPtr(int64(0)),
 					RawData:   []byte{0x01, 0x02, 0x03, 0x04}, // dummy data
 				}
 
-				// Only set min/max values for non-geospatial types
-				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+				// Only set min/max values for types that should have them
+				isGeospatial := tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY())
+				isInterval := tt.convertedType != nil && *tt.convertedType == parquet.ConvertedType_INTERVAL
+
+				if !isGeospatial && !isInterval {
 					page1.MaxVal = string(wkbPoint)
 					page1.MinVal = string(wkbPoint)
 				}
@@ -1193,16 +1207,17 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 						},
 					},
 					Schema: &parquet.SchemaElement{
-						Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-						LogicalType: tt.logicalType,
+						Type:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+						LogicalType:   tt.logicalType,
+						ConvertedType: tt.convertedType,
 					},
 					Info:      &common.Tag{},
 					NullCount: common.ToPtr(int64(0)),
 					RawData:   []byte{0x05, 0x06, 0x07, 0x08}, // dummy data
 				}
 
-				// Only set min/max values for non-geospatial types
-				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+				// Only set min/max values for types that should have them
+				if !isGeospatial && !isInterval {
 					page2.MaxVal = string(wkbPoint)
 					page2.MinVal = string(wkbPoint)
 				}
@@ -1257,8 +1272,9 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 						Type: parquet.PageType_DICTIONARY_PAGE,
 					},
 					Schema: &parquet.SchemaElement{
-						Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-						LogicalType: tt.logicalType,
+						Type:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+						LogicalType:   tt.logicalType,
+						ConvertedType: tt.convertedType,
 					},
 					Info:    &common.Tag{},
 					RawData: []byte{0x01, 0x02, 0x03, 0x04}, // dummy data
@@ -1273,16 +1289,20 @@ func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 						},
 					},
 					Schema: &parquet.SchemaElement{
-						Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-						LogicalType: tt.logicalType,
+						Type:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+						LogicalType:   tt.logicalType,
+						ConvertedType: tt.convertedType,
 					},
 					Info:      &common.Tag{},
 					NullCount: common.ToPtr(int64(0)),
 					RawData:   []byte{0x05, 0x06, 0x07, 0x08}, // dummy data
 				}
 
-				// Only set min/max values for non-geospatial types
-				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+				// Only set min/max values for types that should have them
+				isGeospatial := tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY())
+				isInterval := tt.convertedType != nil && *tt.convertedType == parquet.ConvertedType_INTERVAL
+
+				if !isGeospatial && !isInterval {
 					dataPage.MaxVal = string(wkbPoint)
 					dataPage.MinVal = string(wkbPoint)
 				}

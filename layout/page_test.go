@@ -56,12 +56,14 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 	tests := []struct {
 		name                string
 		logicalType         *parquet.LogicalType
+		convertedType       *parquet.ConvertedType
 		expectMinMaxStats   bool
 		expectNullCountStat bool
 	}{
 		{
 			name:                "regular_byte_array_field",
 			logicalType:         nil,
+			convertedType:       nil,
 			expectMinMaxStats:   true,
 			expectNullCountStat: true,
 		},
@@ -70,6 +72,7 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			logicalType: &parquet.LogicalType{
 				GEOMETRY: &parquet.GeometryType{},
 			},
+			convertedType:       nil,
 			expectMinMaxStats:   false,
 			expectNullCountStat: true,
 		},
@@ -78,6 +81,14 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			logicalType: &parquet.LogicalType{
 				GEOGRAPHY: &parquet.GeographyType{},
 			},
+			convertedType:       nil,
+			expectMinMaxStats:   false,
+			expectNullCountStat: true,
+		},
+		{
+			name:                "interval_field",
+			logicalType:         nil,
+			convertedType:       common.ToPtr(parquet.ConvertedType_INTERVAL),
 			expectMinMaxStats:   false,
 			expectNullCountStat: true,
 		},
@@ -88,14 +99,18 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			t.Run("data_page_v1", func(t *testing.T) {
 				page := NewDataPage()
 				page.Schema = &parquet.SchemaElement{
-					Type:        common.ToPtr(parquet.Type_BYTE_ARRAY),
-					Name:        "test_col",
-					LogicalType: tt.logicalType,
+					Type:          common.ToPtr(parquet.Type_BYTE_ARRAY),
+					Name:          "test_col",
+					LogicalType:   tt.logicalType,
+					ConvertedType: tt.convertedType,
 				}
 				page.Info = common.NewTag()
 
-				// Only set min/max values for non-geospatial types
-				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+				// Only set min/max values for types that should have them
+				isGeospatial := tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY())
+				isInterval := tt.convertedType != nil && *tt.convertedType == parquet.ConvertedType_INTERVAL
+
+				if !isGeospatial && !isInterval {
 					page.MaxVal = string(wkbPoint)
 					page.MinVal = string(wkbPoint)
 				}
@@ -157,14 +172,18 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			t.Run("data_page_v2", func(t *testing.T) {
 				page := NewDataPage()
 				page.Schema = &parquet.SchemaElement{
-					Type:        common.ToPtr(parquet.Type_BYTE_ARRAY),
-					Name:        "test_col",
-					LogicalType: tt.logicalType,
+					Type:          common.ToPtr(parquet.Type_BYTE_ARRAY),
+					Name:          "test_col",
+					LogicalType:   tt.logicalType,
+					ConvertedType: tt.convertedType,
 				}
 				page.Info = common.NewTag()
 
-				// Only set min/max values for non-geospatial types
-				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+				// Only set min/max values for types that should have them
+				isGeospatial := tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY())
+				isInterval := tt.convertedType != nil && *tt.convertedType == parquet.ConvertedType_INTERVAL
+
+				if !isGeospatial && !isInterval {
 					page.MaxVal = string(wkbPoint)
 					page.MinVal = string(wkbPoint)
 				}

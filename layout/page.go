@@ -126,8 +126,11 @@ func TableToDataPages(table *Table, pageSize int32, compressType parquet.Compres
 		page.DataTable.DefinitionLevels = table.DefinitionLevels[i:j]
 		page.DataTable.RepetitionLevels = table.RepetitionLevels[i:j]
 		if !omitStats {
-			// Skip min/max values for GEOMETRY and GEOGRAPHY types
-			if logT == nil || (!logT.IsSetGEOMETRY() && !logT.IsSetGEOGRAPHY()) {
+			// Skip min/max values for GEOMETRY, GEOGRAPHY, and INTERVAL types
+			isGeospatial := logT != nil && (logT.IsSetGEOMETRY() || logT.IsSetGEOGRAPHY())
+			isInterval := cT != nil && *cT == parquet.ConvertedType_INTERVAL
+
+			if !isGeospatial && !isInterval {
 				page.MaxVal = maxVal
 				page.MinVal = minVal
 			}
