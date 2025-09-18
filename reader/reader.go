@@ -134,24 +134,28 @@ func (pr *ParquetReader) RenameSchema() {
 		exPathToInPath = pr.SchemaHandler.ExPathToInPath
 	}
 
-	if pr.Footer.RowGroups != nil {
-		for _, rowGroup := range pr.Footer.RowGroups {
-			if rowGroup != nil && rowGroup.Columns != nil {
-				for _, chunk := range rowGroup.Columns {
-					if chunk != nil && chunk.MetaData != nil {
-						exPath := append([]string{pr.SchemaHandler.GetRootExName()}, chunk.MetaData.GetPathInSchema()...)
-						exPathStr := common.PathToStr(exPath)
+	if pr.Footer.RowGroups == nil {
+		return
+	}
 
-						if pr.CaseInsensitive {
-							exPathStr = strings.ToLower(exPathStr)
-						}
+	for _, rowGroup := range pr.Footer.RowGroups {
+		if rowGroup == nil || rowGroup.Columns == nil {
+			continue
+		}
+		for _, chunk := range rowGroup.Columns {
+			if chunk == nil || chunk.MetaData == nil {
+				continue
+			}
+			exPath := append([]string{pr.SchemaHandler.GetRootExName()}, chunk.MetaData.GetPathInSchema()...)
+			exPathStr := common.PathToStr(exPath)
 
-						if inPathStr, exists := exPathToInPath[exPathStr]; exists {
-							inPath := common.StrToPath(inPathStr)[1:]
-							chunk.MetaData.PathInSchema = inPath
-						}
-					}
-				}
+			if pr.CaseInsensitive {
+				exPathStr = strings.ToLower(exPathStr)
+			}
+
+			if inPathStr, exists := exPathToInPath[exPathStr]; exists {
+				inPath := common.StrToPath(inPathStr)[1:]
+				chunk.MetaData.PathInSchema = inPath
 			}
 		}
 	}
