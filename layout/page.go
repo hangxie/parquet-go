@@ -126,8 +126,11 @@ func TableToDataPages(table *Table, pageSize int32, compressType parquet.Compres
 		page.DataTable.DefinitionLevels = table.DefinitionLevels[i:j]
 		page.DataTable.RepetitionLevels = table.RepetitionLevels[i:j]
 		if !omitStats {
-			page.MaxVal = maxVal
-			page.MinVal = minVal
+			// Skip min/max values for GEOMETRY and GEOGRAPHY types
+			if logT == nil || (!logT.IsSetGEOMETRY() && !logT.IsSetGEOGRAPHY()) {
+				page.MaxVal = maxVal
+				page.MinVal = minVal
+			}
 			page.NullCount = &nullCount
 		}
 
@@ -279,6 +282,7 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 	page.Header.DataPageHeader.Encoding = page.Info.Encoding
 
 	page.Header.DataPageHeader.Statistics = parquet.NewStatistics()
+
 	if page.MaxVal != nil {
 		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
 		if err != nil {
@@ -384,6 +388,7 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 	page.Header.DataPageHeaderV2.IsCompressed = true
 
 	page.Header.DataPageHeaderV2.Statistics = parquet.NewStatistics()
+
 	if page.MaxVal != nil {
 		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
 		if err != nil {

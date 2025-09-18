@@ -1126,6 +1126,211 @@ func Test_PagesToDictChunk_GeospatialStatistics(t *testing.T) {
 	})
 }
 
+func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
+	// Create WKB point data for testing
+	wkbPoint := []byte{
+		0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x40, 0xcd, 0xcc, 0xcc,
+		0xcc, 0xcc, 0x4c, 0x34, 0x40,
+	}
+
+	tests := []struct {
+		name              string
+		logicalType       *parquet.LogicalType
+		expectMinMaxStats bool
+	}{
+		{
+			name:              "regular_byte_array_chunk",
+			logicalType:       nil,
+			expectMinMaxStats: true,
+		},
+		{
+			name: "geometry_chunk",
+			logicalType: &parquet.LogicalType{
+				GEOMETRY: &parquet.GeometryType{},
+			},
+			expectMinMaxStats: false,
+		},
+		{
+			name: "geography_chunk",
+			logicalType: &parquet.LogicalType{
+				GEOGRAPHY: &parquet.GeographyType{},
+			},
+			expectMinMaxStats: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("PagesToChunk", func(t *testing.T) {
+				// Create test pages
+				page1 := &Page{
+					Header: &parquet.PageHeader{
+						Type: parquet.PageType_DATA_PAGE,
+						DataPageHeader: &parquet.DataPageHeader{
+							NumValues: 1,
+						},
+					},
+					Schema: &parquet.SchemaElement{
+						Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+						LogicalType: tt.logicalType,
+					},
+					Info:      &common.Tag{},
+					NullCount: common.ToPtr(int64(0)),
+					RawData:   []byte{0x01, 0x02, 0x03, 0x04}, // dummy data
+				}
+
+				// Only set min/max values for non-geospatial types
+				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+					page1.MaxVal = string(wkbPoint)
+					page1.MinVal = string(wkbPoint)
+				}
+
+				page2 := &Page{
+					Header: &parquet.PageHeader{
+						Type: parquet.PageType_DATA_PAGE,
+						DataPageHeader: &parquet.DataPageHeader{
+							NumValues: 1,
+						},
+					},
+					Schema: &parquet.SchemaElement{
+						Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+						LogicalType: tt.logicalType,
+					},
+					Info:      &common.Tag{},
+					NullCount: common.ToPtr(int64(0)),
+					RawData:   []byte{0x05, 0x06, 0x07, 0x08}, // dummy data
+				}
+
+				// Only set min/max values for non-geospatial types
+				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+					page2.MaxVal = string(wkbPoint)
+					page2.MinVal = string(wkbPoint)
+				}
+
+				// Add geospatial statistics if it's a geospatial type
+				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
+					page1.GeospatialBBox = &parquet.BoundingBox{Xmin: 10.5, Xmax: 10.5, Ymin: 20.3, Ymax: 20.3}
+					page1.GeospatialTypes = []int32{1}
+					page2.GeospatialBBox = &parquet.BoundingBox{Xmin: 10.5, Xmax: 10.5, Ymin: 20.3, Ymax: 20.3}
+					page2.GeospatialTypes = []int32{1}
+				}
+
+				pages := []*Page{page1, page2}
+
+				chunk, err := PagesToChunk(pages)
+				require.NoError(t, err)
+				require.NotNil(t, chunk)
+				require.NotNil(t, chunk.ChunkHeader)
+				require.NotNil(t, chunk.ChunkHeader.MetaData)
+				require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics)
+
+				// Check min/max statistics based on expectation
+				if tt.expectMinMaxStats {
+					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.Max, "Expected min/max statistics for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.Min, "Expected min/max statistics for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.MaxValue, "Expected MaxValue for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.MinValue, "Expected MinValue for %s", tt.name)
+				} else {
+					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Max, "Expected no Max statistics for %s", tt.name)
+					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Min, "Expected no Min statistics for %s", tt.name)
+					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.MaxValue, "Expected no MaxValue for %s", tt.name)
+					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.MinValue, "Expected no MinValue for %s", tt.name)
+				}
+
+				// Null count should always be present
+				require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.NullCount, "Expected NullCount for %s", tt.name)
+
+				// Verify geospatial statistics are present for geospatial types
+				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
+					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics, "Expected GeospatialStatistics for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics.Bbox, "Expected GeospatialStatistics.Bbox for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics.GeospatialTypes, "Expected GeospatialStatistics.GeospatialTypes for %s", tt.name)
+				} else {
+					require.Nil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics, "Expected no GeospatialStatistics for %s", tt.name)
+				}
+			})
+
+			t.Run("PagesToDictChunk", func(t *testing.T) {
+				// Create dictionary page (first page)
+				dictPage := &Page{
+					Header: &parquet.PageHeader{
+						Type: parquet.PageType_DICTIONARY_PAGE,
+					},
+					Schema: &parquet.SchemaElement{
+						Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+						LogicalType: tt.logicalType,
+					},
+					Info:    &common.Tag{},
+					RawData: []byte{0x01, 0x02, 0x03, 0x04}, // dummy data
+				}
+
+				// Create data page with geospatial statistics (second page)
+				dataPage := &Page{
+					Header: &parquet.PageHeader{
+						Type: parquet.PageType_DATA_PAGE,
+						DataPageHeader: &parquet.DataPageHeader{
+							NumValues: 1,
+						},
+					},
+					Schema: &parquet.SchemaElement{
+						Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+						LogicalType: tt.logicalType,
+					},
+					Info:      &common.Tag{},
+					NullCount: common.ToPtr(int64(0)),
+					RawData:   []byte{0x05, 0x06, 0x07, 0x08}, // dummy data
+				}
+
+				// Only set min/max values for non-geospatial types
+				if tt.logicalType == nil || (!tt.logicalType.IsSetGEOMETRY() && !tt.logicalType.IsSetGEOGRAPHY()) {
+					dataPage.MaxVal = string(wkbPoint)
+					dataPage.MinVal = string(wkbPoint)
+				}
+
+				// Add geospatial statistics if it's a geospatial type
+				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
+					dataPage.GeospatialBBox = &parquet.BoundingBox{Xmin: 10.5, Xmax: 10.5, Ymin: 20.3, Ymax: 20.3}
+					dataPage.GeospatialTypes = []int32{1}
+				}
+
+				pages := []*Page{dictPage, dataPage}
+
+				chunk, err := PagesToDictChunk(pages)
+				require.NoError(t, err)
+				require.NotNil(t, chunk)
+				require.NotNil(t, chunk.ChunkHeader)
+				require.NotNil(t, chunk.ChunkHeader.MetaData)
+				require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics)
+
+				// Check min/max statistics based on expectation
+				if tt.expectMinMaxStats {
+					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.Max, "Expected min/max statistics for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.Min, "Expected min/max statistics for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.MaxValue, "Expected MaxValue for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.MinValue, "Expected MinValue for %s", tt.name)
+				} else {
+					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Max, "Expected no Max statistics for %s", tt.name)
+					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Min, "Expected no Min statistics for %s", tt.name)
+					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.MaxValue, "Expected no MaxValue for %s", tt.name)
+					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.MinValue, "Expected no MinValue for %s", tt.name)
+				}
+
+				// Null count should always be present
+				require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.NullCount, "Expected NullCount for %s", tt.name)
+
+				// Verify geospatial statistics are present for geospatial types
+				if tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY()) {
+					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics, "Expected GeospatialStatistics for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics.Bbox, "Expected GeospatialStatistics.Bbox for %s", tt.name)
+					require.NotNil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics.GeospatialTypes, "Expected GeospatialStatistics.GeospatialTypes for %s", tt.name)
+				} else {
+					require.Nil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics, "Expected no GeospatialStatistics for %s", tt.name)
+				}
+			})
+		})
+	}
+}
+
 // Helper function to create a test page with geospatial statistics
 func createTestPage(xmin, xmax, ymin, ymax float64, geoTypes []int32) *Page {
 	return &Page{
