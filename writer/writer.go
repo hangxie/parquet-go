@@ -74,13 +74,12 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 	res.PagesMapBuf = make(map[string][]*layout.Page)
 	res.DictRecs = make(map[string]*layout.DictRecType)
 	res.Footer = parquet.NewFileMetaData()
-	res.Footer.Version = 1
+	res.Footer.Version = 2
 	res.ColumnIndexes = make([]*parquet.ColumnIndex, 0)
 	res.OffsetIndexes = make([]*parquet.OffsetIndex, 0)
 	// include the createdBy to avoid
 	// WARN  CorruptStatistics:118 - Ignoring statistics because created_by is null or empty! See PARQUET-251 and PARQUET-297
-	createdBy := "parquet-go version latest"
-	res.Footer.CreatedBy = &createdBy
+	res.Footer.CreatedBy = common.ToPtr("github.com/hangxie/parquet-go v2 latest")
 	_, err = res.PFile.Write([]byte("PAR1"))
 	if err != nil {
 		return nil, err
