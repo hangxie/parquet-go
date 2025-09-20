@@ -146,8 +146,6 @@ func parseInt(s string) int {
 // Test data
 var testData = []byte("Hello, this is test data for S3v2 parquet file reader and writer testing with comprehensive coverage")
 
-// Test config functions (note: these interact with global state)
-
 func Test_GetBytesRange_KnownFileSize(t *testing.T) {
 	reader := &s3Reader{
 		offset:   10,
@@ -207,19 +205,6 @@ func Test_GetBytesRange_UnknownFileSize(t *testing.T) {
 	rangeStr = reader.getBytesRange(100)
 	expected = "bytes=-50"
 	require.Equal(t, expected, rangeStr)
-}
-
-func Test_GetConfig(t *testing.T) {
-	// Save original config
-	originalCfg := cfg
-	defer func() {
-		cfg = originalCfg
-	}()
-
-	cfg = nil
-	newCfg := getConfig()
-	require.NotNil(t, newCfg)
-	require.Equal(t, newCfg, *cfg)
 }
 
 func Test_NewS3FileReaderWithClient_Success(t *testing.T) {

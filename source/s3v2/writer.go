@@ -167,29 +167,3 @@ func (s *s3Writer) openWrite() {
 		done <- err
 	}(s.uploader, uploadParams, s.writeDone)
 }
-
-// configured using the S3FileReaderParams object.
-func NewS3FileReaderWithParams(ctx context.Context, params S3FileReaderParams) (source.ParquetFileReader, error) {
-	s3Client := params.S3Client
-	if s3Client == nil {
-		s3Client = s3.NewFromConfig(getConfig())
-	}
-
-	minRequestSize := int64(params.MinRequestSize)
-	if minRequestSize == 0 {
-		minRequestSize = defaultMinRequestSize
-	}
-
-	file := &s3Reader{
-		s3File: s3File{
-			ctx:        ctx,
-			bucketName: params.Bucket,
-			key:        params.Key,
-		},
-		client:         s3Client,
-		version:        params.Version,
-		minRequestSize: minRequestSize,
-	}
-
-	return file.Open(params.Key)
-}
