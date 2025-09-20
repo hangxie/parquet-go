@@ -9,22 +9,18 @@ import (
 )
 
 var (
-	cfg      *aws.Config
-	configMu sync.Mutex
+	cfg  aws.Config
+	once sync.Once
 )
 
 // Config from shared config rather than explicit configuration
 func getConfig() aws.Config {
-	configMu.Lock()
-	defer configMu.Unlock()
-
-	if cfg != nil {
-		return *cfg
-	}
-	c, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	cfg = &c
-	return *cfg
+	once.Do(func() {
+		c, err := config.LoadDefaultConfig(context.Background())
+		if err != nil {
+			panic(err)
+		}
+		cfg = c
+	})
+	return cfg
 }
