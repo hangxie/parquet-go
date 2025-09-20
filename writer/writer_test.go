@@ -257,7 +257,7 @@ func Test_ParquetWriter(t *testing.T) {
 				require.Equal(t, int64(0), pr.GetNumRows())
 				// need to contain version and create_by even if no data was written
 				require.Equal(t, int32(2), pr.Footer.Version)
-				require.Equals(t, "github.com/hangxie/parquet-go v2 latest", pr.Footer.CreatedBy)
+				require.Equal(t, "github.com/hangxie/parquet-go v2 latest", *pr.Footer.CreatedBy)
 			},
 		},
 	}
