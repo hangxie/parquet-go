@@ -2,61 +2,141 @@ package gcs
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
 
 	"cloud.google.com/go/storage"
-
-	"github.com/hangxie/parquet-go/v2/source"
 )
 
-func Test_GcsFileInterfaceComplianceReader(t *testing.T) {
-	var _ source.ParquetFileReader = (*gcsReader)(nil)
-}
+var (
+	// this is public accessible (ie allow anonymouse access) data set
+	gcsProjectID     = ""
+	gcsBucket        = "cloud-samples-data"
+	gcsObjectName    = "bigquery/us-states/us-states.parquet"
+	gcsObjectVersion = int64(-1)
+)
 
-func Test_GcsReaderNilOperations(t *testing.T) {
-	reader := &gcsReader{
-		gcsFile: gcsFile{
-			gcsClient: nil,
-		},
-		gcsReader: nil,
-	}
+func Test_GcsReader_Close(t *testing.T) {
+	t.Run("nil-reader", func(t *testing.T) {
+		reader := &gcsReader{
+			gcsFile: gcsFile{
+				gcsClient: nil,
+			},
+			gcsReader: nil,
+		}
 
-	err := reader.Close()
-	require.NoError(t, err)
-}
+		err := reader.Close()
+		require.NoError(t, err)
+	})
 
-func Test_GcsReaderOpen(t *testing.T) {
-	reader := &gcsReader{
-		gcsFile: gcsFile{
-			gcsClient:  nil,
-			projectID:  "test-project",
-			bucketName: "test-bucket",
-			filePath:   "test.parquet",
-		},
-	}
-
-	_, err := reader.Open("new-file.parquet")
-	require.Error(t, err)
-}
-
-func Test_GcsReaderStructure(t *testing.T) {
 	ctx := context.Background()
 
-	reader := &gcsReader{
-		gcsFile: gcsFile{
-			ctx:        ctx,
-			gcsClient:  &storage.Client{},
-			projectID:  "test-project",
-			bucketName: "test-bucket",
-			filePath:   "test.parquet",
-		},
-		generation: 123,
-	}
+	t.Run("non-nil-reader", func(t *testing.T) {
+		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+		require.NoError(t, err)
 
-	require.Equal(t, "test-project", reader.projectID)
-	require.Equal(t, "test-bucket", reader.bucketName)
-	require.Equal(t, "test.parquet", reader.filePath)
-	require.Equal(t, int64(123), reader.generation)
+		reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+		require.NoError(t, err)
+
+		_, err = reader.Open(gcsObjectName)
+		require.NoError(t, err)
+
+		err = reader.Close()
+		require.NoError(t, err)
+	})
+
+	t.Run("mimic-internal-client", func(t *testing.T) {
+		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+		require.NoError(t, err)
+
+		reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+		reader.externalClient = false
+		require.NoError(t, err)
+
+		_, err = reader.Open(gcsObjectName)
+		require.NoError(t, err)
+
+		err = reader.Close()
+		require.NoError(t, err)
+	})
+}
+
+func Test_GcsReader_Open(t *testing.T) {
+	t.Run("internal-client", func(t *testing.T) {
+		reader := &gcsReader{}
+		_, err := reader.Open(gcsObjectName)
+		require.NotNil(t, err)
+	})
+
+	t.Run("anonymous-access", func(t *testing.T) {
+		ctx := context.Background()
+
+		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+		require.NoError(t, err)
+
+		reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+		require.NoError(t, err)
+
+		pr, err := reader.Open(gcsObjectName)
+		require.NoError(t, err)
+		require.NotNil(t, pr)
+	})
+}
+
+func Test_GcsReader_Clone(t *testing.T) {
+	ctx := context.Background()
+
+	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+	require.NoError(t, err)
+
+	reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+	require.NoError(t, err)
+
+	pr, err := reader.Clone()
+	require.NoError(t, err)
+	require.Equal(t, reader, pr)
+}
+
+func Test_GcsReader_Seek(t *testing.T) {
+	ctx := context.Background()
+
+	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+	require.NoError(t, err)
+
+	reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+	require.NoError(t, err)
+
+	offset, err := reader.Seek(10, io.SeekStart)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), offset)
+}
+
+func Test_GcsReader_Read(t *testing.T) {
+	ctx := context.Background()
+
+	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+	require.NoError(t, err)
+
+	reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+	require.NoError(t, err)
+
+	buf := make([]byte, 4)
+	bytesRead, err := reader.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, 4, bytesRead)
+	require.Equal(t, "PAR1", string(buf))
+}
+
+func Test_NewGcsFileReaderWithClient(t *testing.T) {
+	ctx := context.Background()
+
+	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+	require.NoError(t, err)
+
+	reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+	require.NoError(t, err)
+	require.NotNil(t, reader)
 }
