@@ -46,7 +46,6 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter,
 	// Compression type is by default: parquet.CompressionCodec_SNAPPY
 	res.CompressionType = parquet.CompressionCodec_GZIP
 	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.DictRecs = make(map[string]*layout.DictRecType)
 	res.NP = np
 	res.Footer = parquet.NewFileMetaData()
 	res.Footer.Version = footerVersion

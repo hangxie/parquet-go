@@ -41,7 +41,9 @@ type ParquetWriter struct {
 	Size        int64
 	NumRows     int64
 
-	DictRecs map[string]*layout.DictRecType
+	// DictRecs stores dictionary recorders per column path
+	// key: path string, value: *layout.DictRecType
+	DictRecs sync.Map
 
 	ColumnIndexes []*parquet.ColumnIndex
 	OffsetIndexes []*parquet.OffsetIndex
@@ -72,7 +74,7 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 	res.Offset = 4
 	res.PFile = pFile
 	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.DictRecs = make(map[string]*layout.DictRecType)
+	// DictRecs sync.Map zero value is ready to use
 	res.Footer = parquet.NewFileMetaData()
 	res.Footer.Version = 2
 	res.ColumnIndexes = make([]*parquet.ColumnIndex, 0)
@@ -267,7 +269,9 @@ func (pw *ParquetWriter) flushObjs() error {
 	}
 
 	delta := (l + pw.NP - 1) / pw.NP
-	var lock sync.Mutex
+	// layout.TableTo(Data|Dict)Pages appears not to be thread-safe; guard calls
+	// with a conversion mutex to avoid races observed in tests.
+	var convMu sync.Mutex
 	var wg sync.WaitGroup
 	var errs []error = make([]error, pw.NP)
 
@@ -295,27 +299,33 @@ func (pw *ParquetWriter) flushObjs() error {
 				for name, table := range *tableMap {
 					if table.Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY ||
 						table.Info.Encoding == parquet.Encoding_RLE_DICTIONARY {
-
-						func() {
-							if pw.NP > 1 {
-								lock.Lock()
-								defer lock.Unlock()
-							}
-							if _, ok := pw.DictRecs[name]; !ok {
-								pw.DictRecs[name] = layout.NewDictRec(*table.Schema.Type)
-							}
-							pagesMapList[index][name], _, err = layout.TableToDictDataPages(pw.DictRecs[name], table, int32(pw.PageSize), 32, pw.CompressionType)
-							if err != nil {
-								errs[index] = err
-							}
-						}()
-					} else {
-						lock.Lock()
-						pagesMapList[index][name], _, err = layout.TableToDataPages(table, int32(pw.PageSize), pw.CompressionType)
-						if err != nil {
-							errs[index] = err
+						// Load or create the dictionary recorder atomically
+						var dictRec *layout.DictRecType
+						if v, ok := pw.DictRecs.Load(name); ok {
+							dictRec = v.(*layout.DictRecType)
+						} else {
+							newRec := layout.NewDictRec(*table.Schema.Type)
+							actual, _ := pw.DictRecs.LoadOrStore(name, newRec)
+							dictRec = actual.(*layout.DictRecType)
 						}
-						lock.Unlock()
+
+						convMu.Lock()
+						pages, _, localErr := layout.TableToDictDataPages(dictRec, table, int32(pw.PageSize), 32, pw.CompressionType)
+						convMu.Unlock()
+						if localErr != nil {
+							errs[index] = localErr
+						} else {
+							pagesMapList[index][name] = pages
+						}
+					} else {
+						convMu.Lock()
+						pages, _, localErr := layout.TableToDataPages(table, int32(pw.PageSize), pw.CompressionType)
+						convMu.Unlock()
+						if localErr != nil {
+							errs[index] = localErr
+						} else {
+							pagesMapList[index][name] = pages
+						}
 					}
 				}
 			} else {
@@ -363,7 +373,12 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 		chunkMap := make(map[string]*layout.Chunk)
 		for name, pages := range pw.PagesMapBuf {
 			if len(pages) > 0 && (pages[0].Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY || pages[0].Info.Encoding == parquet.Encoding_RLE_DICTIONARY) {
-				dictPage, _, err := layout.DictRecToDictPage(pw.DictRecs[name], int32(pw.PageSize), pw.CompressionType)
+				v, ok := pw.DictRecs.Load(name)
+				if !ok {
+					return fmt.Errorf("missing dictionary recorder for column %s", name)
+				}
+				dictRec := v.(*layout.DictRecType)
+				dictPage, _, err := layout.DictRecToDictPage(dictRec, int32(pw.PageSize), pw.CompressionType)
 				if err != nil {
 					return err
 				}
@@ -380,7 +395,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 			}
 		}
 
-		pw.DictRecs = make(map[string]*layout.DictRecType) // clean records for next chunks
+		pw.DictRecs.Clear()
 
 		// chunks -> rowGroup
 		rowGroup := layout.NewRowGroup()
