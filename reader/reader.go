@@ -206,10 +206,8 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 	if num <= 0 {
 		return nil
 	}
-	doneChan := make(chan int, pr.NP)
-	taskChan := make(chan string, len(pr.SchemaHandler.ValueColumns))
-	stopChan := make(chan int)
 
+	// Ensure column buffers exist
 	for _, pathStr := range pr.SchemaHandler.ValueColumns {
 		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr); err != nil {
@@ -218,32 +216,27 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 		}
 	}
 
+	taskChan := make(chan string)
+	var wgCols sync.WaitGroup
 	for range pr.NP {
+		wgCols.Add(1)
 		go func() {
-			for {
-				select {
-				case <-stopChan:
-					return
-				case pathStr := <-taskChan:
-					cb := pr.ColumnBuffers[pathStr]
-					cb.SkipRows(int64(num))
-					doneChan <- 0
-				}
+			defer wgCols.Done()
+			for pathStr := range taskChan {
+				_ = pr.ColumnBuffers[pathStr].SkipRows(int64(num))
 			}
 		}()
 	}
 
+	// Enqueue tasks and close
 	for key := range pr.ColumnBuffers {
 		taskChan <- key
 	}
+	close(taskChan)
 
-	for range len(pr.ColumnBuffers) {
-		<-doneChan
-	}
-	for range pr.NP {
-		stopChan <- 0
-	}
-	return err
+	wgCols.Wait()
+
+	return nil
 }
 
 // Read rows of parquet file and unmarshal all to dst
@@ -323,7 +316,6 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 		return fmt.Errorf("dstInterface cannot be nil")
 	}
 
-	var err error
 	tmap := make(map[string]*layout.Table)
 	var locker sync.Mutex
 	ot := reflect.TypeOf(dstInterface).Elem().Elem()
@@ -332,47 +324,43 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 		return nil
 	}
 
-	doneChan := make(chan int, pr.NP)
-	taskChan := make(chan string, len(pr.ColumnBuffers))
-	stopChan := make(chan int)
+	// Worker pool with closed task channel and first-error capture
+	taskChan := make(chan string)
+	var wgCols sync.WaitGroup
+	var firstErr error
+	var errMu sync.Mutex
 
-	for range pr.NP {
-		go func() {
-			for {
-				select {
-				case <-stopChan:
-					return
-				case pathStr := <-taskChan:
-					cb := pr.ColumnBuffers[pathStr]
-					table, _ := cb.ReadRows(int64(num))
-					locker.Lock()
-					if _, ok := tmap[pathStr]; ok {
-						tmap[pathStr].Merge(table)
-					} else {
-						tmap[pathStr] = layout.NewTableFromTable(table)
-						tmap[pathStr].Merge(table)
-					}
-					locker.Unlock()
-					doneChan <- 0
-				}
+	worker := func() {
+		defer wgCols.Done()
+		for pathStr := range taskChan {
+			cb := pr.ColumnBuffers[pathStr]
+			table, _ := cb.ReadRows(int64(num))
+			// Merge into shared map
+			locker.Lock()
+			if _, ok := tmap[pathStr]; ok {
+				tmap[pathStr].Merge(table)
+			} else {
+				tmap[pathStr] = layout.NewTableFromTable(table)
+				tmap[pathStr].Merge(table)
 			}
-		}()
+			locker.Unlock()
+			// No direct error from ReadRows; errors surface during unmarshal below
+			_ = pathStr
+		}
 	}
 
-	readNum := 0
+	for i := int64(0); i < pr.NP; i++ {
+		wgCols.Add(1)
+		go worker()
+	}
+
 	for key := range pr.ColumnBuffers {
 		if strings.HasPrefix(key, prefixPath) {
 			taskChan <- key
-			readNum++
 		}
 	}
-	for range readNum {
-		<-doneChan
-	}
-
-	for range pr.NP {
-		stopChan <- 0
-	}
+	close(taskChan)
+	wgCols.Wait()
 
 	dstList := make([]any, pr.NP)
 	delta := (int64(num) + pr.NP - 1) / pr.NP
@@ -395,7 +383,11 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 
 			dstList[index] = reflect.New(reflect.SliceOf(ot)).Interface()
 			if err2 := marshal.Unmarshal(&tmap, b, e, dstList[index], pr.SchemaHandler, prefixPath); err2 != nil {
-				err = err2
+				errMu.Lock()
+				if firstErr == nil {
+					firstErr = err2
+				}
+				errMu.Unlock()
 			}
 		}(int(bgn), int(end), int(c))
 	}
@@ -408,7 +400,10 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 		dstValue.Set(reflect.AppendSlice(dstValue, reflect.ValueOf(dst).Elem()))
 	}
 
-	return err
+	if firstErr != nil {
+		return firstErr
+	}
+	return nil
 }
 
 // Stop Read
