@@ -36,7 +36,6 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, np int64) (*CSVWr
 	res.RowGroupSize = common.DefaultRowGroupSize // 128M
 	res.CompressionType = parquet.CompressionCodec_SNAPPY
 	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.DictRecs = make(map[string]*layout.DictRecType)
 	res.NP = np
 	res.Footer = parquet.NewFileMetaData()
 	res.Footer.Version = 1
