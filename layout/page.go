@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math/bits"
+	"slices"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -265,15 +266,9 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 		}
 	}
 
-	// dataBuf = repetitionBuf + definitionBuf + valuesRawBuf
-	dataBuf := make([]byte, 0, len(repetitionLevelBuf)+len(definitionLevelBuf)+len(valuesRawBuf))
-	dataBuf = append(dataBuf, repetitionLevelBuf...)
-	dataBuf = append(dataBuf, definitionLevelBuf...)
-	dataBuf = append(dataBuf, valuesRawBuf...)
-
+	dataBuf := slices.Concat(repetitionLevelBuf, definitionLevelBuf, valuesRawBuf)
 	var dataEncodeBuf []byte = compress.Compress(dataBuf, compressType)
 
-	// pageHeader/////////////////////////////////////
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DATA_PAGE
 	page.Header.CompressedPageSize = int32(len(dataEncodeBuf))

@@ -24,11 +24,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 		stack = stack[:0]
 		nodeBuf.Reset()
 
-		node := nodeBuf.GetNode()
-		var ui any
-
 		var d *json.Decoder
-
 		switch t := ss[i].(type) {
 		case string:
 			d = json.NewDecoder(strings.NewReader(t))
@@ -37,21 +33,20 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 		}
 		// `useNumber`causes the Decoder to unmarshal a number into an any as a Number instead of as a float64.
 		d.UseNumber()
+		var ui any
 		if err := d.Decode(&ui); err != nil {
 			return nil, err
 		}
 
+		node := nodeBuf.GetNode()
 		node.Val = reflect.ValueOf(ui)
 		node.PathMap = pathMap
 
 		stack = append(stack, node)
-
 		for len(stack) > 0 {
 			ln := len(stack)
 			node = stack[ln-1]
 			stack = stack[:ln-1]
-
-			tk := node.Val.Type().Kind()
 
 			pathStr := node.PathMap.Path
 
@@ -63,7 +58,8 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 
 			schema := schemaHandler.SchemaElements[schemaIndex]
 
-			if tk == reflect.Map {
+			switch node.Val.Type().Kind() {
+			case reflect.Map:
 				keys := node.Val.MapKeys()
 
 				if schema.GetConvertedType() == parquet.ConvertedType_MAP { // real map
@@ -83,6 +79,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 						key := keys[j]
 						value := node.Val.MapIndex(key).Elem()
 
+						// map key
 						newNode := nodeBuf.GetNode()
 						newNode.PathMap = node.PathMap.Children["Key_value"].Children["Key"]
 						newNode.Val = key
@@ -94,6 +91,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 						}
 						stack = append(stack, newNode)
 
+						// map value
 						newNode = nodeBuf.GetNode()
 						newNode.PathMap = node.PathMap.Children["Key_value"].Children["Value"]
 						newNode.Val = value
@@ -149,7 +147,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 					}
 				}
 
-			} else if tk == reflect.Slice {
+			case reflect.Slice:
 				ln := node.Val.Len()
 
 				if schema.GetConvertedType() == parquet.ConvertedType_LIST { // real LIST
@@ -212,7 +210,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 					}
 				}
 
-			} else {
+			default:
 				table := res[node.PathMap.Path]
 				pT, cT := schema.Type, schema.ConvertedType
 				val, err := types.JSONTypeToParquetType(node.Val, pT, cT, int(schema.GetTypeLength()), int(schema.GetScale()))
