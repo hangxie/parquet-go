@@ -18,7 +18,7 @@ require (
 	github.com/ncw/swift v1.0.53
 	github.com/pierrec/lz4/v4 v4.1.22
 	github.com/pkg/errors v0.9.1
-	github.com/spf13/afero v1.14.0
+	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.11.1
 	gocloud.dev v0.43.0
 	google.golang.org/api v0.248.0
