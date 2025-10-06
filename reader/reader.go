@@ -11,6 +11,8 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/layout"
 	"github.com/hangxie/parquet-go/v2/marshal"
@@ -216,38 +218,23 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 		}
 	}
 
-	taskChan := make(chan string)
-	var wgCols sync.WaitGroup
-	var firstErr error
-	var errMu sync.Mutex
-	for range pr.NP {
-		wgCols.Add(1)
-		go func() {
-			defer wgCols.Done()
-			for pathStr := range taskChan {
-				if _, err := pr.ColumnBuffers[pathStr].SkipRowsWithError(int64(num)); err != nil {
-					if err == io.EOF {
-						continue
-					}
-					errMu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					errMu.Unlock()
-				}
-			}
-		}()
-	}
-
-	// Enqueue tasks and close
+	// Use errgroup with a semaphore to cap concurrency at pr.NP
+	g, _ := errgroup.WithContext(context.Background())
+	sem := make(chan struct{}, max(1, int(pr.NP)))
 	for key := range pr.ColumnBuffers {
-		taskChan <- key
+		pathStr := key
+		sem <- struct{}{}
+		g.Go(func() error {
+			defer func() { <-sem }()
+			if _, err := pr.ColumnBuffers[pathStr].SkipRowsWithError(int64(num)); err != nil && err == io.EOF {
+				return nil
+			}
+			return err
+		})
 	}
-	close(taskChan)
 
-	wgCols.Wait()
-
-	return firstErr
+	// Wait for all tasks; returns first non-nil error
+	return g.Wait()
 }
 
 // Read rows of parquet file and unmarshal all to dst
