@@ -221,7 +221,9 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 	}
 }
 
-func (cbt *ColumnBufferType) SkipRows(num int64) int64 {
+// SkipRowsWithError skips up to num rows and returns how many were skipped.
+// It propagates underlying read/decoding errors rather than hiding them.
+func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
 	var (
 		err  error
 		page *layout.Page
@@ -243,7 +245,7 @@ func (cbt *ColumnBufferType) SkipRows(num int64) int64 {
 		}
 		page, err = cbt.ReadPageForSkip()
 		if err != nil {
-			return 0
+			return 0, err
 		}
 	}
 
@@ -253,7 +255,7 @@ func (cbt *ColumnBufferType) SkipRows(num int64) int64 {
 
 	if page != nil {
 		if err = page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
-			return 0
+			return 0, err
 		}
 
 		page.Decode(cbt.DictPage)
@@ -272,12 +274,20 @@ func (cbt *ColumnBufferType) SkipRows(num int64) int64 {
 		cbt.DataTable.Merge(tmp)
 	}
 
-	return num
+	return num, nil
 }
 
-func (cbt *ColumnBufferType) ReadRows(num int64) (*layout.Table, int64) {
+// read/decoding errors and will be removed in a future major release.
+// Deprecated: Use SkipRowsWithError instead. This method ignores underlying
+func (cbt *ColumnBufferType) SkipRows(num int64) int64 {
+	n, _ := cbt.SkipRowsWithError(num)
+	return n
+}
+
+// ReadRowsWithError reads up to num rows into a table and returns any non-EOF error.
+func (cbt *ColumnBufferType) ReadRowsWithError(num int64) (*layout.Table, int64, error) {
 	if cbt.Footer.NumRows == 0 {
-		return &layout.Table{}, 0
+		return &layout.Table{}, 0, nil
 	}
 
 	var err error
@@ -303,5 +313,16 @@ func (cbt *ColumnBufferType) ReadRows(num int64) (*layout.Table, int64) {
 		cbt.DataTable = layout.NewTableFromTable(tmp)
 		cbt.DataTable.Merge(tmp)
 	}
-	return res, num
+	// Propagate non-EOF errors; treat io.EOF as normal completion
+	if err != nil && err != io.EOF {
+		return res, num, err
+	}
+	return res, num, nil
+}
+
+// read/decoding errors and will be removed in a future major release.
+// Deprecated: Use ReadRowsWithError instead. This method ignores underlying
+func (cbt *ColumnBufferType) ReadRows(num int64) (*layout.Table, int64) {
+	tbl, n, _ := cbt.ReadRowsWithError(num)
+	return tbl, n
 }

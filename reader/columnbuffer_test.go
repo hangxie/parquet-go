@@ -498,9 +498,38 @@ func Test_NewColumnBuffer_EdgeCases(t *testing.T) {
 		require.NotNil(t, result.ChunkHeader.FilePath)
 		require.Equal(t, filePath, *result.ChunkHeader.FilePath)
 	})
-}
 
-// Additional tests merged from columnbuffer_more_test.go
+	// New: error propagation cases for WithError APIs
+	t.Run("readrows_with_error_propagates", func(t *testing.T) {
+		footer := &parquet.FileMetaData{
+			NumRows: 1,
+			RowGroups: []*parquet.RowGroup{{
+				Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{PathInSchema: []string{"leaf"}, DataPageOffset: 0, NumValues: 1, Type: parquet.Type_INT64, Codec: parquet.CompressionCodec_UNCOMPRESSED}}},
+			}},
+		}
+		sh := newSchemaHandlerWithPath("bogus") // MapIndex includes root.bogus
+		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: "root.bogus", DataTableNumRows: -1}
+
+		_, _, err := cb.ReadRowsWithError(1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Column not found")
+	})
+
+	t.Run("skiprows_with_error_propagates", func(t *testing.T) {
+		footer := &parquet.FileMetaData{
+			NumRows: 1,
+			RowGroups: []*parquet.RowGroup{{
+				Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{PathInSchema: []string{"leaf"}, DataPageOffset: 0, NumValues: 1, Type: parquet.Type_INT64, Codec: parquet.CompressionCodec_UNCOMPRESSED}}},
+			}},
+		}
+		sh := newSchemaHandlerWithPath("bogus")
+		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: "root.bogus", DataTableNumRows: -1}
+
+		_, err := cb.SkipRowsWithError(1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Column not found")
+	})
+}
 
 func Test_ReadRows_EmptyFooterFastPath(t *testing.T) {
 	footer := &parquet.FileMetaData{NumRows: 0}
@@ -511,12 +540,6 @@ func Test_ReadRows_EmptyFooterFastPath(t *testing.T) {
 	require.NotNil(t, tbl)
 	require.Len(t, tbl.Values, 0)
 }
-
-// removed: Test_ReadRows_PopAndCounters (redundant for coverage)
-
-// removed: Test_ReadRows_ReleaseMemoryOnDepletion (redundant for coverage)
-
-// removed: Test_SkipRows_PopAndCounters (redundant for coverage)
 
 func Test_SkipRows_AllAndRelease(t *testing.T) {
 	footer := &parquet.FileMetaData{NumRows: 10}
@@ -537,8 +560,6 @@ func Test_SkipRows_AllAndRelease(t *testing.T) {
 	require.NotNil(t, cb.DataTable)
 	require.Len(t, cb.DataTable.Values, 0)
 }
-
-// removed: Test_ReadPage_ErrorNoData (redundant for coverage)
 
 func Test_NewColumnBuffer_FilePathOpenError(t *testing.T) {
 	mockFile := newMockColumnBufferFileReader([]byte{})
@@ -566,8 +587,6 @@ func Test_NewColumnBuffer_FilePathOpenError(t *testing.T) {
 	require.Nil(t, cb)
 }
 
-// removed: Test_ReadPage_NoRowGroups_EOF (redundant for coverage)
-
 func Test_SkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	mockFile := newMockColumnBufferFileReader([]byte{})
 	footer := &parquet.FileMetaData{
@@ -590,8 +609,6 @@ func Test_SkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	n := cb.SkipRows(1)
 	require.Equal(t, int64(0), n)
 }
-
-// removed: Test_ReadPage_DataPage_Plain_Success (did not improve coverage)
 
 func Test_ReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
 	ph := parquet.NewPageHeader()
@@ -646,5 +663,3 @@ func Test_ReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
 		require.Contains(t, rerr.Error(), "EOF")
 	}
 }
-
-// removed: Test_ReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly (may be redundant if thrift wraps EOF)

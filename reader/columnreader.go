@@ -50,7 +50,9 @@ func (pr *ParquetReader) SkipRowsByPath(pathStr string, num int64) error {
 	}
 
 	if cb, ok := pr.ColumnBuffers[pathStr]; ok {
-		cb.SkipRows(int64(num))
+		if _, err := cb.SkipRowsWithError(int64(num)); err != nil {
+			return err
+		}
 	} else {
 		return errPathNotFound
 	}
@@ -91,7 +93,10 @@ func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []a
 	}
 
 	if cb, ok := pr.ColumnBuffers[pathStr]; ok {
-		table, _ := cb.ReadRows(int64(num))
+		table, _, rerr := cb.ReadRowsWithError(int64(num))
+		if rerr != nil {
+			return []any{}, []int32{}, []int32{}, rerr
+		}
 		return table.Values, table.RepetitionLevels, table.DefinitionLevels, nil
 	}
 	return []any{}, []int32{}, []int32{}, errPathNotFound
