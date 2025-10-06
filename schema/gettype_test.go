@@ -336,6 +336,13 @@ func Test_SchemaHandler_GetType(t *testing.T) {
 	}
 }
 
+// Before the fix in schema/gettype.go, this scenario would panic inside
+// reflect.StructOf because a child field had a nil reflect.Type (leaf with
+// missing/unknown physical type). Now it should return an error instead of
+// panicking or silently accepting corrupt schema.
+// merged scenario: malformed leaf type should not panic GetTypes and should
+// fall back to interface{} for the leaf reflect type
+
 func Test_SchemaHandler_GetTypes(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -344,6 +351,37 @@ func Test_SchemaHandler_GetTypes(t *testing.T) {
 		validateTypes func(t *testing.T, types []reflect.Type)
 		expectPanic   bool
 	}{
+		{
+			name: "malformed_leaf_falls_back_to_interface",
+			setupHandler: func() *SchemaHandler {
+				elements := []*parquet.SchemaElement{
+					{
+						Name:           "root",
+						NumChildren:    common.ToPtr(int32(1)),
+						RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+					},
+					{
+						Name:           "bad_group",
+						NumChildren:    common.ToPtr(int32(1)),
+						RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+					},
+					{
+						Name: "bad_leaf",
+						// Physical type intentionally nil to simulate corrupt schema
+						NumChildren:    common.ToPtr(int32(0)),
+						RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+					},
+				}
+				return NewSchemaHandlerFromSchemaList(elements)
+			},
+			expectedCount: 3,
+			validateTypes: func(t *testing.T, types []reflect.Type) {
+				// Index 0: root struct, 1: bad_group struct, 2: bad_leaf -> interface{}
+				require.Equal(t, reflect.Struct, types[0].Kind())
+				require.Equal(t, reflect.Struct, types[1].Kind())
+				require.Equal(t, reflect.Interface, types[2].Kind())
+			},
+		},
 		{
 			name: "empty_schema",
 			setupHandler: func() *SchemaHandler {

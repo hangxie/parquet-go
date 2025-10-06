@@ -39,15 +39,35 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 			rT := sh.SchemaElements[idx].RepetitionType
 
 			if nc == 0 {
+				// Leaf node handling
 				if rT == nil {
 					// Default to REQUIRED if RepetitionType is nil
 					elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, nil)
+					if elementTypes[idx] == nil {
+						// Fallback to interface{} to avoid panics on malformed schemas
+						elementTypes[idx] = reflect.TypeOf((*any)(nil)).Elem()
+					}
 				} else {
 					switch *rT {
 					case parquet.FieldRepetitionType_REPEATED:
-						elementTypes[idx] = reflect.SliceOf(types.ParquetTypeToGoReflectType(pT, nil))
+						et := types.ParquetTypeToGoReflectType(pT, nil)
+						if et == nil {
+							et = reflect.TypeOf((*any)(nil)).Elem()
+						}
+						elementTypes[idx] = reflect.SliceOf(et)
+					case parquet.FieldRepetitionType_OPTIONAL:
+						et := types.ParquetTypeToGoReflectType(pT, rT)
+						if et == nil {
+							// Represent optional unknown as *interface{}
+							elementTypes[idx] = reflect.PointerTo(reflect.TypeOf((*any)(nil)).Elem())
+						} else {
+							elementTypes[idx] = et
+						}
 					default:
 						elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, rT)
+						if elementTypes[idx] == nil {
+							elementTypes[idx] = reflect.TypeOf((*any)(nil)).Elem()
+						}
 					}
 				}
 			} else {
@@ -70,6 +90,12 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 					sh.GetInName(int(elements[elements[idx][0]][1])) == "Value" {
 					kIdx, vIdx := elements[elements[idx][0]][0], elements[elements[idx][0]][1]
 					kT, vT := elementTypes[kIdx], elementTypes[vIdx]
+					if kT == nil {
+						kT = reflect.TypeOf((*any)(nil)).Elem()
+					}
+					if vT == nil {
+						vT = reflect.TypeOf((*any)(nil)).Elem()
+					}
 					if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
 						elementTypes[idx] = reflect.PointerTo(reflect.MapOf(kT, vT))
 					} else {
@@ -78,9 +104,13 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 				} else {
 					fields := []reflect.StructField{}
 					for _, ci := range elements[idx] {
+						ft := elementTypes[ci]
+						if ft == nil {
+							ft = reflect.TypeOf((*any)(nil)).Elem()
+						}
 						fields = append(fields, reflect.StructField{
 							Name: sh.Infos[ci].InName,
-							Type: elementTypes[ci],
+							Type: ft,
 							Tag:  reflect.StructTag(`json:"` + sh.Infos[ci].ExName + `"`),
 						})
 					}
@@ -114,6 +144,47 @@ func (sh *SchemaHandler) GetType(prefixPath string) (reflect.Type, error) {
 	if idx, ok := sh.MapIndex[prefixPath]; !ok {
 		return nil, fmt.Errorf("[GetType] Can't find %v", prefixPath)
 	} else {
+		// Validate subtree under idx: any leaf resolved to interface{} indicates corrupt/unknown type
+		ln := int32(len(sh.SchemaElements))
+		// Build child index map similar to GetTypes
+		children := make([][]int32, ln)
+		for i := range int(ln) {
+			children[i] = []int32{}
+		}
+		var pos int32 = 0
+		stack := make([][2]int32, 0)
+		for pos < ln || len(stack) > 0 {
+			if len(stack) == 0 || stack[len(stack)-1][1] > 0 {
+				if len(stack) > 0 {
+					stack[len(stack)-1][1]--
+					p := stack[len(stack)-1][0]
+					children[p] = append(children[p], pos)
+				}
+				item := [2]int32{pos, sh.SchemaElements[pos].GetNumChildren()}
+				stack = append(stack, item)
+				pos++
+			} else {
+				stack = stack[:len(stack)-1]
+			}
+		}
+
+		// Traverse subtree to find any leaf with interface{} type
+		toVisit := []int32{idx}
+		for len(toVisit) > 0 {
+			cur := toVisit[len(toVisit)-1]
+			toVisit = toVisit[:len(toVisit)-1]
+
+			if sh.SchemaElements[cur].GetNumChildren() == 0 {
+				t := ts[cur]
+				if t == nil || t.Kind() == reflect.Interface {
+					path := sh.IndexMap[cur]
+					return nil, fmt.Errorf("corrupt or unsupported schema at %s: unknown physical type", path)
+				}
+				continue
+			}
+			toVisit = append(toVisit, children[cur]...)
+		}
+
 		return ts[idx], nil
 	}
 }
