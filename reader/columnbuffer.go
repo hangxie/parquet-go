@@ -42,6 +42,16 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	if schemaHandler == nil {
 		return nil, fmt.Errorf("schema handler cannot be nil")
 	}
+	// If the path exists in the schema handler map, validate its type to catch
+	// corrupt or unsupported schemas early. Otherwise, skip validation because
+	// some callers rely on locating columns by footer path only.
+	if schemaHandler.MapIndex != nil {
+		if _, exists := schemaHandler.MapIndex[pathStr]; exists {
+			if _, err := schemaHandler.GetType(pathStr); err != nil {
+				return nil, err
+			}
+		}
+	}
 	newPFile, err := pFile.Clone()
 	if err != nil {
 		return nil, err
