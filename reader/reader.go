@@ -218,12 +218,23 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 
 	taskChan := make(chan string)
 	var wgCols sync.WaitGroup
+	var firstErr error
+	var errMu sync.Mutex
 	for range pr.NP {
 		wgCols.Add(1)
 		go func() {
 			defer wgCols.Done()
 			for pathStr := range taskChan {
-				_ = pr.ColumnBuffers[pathStr].SkipRows(int64(num))
+				if _, err := pr.ColumnBuffers[pathStr].SkipRowsWithError(int64(num)); err != nil {
+					if err == io.EOF {
+						continue
+					}
+					errMu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					errMu.Unlock()
+				}
 			}
 		}()
 	}
@@ -236,7 +247,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 
 	wgCols.Wait()
 
-	return nil
+	return firstErr
 }
 
 // Read rows of parquet file and unmarshal all to dst
@@ -334,7 +345,15 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 		defer wgCols.Done()
 		for pathStr := range taskChan {
 			cb := pr.ColumnBuffers[pathStr]
-			table, _ := cb.ReadRows(int64(num))
+			table, _, rerr := cb.ReadRowsWithError(int64(num))
+			if rerr != nil {
+				errMu.Lock()
+				if firstErr == nil {
+					firstErr = rerr
+				}
+				errMu.Unlock()
+				continue
+			}
 			// Merge into shared map
 			locker.Lock()
 			if _, ok := tmap[pathStr]; ok {

@@ -29,7 +29,7 @@ func ReadPlain(bytesReader *bytes.Reader, dataType parquet.Type, cnt, bitWidth u
 	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
 		return ReadPlainFIXED_LEN_BYTE_ARRAY(bytesReader, cnt, bitWidth)
 	default:
-		return nil, fmt.Errorf("unknown parquet type")
+		return nil, fmt.Errorf("unknown parquet type: %v", dataType)
 	}
 }
 

@@ -68,7 +68,10 @@ func (page *Page) DictPageCompress(compressType parquet.CompressionCodec, pT par
 
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, _ := ts.Write(context.TODO(), page.Header)
+	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
+	if err != nil {
+		return nil, err
+	}
 
 	var res []byte
 	res = append(res, pageHeaderBuf...)
@@ -240,7 +243,10 @@ func (page *Page) DictDataPageCompress(compressType parquet.CompressionCodec, bi
 
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, _ := ts.Write(context.TODO(), page.Header)
+	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
+	if err != nil {
+		return nil, err
+	}
 
 	var res []byte
 	res = append(res, pageHeaderBuf...)

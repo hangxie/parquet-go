@@ -308,7 +308,10 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, _ := ts.Write(context.TODO(), page.Header)
+	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
+	if err != nil {
+		return nil, err
+	}
 
 	res := append(pageHeaderBuf, dataEncodeBuf...)
 	page.RawData = res
@@ -414,7 +417,10 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, _ := ts.Write(context.TODO(), page.Header)
+	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
+	if err != nil {
+		return nil, err
+	}
 
 	var res []byte
 	res = append(res, pageHeaderBuf...)
