@@ -41,7 +41,7 @@ type fieldInfo struct {
 }
 
 // Convert the table map to objects slice. dstInterface is a slice of pointers of objects
-func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface any, schemaHandler *schema.SchemaHandler, prefixPath string) (err error) {
+func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface any, schemaHandler *schema.SchemaHandler, prefixPath string) error {
 	rootValue := reflect.ValueOf(dstInterface)
 	if !rootValue.IsValid() || rootValue.Kind() != reflect.Ptr || rootValue.IsNil() {
 		return fmt.Errorf("dstInterface must be a non-nil pointer")
@@ -76,7 +76,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 			tableEnd[name] = ln
 		}
 		if tableBgn[name] < 0 {
-			return err
+			return nil
 		}
 	}
 

@@ -25,13 +25,17 @@ func NewSwiftFileWriter(container, filePath string, conn *swift.Connection) (sou
 		},
 	}
 
-	return res.Create(filePath)
+	w, err := res.Create(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("create swift file: %w", err)
+	}
+	return w, nil
 }
 
 func (file *swiftWriter) Create(name string) (source.ParquetFileWriter, error) {
 	fw, err := file.connection.ObjectCreate(file.container, name, false, "", "", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("swift object create: %w", err)
 	}
 
 	res := &swiftWriter{
@@ -56,7 +60,7 @@ func (file *swiftWriter) Write(p []byte) (n int, err error) {
 func (file *swiftWriter) Close() error {
 	if file.fileWriter != nil {
 		if err := file.fileWriter.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close Swift writer: %w", err)
 		}
 	}
 	return nil

@@ -28,7 +28,7 @@ func NewGcsFileReader(ctx context.Context, projectID, bucketName, name string, g
 
 	r, err := NewGcsFileReaderWithClient(ctx, client, projectID, bucketName, name, generation)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new gcs reader with client: %w", err)
 	}
 
 	// Set externalClient to false so we close it when calling `Close`.
@@ -66,10 +66,17 @@ func NewGcsFileReaderWithClient(ctx context.Context, client *storage.Client, pro
 // will be re-opened.
 func (g *gcsReader) Open(name string) (source.ParquetFileReader, error) {
 	if g.gcsClient == nil {
-		return NewGcsFileReader(g.ctx, g.projectID, g.bucketName, name, -1)
+		r, err := NewGcsFileReader(g.ctx, g.projectID, g.bucketName, name, -1)
+		if err != nil {
+			return nil, fmt.Errorf("open gcs reader: %w", err)
+		}
+		return r, nil
 	}
-
-	return NewGcsFileReaderWithClient(g.ctx, g.gcsClient, g.projectID, g.bucketName, name, -1)
+	r, err := NewGcsFileReaderWithClient(g.ctx, g.gcsClient, g.projectID, g.bucketName, name, -1)
+	if err != nil {
+		return nil, fmt.Errorf("open gcs reader with client: %w", err)
+	}
+	return r, nil
 }
 
 // Clone will make a copy of reader
@@ -92,7 +99,7 @@ func (g *gcsReader) Read(b []byte) (int, error) {
 func (g *gcsReader) Close() error {
 	if !g.externalClient && g.gcsClient != nil {
 		if err := g.gcsClient.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close GCS client: %w", err)
 		}
 
 		g.gcsClient = nil

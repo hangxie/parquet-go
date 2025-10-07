@@ -2,6 +2,7 @@ package s3v2
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -36,13 +37,17 @@ type s3Writer struct {
 
 // NewS3FileWriter creates an S3 FileWriter, to be used with NewParquetWriter
 func NewS3FileWriter(ctx context.Context, bucket, key string, uploaderOptions []func(*manager.Uploader), cfgs ...*aws.Config) (source.ParquetFileWriter, error) {
-	return NewS3FileWriterWithClient(
+	w, err := NewS3FileWriterWithClient(
 		ctx,
 		s3.NewFromConfig(getConfig()),
 		bucket,
 		key,
 		uploaderOptions,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("new s3 writer: %w", err)
+	}
+	return w, nil
 }
 
 // NewS3FileWriterWithClient is the same as NewS3FileWriter but allows passing
@@ -60,7 +65,11 @@ func NewS3FileWriterWithClient(ctx context.Context, s3Client s3WriteClient, buck
 		putObjectInputOptions: putObjectInputOptions,
 	}
 
-	return file.Create(key)
+	pf, err := file.Create(key)
+	if err != nil {
+		return nil, fmt.Errorf("create s3 writer: %w", err)
+	}
+	return pf, nil
 }
 
 // Write len(p) bytes from p to the S3 data stream
@@ -98,7 +107,7 @@ func (s *s3Writer) Write(p []byte) (n int, err error) {
 func (s *s3Writer) Close() error {
 	if s.pipeWriter != nil {
 		if err := s.pipeWriter.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close S3 pipe writer: %w", err)
 		}
 	}
 
@@ -107,7 +116,10 @@ func (s *s3Writer) Close() error {
 		return nil
 	}
 
-	return <-s.writeDone
+	if err := <-s.writeDone; err != nil {
+		return fmt.Errorf("S3 upload failed: %w", err)
+	}
+	return nil
 }
 
 // Create creates a new S3 File instance to perform writes

@@ -84,7 +84,7 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 	res.Footer.CreatedBy = common.ToPtr("github.com/hangxie/parquet-go v2 latest")
 	_, err = res.PFile.Write([]byte("PAR1"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("write magic header: %w", err)
 	}
 	res.MarshalFunc = marshal.Marshal
 	res.stopped = true
@@ -92,8 +92,12 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 	if obj != nil {
 		if sa, ok := obj.(string); ok {
 			err = res.SetSchemaHandlerFromJSON(sa)
-			res.stopped = err != nil
-			return res, err
+			if err != nil {
+				res.stopped = true
+				return res, fmt.Errorf("set schema from JSON: %w", err)
+			}
+			res.stopped = false
+			return res, nil
 
 		} else if sa, ok := obj.(*schema.SchemaHandler); ok {
 			res.SchemaHandler = schema.NewSchemaHandlerFromSchemaHandler(sa)
@@ -101,7 +105,7 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 			res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
 		} else {
 			if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
-				return res, err
+				return res, fmt.Errorf("build schema handler: %w", err)
 			}
 		}
 
@@ -117,7 +121,7 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	var err error
 	if pw.SchemaHandler, err = schema.NewSchemaHandlerFromJSON(jsonSchema); err != nil {
-		return err
+		return fmt.Errorf("parse JSON schema: %w", err)
 	}
 	pw.Footer.Schema = pw.Footer.Schema[:0]
 	pw.Footer.Schema = append(pw.Footer.Schema, pw.SchemaHandler.SchemaElements...)
@@ -148,7 +152,7 @@ func (pw *ParquetWriter) WriteStop() error {
 
 	var err error
 	if err = pw.Flush(true); err != nil {
-		return err
+		return fmt.Errorf("flush before stop: %w", err)
 	}
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
@@ -161,10 +165,10 @@ func (pw *ParquetWriter) WriteStop() error {
 			for _, columnChunk := range rowGroup.Columns {
 				columnIndexBuf, err := ts.Write(context.TODO(), pw.ColumnIndexes[idx])
 				if err != nil {
-					return err
+					return fmt.Errorf("serialize column index: %w", err)
 				}
 				if _, err = pw.PFile.Write(columnIndexBuf); err != nil {
-					return err
+					return fmt.Errorf("write column index: %w", err)
 				}
 
 				idx++
@@ -186,10 +190,10 @@ func (pw *ParquetWriter) WriteStop() error {
 			for _, columnChunk := range rowGroup.Columns {
 				offsetIndexBuf, err := ts.Write(context.TODO(), pw.OffsetIndexes[idx])
 				if err != nil {
-					return err
+					return fmt.Errorf("serialize offset index: %w", err)
 				}
 				if _, err = pw.PFile.Write(offsetIndexBuf); err != nil {
-					return err
+					return fmt.Errorf("write offset index: %w", err)
 				}
 
 				idx++
@@ -206,20 +210,20 @@ func (pw *ParquetWriter) WriteStop() error {
 
 	footerBuf, err := ts.Write(context.TODO(), pw.Footer)
 	if err != nil {
-		return err
+		return fmt.Errorf("serialize footer: %w", err)
 	}
 
 	if _, err = pw.PFile.Write(footerBuf); err != nil {
-		return err
+		return fmt.Errorf("write footer: %w", err)
 	}
 	footerSizeBuf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(footerSizeBuf, uint32(len(footerBuf)))
 
 	if _, err = pw.PFile.Write(footerSizeBuf); err != nil {
-		return err
+		return fmt.Errorf("write footer size: %w", err)
 	}
 	if _, err = pw.PFile.Write([]byte("PAR1")); err != nil {
-		return err
+		return fmt.Errorf("write magic tail: %w", err)
 	}
 
 	return nil
@@ -254,7 +258,10 @@ func (pw *ParquetWriter) Write(src any) error {
 		dln := (criSize - pw.ObjsSize + pw.ObjSize - 1) / pw.ObjSize / 2
 		pw.CheckSizeCritical = dln + ln
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	return nil
 }
 
 func (pw *ParquetWriter) flushObjs() error {
@@ -357,7 +364,10 @@ func (pw *ParquetWriter) flushObjs() error {
 	}
 
 	pw.NumRows += int64(len(pw.Objs))
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to flush objects: %w", err)
+	}
+	return nil
 }
 
 // Flush the write buffer to parquet file
@@ -365,7 +375,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 	var err error
 
 	if err = pw.flushObjs(); err != nil {
-		return err
+		return fmt.Errorf("failed to flush objects during flush: %w", err)
 	}
 
 	if (pw.Size+pw.ObjsSize >= pw.RowGroupSize || flag) && len(pw.PagesMapBuf) > 0 {
@@ -380,17 +390,17 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 				dictRec := v.(*layout.DictRecType)
 				dictPage, _, err := layout.DictRecToDictPage(dictRec, int32(pw.PageSize), pw.CompressionType)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to convert dict rec to dict page for column %s: %w", name, err)
 				}
 				tmp := append([]*layout.Page{dictPage}, pages...)
 				chunkMap[name], err = layout.PagesToDictChunk(tmp)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to convert pages to dict chunk for column %s: %w", name, err)
 				}
 			} else {
 				chunkMap[name], err = layout.PagesToChunk(pages)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to convert pages to chunk for column %s: %w", name, err)
 				}
 			}
 		}
@@ -495,7 +505,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 
 				data := page.RawData
 				if _, err = pw.PFile.Write(data); err != nil {
-					return err
+					return fmt.Errorf("failed to write page data: %w", err)
 				}
 				pw.Offset += int64(len(data))
 			}

@@ -1,6 +1,7 @@
 package reader
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -110,7 +111,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	if columnChunks[i].FilePath != nil {
 		_ = cbt.PFile.Close()
 		if cbt.PFile, err = cbt.PFile.Open(*columnChunks[i].FilePath); err != nil {
-			return err
+			return fmt.Errorf("failed to open file %s: %w", *columnChunks[i].FilePath, err)
 		}
 	}
 
@@ -154,7 +155,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 				}
 			}
 
-			return err
+			return fmt.Errorf("failed to read page: %w", err)
 		}
 
 		if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
@@ -174,7 +175,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 		cbt.DataTableNumRows += numRows
 	} else {
 		if err := cbt.NextRowGroup(); err != nil {
-			return err
+			return fmt.Errorf("failed to move to next row group: %w", err)
 		}
 
 		return cbt.ReadPage()
@@ -314,7 +315,7 @@ func (cbt *ColumnBufferType) ReadRowsWithError(num int64) (*layout.Table, int64,
 		cbt.DataTable.Merge(tmp)
 	}
 	// Propagate non-EOF errors; treat io.EOF as normal completion
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return res, num, err
 	}
 	return res, num, nil

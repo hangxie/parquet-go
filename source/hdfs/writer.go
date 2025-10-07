@@ -31,10 +31,13 @@ func NewHdfsFileWriter(hosts []string, user, name string) (source.ParquetFileWri
 		User:      user,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new hdfs client: %w", err)
 	}
-
-	return res.Create(name)
+	w, err := res.Create(name)
+	if err != nil {
+		return nil, fmt.Errorf("create hdfs file: %w", err)
+	}
+	return w, nil
 }
 
 func (f *hdfsWriter) Create(name string) (source.ParquetFileWriter, error) {
@@ -43,7 +46,10 @@ func (f *hdfsWriter) Create(name string) (source.ParquetFileWriter, error) {
 	}
 	var err error
 	f.fileWriter, err = f.client.Create(name)
-	return f, err
+	if err != nil {
+		return nil, fmt.Errorf("create hdfs file: %w", err)
+	}
+	return f, nil
 }
 
 func (f *hdfsWriter) Write(b []byte) (n int, err error) {
@@ -56,12 +62,12 @@ func (f *hdfsWriter) Write(b []byte) (n int, err error) {
 func (f *hdfsWriter) Close() error {
 	if f.fileWriter != nil {
 		if err := f.fileWriter.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close HDFS file writer: %w", err)
 		}
 	}
 	if f.client != nil {
 		if err := f.client.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close HDFS client: %w", err)
 		}
 	}
 	return nil
