@@ -664,7 +664,7 @@ func (p *Page) processDictionaryPage() error {
 		uint64(p.Header.DictionaryPageHeader.GetNumValues()),
 		0)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read plain values from dictionary page: %w", err)
 	}
 	p.DataTable.Values = values
 	return nil
@@ -674,7 +674,7 @@ func (p *Page) processDictionaryPage() error {
 func (p *Page) processDataPageV2(schemaHandler *schema.SchemaHandler) error {
 	var err error
 	if p.RawData, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
-		return err
+		return fmt.Errorf("failed to uncompress data page v2: %w", err)
 	}
 	return p.processDataPage(schemaHandler, p.Header.DataPageHeaderV2.GetEncoding())
 }
@@ -703,7 +703,7 @@ func (p *Page) processDataPage(schemaHandler *schema.SchemaHandler, encodingType
 		uint64(len(p.DataTable.DefinitionLevels))-numNulls,
 		uint64(schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetTypeLength()))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read data page values: %w", err)
 	}
 
 	j := 0

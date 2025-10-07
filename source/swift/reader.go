@@ -24,13 +24,17 @@ func NewSwiftFileReader(container, filePath string, conn *swift.Connection) (sou
 			filePath:   filePath,
 		},
 	}
-	return res.Open(filePath)
+	r, err := res.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open swift file: %w", err)
+	}
+	return r, nil
 }
 
 func (file *swiftReader) Open(name string) (source.ParquetFileReader, error) {
 	fr, _, err := file.connection.ObjectOpen(file.container, name, false, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("swift object open: %w", err)
 	}
 
 	res := &swiftReader{
@@ -66,7 +70,7 @@ func (file *swiftReader) Seek(offset int64, whence int) (int64, error) {
 func (file *swiftReader) Close() error {
 	if file.fileReader != nil {
 		if err := file.fileReader.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close Swift reader: %w", err)
 		}
 	}
 	return nil

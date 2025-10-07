@@ -3,6 +3,7 @@ package azblob
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 
@@ -43,7 +44,7 @@ func NewAzBlobFileWriter(ctx context.Context, URL string, credential any, client
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init azblob client: %w", err)
 	}
 
 	return NewAzBlobFileWriterWithClient(ctx, URL, client)
@@ -86,14 +87,17 @@ func (s *azBlobWriter) Close() error {
 
 	if s.pipeWriter != nil {
 		if err = s.pipeWriter.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close Azure Blob pipe writer: %w", err)
 		}
 
 		// wait for pending uploads
 		err = <-s.writeDone
 	}
 
-	return err
+	if err != nil {
+		return fmt.Errorf("Azure Blob upload failed: %w", err)
+	}
+	return nil
 }
 
 // Create a new blob url to perform writes
@@ -105,7 +109,7 @@ func (s *azBlobWriter) Create(URL string) (source.ParquetFileWriter, error) {
 	} else {
 		var err error
 		if u, err = url.Parse(URL); err != nil {
-			return s, err
+			return s, fmt.Errorf("parse url: %w", err)
 		}
 	}
 

@@ -53,8 +53,11 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter,
 		res.SchemaHandler.SchemaElements...)
 	res.Offset = offset
 	_, err = res.PFile.Write([]byte("PAR1"))
+	if err != nil {
+		return res, fmt.Errorf("write magic header: %w", err)
+	}
 	res.MarshalFunc = marshal.MarshalArrow
-	return res, err
+	return res, nil
 }
 
 // WriteArrow wraps the base Write function provided by writer.ParquetWriter.
@@ -67,7 +70,7 @@ func (w *ArrowWriter) WriteArrow(batch arrow.RecordBatch) error {
 		columnFromRecord, err := common.ArrowColToParquetCol(
 			batch.Schema().Field(i), column)
 		if err != nil {
-			return err
+			return fmt.Errorf("arrow column conversion: %w", err)
 		}
 
 		if len(columnFromRecord) > 0 {
@@ -77,7 +80,7 @@ func (w *ArrowWriter) WriteArrow(batch arrow.RecordBatch) error {
 	transposedTable := common.TransposeTable(table)
 	for _, row := range transposedTable {
 		if err := w.Write(row); err != nil {
-			return err
+			return fmt.Errorf("write row: %w", err)
 		}
 	}
 	return nil

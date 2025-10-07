@@ -42,8 +42,11 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, np int64) (*CSVWr
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
 	res.Offset = 4
 	_, err = res.PFile.Write([]byte("PAR1"))
+	if err != nil {
+		return nil, fmt.Errorf("write magic header: %w", err)
+	}
 	res.MarshalFunc = marshal.MarshalCSV
-	return res, err
+	return res, nil
 }
 
 // Write string values to parquet file
@@ -62,10 +65,13 @@ func (w *CSVWriter) WriteString(recsi any) error {
 				int(w.SchemaHandler.SchemaElements[i+1].GetScale()),
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("convert string to parquet type: %w", err)
 			}
 		}
 	}
 
-	return w.Write(rec)
+	if err := w.Write(rec); err != nil {
+		return fmt.Errorf("write row: %w", err)
+	}
+	return nil
 }

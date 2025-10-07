@@ -46,22 +46,30 @@ var (
 
 // NewS3FileReader creates an S3 FileReader, to be used with NewParquetReader
 func NewS3FileReader(ctx context.Context, bucket, key string, version *string, cfgs ...*aws.Config) (source.ParquetFileReader, error) {
-	return NewS3FileReaderWithParams(ctx, S3FileReaderParams{
+	r, err := NewS3FileReaderWithParams(ctx, S3FileReaderParams{
 		Bucket:  bucket,
 		Key:     key,
 		Version: version,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("new s3 reader: %w", err)
+	}
+	return r, nil
 }
 
 // NewS3FileReaderWithClient is the same as NewS3FileReader but allows passing
 // your own S3 client
 func NewS3FileReaderWithClient(ctx context.Context, s3Client s3ReadClient, bucket, key string, version *string) (source.ParquetFileReader, error) {
-	return NewS3FileReaderWithParams(ctx, S3FileReaderParams{
+	r, err := NewS3FileReaderWithParams(ctx, S3FileReaderParams{
 		Bucket:   bucket,
 		Key:      key,
 		Version:  version,
 		S3Client: s3Client,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("new s3 reader with client: %w", err)
+	}
+	return r, nil
 }
 
 // Seek tracks the offset for the next Read. Has no effect on Write.
@@ -147,7 +155,7 @@ func (s *s3Reader) openSocket(numBytes int64) error {
 
 	out, err := s.client.GetObject(s.ctx, getObj)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get S3 object: %w", err)
 	}
 	s.socket = out.Body
 	return nil
@@ -174,7 +182,7 @@ func (s *s3Reader) Open(name string) (source.ParquetFileReader, error) {
 	s.lock.RUnlock()
 	if !readOpened {
 		if err := s.openRead(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("open s3 object: %w", err)
 		}
 	}
 
@@ -215,7 +223,7 @@ func (s *s3Reader) openRead() error {
 
 	hoo, err := s.client.HeadObject(s.ctx, hoi)
 	if err != nil {
-		return err
+		return fmt.Errorf("head object: %w", err)
 	}
 
 	s.lock.Lock()

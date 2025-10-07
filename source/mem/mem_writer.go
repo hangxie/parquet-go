@@ -1,6 +1,7 @@
 package mem
 
 import (
+	"fmt"
 	"io"
 	"path/filepath"
 
@@ -56,14 +57,18 @@ func NewMemFileWriter(name string, f OnCloseFunc) (source.ParquetFileWriter, err
 
 	var m memWriter
 	m.onClose = f
-	return m.Create(name)
+	w, err := m.Create(name)
+	if err != nil {
+		return nil, fmt.Errorf("create mem file: %w", err)
+	}
+	return w, nil
 }
 
 // Create - create in-memory file
 func (fs *memWriter) Create(name string) (source.ParquetFileWriter, error) {
 	file, err := memFs.Create(name)
 	if err != nil {
-		return fs, err
+		return fs, fmt.Errorf("memfs create: %w", err)
 	}
 
 	fs.file = file
@@ -79,12 +84,12 @@ func (fs *memWriter) Write(b []byte) (n int, err error) {
 // Close - close file and execute OnCloseFunc
 func (fs *memWriter) Close() error {
 	if err := fs.file.Close(); err != nil {
-		return err
+		return fmt.Errorf("failed to close mem file: %w", err)
 	}
 	if fs.onClose != nil {
 		f, _ := memFs.Open(fs.filePath)
 		if err := fs.onClose(filepath.Base(fs.filePath), f); err != nil {
-			return err
+			return fmt.Errorf("failed to execute onClose callback: %w", err)
 		}
 	}
 	return nil

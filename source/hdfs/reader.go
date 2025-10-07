@@ -31,10 +31,14 @@ func NewHdfsFileReader(hosts []string, user, name string) (source.ParquetFileRea
 		User:      user,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new hdfs client: %w", err)
 	}
 
-	return res.Open(name)
+	r, err := res.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("open hdfs file: %w", err)
+	}
+	return r, nil
 }
 
 func (f *hdfsReader) Open(name string) (source.ParquetFileReader, error) {
@@ -43,7 +47,10 @@ func (f *hdfsReader) Open(name string) (source.ParquetFileReader, error) {
 	}
 	var err error
 	f.fileReader, err = f.client.Open(name)
-	return f, err
+	if err != nil {
+		return nil, fmt.Errorf("open hdfs file: %w", err)
+	}
+	return f, nil
 }
 
 func (f hdfsReader) Clone() (source.ParquetFileReader, error) {
@@ -77,12 +84,12 @@ func (f *hdfsReader) Read(b []byte) (int, error) {
 func (f *hdfsReader) Close() error {
 	if f.fileReader != nil {
 		if err := f.fileReader.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close HDFS file reader: %w", err)
 		}
 	}
 	if f.client != nil {
 		if err := f.client.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close HDFS client: %w", err)
 		}
 	}
 	return nil

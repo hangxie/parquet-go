@@ -54,20 +54,23 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 	res.PFile = pFile
 	res.CaseInsensitive = caseInsensitive
 	if err = res.ReadFooter(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read footer: %w", err)
 	}
 	res.ColumnBuffers = make(map[string]*ColumnBufferType)
 
 	if obj != nil {
 		if sa, ok := obj.(string); ok {
 			err = res.SetSchemaHandlerFromJSON(sa)
-			return res, err
+			if err != nil {
+				return res, fmt.Errorf("set schema from JSON: %w", err)
+			}
+			return res, nil
 
 		} else if sa, ok := obj.([]*parquet.SchemaElement); ok {
 			res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
 		} else {
 			if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
-				return res, err
+				return res, fmt.Errorf("build schema handler: %w", err)
 			}
 
 			res.ObjType = reflect.TypeOf(obj).Elem()
@@ -85,7 +88,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 		if schema.GetNumChildren() == 0 {
 			if pathStr, exists := res.SchemaHandler.IndexMap[int32(i)]; exists {
 				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr); err != nil {
-					return res, err
+					return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 				}
 			}
 		}
@@ -98,7 +101,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	var err error
 
 	if pr.SchemaHandler, err = schema.NewSchemaHandlerFromJSON(jsonSchema); err != nil {
-		return err
+		return fmt.Errorf("parse JSON schema: %w", err)
 	}
 
 	pr.RenameSchema()
@@ -107,7 +110,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 		if schemaElement.GetNumChildren() == 0 {
 			pathStr := pr.SchemaHandler.IndexMap[int32(i)]
 			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr); err != nil {
-				return err
+				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 			}
 		}
 	}
@@ -189,17 +192,20 @@ func (pr *ParquetReader) GetFooterSize() (uint32, error) {
 func (pr *ParquetReader) ReadFooter() error {
 	size, err := pr.GetFooterSize()
 	if err != nil {
-		return err
+		return fmt.Errorf("get footer size: %w", err)
 	}
 	if _, err = pr.PFile.Seek(-(int64)(8+size), io.SeekEnd); err != nil {
-		return err
+		return fmt.Errorf("seek to footer: %w", err)
 	}
 	pr.Footer = parquet.NewFileMetaData()
 	pf := thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{})
 	thriftReader := thrift.NewStreamTransportR(pr.PFile)
 	bufferReader := thrift.NewTBufferedTransport(thriftReader, int(size))
 	protocol := pf.GetProtocol(bufferReader)
-	return pr.Footer.Read(context.TODO(), protocol)
+	if err := pr.Footer.Read(context.TODO(), protocol); err != nil {
+		return fmt.Errorf("read footer: %w", err)
+	}
+	return nil
 }
 
 // Skip rows of parquet file
@@ -213,7 +219,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 	for _, pathStr := range pr.SchemaHandler.ValueColumns {
 		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr); err != nil {
-				return err
+				return fmt.Errorf("failed to create column buffer for %s: %w", pathStr, err)
 			}
 		}
 	}
@@ -228,8 +234,10 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 			defer func() { <-sem }()
 			if _, err := pr.ColumnBuffers[pathStr].SkipRowsWithError(int64(num)); err != nil && err == io.EOF {
 				return nil
+			} else if err != nil {
+				return fmt.Errorf("failed to skip rows for column %s: %w", pathStr, err)
 			}
-			return err
+			return nil
 		})
 	}
 
@@ -247,7 +255,7 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
 	var err error
 	if pr.ObjType == nil {
 		if pr.ObjType, err = pr.SchemaHandler.GetType(pr.SchemaHandler.GetRootInName()); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("get type: %w", err)
 		}
 	}
 
@@ -256,7 +264,7 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
 	res.Elem().Set(vs)
 
 	if err = pr.Read(res.Interface()); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read by number: %w", err)
 	}
 
 	ln := res.Elem().Len()
@@ -272,10 +280,13 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
 func (pr *ParquetReader) ReadPartial(dstInterface any, prefixPath string) error {
 	prefixPath, err := pr.SchemaHandler.ConvertToInPathStr(prefixPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("convert path: %w", err)
 	}
 
-	return pr.read(dstInterface, prefixPath)
+	if err := pr.read(dstInterface, prefixPath); err != nil {
+		return fmt.Errorf("read partial: %w", err)
+	}
+	return nil
 }
 
 // Read maxReadNumber partial objects
@@ -287,7 +298,7 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 	var err error
 	if pr.ObjPartialType == nil {
 		if pr.ObjPartialType, err = pr.SchemaHandler.GetType(prefixPath); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("get type for prefix: %w", err)
 		}
 	}
 
@@ -296,7 +307,7 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 	res.Elem().Set(vs)
 
 	if err = pr.ReadPartial(res.Interface(), prefixPath); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read partial by number: %w", err)
 	}
 
 	ln := res.Elem().Len()

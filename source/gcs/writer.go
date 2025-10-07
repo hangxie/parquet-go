@@ -26,7 +26,7 @@ func NewGcsFileWriter(ctx context.Context, projectID, bucketName, name string) (
 
 	r, err := NewGcsFileWriterWithClient(ctx, client, projectID, bucketName, name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new gcs writer with client: %w", err)
 	}
 
 	// Set externalClient to false so we close it when calling `Close`.
@@ -64,10 +64,17 @@ func NewGcsFileWriterWithClient(ctx context.Context, client *storage.Client, pro
 // will be re-opened.
 func (g *gcsFileWriter) Create(name string) (source.ParquetFileWriter, error) {
 	if g.gcsClient == nil {
-		return NewGcsFileWriter(g.ctx, g.projectID, g.bucketName, name)
+		w, err := NewGcsFileWriter(g.ctx, g.projectID, g.bucketName, name)
+		if err != nil {
+			return nil, fmt.Errorf("open gcs writer: %w", err)
+		}
+		return w, nil
 	}
-
-	return NewGcsFileWriterWithClient(g.ctx, g.gcsClient, g.projectID, g.bucketName, name)
+	w, err := NewGcsFileWriterWithClient(g.ctx, g.gcsClient, g.projectID, g.bucketName, name)
+	if err != nil {
+		return nil, fmt.Errorf("open gcs writer with client: %w", err)
+	}
+	return w, nil
 }
 
 // Write implements io.Writer.
@@ -79,7 +86,7 @@ func (g *gcsFileWriter) Write(b []byte) (int, error) {
 func (g *gcsFileWriter) Close() error {
 	if !g.externalClient && g.gcsClient != nil {
 		if err := g.gcsClient.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close GCS client: %w", err)
 		}
 
 		g.gcsClient = nil

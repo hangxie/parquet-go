@@ -1,6 +1,7 @@
 package mem
 
 import (
+	"errors"
 	"io"
 	"testing"
 
@@ -55,9 +56,9 @@ func Test_MemWriter_OnCloseError(t *testing.T) {
 	_, err = writer.Write([]byte("test"))
 	require.NoError(t, err)
 
-	// Close should return the error from onClose
+	// Close should return the error from onClose (wrapped)
 	err = writer.Close()
-	require.Equal(t, io.ErrUnexpectedEOF, err)
+	require.True(t, errors.Is(err, io.ErrUnexpectedEOF))
 }
 
 func Test_MemWriter_WithSubdirectoryPath(t *testing.T) {
