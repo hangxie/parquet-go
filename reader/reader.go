@@ -3,6 +3,7 @@ package reader
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -424,10 +425,21 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 }
 
 // Stop Read
-func (pr *ParquetReader) ReadStop() {
-	for _, cb := range pr.ColumnBuffers {
+// ReadStopWithError closes all column buffer file handles and returns any errors encountered.
+// This is the error-returning version of ReadStop.
+func (pr *ParquetReader) ReadStopWithError() error {
+	var errs []error
+	for pathStr, cb := range pr.ColumnBuffers {
 		if cb != nil {
-			_ = cb.PFile.Close()
+			if err := cb.PFile.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close column buffer for path %s: %w", pathStr, err))
+			}
 		}
 	}
+	return errors.Join(errs...)
+}
+
+// Deprecated: Use ReadStopWithError instead. This method ignores errors.
+func (pr *ParquetReader) ReadStop() {
+	_ = pr.ReadStopWithError()
 }

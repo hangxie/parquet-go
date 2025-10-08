@@ -250,6 +250,38 @@ func Test_ParquetReader_ReadStop(t *testing.T) {
 	pr3.ReadStop()
 }
 
+func Test_ParquetReader_ReadStopWithError(t *testing.T) {
+	pr, err := parquetReader()
+	require.NoError(t, err)
+
+	// Ensure column buffers are initialized
+	require.NotNil(t, pr.ColumnBuffers)
+	require.NotEmpty(t, pr.ColumnBuffers)
+
+	// Call ReadStopWithError - should succeed
+	err = pr.ReadStopWithError()
+	require.NoError(t, err)
+
+	// Calling again should be safe (files already closed)
+	_ = pr.ReadStopWithError()
+	// May return error because files are already closed, but shouldn't panic
+	// We don't assert on error here as behavior may vary
+
+	// Test ReadStopWithError with nil column buffers
+	pr2, err := parquetReader()
+	require.NoError(t, err)
+	pr2.ColumnBuffers = nil
+	err = pr2.ReadStopWithError()
+	require.NoError(t, err) // Should not error with nil buffers
+
+	// Test ReadStopWithError with empty column buffers
+	pr3, err := parquetReader()
+	require.NoError(t, err)
+	pr3.ColumnBuffers = make(map[string]*ColumnBufferType)
+	err = pr3.ReadStopWithError()
+	require.NoError(t, err) // Should not error with empty buffers
+}
+
 func Test_ParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
 	// Create a simple parquet reader using existing data
 	pr, err := parquetReader()

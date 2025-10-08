@@ -550,7 +550,8 @@ func Test_E2EConcurrentValid(t *testing.T) {
 
 	err = fw.Close()
 	require.Nil(t, err)
-	pr.ReadStop()
+	err = pr.ReadStopWithError()
+	require.Nil(t, err)
 	err = parquetFile.Close()
 	require.Nil(t, err)
 }
@@ -620,7 +621,8 @@ func Test_E2ENullabilityValid(t *testing.T) {
 
 	err = fw.Close()
 	require.Nil(t, err)
-	pr.ReadStop()
+	err = pr.ReadStopWithError()
+	require.Nil(t, err)
 	err = parquetFile.Close()
 	require.Nil(t, err)
 }
@@ -673,7 +675,8 @@ func Test_E2ESequentialValid(t *testing.T) {
 
 	err = fw.Close()
 	require.Nil(t, err)
-	pr.ReadStop()
+	err = pr.ReadStopWithError()
+	require.Nil(t, err)
 	err = parquetFile.Close()
 	require.Nil(t, err)
 }
