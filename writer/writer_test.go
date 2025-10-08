@@ -165,7 +165,7 @@ func Test_ParquetWriter(t *testing.T) {
 				err = pr.Read(&actualRows)
 				require.NoError(t, err)
 
-				pr.ReadStop()
+				_ = pr.ReadStopWithError()
 			},
 		},
 		{
