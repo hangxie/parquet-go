@@ -767,6 +767,63 @@ func Test_ParquetReader_SkipRowsByIndex_NilChecks(t *testing.T) {
 	}
 }
 
+func Test_ParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func() *ParquetReader
+		index       int64
+		expectError bool
+	}{
+		{
+			name: "nil_schema_handler",
+			setup: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: nil,
+				}
+			},
+			index:       0,
+			expectError: true,
+		},
+		{
+			name: "nil_value_columns",
+			setup: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						ValueColumns: nil,
+					},
+				}
+			},
+			index:       0,
+			expectError: true,
+		},
+		{
+			name: "index_out_of_bounds",
+			setup: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						ValueColumns: []string{"col1", "col2"},
+					},
+				}
+			},
+			index:       5,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := tt.setup()
+
+			err := pr.SkipRowsByIndexWithError(tt.index, 1)
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func Test_ColumnBufferType_ReadPage_NilChecks(t *testing.T) {
 	tests := []struct {
 		name   string

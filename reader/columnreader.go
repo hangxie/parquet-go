@@ -61,16 +61,28 @@ func (pr *ParquetReader) SkipRowsByPath(pathStr string, num int64) error {
 	return nil
 }
 
-func (pr *ParquetReader) SkipRowsByIndex(index, num int64) {
-	if pr.SchemaHandler == nil || pr.SchemaHandler.ValueColumns == nil {
-		return
+// SkipRowsByIndexWithError skips rows by index and returns any errors encountered.
+// This is the error-returning version of SkipRowsByIndex.
+func (pr *ParquetReader) SkipRowsByIndexWithError(index, num int64) error {
+	if pr.SchemaHandler == nil {
+		return fmt.Errorf("SchemaHandler is nil")
+	}
+	if pr.SchemaHandler.ValueColumns == nil {
+		return fmt.Errorf("ValueColumns is nil")
 	}
 	if index >= int64(len(pr.SchemaHandler.ValueColumns)) {
-		return
+		return fmt.Errorf("index %d out of range (max: %d)", index, len(pr.SchemaHandler.ValueColumns)-1)
 	}
 	pathStr := pr.SchemaHandler.ValueColumns[index]
-	// return error till we can change function signature
-	_ = pr.SkipRowsByPath(pathStr, num)
+	if err := pr.SkipRowsByPath(pathStr, num); err != nil {
+		return fmt.Errorf("skip rows by path %s: %w", pathStr, err)
+	}
+	return nil
+}
+
+// Deprecated: Use SkipRowsByIndexWithError instead. This method ignores errors.
+func (pr *ParquetReader) SkipRowsByIndex(index, num int64) {
+	_ = pr.SkipRowsByIndexWithError(index, num)
 }
 
 // ReadColumnByPath reads column by path in schema.
