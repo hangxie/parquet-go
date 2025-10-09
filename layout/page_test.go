@@ -3047,3 +3047,87 @@ func Test_ComputePageGeospatialStatistics(t *testing.T) {
 		require.Equal(t, []int32{1}, geoTypes) // Only one Point type despite multiple points
 	})
 }
+
+func Test_ReadDataPageValues_BoundsChecking(t *testing.T) {
+	testCases := []struct {
+		name           string
+		encodingMethod parquet.Encoding
+		dataType       parquet.Type
+		cnt            uint64
+		bitWidth       uint64
+		setupData      func() []byte
+		expectedError  string
+	}{
+		{
+			name:           "rle_dictionary_fewer_values_than_expected",
+			encodingMethod: parquet.Encoding_RLE_DICTIONARY,
+			dataType:       parquet.Type_INT32,
+			cnt:            21, // Request 21 values
+			bitWidth:       4,
+			setupData: func() []byte {
+				// Create RLE data that only contains 1 value (repeated once)
+				// Bit width byte
+				data := []byte{4} // bitWidth = 4
+				// Write RLE/bit-packed hybrid data for just 1 value
+				rleBuf, _ := encoding.WriteRLEBitPackedHybrid([]any{int64(0)}, 4, parquet.Type_INT64)
+				data = append(data, rleBuf...)
+				return data
+			},
+			expectedError: "expected 21 values but got 2 from RLE/bit-packed hybrid decoder",
+		},
+		{
+			name:           "rle_fewer_values_than_expected",
+			encodingMethod: parquet.Encoding_RLE,
+			dataType:       parquet.Type_INT32,
+			cnt:            21, // Request 21 values
+			bitWidth:       4,
+			setupData: func() []byte {
+				// Create RLE data that only contains 1 value
+				rleBuf, _ := encoding.WriteRLEBitPackedHybrid([]any{int64(0)}, 4, parquet.Type_INT64)
+				return rleBuf
+			},
+			expectedError: "expected 21 values but got 1 from RLE/bit-packed hybrid decoder",
+		},
+		{
+			name:           "plain_dictionary_fewer_values_than_expected",
+			encodingMethod: parquet.Encoding_PLAIN_DICTIONARY,
+			dataType:       parquet.Type_INT32,
+			cnt:            10,
+			bitWidth:       3,
+			setupData: func() []byte {
+				// Create dictionary-encoded data with fewer values than requested
+				data := []byte{3} // bitWidth = 3
+				// RLE data with only 3 values - create minimal data
+				// We manually construct this to have fewer values than cnt
+				rleBuf, _ := encoding.WriteRLEBitPackedHybrid(
+					[]any{int64(0), int64(1), int64(0)},
+					3,
+					parquet.Type_INT64,
+				)
+				data = append(data, rleBuf...)
+				return data
+			},
+			expectedError: "expected 10 values but got",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := tc.setupData()
+			bytesReader := bytes.NewReader(data)
+
+			result, err := ReadDataPageValues(
+				bytesReader,
+				tc.encodingMethod,
+				tc.dataType,
+				-1, // convertedType
+				tc.cnt,
+				tc.bitWidth,
+			)
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.expectedError)
+			require.Empty(t, result)
+		})
+	}
+}
