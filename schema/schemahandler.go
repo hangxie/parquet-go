@@ -57,6 +57,10 @@ type SchemaHandler struct {
 	ExPathToInPath map[string]string
 
 	ValueColumns []string
+
+	// Cached data for performance
+	childrenMap  [][]int32      // childrenMap[i] contains child indices of element i
+	elementTypes []reflect.Type // cached types from GetTypes()
 }
 
 // setValueColumns collects leaf nodes' full path in SchemaHandler.ValueColumns

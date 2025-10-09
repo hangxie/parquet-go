@@ -8,12 +8,50 @@ import (
 	"github.com/hangxie/parquet-go/v2/types"
 )
 
+// buildChildrenMap builds the parent-child relationship map for all schema elements
+// This is cached in SchemaHandler to avoid rebuilding on every GetType() call
+func (sh *SchemaHandler) buildChildrenMap() [][]int32 {
+	ln := int32(len(sh.SchemaElements))
+	children := make([][]int32, ln)
+	for i := range int(ln) {
+		children[i] = []int32{}
+	}
+
+	var pos int32 = 0
+	stack := make([][2]int32, 0)
+	for pos < ln || len(stack) > 0 {
+		if len(stack) == 0 || stack[len(stack)-1][1] > 0 {
+			if len(stack) > 0 {
+				stack[len(stack)-1][1]--
+				p := stack[len(stack)-1][0]
+				children[p] = append(children[p], pos)
+			}
+			item := [2]int32{pos, sh.SchemaElements[pos].GetNumChildren()}
+			stack = append(stack, item)
+			pos++
+		} else {
+			stack = stack[:len(stack)-1]
+		}
+	}
+	return children
+}
+
 // Get object type from schema by reflect
 func (sh *SchemaHandler) GetTypes() []reflect.Type {
+	// Return cached types if available
+	if sh.elementTypes != nil {
+		return sh.elementTypes
+	}
+
 	ln := int32(len(sh.SchemaElements))
-	elements := make([][]int32, ln)
-	for i := range int(ln) {
-		elements[i] = []int32{}
+
+	// Build or use cached children map
+	var elements [][]int32
+	if sh.childrenMap != nil {
+		elements = sh.childrenMap
+	} else {
+		elements = sh.buildChildrenMap()
+		sh.childrenMap = elements
 	}
 
 	elementTypes := make([]reflect.Type, ln)
@@ -24,8 +62,6 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 		if len(stack) == 0 || stack[len(stack)-1][1] > 0 {
 			if len(stack) > 0 {
 				stack[len(stack)-1][1]--
-				idx := stack[len(stack)-1][0]
-				elements[idx] = append(elements[idx], pos)
 			}
 			item := [2]int32{pos, sh.SchemaElements[pos].GetNumChildren()}
 			stack = append(stack, item)
@@ -131,6 +167,9 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 		}
 	}
 
+	// Cache the computed types for future calls
+	sh.elementTypes = elementTypes
+
 	return elementTypes
 }
 
@@ -144,29 +183,8 @@ func (sh *SchemaHandler) GetType(prefixPath string) (reflect.Type, error) {
 	if idx, ok := sh.MapIndex[prefixPath]; !ok {
 		return nil, fmt.Errorf("[GetType] Can't find %v", prefixPath)
 	} else {
-		// Validate subtree under idx: any leaf resolved to interface{} indicates corrupt/unknown type
-		ln := int32(len(sh.SchemaElements))
-		// Build child index map similar to GetTypes
-		children := make([][]int32, ln)
-		for i := range int(ln) {
-			children[i] = []int32{}
-		}
-		var pos int32 = 0
-		stack := make([][2]int32, 0)
-		for pos < ln || len(stack) > 0 {
-			if len(stack) == 0 || stack[len(stack)-1][1] > 0 {
-				if len(stack) > 0 {
-					stack[len(stack)-1][1]--
-					p := stack[len(stack)-1][0]
-					children[p] = append(children[p], pos)
-				}
-				item := [2]int32{pos, sh.SchemaElements[pos].GetNumChildren()}
-				stack = append(stack, item)
-				pos++
-			} else {
-				stack = stack[:len(stack)-1]
-			}
-		}
+		// Use cached children map (built by GetTypes or buildChildrenMap)
+		children := sh.childrenMap
 
 		// Traverse subtree to find any leaf with interface{} type
 		toVisit := []int32{idx}
