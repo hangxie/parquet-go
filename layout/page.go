@@ -747,11 +747,17 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 		if err != nil {
 			return res, err
 		}
+		if uint64(len(buf)) < cnt {
+			return res, fmt.Errorf("expected %d values but got %d from RLE/bit-packed hybrid decoder", cnt, len(buf))
+		}
 		return buf[:cnt], err
 	case parquet.Encoding_RLE:
 		values, err := encoding.ReadRLEBitPackedHybrid(bytesReader, bitWidth, 0)
 		if err != nil {
 			return res, err
+		}
+		if uint64(len(values)) < cnt {
+			return res, fmt.Errorf("expected %d values but got %d from RLE/bit-packed hybrid decoder", cnt, len(values))
 		}
 		if dataType == parquet.Type_INT32 {
 			for i := range values {
