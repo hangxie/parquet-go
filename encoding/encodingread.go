@@ -10,6 +10,26 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
+// maxAllowedCount represents the largest count value allowed for slice allocation.
+// This matches the int32 limit defined in the Parquet thrift specification for
+// num_values in DataPageHeader, DataPageHeaderV2, and DictionaryPageHeader.
+// Using int32 max instead of int max provides:
+// - Spec compliance with Parquet format (num_values is defined as i32)
+// - Protection against malicious files with corrupted metadata
+// - Compatibility with 32-bit systems
+// - Defense against zip-bomb and DoS attacks (CVE-2021-41561)
+const maxAllowedCount = uint64(2147483647) // 2^31 - 1 (max int32)
+
+// validateCount checks if a count value is reasonable for slice allocation
+func validateCount(cnt uint64) error {
+	// Check if cnt is larger than maxAllowedCount (max int32 per Parquet spec)
+	// This prevents panics from makeslice and defends against corrupted/malicious files
+	if cnt > maxAllowedCount {
+		return fmt.Errorf("invalid count: %d (exceeds maximum allowed: %d)", cnt, maxAllowedCount)
+	}
+	return nil
+}
+
 func ReadPlain(bytesReader *bytes.Reader, dataType parquet.Type, cnt, bitWidth uint64) ([]any, error) {
 	switch dataType {
 	case parquet.Type_BOOLEAN:
@@ -39,6 +59,9 @@ func ReadPlainBOOLEAN(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 		err error
 	)
 
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadPlainBOOLEAN: %w", err)
+	}
 	res = make([]any, cnt)
 	resInt, err := ReadBitPacked(bytesReader, uint64(cnt<<1), 1)
 	if err != nil {
@@ -56,6 +79,9 @@ func ReadPlainBOOLEAN(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 }
 
 func ReadPlainINT32(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadPlainINT32: %w", err)
+	}
 	var err error
 	res := make([]any, cnt)
 	err = BinaryReadINT32(bytesReader, res)
@@ -63,6 +89,9 @@ func ReadPlainINT32(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 }
 
 func ReadPlainINT64(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadPlainINT64: %w", err)
+	}
 	var err error
 	res := make([]any, cnt)
 	err = BinaryReadINT64(bytesReader, res)
@@ -70,6 +99,9 @@ func ReadPlainINT64(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 }
 
 func ReadPlainINT96(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadPlainINT96: %w", err)
+	}
 	var err error
 	res := make([]any, cnt)
 	cur := make([]byte, 12)
@@ -83,6 +115,9 @@ func ReadPlainINT96(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 }
 
 func ReadPlainFLOAT(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadPlainFLOAT: %w", err)
+	}
 	var err error
 	res := make([]any, cnt)
 	err = BinaryReadFLOAT32(bytesReader, res)
@@ -90,6 +125,9 @@ func ReadPlainFLOAT(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 }
 
 func ReadPlainDOUBLE(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadPlainDOUBLE: %w", err)
+	}
 	var err error
 	res := make([]any, cnt)
 	err = BinaryReadFLOAT64(bytesReader, res)
@@ -97,6 +135,9 @@ func ReadPlainDOUBLE(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 }
 
 func ReadPlainBYTE_ARRAY(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadPlainBYTE_ARRAY: %w", err)
+	}
 	var err error
 	res := make([]any, cnt)
 	for i := range int(cnt) {
@@ -115,6 +156,9 @@ func ReadPlainBYTE_ARRAY(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 }
 
 func ReadPlainFIXED_LEN_BYTE_ARRAY(bytesReader *bytes.Reader, cnt, fixedLength uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadPlainFIXED_LEN_BYTE_ARRAY: %w", err)
+	}
 	var err error
 	res := make([]any, cnt)
 	for i := range int(cnt) {
@@ -438,6 +482,9 @@ func ReadDeltaByteArray(bytesReader *bytes.Reader) ([]any, error) {
 }
 
 func ReadByteStreamSplitFloat32(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadByteStreamSplitFloat32: %w", err)
+	}
 	res := make([]any, cnt)
 	buf := make([]byte, cnt*4)
 
@@ -460,6 +507,9 @@ func ReadByteStreamSplitFloat32(bytesReader *bytes.Reader, cnt uint64) ([]any, e
 }
 
 func ReadByteStreamSplitFloat64(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadByteStreamSplitFloat64: %w", err)
+	}
 	res := make([]any, cnt)
 	buf := make([]byte, cnt*8)
 

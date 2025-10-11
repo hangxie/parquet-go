@@ -991,3 +991,299 @@ func Test_SchemaHandler_GetTypes(t *testing.T) {
 		})
 	}
 }
+
+func Test_SchemaHandler_Caching(t *testing.T) {
+	tests := []struct {
+		name         string
+		setupHandler func() *SchemaHandler
+		validateFunc func(t *testing.T, sh *SchemaHandler)
+	}{
+		{
+			name: "cache_children_map_after_first_GetTypes_call",
+			setupHandler: func() *SchemaHandler {
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{
+						{
+							Name:           "root",
+							NumChildren:    common.ToPtr(int32(2)),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+						},
+						{
+							Name:           "field1",
+							Type:           common.ToPtr(parquet.Type_INT32),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+						{
+							Name:           "field2",
+							Type:           common.ToPtr(parquet.Type_BYTE_ARRAY),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+					},
+					Infos: []*common.Tag{
+						{InName: "Root", ExName: "root"},
+						{InName: "Field1", ExName: "field1"},
+						{InName: "Field2", ExName: "field2"},
+					},
+				}
+			},
+			validateFunc: func(t *testing.T, sh *SchemaHandler) {
+				// Initially, childrenMap should be nil
+				require.Nil(t, sh.childrenMap)
+
+				// First call to GetTypes should build and cache the childrenMap
+				types1 := sh.GetTypes()
+				require.NotNil(t, sh.childrenMap)
+				require.Equal(t, 3, len(types1))
+
+				// Store the cached childrenMap
+				cachedMap := sh.childrenMap
+
+				// Second call to GetTypes should reuse the cached childrenMap
+				types2 := sh.GetTypes()
+				require.Equal(t, cachedMap, sh.childrenMap)
+				require.Equal(t, types1, types2)
+			},
+		},
+		{
+			name: "cache_element_types_after_first_GetTypes_call",
+			setupHandler: func() *SchemaHandler {
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{
+						{
+							Name:           "root",
+							NumChildren:    common.ToPtr(int32(1)),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+						},
+						{
+							Name:           "field1",
+							Type:           common.ToPtr(parquet.Type_INT64),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+					},
+					Infos: []*common.Tag{
+						{InName: "Root", ExName: "root"},
+						{InName: "Field1", ExName: "field1"},
+					},
+				}
+			},
+			validateFunc: func(t *testing.T, sh *SchemaHandler) {
+				// Initially, elementTypes should be nil
+				require.Nil(t, sh.elementTypes)
+
+				// First call to GetTypes should compute and cache elementTypes
+				types1 := sh.GetTypes()
+				require.NotNil(t, sh.elementTypes)
+				require.Equal(t, 2, len(types1))
+
+				// Store the cached elementTypes
+				cachedTypes := sh.elementTypes
+
+				// Second call to GetTypes should return the cached elementTypes immediately
+				types2 := sh.GetTypes()
+				require.Equal(t, cachedTypes, sh.elementTypes)
+				require.Equal(t, types1, types2)
+			},
+		},
+		{
+			name: "GetType_uses_cached_children_map",
+			setupHandler: func() *SchemaHandler {
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{
+						{
+							Name:           "root",
+							NumChildren:    common.ToPtr(int32(1)),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+						},
+						{
+							Name:           "test_field",
+							Type:           common.ToPtr(parquet.Type_INT32),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+					},
+					Infos: []*common.Tag{
+						{InName: "Root", ExName: "root"},
+						{InName: "Test_field", ExName: "test_field"},
+					},
+					MapIndex: map[string]int32{
+						"test_field": 1,
+					},
+					InPathToExPath: map[string]string{
+						"test_field": "test_field",
+					},
+					ExPathToInPath: map[string]string{
+						"test_field": "test_field",
+					},
+				}
+			},
+			validateFunc: func(t *testing.T, sh *SchemaHandler) {
+				// Call GetTypes first to populate the cache
+				_ = sh.GetTypes()
+				require.NotNil(t, sh.childrenMap)
+				cachedMap := sh.childrenMap
+
+				// Call GetType - it should use the cached childrenMap
+				typ, err := sh.GetType("test_field")
+				require.NoError(t, err)
+				require.NotNil(t, typ)
+				require.Equal(t, reflect.Int32, typ.Kind())
+
+				// Verify the cache is still the same
+				require.Equal(t, cachedMap, sh.childrenMap)
+			},
+		},
+		{
+			name: "buildChildrenMap_creates_correct_parent_child_relationships",
+			setupHandler: func() *SchemaHandler {
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{
+						{
+							Name:           "root",
+							NumChildren:    common.ToPtr(int32(2)),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+						},
+						{
+							Name:           "parent1",
+							NumChildren:    common.ToPtr(int32(2)),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+						},
+						{
+							Name:           "child1",
+							Type:           common.ToPtr(parquet.Type_INT32),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+						{
+							Name:           "child2",
+							Type:           common.ToPtr(parquet.Type_INT64),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+						{
+							Name:           "parent2",
+							Type:           common.ToPtr(parquet.Type_BYTE_ARRAY),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+					},
+					Infos: []*common.Tag{
+						{InName: "Root", ExName: "root"},
+						{InName: "Parent1", ExName: "parent1"},
+						{InName: "Child1", ExName: "child1"},
+						{InName: "Child2", ExName: "child2"},
+						{InName: "Parent2", ExName: "parent2"},
+					},
+				}
+			},
+			validateFunc: func(t *testing.T, sh *SchemaHandler) {
+				// Call GetTypes to trigger buildChildrenMap
+				_ = sh.GetTypes()
+
+				// Verify the children map structure
+				require.NotNil(t, sh.childrenMap)
+				require.Equal(t, 5, len(sh.childrenMap))
+
+				// Root (index 0) should have children at indices 1 and 4
+				require.ElementsMatch(t, []int32{1, 4}, sh.childrenMap[0])
+
+				// Parent1 (index 1) should have children at indices 2 and 3
+				require.ElementsMatch(t, []int32{2, 3}, sh.childrenMap[1])
+
+				// child1 (index 2) should have no children
+				require.Empty(t, sh.childrenMap[2])
+
+				// child2 (index 3) should have no children
+				require.Empty(t, sh.childrenMap[3])
+
+				// parent2 (index 4) should have no children
+				require.Empty(t, sh.childrenMap[4])
+			},
+		},
+		{
+			name: "multiple_GetType_calls_reuse_cache",
+			setupHandler: func() *SchemaHandler {
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{
+						{
+							Name:           "root",
+							NumChildren:    common.ToPtr(int32(3)),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+						},
+						{
+							Name:           "field1",
+							Type:           common.ToPtr(parquet.Type_INT32),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+						{
+							Name:           "field2",
+							Type:           common.ToPtr(parquet.Type_INT64),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+						{
+							Name:           "field3",
+							Type:           common.ToPtr(parquet.Type_BYTE_ARRAY),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED),
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+					},
+					Infos: []*common.Tag{
+						{InName: "Root", ExName: "root"},
+						{InName: "Field1", ExName: "field1"},
+						{InName: "Field2", ExName: "field2"},
+						{InName: "Field3", ExName: "field3"},
+					},
+					MapIndex: map[string]int32{
+						"field1": 1,
+						"field2": 2,
+						"field3": 3,
+					},
+					InPathToExPath: map[string]string{
+						"field1": "field1",
+						"field2": "field2",
+						"field3": "field3",
+					},
+					ExPathToInPath: map[string]string{
+						"field1": "field1",
+						"field2": "field2",
+						"field3": "field3",
+					},
+				}
+			},
+			validateFunc: func(t *testing.T, sh *SchemaHandler) {
+				// First GetTypes call
+				_ = sh.GetTypes()
+				require.NotNil(t, sh.childrenMap)
+				cachedMap := sh.childrenMap
+
+				// Multiple GetType calls
+				typ1, err := sh.GetType("field1")
+				require.NoError(t, err)
+				require.Equal(t, reflect.Int32, typ1.Kind())
+				require.Equal(t, cachedMap, sh.childrenMap)
+
+				typ2, err := sh.GetType("field2")
+				require.NoError(t, err)
+				require.Equal(t, reflect.Ptr, typ2.Kind())
+				require.Equal(t, reflect.Int64, typ2.Elem().Kind())
+				require.Equal(t, cachedMap, sh.childrenMap)
+
+				typ3, err := sh.GetType("field3")
+				require.NoError(t, err)
+				require.Equal(t, reflect.Slice, typ3.Kind())
+				require.Equal(t, cachedMap, sh.childrenMap)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sh := tt.setupHandler()
+			tt.validateFunc(t, sh)
+		})
+	}
+}
