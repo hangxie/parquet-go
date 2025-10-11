@@ -744,3 +744,177 @@ func Test_ReadUnsignedVarInt(t *testing.T) {
 		require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res), "ReadUnsignedVarInt mismatch for %v", data)
 	}
 }
+
+func Test_validateCount(t *testing.T) {
+	tests := []struct {
+		name        string
+		count       uint64
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "zero_count",
+			count:       0,
+			expectError: false,
+		},
+		{
+			name:        "small_count",
+			count:       100,
+			expectError: false,
+		},
+		{
+			name:        "medium_count",
+			count:       1000000,
+			expectError: false,
+		},
+		{
+			name:        "large_valid_count",
+			count:       maxAllowedCount, // max int
+			expectError: false,
+		},
+		{
+			name:        "count_exceeds_max_int",
+			count:       maxAllowedCount + 1,
+			expectError: true,
+			errorMsg:    "invalid count",
+		},
+		{
+			name:        "max_uint64",
+			count:       ^uint64(0),
+			expectError: true,
+			errorMsg:    "invalid count",
+		},
+		{
+			name:        "very_large_count",
+			count:       uint64(1) << 63,
+			expectError: true,
+			errorMsg:    "invalid count",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCount(tt.count)
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorMsg != "" {
+					require.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_ReadPlain_WithInvalidCount(t *testing.T) {
+	tests := []struct {
+		name      string
+		dataType  parquet.Type
+		count     uint64
+		expectErr bool
+	}{
+		{
+			name:      "boolean_invalid_count",
+			dataType:  parquet.Type_BOOLEAN,
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+		{
+			name:      "int32_invalid_count",
+			dataType:  parquet.Type_INT32,
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+		{
+			name:      "int64_invalid_count",
+			dataType:  parquet.Type_INT64,
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+		{
+			name:      "int96_invalid_count",
+			dataType:  parquet.Type_INT96,
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+		{
+			name:      "float_invalid_count",
+			dataType:  parquet.Type_FLOAT,
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+		{
+			name:      "double_invalid_count",
+			dataType:  parquet.Type_DOUBLE,
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+		{
+			name:      "byte_array_invalid_count",
+			dataType:  parquet.Type_BYTE_ARRAY,
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+		{
+			name:      "fixed_len_byte_array_invalid_count",
+			dataType:  parquet.Type_FIXED_LEN_BYTE_ARRAY,
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := bytes.NewReader([]byte{})
+			_, err := ReadPlain(reader, tt.dataType, tt.count, 0)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "invalid count")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_ReadByteStreamSplit_WithInvalidCount(t *testing.T) {
+	tests := []struct {
+		name      string
+		count     uint64
+		expectErr bool
+	}{
+		{
+			name:      "float32_invalid_count",
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+		{
+			name:      "float64_invalid_count",
+			count:     maxAllowedCount + 1,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := bytes.NewReader([]byte{})
+
+			if tt.name == "float32_invalid_count" {
+				_, err := ReadByteStreamSplitFloat32(reader, tt.count)
+				if tt.expectErr {
+					require.Error(t, err)
+					require.Contains(t, err.Error(), "invalid count")
+				}
+			} else {
+				_, err := ReadByteStreamSplitFloat64(reader, tt.count)
+				if tt.expectErr {
+					require.Error(t, err)
+					require.Contains(t, err.Error(), "invalid count")
+				}
+			}
+		})
+	}
+}
