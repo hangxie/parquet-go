@@ -1,8 +1,14 @@
 # parquet-go/v2
 
-Please read [v1 README.md](READMEv1.md) first.
+Please read [v1 README.md](READMEv1.md) and [parquet-go-source README.md](source/README.md) first.
 
-This repo was forked from https://github.com/xitongsys/parquet-go, v2 introduce incompatible changes that can benefit future enhancements, it is experimental at the moment, please take into consideration before using it.
+This repo was forked from https://github.com/xitongsys/parquet-go, and merged https://github.com/xitongsys/parquet-go-source. v2 introduce incompatible changes that can benefit future enhancements, eg:
+1. most functions now return error to indicate something's wrong
+2. replace panic/recover style of code with proper error handling
+3. performance improvement, like SkipRows
+4. interpret logical type/converted type properly
+
+there are also bug fixes like race condition, nil panic, out of bound index, etc.
 
 ## New Logical Types & Geospatial JSON
 
