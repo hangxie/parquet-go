@@ -424,6 +424,32 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	return nil
 }
 
+// Reset resets all column buffers back to the beginning of the file.
+// After calling Reset(), the next Read() will start from the first row.
+// This allows re-reading the parquet file without creating a new reader.
+func (pr *ParquetReader) Reset() error {
+	// Close all existing column buffer resources
+	for _, cb := range pr.ColumnBuffers {
+		if cb == nil || cb.PFile == nil {
+			continue
+		}
+
+		if err := cb.PFile.Close(); err != nil {
+			return fmt.Errorf("failed to close column buffer: %w", err)
+		}
+	}
+
+	// Recreate all column buffers from scratch
+	for pathStr := range pr.ColumnBuffers {
+		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr)
+		if err != nil {
+			return fmt.Errorf("failed to recreate column buffer for %s: %w", pathStr, err)
+		}
+		pr.ColumnBuffers[pathStr] = newCB
+	}
+	return nil
+}
+
 // Stop Read
 // ReadStopWithError closes all column buffer file handles and returns any errors encountered.
 // This is the error-returning version of ReadStop.
