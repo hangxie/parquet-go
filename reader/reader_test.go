@@ -976,3 +976,119 @@ func Test_NewParquetReader_WithOptions(t *testing.T) {
 	require.False(t, pr2.CaseInsensitive)
 	pr2.ReadStop()
 }
+
+func Test_ParquetReader_Reset(t *testing.T) {
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer pr.ReadStop()
+
+	// Read first 10 records
+	records1 := make([]Record, 10)
+	err = pr.Read(&records1)
+	require.NoError(t, err)
+	require.Len(t, records1, 10)
+
+	// Verify first batch
+	for i := range 10 {
+		require.Equal(t, strconv.FormatInt(int64(i), 10), records1[i].Str1)
+		require.Equal(t, int64(i), records1[i].Int1)
+	}
+
+	// Read next 10 records
+	records2 := make([]Record, 10)
+	err = pr.Read(&records2)
+	require.NoError(t, err)
+	require.Len(t, records2, 10)
+
+	// Verify second batch (should be records 10-19)
+	for i := range 10 {
+		require.Equal(t, strconv.FormatInt(int64(i+10), 10), records2[i].Str1)
+		require.Equal(t, int64(i+10), records2[i].Int1)
+	}
+
+	// Reset the reader
+	err = pr.Reset()
+	require.NoError(t, err)
+
+	// Read first 10 records again after reset
+	records3 := make([]Record, 10)
+	err = pr.Read(&records3)
+	require.NoError(t, err)
+	require.Len(t, records3, 10)
+
+	// Verify we're back at the beginning
+	for i := range 10 {
+		require.Equal(t, strconv.FormatInt(int64(i), 10), records3[i].Str1)
+		require.Equal(t, int64(i), records3[i].Int1)
+	}
+
+	// Verify records match the first batch
+	require.Equal(t, records1, records3)
+}
+
+func Test_ParquetReader_Reset_MultipleResets(t *testing.T) {
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer pr.ReadStop()
+
+	// Read and reset multiple times
+	for iteration := range 3 {
+		t.Logf("Iteration %d", iteration)
+
+		// Read first 5 records
+		records := make([]Record, 5)
+		err = pr.Read(&records)
+		require.NoError(t, err)
+		require.Len(t, records, 5)
+
+		// Verify we always get the same first 5 records
+		for i := range 5 {
+			require.Equal(t, strconv.FormatInt(int64(i), 10), records[i].Str1)
+			require.Equal(t, int64(i), records[i].Int1)
+		}
+
+		// Reset for next iteration
+		if iteration < 2 { // Don't reset after last iteration
+			err = pr.Reset()
+			require.NoError(t, err)
+		}
+	}
+}
+
+func Test_ParquetReader_Reset_AfterReadAll(t *testing.T) {
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer pr.ReadStop()
+
+	// Read all records
+	allRecords := make([]Record, numRecord)
+	err = pr.Read(&allRecords)
+	require.NoError(t, err)
+	require.Len(t, allRecords, int(numRecord))
+
+	// Verify we read all records
+	for i := range int(numRecord) {
+		require.Equal(t, strconv.FormatInt(int64(i), 10), allRecords[i].Str1)
+		require.Equal(t, int64(i), allRecords[i].Int1)
+	}
+
+	// Try to read more (should get nothing since we're at EOF)
+	moreRecords := make([]Record, 10)
+	err = pr.Read(&moreRecords)
+	require.NoError(t, err)
+	// The slice gets resized to 0 when there's no more data
+	require.Len(t, moreRecords, 0)
+
+	// Reset the reader
+	err = pr.Reset()
+	require.NoError(t, err)
+
+	// Read all records again
+	allRecords2 := make([]Record, numRecord)
+	err = pr.Read(&allRecords2)
+	require.NoError(t, err)
+	require.Len(t, allRecords2, int(numRecord))
+
+	// Verify we got the same data
+	require.Equal(t, allRecords, allRecords2)
+}
