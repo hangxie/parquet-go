@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
+
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
@@ -601,23 +603,37 @@ func convertIntervalValue(val any) any {
 	return val
 }
 
-// ConvertBSONLogicalValue handles BSON to base64 string conversion for JSON compatibility
+// ConvertBSONLogicalValue handles BSON decoding to a map for JSON compatibility
 func ConvertBSONLogicalValue(val any) any {
 	if val == nil {
 		return nil
 	}
 
+	var bsonBytes []byte
 	switch v := val.(type) {
 	case []byte:
-		// Convert BSON bytes to base64 for JSON representation
-		return base64.StdEncoding.EncodeToString(v)
+		bsonBytes = v
 	case string:
-		// Convert BSON string to base64 for JSON representation
-		return base64.StdEncoding.EncodeToString([]byte(v))
+		bsonBytes = []byte(v)
+	default:
+		// If not bytes or string, return as-is
+		return val
 	}
 
-	// If not bytes or string, return as-is
-	return val
+	// If empty BSON data, return empty map
+	if len(bsonBytes) == 0 {
+		return map[string]any{}
+	}
+
+	// Decode BSON to a map
+	var result map[string]any
+	err := bson.Unmarshal(bsonBytes, &result)
+	if err != nil {
+		// If decoding fails, return base64 as fallback
+		return base64.StdEncoding.EncodeToString(bsonBytes)
+	}
+
+	return result
 }
 
 // ConvertTimestampValue handles timestamp conversion to ISO8601 format
