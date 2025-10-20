@@ -2274,23 +2274,23 @@ func Test_ConvertBSONLogicalValue(t *testing.T) {
 		},
 		{
 			name:     "byte_slice_input",
-			val:      []byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x01, 0x00, 0x00, 0x00, 0x00},
-			expected: "FgAAABBpAAEAAAAA", // Base64 encoded BSON data
+			val:      []byte{0x0c, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x01, 0x00, 0x00, 0x00, 0x00},
+			expected: map[string]any{"i": int32(1)}, // Decoded BSON document
 		},
 		{
 			name:     "string_input",
-			val:      string([]byte{0x16, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x02, 0x00, 0x00, 0x00, 0x00}),
-			expected: "FgAAABBpAAIAAAAA", // Base64 encoded BSON data
+			val:      string([]byte{0x0c, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x02, 0x00, 0x00, 0x00, 0x00}),
+			expected: map[string]any{"i": int32(2)}, // Decoded BSON document
 		},
 		{
 			name:     "empty_byte_slice",
 			val:      []byte{},
-			expected: "",
+			expected: map[string]any{},
 		},
 		{
 			name:     "empty_string",
 			val:      "",
-			expected: "",
+			expected: map[string]any{},
 		},
 		{
 			name:     "non_binary_value",
@@ -2299,8 +2299,8 @@ func Test_ConvertBSONLogicalValue(t *testing.T) {
 		},
 		{
 			name:     "complex_bson_document",
-			val:      []byte{0x27, 0x00, 0x00, 0x00, 0x02, 'k', 'e', 'y', 0x00, 0x06, 0x00, 0x00, 0x00, 'v', 'a', 'l', 'u', 'e', 0x00, 0x10, 'n', 'u', 'm', 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00},
-			expected: "JwAAAAJrZXkABgAAAHZhbHVlABBudW0AKgAAAAA=", // Base64 encoded BSON document
+			val:      []byte{29, 0, 0, 0, 2, 107, 101, 121, 0, 6, 0, 0, 0, 118, 97, 108, 117, 101, 0, 16, 110, 117, 109, 0, 42, 0, 0, 0, 0},
+			expected: map[string]any{"key": "value", "num": int32(42)}, // Decoded BSON document
 		},
 	}
 
