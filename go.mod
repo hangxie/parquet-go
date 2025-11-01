@@ -20,7 +20,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.11.1
-	go.mongodb.org/mongo-driver v1.17.4
+	go.mongodb.org/mongo-driver v1.17.6
 	gocloud.dev v0.43.0
 	golang.org/x/sync v0.17.0
 	google.golang.org/api v0.252.0
