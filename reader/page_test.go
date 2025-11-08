@@ -2,6 +2,11 @@ package reader_test
 
 import (
 	"bytes"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,7 +14,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/reader"
 	"github.com/hangxie/parquet-go/v2/source/buffer"
-	"github.com/hangxie/parquet-go/v2/source/http"
+	"github.com/hangxie/parquet-go/v2/source/local"
 )
 
 type TestPageRecord struct {
@@ -17,10 +22,58 @@ type TestPageRecord struct {
 	ShoeName  string `parquet:"name=shoe_name, type=BYTE_ARRAY, convertedtype=UTF8"`
 }
 
-var testParquet = "https://github.com/hangxie/parquet-tools/raw/refs/heads/main/testdata/dict-page.parquet"
+var (
+	testParquetURL       = "https://github.com/hangxie/parquet-tools/raw/refs/heads/main/testdata/dict-page.parquet"
+	testParquetLocalPath string
+	downloadOnce         sync.Once
+	downloadErr          error
+)
 
-func TestGetAllPageHeaders(t *testing.T) {
-	buf, err := http.NewHttpReader(testParquet, false, false, nil)
+// getTestParquetFile downloads the test parquet file once and returns the local path.
+// Subsequent calls return the cached local path without re-downloading.
+func getTestParquetFile(t *testing.T) string {
+	downloadOnce.Do(func() {
+		// Create temp file
+		tmpFile, err := os.CreateTemp("", "dict-page-*.parquet")
+		if err != nil {
+			downloadErr = fmt.Errorf("failed to create temp file: %w", err)
+			return
+		}
+		defer func() { _ = tmpFile.Close() }()
+
+		testParquetLocalPath = tmpFile.Name()
+
+		// Download file
+		resp, err := http.Get(testParquetURL)
+		if err != nil {
+			downloadErr = fmt.Errorf("failed to download test parquet file: %w", err)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			downloadErr = fmt.Errorf("failed to download test parquet file: status %d", resp.StatusCode)
+			return
+		}
+
+		// Copy to temp file
+		_, err = io.Copy(tmpFile, resp.Body)
+		if err != nil {
+			downloadErr = fmt.Errorf("failed to write test parquet file: %w", err)
+			return
+		}
+	})
+
+	if downloadErr != nil {
+		t.Fatalf("Failed to get test parquet file: %v", downloadErr)
+	}
+
+	return testParquetLocalPath
+}
+
+func Test_GetAllPageHeaders(t *testing.T) {
+	testFile := getTestParquetFile(t)
+	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
 	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
 	require.NoError(t, err)
@@ -73,8 +126,9 @@ func TestGetAllPageHeaders(t *testing.T) {
 	})
 }
 
-func TestReadDictionaryPageValues(t *testing.T) {
-	buf, err := http.NewHttpReader(testParquet, false, false, nil)
+func Test_ReadDictionaryPageValues(t *testing.T) {
+	testFile := getTestParquetFile(t)
+	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
 	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
 	require.NoError(t, err)
@@ -123,8 +177,9 @@ func TestReadDictionaryPageValues(t *testing.T) {
 	})
 }
 
-func TestGetAllPageHeaders_AllPageTypes(t *testing.T) {
-	buf, err := http.NewHttpReader(testParquet, false, false, nil)
+func Test_GetAllPageHeaders_AllPageTypes(t *testing.T) {
+	testFile := getTestParquetFile(t)
+	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
 	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
 	require.NoError(t, err)
@@ -148,7 +203,8 @@ func TestGetAllPageHeaders_AllPageTypes(t *testing.T) {
 }
 
 func Test_ReadAllPageHeaders(t *testing.T) {
-	buf, err := http.NewHttpReader(testParquet, false, false, nil)
+	testFile := getTestParquetFile(t)
+	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
 	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
 	require.NoError(t, err)
@@ -174,7 +230,8 @@ func Test_ReadAllPageHeaders(t *testing.T) {
 }
 
 func Test_ReadPageData(t *testing.T) {
-	buf, err := http.NewHttpReader(testParquet, false, false, nil)
+	testFile := getTestParquetFile(t)
+	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
 	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
 	require.NoError(t, err)
@@ -206,42 +263,43 @@ func Test_ReadPageData(t *testing.T) {
 }
 
 func Test_DecodeDictionaryPage(t *testing.T) {
-	buf, err := http.NewHttpReader(testParquet, false, false, nil)
-	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
-	require.NoError(t, err)
-	defer func() {
-		_ = pr.ReadStopWithError()
-	}()
+	t.Run("decode from real parquet file", func(t *testing.T) {
+		testFile := getTestParquetFile(t)
+		buf, err := local.NewLocalFileReader(testFile)
+		require.NoError(t, err)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		require.NoError(t, err)
+		defer func() {
+			_ = pr.ReadStopWithError()
+		}()
 
-	dictCol := pr.Footer.RowGroups[0].Columns[0]
-	headers, err := reader.ReadAllPageHeaders(pr.PFile, dictCol)
-	require.NoError(t, err)
+		dictCol := pr.Footer.RowGroups[0].Columns[0]
+		headers, err := reader.ReadAllPageHeaders(pr.PFile, dictCol)
+		require.NoError(t, err)
 
-	dictPageHeader := headers[0]
+		dictPageHeader := headers[0]
 
-	// Create a minimal page header for testing
-	pageHeader := parquet.NewPageHeader()
-	pageHeader.Type = dictPageHeader.PageType
-	pageHeader.CompressedPageSize = dictPageHeader.CompressedSize
-	pageHeader.UncompressedPageSize = dictPageHeader.UncompressedSize
-	dictHeader := parquet.NewDictionaryPageHeader()
-	dictHeader.NumValues = dictPageHeader.NumValues
-	dictHeader.Encoding = dictPageHeader.Encoding
-	pageHeader.DictionaryPageHeader = dictHeader
+		// Create a minimal page header for testing
+		pageHeader := parquet.NewPageHeader()
+		pageHeader.Type = dictPageHeader.PageType
+		pageHeader.CompressedPageSize = dictPageHeader.CompressedSize
+		pageHeader.UncompressedPageSize = dictPageHeader.UncompressedSize
+		dictHeader := parquet.NewDictionaryPageHeader()
+		dictHeader.NumValues = dictPageHeader.NumValues
+		dictHeader.Encoding = dictPageHeader.Encoding
+		pageHeader.DictionaryPageHeader = dictHeader
 
-	// Read and decode the dictionary page using the building block functions
-	pageData, err := reader.ReadPageData(pr.PFile, dictPageHeader.Offset, pageHeader, dictCol.MetaData.Codec)
-	require.NoError(t, err)
-	require.NotEmpty(t, pageData)
+		// Read and decode the dictionary page using the building block functions
+		pageData, err := reader.ReadPageData(pr.PFile, dictPageHeader.Offset, pageHeader, dictCol.MetaData.Codec)
+		require.NoError(t, err)
+		require.NotEmpty(t, pageData)
 
-	values, err := reader.DecodeDictionaryPage(pageData, pageHeader, dictCol.MetaData.Type)
-	require.NoError(t, err)
-	require.NotEmpty(t, values)
-	require.Equal(t, dictPageHeader.NumValues, int32(len(values)))
-}
+		values, err := reader.DecodeDictionaryPage(pageData, pageHeader, dictCol.MetaData.Type)
+		require.NoError(t, err)
+		require.NotEmpty(t, values)
+		require.Equal(t, dictPageHeader.NumValues, int32(len(values)))
+	})
 
-func TestDecodeDictionaryPage(t *testing.T) {
 	t.Run("decode BYTE_ARRAY dictionary", func(t *testing.T) {
 		// Create dictionary values: ["apple", "banana", "cherry"]
 		dictValues := []string{"apple", "banana", "cherry"}
@@ -416,7 +474,7 @@ func TestDecodeDictionaryPage(t *testing.T) {
 	})
 }
 
-func TestExtractPageHeaderInfo(t *testing.T) {
+func Test_ExtractPageHeaderInfo(t *testing.T) {
 	t.Run("DATA_PAGE", func(t *testing.T) {
 		// Create DATA_PAGE header
 		pageHeader := parquet.NewPageHeader()
@@ -655,10 +713,11 @@ func TestExtractPageHeaderInfo(t *testing.T) {
 	})
 }
 
-func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
+func Test_ReadAllPageHeaders_NegativeCases(t *testing.T) {
 	t.Run("nil column chunk metadata", func(t *testing.T) {
 		// Create a mock reader (won't be used)
-		buf, err := http.NewHttpReader(testParquet, false, false, nil)
+		testFile := getTestParquetFile(t)
+		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
 		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
 		require.NoError(t, err)
@@ -714,7 +773,7 @@ func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
 	})
 }
 
-func TestReadPageData_NegativeCases(t *testing.T) {
+func Test_ReadPageData_NegativeCases(t *testing.T) {
 	t.Run("invalid offset - cannot seek", func(t *testing.T) {
 		data := []byte{0x00}
 		buf := buffer.NewBufferReaderFromBytesNoAlloc(data)
@@ -730,7 +789,8 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 
 	t.Run("cannot read compressed data - EOF", func(t *testing.T) {
 		// Create valid parquet file
-		buf, err := http.NewHttpReader(testParquet, false, false, nil)
+		testFile := getTestParquetFile(t)
+		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
 		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
 		require.NoError(t, err)
@@ -786,7 +846,8 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 }
 
 func Test_ReadDictionaryPageValues_NegativeCases(t *testing.T) {
-	buf, err := http.NewHttpReader(testParquet, false, false, nil)
+	testFile := getTestParquetFile(t)
+	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
 	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
 	require.NoError(t, err)
