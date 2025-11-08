@@ -43,8 +43,6 @@ func (pmt *PathMapType) Add(path []string) {
 	pmt.Children[c].Add(path[1:])
 }
 
-/////////////////pathMap///////////////////////////
-
 // SchemaHandler stores the schema data
 type SchemaHandler struct {
 	SchemaElements []*parquet.SchemaElement
