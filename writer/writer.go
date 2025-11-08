@@ -30,6 +30,7 @@ type ParquetWriter struct {
 	PageSize        int64
 	RowGroupSize    int64
 	CompressionType parquet.CompressionCodec
+	DataPageVersion int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
 	Offset          int64
 
 	Objs              []any
@@ -67,6 +68,7 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 	res.PageSize = common.DefaultPageSize         // 8K
 	res.RowGroupSize = common.DefaultRowGroupSize // 128M
 	res.CompressionType = parquet.CompressionCodec_SNAPPY
+	res.DataPageVersion = 1 // default to DATA_PAGE (V1)
 	res.ObjsSize = 0
 	res.CheckSizeCritical = 0
 	res.Size = 0
@@ -326,7 +328,7 @@ func (pw *ParquetWriter) flushObjs() error {
 						}
 					} else {
 						convMu.Lock()
-						pages, _, localErr := layout.TableToDataPages(table, int32(pw.PageSize), pw.CompressionType)
+						pages, _, localErr := layout.TableToDataPagesWithVersion(table, int32(pw.PageSize), pw.CompressionType, pw.DataPageVersion)
 						convMu.Unlock()
 						if localErr != nil {
 							errs[index] = localErr

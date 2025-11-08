@@ -76,6 +76,11 @@ func NewDataPage() *Page {
 
 // Convert a table to data pages
 func TableToDataPages(table *Table, pageSize int32, compressType parquet.CompressionCodec) ([]*Page, int64, error) {
+	return TableToDataPagesWithVersion(table, pageSize, compressType, 1)
+}
+
+// Convert a table to data pages with specified version (1 for DATA_PAGE, 2 for DATA_PAGE_V2)
+func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parquet.CompressionCodec, pageVersion int32) ([]*Page, int64, error) {
 	var totSize int64 = 0
 	totalLn := len(table.Values)
 	res := make([]*Page, 0)
@@ -150,7 +155,11 @@ func TableToDataPages(table *Table, pageSize int32, compressType parquet.Compres
 		page.Path = table.Path
 		page.Info = table.Info
 
-		_, err = page.DataPageCompress(compressType)
+		if pageVersion == 2 {
+			_, err = page.DataPageV2Compress(compressType)
+		} else {
+			_, err = page.DataPageCompress(compressType)
+		}
 		if err != nil {
 			return nil, 0, err
 		}
