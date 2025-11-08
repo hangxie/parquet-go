@@ -2498,6 +2498,109 @@ func Test_TableToDataPagesWithInvalidType(t *testing.T) {
 	require.Error(t, err)
 }
 
+func Test_TableToDataPagesWithVersion(t *testing.T) {
+	testCases := []struct {
+		name        string
+		table       *Table
+		pageVersion int32
+		expectV2    bool
+	}{
+		{
+			name: "version_1_creates_data_page_v1",
+			table: &Table{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT32),
+					Name: "test_col",
+				},
+				Values:             []any{int32(1), int32(2), int32(3)},
+				DefinitionLevels:   []int32{1, 1, 1},
+				RepetitionLevels:   []int32{0, 0, 0},
+				MaxDefinitionLevel: 1,
+				Info:               common.NewTag(),
+			},
+			pageVersion: 1,
+			expectV2:    false,
+		},
+		{
+			name: "version_2_creates_data_page_v2",
+			table: &Table{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT32),
+					Name: "test_col",
+				},
+				Values:             []any{int32(10), int32(20), int32(30)},
+				DefinitionLevels:   []int32{1, 1, 1},
+				RepetitionLevels:   []int32{0, 0, 0},
+				MaxDefinitionLevel: 1,
+				Info:               common.NewTag(),
+			},
+			pageVersion: 2,
+			expectV2:    true,
+		},
+		{
+			name: "version_2_with_nulls",
+			table: &Table{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT64),
+					Name: "test_col",
+				},
+				Values:             []any{int64(100), nil, int64(300), int64(400)},
+				DefinitionLevels:   []int32{1, 0, 1, 1},
+				RepetitionLevels:   []int32{0, 0, 0, 0},
+				MaxDefinitionLevel: 1,
+				Info:               common.NewTag(),
+			},
+			pageVersion: 2,
+			expectV2:    true,
+		},
+		{
+			name: "version_2_with_compression",
+			table: &Table{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
+					Name: "test_col",
+				},
+				Values:             []any{"hello", "world", "test"},
+				DefinitionLevels:   []int32{1, 1, 1},
+				RepetitionLevels:   []int32{0, 0, 0},
+				MaxDefinitionLevel: 1,
+				Info:               common.NewTag(),
+			},
+			pageVersion: 2,
+			expectV2:    true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pages, totalSize, err := TableToDataPagesWithVersion(
+				tc.table,
+				1024,
+				parquet.CompressionCodec_SNAPPY,
+				tc.pageVersion,
+			)
+
+			require.NoError(t, err)
+			require.NotEmpty(t, pages)
+			require.Positive(t, totalSize)
+
+			// Verify the page type matches the version
+			for _, page := range pages {
+				require.NotNil(t, page.Header)
+				if tc.expectV2 {
+					require.Equal(t, parquet.PageType_DATA_PAGE_V2, page.Header.Type)
+					require.NotNil(t, page.Header.DataPageHeaderV2)
+					require.Nil(t, page.Header.DataPageHeader)
+				} else {
+					require.Equal(t, parquet.PageType_DATA_PAGE, page.Header.Type)
+					require.NotNil(t, page.Header.DataPageHeader)
+					require.Nil(t, page.Header.DataPageHeaderV2)
+				}
+			}
+		})
+	}
+}
+
 func Test_Page_Decode_BoundsChecking(t *testing.T) {
 	tests := []struct {
 		name       string
