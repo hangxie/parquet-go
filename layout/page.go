@@ -229,7 +229,6 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byte, error) {
 	ln := len(page.DataTable.DefinitionLevels)
 
-	// values////////////////////////////////////////////
 	// valuesBuf == nil means "up to i, every item in DefinitionLevels was
 	// MaxDefinitionLevel". This lets us avoid allocating the array for the
 	// (somewhat) common case of "all values present".
@@ -253,7 +252,6 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 		return nil, err
 	}
 
-	// definitionLevel//////////////////////////////////
 	var definitionLevelBuf []byte
 	if page.DataTable.MaxDefinitionLevel > 0 {
 		definitionLevelBuf, err = encoding.WriteRLEBitPackedHybridInt32(
@@ -264,7 +262,6 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 		}
 	}
 
-	// repetitionLevel/////////////////////////////////
 	var repetitionLevelBuf []byte
 	if page.DataTable.MaxRepetitionLevel > 0 {
 		repetitionLevelBuf, err = encoding.WriteRLEBitPackedHybridInt32(
@@ -332,7 +329,6 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]byte, error) {
 	ln := len(page.DataTable.DefinitionLevels)
 
-	// values////////////////////////////////////////////
 	valuesBuf := make([]any, 0)
 	for i := range ln {
 		if page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
@@ -345,7 +341,6 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 		return nil, err
 	}
 
-	// definitionLevel//////////////////////////////////
 	var definitionLevelBuf []byte
 	if page.DataTable.MaxDefinitionLevel > 0 {
 		numInterfaces := make([]any, ln)
@@ -360,7 +355,6 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 		}
 	}
 
-	// repetitionLevel/////////////////////////////////
 	r0Num := int32(0)
 	var repetitionLevelBuf []byte
 	if page.DataTable.MaxRepetitionLevel > 0 {
@@ -381,7 +375,6 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 
 	var dataEncodeBuf []byte = compress.Compress(valuesRawBuf, compressType)
 
-	// pageHeader/////////////////////////////////////
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DATA_PAGE_V2
 	page.Header.CompressedPageSize = int32(len(dataEncodeBuf) + len(definitionLevelBuf) + len(repetitionLevelBuf))

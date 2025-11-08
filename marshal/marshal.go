@@ -17,7 +17,6 @@ type Node struct {
 	DL      int32
 }
 
-// Improve Performance///////////////////////////
 // NodeBuf
 type NodeBufType struct {
 	Index int
@@ -46,7 +45,6 @@ func (nbt *NodeBufType) Reset() {
 	nbt.Index = 0
 }
 
-// //////for improve performance///////////////////////////////////
 type Marshaler interface {
 	Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) (newStack []*Node)
 }

@@ -2569,6 +2569,51 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 			pageVersion: 2,
 			expectV2:    true,
 		},
+		{
+			name: "geometry_with_geospatial_statistics",
+			table: &Table{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
+					Name: "geometry_col",
+					LogicalType: &parquet.LogicalType{
+						GEOMETRY: &parquet.GeometryType{},
+					},
+				},
+				// WKB point data: point at (10.5, 20.3)
+				Values: []any{
+					string([]byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x40, 0xcd, 0xcc, 0xcc, 0xcc, 0xcc, 0x4c, 0x34, 0x40}),
+					string([]byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x40, 0x9a, 0x99, 0x99, 0x99, 0x99, 0x59, 0x34, 0x40}),
+				},
+				DefinitionLevels:   []int32{1, 1},
+				RepetitionLevels:   []int32{0, 0},
+				MaxDefinitionLevel: 1,
+				Info:               common.NewTag(),
+			},
+			pageVersion: 1,
+			expectV2:    false,
+		},
+		{
+			name: "geography_with_geospatial_statistics",
+			table: &Table{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
+					Name: "geography_col",
+					LogicalType: &parquet.LogicalType{
+						GEOGRAPHY: &parquet.GeographyType{},
+					},
+				},
+				// WKB point data
+				Values: []any{
+					string([]byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x40, 0xcd, 0xcc, 0xcc, 0xcc, 0xcc, 0x4c, 0x34, 0x40}),
+				},
+				DefinitionLevels:   []int32{1},
+				RepetitionLevels:   []int32{0},
+				MaxDefinitionLevel: 1,
+				Info:               common.NewTag(),
+			},
+			pageVersion: 2,
+			expectV2:    true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2595,6 +2640,14 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 					require.Equal(t, parquet.PageType_DATA_PAGE, page.Header.Type)
 					require.NotNil(t, page.Header.DataPageHeader)
 					require.Nil(t, page.Header.DataPageHeaderV2)
+				}
+
+				// Check if geospatial statistics were computed
+				logT := tc.table.Schema.LogicalType
+				if logT != nil && (logT.IsSetGEOMETRY() || logT.IsSetGEOGRAPHY()) {
+					require.NotNil(t, page.GeospatialBBox, "GeospatialBBox should be set for geospatial types")
+					require.NotNil(t, page.GeospatialTypes, "GeospatialTypes should be set for geospatial types")
+					require.NotEmpty(t, page.GeospatialTypes, "GeospatialTypes should not be empty")
 				}
 			}
 		})
