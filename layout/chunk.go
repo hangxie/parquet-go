@@ -49,6 +49,9 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 	}
 
+	// Collect unique encodings from pages
+	encodingsMap := make(map[parquet.Encoding]struct{})
+
 	for i := range ln {
 		if pages[i] == nil || pages[i].Header == nil {
 			continue
@@ -56,8 +59,19 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 
 		if pages[i].Header.DataPageHeader != nil {
 			numValues += int64(pages[i].Header.DataPageHeader.NumValues)
+			// Collect encodings from DataPageHeader
+			encodingsMap[pages[i].Header.DataPageHeader.Encoding] = struct{}{}
+			encodingsMap[pages[i].Header.DataPageHeader.DefinitionLevelEncoding] = struct{}{}
+			encodingsMap[pages[i].Header.DataPageHeader.RepetitionLevelEncoding] = struct{}{}
 		} else if pages[i].Header.DataPageHeaderV2 != nil {
 			numValues += int64(pages[i].Header.DataPageHeaderV2.NumValues)
+			// Collect encoding from DataPageHeaderV2
+			encodingsMap[pages[i].Header.DataPageHeaderV2.Encoding] = struct{}{}
+			// DataPageHeaderV2 uses RLE for definition/repetition levels (encoded in data)
+			encodingsMap[parquet.Encoding_RLE] = struct{}{}
+		} else if pages[i].Header.DictionaryPageHeader != nil {
+			// Collect encoding from DictionaryPageHeader
+			encodingsMap[pages[i].Header.DictionaryPageHeader.Encoding] = struct{}{}
 		}
 		totalUncompressedSize += int64(pages[i].Header.UncompressedPageSize) + int64(len(pages[i].RawData)) - int64(pages[i].Header.CompressedPageSize)
 		totalCompressedSize += int64(len(pages[i].RawData))
@@ -75,10 +89,10 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 	chunk.ChunkHeader = parquet.NewColumnChunk()
 	metaData := parquet.NewColumnMetaData()
 	metaData.Type = *pages[0].Schema.Type
-	metaData.Encodings = append(metaData.Encodings, parquet.Encoding_RLE)
-	metaData.Encodings = append(metaData.Encodings, parquet.Encoding_BIT_PACKED)
-	metaData.Encodings = append(metaData.Encodings, parquet.Encoding_PLAIN)
-	// metaData.Encodings = append(metaData.Encodings, parquet.Encoding_DELTA_BINARY_PACKED)
+	// Populate encodings from collected unique encodings
+	for encoding := range encodingsMap {
+		metaData.Encodings = append(metaData.Encodings, encoding)
+	}
 	metaData.Codec = pages[0].CompressType
 	metaData.NumValues = numValues
 	metaData.TotalCompressedSize = totalCompressedSize
@@ -154,6 +168,9 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 	}
 
+	// Collect unique encodings from pages
+	encodingsMap := make(map[parquet.Encoding]struct{})
+
 	for i := range pages {
 		if pages[i] == nil || pages[i].Header == nil {
 			continue
@@ -161,8 +178,19 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 
 		if pages[i].Header.DataPageHeader != nil {
 			numValues += int64(pages[i].Header.DataPageHeader.NumValues)
+			// Collect encodings from DataPageHeader
+			encodingsMap[pages[i].Header.DataPageHeader.Encoding] = struct{}{}
+			encodingsMap[pages[i].Header.DataPageHeader.DefinitionLevelEncoding] = struct{}{}
+			encodingsMap[pages[i].Header.DataPageHeader.RepetitionLevelEncoding] = struct{}{}
 		} else if pages[i].Header.DataPageHeaderV2 != nil {
 			numValues += int64(pages[i].Header.DataPageHeaderV2.NumValues)
+			// Collect encoding from DataPageHeaderV2
+			encodingsMap[pages[i].Header.DataPageHeaderV2.Encoding] = struct{}{}
+			// DataPageHeaderV2 uses RLE for definition/repetition levels (encoded in data)
+			encodingsMap[parquet.Encoding_RLE] = struct{}{}
+		} else if pages[i].Header.DictionaryPageHeader != nil {
+			// Collect encoding from DictionaryPageHeader
+			encodingsMap[pages[i].Header.DictionaryPageHeader.Encoding] = struct{}{}
 		}
 		totalUncompressedSize += int64(pages[i].Header.UncompressedPageSize) + int64(len(pages[i].RawData)) - int64(pages[i].Header.CompressedPageSize)
 		totalCompressedSize += int64(len(pages[i].RawData))
@@ -180,11 +208,10 @@ func PagesToDictChunk(pages []*Page) (*Chunk, error) {
 	chunk.ChunkHeader = parquet.NewColumnChunk()
 	metaData := parquet.NewColumnMetaData()
 	metaData.Type = *pages[1].Schema.Type
-	metaData.Encodings = append(metaData.Encodings, parquet.Encoding_RLE)
-	metaData.Encodings = append(metaData.Encodings, parquet.Encoding_BIT_PACKED)
-	metaData.Encodings = append(metaData.Encodings, parquet.Encoding_PLAIN)
-	metaData.Encodings = append(metaData.Encodings, parquet.Encoding_PLAIN_DICTIONARY)
-	metaData.Encodings = append(metaData.Encodings, parquet.Encoding_RLE_DICTIONARY)
+	// Populate encodings from collected unique encodings
+	for encoding := range encodingsMap {
+		metaData.Encodings = append(metaData.Encodings, encoding)
+	}
 
 	metaData.Codec = pages[1].CompressType
 	metaData.NumValues = numValues
