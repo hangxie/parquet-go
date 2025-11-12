@@ -17,33 +17,48 @@ type Chunk struct {
 	ChunkHeader *parquet.ColumnChunk
 }
 
-// Convert several pages to one chunk
-func PagesToChunk(pages []*Page) (*Chunk, error) {
-	ln := len(pages)
-	if ln == 0 {
-		return nil, fmt.Errorf("pages slice cannot be empty")
+// pagesToChunk is the internal implementation for converting pages to a chunk.
+// It handles both regular pages and pages with a dictionary page at the beginning.
+// The hasDictPage parameter indicates whether the first page is a dictionary page.
+func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
+	// Determine the metadata page index and statistics start index
+	metadataPageIdx := 0
+	statsStartIdx := 0
+
+	if hasDictPage {
+		if len(pages) < 2 {
+			return nil, nil
+		}
+		metadataPageIdx = 1
+		statsStartIdx = 1
+	} else {
+		if len(pages) == 0 {
+			return nil, fmt.Errorf("pages slice cannot be empty")
+		}
 	}
-	if pages[0] == nil {
-		return nil, fmt.Errorf("first page cannot be nil")
+
+	// Validate the metadata page
+	if pages[metadataPageIdx] == nil {
+		return nil, fmt.Errorf("page #%d cannot be nil", metadataPageIdx)
 	}
-	if pages[0].Schema == nil {
-		return nil, fmt.Errorf("first page schema cannot be nil")
+	if pages[metadataPageIdx].Schema == nil {
+		return nil, fmt.Errorf("page #%d schema cannot be nil", metadataPageIdx)
 	}
-	if pages[0].Schema.Type == nil {
-		return nil, fmt.Errorf("first page schema type cannot be nil")
+	if pages[metadataPageIdx].Schema.Type == nil {
+		return nil, fmt.Errorf("page #%d schema type cannot be nil", metadataPageIdx)
 	}
-	if pages[0].Info == nil {
-		return nil, fmt.Errorf("first page info cannot be nil")
+	if pages[metadataPageIdx].Info == nil {
+		return nil, fmt.Errorf("page #%d info cannot be nil", metadataPageIdx)
 	}
 
 	var numValues int64 = 0
 	var totalUncompressedSize int64 = 0
 	var totalCompressedSize int64 = 0
 
-	var maxVal any = pages[0].MaxVal
-	var minVal any = pages[0].MinVal
+	var maxVal any = pages[metadataPageIdx].MaxVal
+	var minVal any = pages[metadataPageIdx].MinVal
 	var nullCount int64 = 0
-	pT, cT, logT, omitStats := pages[0].Schema.Type, pages[0].Schema.ConvertedType, pages[0].Schema.LogicalType, pages[0].Info.OmitStats
+	pT, cT, logT, omitStats := pages[metadataPageIdx].Schema.Type, pages[metadataPageIdx].Schema.ConvertedType, pages[metadataPageIdx].Schema.LogicalType, pages[metadataPageIdx].Info.OmitStats
 	funcTable, err := common.FindFuncTable(pT, cT, logT)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
@@ -52,7 +67,7 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 	// Collect unique encodings from pages
 	encodingsMap := make(map[parquet.Encoding]struct{})
 
-	for i := range ln {
+	for i := range pages {
 		if pages[i] == nil || pages[i].Header == nil {
 			continue
 		}
@@ -75,7 +90,8 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 		}
 		totalUncompressedSize += int64(pages[i].Header.UncompressedPageSize) + int64(len(pages[i].RawData)) - int64(pages[i].Header.CompressedPageSize)
 		totalCompressedSize += int64(len(pages[i].RawData))
-		if !omitStats {
+		// Only aggregate statistics from data pages (skip dictionary page if present)
+		if !omitStats && i >= statsStartIdx {
 			minVal = common.Min(funcTable, minVal, pages[i].MinVal)
 			maxVal = common.Max(funcTable, maxVal, pages[i].MaxVal)
 			if pages[i].NullCount != nil {
@@ -88,16 +104,16 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 	chunk.Pages = pages
 	chunk.ChunkHeader = parquet.NewColumnChunk()
 	metaData := parquet.NewColumnMetaData()
-	metaData.Type = *pages[0].Schema.Type
+	metaData.Type = *pages[metadataPageIdx].Schema.Type
 	// Populate encodings from collected unique encodings
 	for encoding := range encodingsMap {
 		metaData.Encodings = append(metaData.Encodings, encoding)
 	}
-	metaData.Codec = pages[0].CompressType
+	metaData.Codec = pages[metadataPageIdx].CompressType
 	metaData.NumValues = numValues
 	metaData.TotalCompressedSize = totalCompressedSize
 	metaData.TotalUncompressedSize = totalUncompressedSize
-	metaData.PathInSchema = pages[0].Path
+	metaData.PathInSchema = pages[metadataPageIdx].Path
 	metaData.Statistics = parquet.NewStatistics()
 
 	if !omitStats && maxVal != nil && minVal != nil {
@@ -138,124 +154,14 @@ func PagesToChunk(pages []*Page) (*Chunk, error) {
 	return chunk, nil
 }
 
+// Convert several pages to one chunk
+func PagesToChunk(pages []*Page) (*Chunk, error) {
+	return pagesToChunk(pages, false)
+}
+
 // Convert several pages to one chunk with dict page first
 func PagesToDictChunk(pages []*Page) (*Chunk, error) {
-	if len(pages) < 2 {
-		return nil, nil
-	}
-	if pages[1] == nil {
-		return nil, fmt.Errorf("second page cannot be nil")
-	}
-	if pages[1].Schema == nil {
-		return nil, fmt.Errorf("second page schema cannot be nil")
-	}
-	if pages[1].Schema.Type == nil {
-		return nil, fmt.Errorf("second page schema type cannot be nil")
-	}
-	if pages[1].Info == nil {
-		return nil, fmt.Errorf("second page info cannot be nil")
-	}
-	var numValues int64 = 0
-	var totalUncompressedSize int64 = 0
-	var totalCompressedSize int64 = 0
-
-	var maxVal any = pages[1].MaxVal
-	var minVal any = pages[1].MinVal
-	var nullCount int64 = 0
-	pT, cT, logT, omitStats := pages[1].Schema.Type, pages[1].Schema.ConvertedType, pages[1].Schema.LogicalType, pages[1].Info.OmitStats
-	funcTable, err := common.FindFuncTable(pT, cT, logT)
-	if err != nil {
-		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
-	}
-
-	// Collect unique encodings from pages
-	encodingsMap := make(map[parquet.Encoding]struct{})
-
-	for i := range pages {
-		if pages[i] == nil || pages[i].Header == nil {
-			continue
-		}
-
-		if pages[i].Header.DataPageHeader != nil {
-			numValues += int64(pages[i].Header.DataPageHeader.NumValues)
-			// Collect encodings from DataPageHeader
-			encodingsMap[pages[i].Header.DataPageHeader.Encoding] = struct{}{}
-			encodingsMap[pages[i].Header.DataPageHeader.DefinitionLevelEncoding] = struct{}{}
-			encodingsMap[pages[i].Header.DataPageHeader.RepetitionLevelEncoding] = struct{}{}
-		} else if pages[i].Header.DataPageHeaderV2 != nil {
-			numValues += int64(pages[i].Header.DataPageHeaderV2.NumValues)
-			// Collect encoding from DataPageHeaderV2
-			encodingsMap[pages[i].Header.DataPageHeaderV2.Encoding] = struct{}{}
-			// DataPageHeaderV2 uses RLE for definition/repetition levels (encoded in data)
-			encodingsMap[parquet.Encoding_RLE] = struct{}{}
-		} else if pages[i].Header.DictionaryPageHeader != nil {
-			// Collect encoding from DictionaryPageHeader
-			encodingsMap[pages[i].Header.DictionaryPageHeader.Encoding] = struct{}{}
-		}
-		totalUncompressedSize += int64(pages[i].Header.UncompressedPageSize) + int64(len(pages[i].RawData)) - int64(pages[i].Header.CompressedPageSize)
-		totalCompressedSize += int64(len(pages[i].RawData))
-		if !omitStats && i > 0 {
-			minVal = common.Min(funcTable, minVal, pages[i].MinVal)
-			maxVal = common.Max(funcTable, maxVal, pages[i].MaxVal)
-			if pages[i].NullCount != nil {
-				nullCount += *pages[i].NullCount
-			}
-		}
-	}
-
-	chunk := new(Chunk)
-	chunk.Pages = pages
-	chunk.ChunkHeader = parquet.NewColumnChunk()
-	metaData := parquet.NewColumnMetaData()
-	metaData.Type = *pages[1].Schema.Type
-	// Populate encodings from collected unique encodings
-	for encoding := range encodingsMap {
-		metaData.Encodings = append(metaData.Encodings, encoding)
-	}
-
-	metaData.Codec = pages[1].CompressType
-	metaData.NumValues = numValues
-	metaData.TotalCompressedSize = totalCompressedSize
-	metaData.TotalUncompressedSize = totalUncompressedSize
-	metaData.PathInSchema = pages[1].Path
-	metaData.Statistics = parquet.NewStatistics()
-
-	if !omitStats && maxVal != nil && minVal != nil {
-		tmpBufMax, err := encoding.WritePlain([]any{maxVal}, *pT)
-		if err != nil {
-			return nil, err
-		}
-		tmpBufMin, err := encoding.WritePlain([]any{minVal}, *pT)
-		if err != nil {
-			return nil, err
-		}
-		if *pT == parquet.Type_BYTE_ARRAY {
-			tmpBufMax = tmpBufMax[4:]
-			tmpBufMin = tmpBufMin[4:]
-		}
-		metaData.Statistics.Max = tmpBufMax
-		metaData.Statistics.Min = tmpBufMin
-		metaData.Statistics.MaxValue = tmpBufMax
-		metaData.Statistics.MinValue = tmpBufMin
-	}
-
-	if !omitStats {
-		metaData.Statistics.NullCount = &nullCount
-	}
-
-	// Aggregate geospatial statistics from pages
-	if logT != nil && (logT.IsSetGEOMETRY() || logT.IsSetGEOGRAPHY()) {
-		bbox, geoTypes := aggregateGeospatialStatistics(pages)
-		if bbox != nil {
-			metaData.GeospatialStatistics = &parquet.GeospatialStatistics{
-				Bbox:            bbox,
-				GeospatialTypes: geoTypes,
-			}
-		}
-	}
-
-	chunk.ChunkHeader.MetaData = metaData
-	return chunk, nil
+	return pagesToChunk(pages, true)
 }
 
 // Decode a dict chunk

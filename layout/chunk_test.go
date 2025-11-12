@@ -325,7 +325,7 @@ func Test_PagesToChunk_NilChecks(t *testing.T) {
 			name:        "first_page_nil",
 			pages:       []*Page{nil},
 			expectError: true,
-			errorMsg:    "first page cannot be nil",
+			errorMsg:    "page #0 cannot be nil",
 		},
 		{
 			name: "first_page_schema_nil",
@@ -335,7 +335,7 @@ func Test_PagesToChunk_NilChecks(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "first page schema cannot be nil",
+			errorMsg:    "page #0 schema cannot be nil",
 		},
 		{
 			name: "first_page_schema_type_nil",
@@ -347,7 +347,7 @@ func Test_PagesToChunk_NilChecks(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "first page schema type cannot be nil",
+			errorMsg:    "page #0 schema type cannot be nil",
 		},
 		{
 			name: "first_page_info_nil",
@@ -360,7 +360,7 @@ func Test_PagesToChunk_NilChecks(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "first page info cannot be nil",
+			errorMsg:    "page #0 info cannot be nil",
 		},
 	}
 
@@ -394,7 +394,7 @@ func Test_PagesToDictChunk_NilChecks(t *testing.T) {
 			name:        "second_page_nil",
 			pages:       []*Page{{}, nil},
 			expectError: true,
-			errorMsg:    "second page cannot be nil",
+			errorMsg:    "page #1 cannot be nil",
 		},
 		{
 			name: "second_page_schema_nil",
@@ -403,7 +403,7 @@ func Test_PagesToDictChunk_NilChecks(t *testing.T) {
 				{Schema: nil},
 			},
 			expectError: true,
-			errorMsg:    "second page schema cannot be nil",
+			errorMsg:    "page #1 schema cannot be nil",
 		},
 		{
 			name: "second_page_schema_type_nil",
@@ -416,7 +416,7 @@ func Test_PagesToDictChunk_NilChecks(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "second page schema type cannot be nil",
+			errorMsg:    "page #1 schema type cannot be nil",
 		},
 		{
 			name: "second_page_info_nil",
@@ -430,7 +430,7 @@ func Test_PagesToDictChunk_NilChecks(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "second page info cannot be nil",
+			errorMsg:    "page #1 info cannot be nil",
 		},
 	}
 
