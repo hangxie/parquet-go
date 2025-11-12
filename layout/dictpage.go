@@ -208,7 +208,7 @@ func (page *Page) DictDataPageCompress(compressType parquet.CompressionCodec, bi
 	page.Header.DataPageHeader.NumValues = int32(len(page.DataTable.DefinitionLevels))
 	page.Header.DataPageHeader.DefinitionLevelEncoding = parquet.Encoding_RLE
 	page.Header.DataPageHeader.RepetitionLevelEncoding = parquet.Encoding_RLE
-	page.Header.DataPageHeader.Encoding = parquet.Encoding_PLAIN_DICTIONARY
+	page.Header.DataPageHeader.Encoding = parquet.Encoding_RLE_DICTIONARY
 
 	page.Header.DataPageHeader.Statistics = parquet.NewStatistics()
 	if page.MaxVal != nil {
