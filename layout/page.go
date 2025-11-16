@@ -450,7 +450,7 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	} else if pageHeader.GetType() == parquet.PageType_DICTIONARY_PAGE {
 		page = NewDictPage()
 	} else {
-		return page, fmt.Errorf("unsupported page type")
+		return page, fmt.Errorf("unsupported page type: %v", pageHeader.GetType())
 	}
 
 	compressedPageSize := pageHeader.GetCompressedPageSize()
@@ -515,7 +515,7 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 
 	} else {
 		if buf, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
-			return 0, 0, fmt.Errorf("unsupported compress method")
+			return 0, 0, fmt.Errorf("unsupported compress method: %v", p.CompressType)
 		}
 	}
 
@@ -608,7 +608,7 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 		return 0, 0, nil
 
 	} else {
-		return 0, 0, fmt.Errorf("unsupported page type")
+		return 0, 0, fmt.Errorf("unsupported page type: %v", p.Header.GetType())
 	}
 }
 
@@ -761,7 +761,7 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 		case parquet.Type_INT64:
 			return encoding.ReadDeltaBinaryPackedINT64(bytesReader)
 		default:
-			return res, fmt.Errorf("the encoding method DELTA_BINARY_PACKED can only be used with int32 and int64 types")
+			return res, fmt.Errorf("the encoding method DELTA_BINARY_PACKED can only be used with int32 and int64 types, got %v", dataType)
 		}
 	case parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
 		values, err := encoding.ReadDeltaLengthByteArray(bytesReader)
@@ -792,10 +792,10 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 		case parquet.Type_DOUBLE:
 			return encoding.ReadByteStreamSplitFloat64(bytesReader, cnt)
 		default:
-			return res, fmt.Errorf("the encoding method BYTE_STREAM_SPLIT can only be used with Float and double types")
+			return res, fmt.Errorf("the encoding method BYTE_STREAM_SPLIT can only be used with Float and double types, got %v", dataType)
 		}
 	default:
-		return res, fmt.Errorf("unknown Encoding method")
+		return res, fmt.Errorf("unknown Encoding method: %v", encodingMethod)
 	}
 }
 

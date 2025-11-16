@@ -56,7 +56,7 @@ func Test_NewSchemaHandlerFromJSON(t *testing.T) {
 			}
 			`,
 			expectError:   true,
-			errorContains: "LIST needs exact 1 field",
+			errorContains: "LIST needs exactly 1 field",
 		},
 		{
 			name: "map_needs_exact_two_fields",
@@ -72,7 +72,7 @@ func Test_NewSchemaHandlerFromJSON(t *testing.T) {
 			}
 			`,
 			expectError:   true,
-			errorContains: "MAP needs exact 2 fields",
+			errorContains: "MAP needs exactly 2 fields",
 		},
 	}
 
