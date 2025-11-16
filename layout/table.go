@@ -20,7 +20,7 @@ func NewTableFromTable(src *Table) *Table {
 
 func NewEmptyTable() *Table {
 	table := new(Table)
-	table.Info = common.NewTag()
+	table.Info = &common.Tag{}
 	return table
 }
 

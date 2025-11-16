@@ -53,7 +53,7 @@ func NewPage() *Page {
 	page := new(Page)
 	page.DataTable = nil
 	page.Header = parquet.NewPageHeader()
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 	page.PageSize = common.DefaultPageSize
 	return page
 }

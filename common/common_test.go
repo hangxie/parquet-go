@@ -49,7 +49,7 @@ func Test_DeepCopy(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			dst := NewTag()
+			dst := &Tag{}
 			DeepCopy(&tc.src, dst)
 			require.Equal(t, tc.expected, *dst)
 		})
@@ -235,12 +235,6 @@ func Test_NewSchemaElementFromTagMap(t *testing.T) {
 			}
 		})
 	}
-}
-
-func Test_NewTag(t *testing.T) {
-	actual := NewTag()
-	require.NotNil(t, actual)
-	require.Equal(t, Tag{}, *actual)
 }
 
 func Test_PathStrIndex(t *testing.T) {
@@ -745,53 +739,5 @@ func Test_newEdgeInterpolationAlgorithmFromString(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.errStr)
 		}
-	}
-}
-
-func Test_str2Bool(t *testing.T) {
-	testCases := map[string]struct {
-		str      string
-		expected bool
-		errMsg   string
-	}{
-		"bad":  {"abc", false, "strconv.ParseBool: parsing"},
-		"good": {"true", true, ""},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			actual, err := str2Bool(tc.str)
-			if tc.errMsg == "" {
-				require.NoError(t, err)
-				require.Equal(t, tc.expected, actual)
-			} else {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tc.errMsg)
-			}
-		})
-	}
-}
-
-func Test_str2Int32(t *testing.T) {
-	testCases := map[string]struct {
-		str      string
-		expected int32
-		errMsg   string
-	}{
-		"bad":  {"abc", 0, "strconv.Atoi: parsing"},
-		"good": {"123", 123, ""},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			actual, err := str2Int32(tc.str)
-			if tc.errMsg == "" {
-				require.NoError(t, err)
-				require.Equal(t, tc.expected, actual)
-			} else {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tc.errMsg)
-			}
-		})
 	}
 }

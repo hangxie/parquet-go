@@ -20,7 +20,7 @@ func Test_DataPageCompressWithStatistics(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 	page.MaxVal = "zzz"
 	page.MinVal = "aaa"
 	nullCount := int64(1)
@@ -104,7 +104,7 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 					LogicalType:   tt.logicalType,
 					ConvertedType: tt.convertedType,
 				}
-				page.Info = common.NewTag()
+				page.Info = &common.Tag{}
 
 				// Only set min/max values for types that should have them
 				isGeospatial := tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY())
@@ -177,7 +177,7 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 					LogicalType:   tt.logicalType,
 					ConvertedType: tt.convertedType,
 				}
-				page.Info = common.NewTag()
+				page.Info = &common.Tag{}
 
 				// Only set min/max values for types that should have them
 				isGeospatial := tt.logicalType != nil && (tt.logicalType.IsSetGEOMETRY() || tt.logicalType.IsSetGEOGRAPHY())
@@ -251,7 +251,7 @@ func Test_DataPageV2CompressWithComplexData(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT64),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 	page.MaxVal = int64(200)
 	page.MinVal = int64(50)
 	nullCount := int64(2)
@@ -677,7 +677,7 @@ func Test_PageDataPageCompress(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 
 	// Set up a data table
 	page.DataTable = &Table{
@@ -697,7 +697,7 @@ func Test_PageDataPageV2Compress(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 
 	// Set up a data table
 	page.DataTable = &Table{
@@ -869,7 +869,7 @@ func Test_PageEncodingValues(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 
 	values := []any{int32(1), int32(2), int32(3)}
 	data, err := page.EncodingValues(values)
@@ -905,7 +905,7 @@ func Test_PageEncodingValuesErrorCases(t *testing.T) {
 				Type: &tc.dataType,
 				Name: "test_col",
 			}
-			page.Info = common.NewTag()
+			page.Info = &common.Tag{}
 			page.Info.Encoding = tc.encoding
 
 			if tc.setup != nil {
@@ -983,7 +983,7 @@ func Test_PageEncodingValuesWithDifferentEncodings(t *testing.T) {
 				Type: &tc.dataType,
 				Name: "test_col",
 			}
-			page.Info = common.NewTag()
+			page.Info = &common.Tag{}
 			page.Info.Encoding = tc.encoding
 			if tc.bitWidth > 0 {
 				page.Info.Length = tc.bitWidth
@@ -1008,7 +1008,7 @@ func Test_PageEncodingValuesWithEmptyValues(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 
 	values := []any{}
 	data, err := page.EncodingValues(values)
@@ -2360,7 +2360,7 @@ func Test_TableToDataPages(t *testing.T) {
 		Values:           []any{int32(1), int32(2), int32(3)},
 		DefinitionLevels: []int32{0, 0, 0},
 		RepetitionLevels: []int32{0, 0, 0},
-		Info:             common.NewTag(),
+		Info:             &common.Tag{},
 	}
 
 	pages, totalSize, err := TableToDataPages(table, 1024, parquet.CompressionCodec_UNCOMPRESSED)
@@ -2389,7 +2389,7 @@ func Test_TableToDataPagesComplexScenarios(t *testing.T) {
 				DefinitionLevels:   []int32{1, 0, 1, 1},
 				RepetitionLevels:   []int32{0, 0, 0, 0},
 				MaxDefinitionLevel: 1,
-				Info:               common.NewTag(),
+				Info:               &common.Tag{},
 			},
 			pageSize:          1024,
 			compressionCodec:  parquet.CompressionCodec_UNCOMPRESSED,
@@ -2408,7 +2408,7 @@ func Test_TableToDataPagesComplexScenarios(t *testing.T) {
 				RepetitionLevels:   []int32{0, 0, 0},
 				MaxDefinitionLevel: 1,
 				Info: func() *common.Tag {
-					tag := common.NewTag()
+					tag := &common.Tag{}
 					tag.OmitStats = true
 					return tag
 				}(),
@@ -2429,7 +2429,7 @@ func Test_TableToDataPagesComplexScenarios(t *testing.T) {
 				DefinitionLevels:   []int32{1, 1, 1, 1, 1},
 				RepetitionLevels:   []int32{0, 0, 0, 0, 0},
 				MaxDefinitionLevel: 1,
-				Info:               common.NewTag(),
+				Info:               &common.Tag{},
 			},
 			pageSize:          8, // Very small page size to force multiple pages
 			compressionCodec:  parquet.CompressionCodec_UNCOMPRESSED,
@@ -2472,7 +2472,7 @@ func Test_TableToDataPagesWithEmptyTable(t *testing.T) {
 		Values:           []any{},
 		DefinitionLevels: []int32{},
 		RepetitionLevels: []int32{},
-		Info:             common.NewTag(),
+		Info:             &common.Tag{},
 	}
 
 	pages, totalSize, err := TableToDataPages(table, 1024, parquet.CompressionCodec_UNCOMPRESSED)
@@ -2491,7 +2491,7 @@ func Test_TableToDataPagesWithInvalidType(t *testing.T) {
 		Values:           []any{int32(1)},
 		DefinitionLevels: []int32{0},
 		RepetitionLevels: []int32{0},
-		Info:             common.NewTag(),
+		Info:             &common.Tag{},
 	}
 
 	_, _, err := TableToDataPages(table, 1024, parquet.CompressionCodec_UNCOMPRESSED)
@@ -2516,7 +2516,7 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 				DefinitionLevels:   []int32{1, 1, 1},
 				RepetitionLevels:   []int32{0, 0, 0},
 				MaxDefinitionLevel: 1,
-				Info:               common.NewTag(),
+				Info:               &common.Tag{},
 			},
 			pageVersion: 1,
 			expectV2:    false,
@@ -2532,7 +2532,7 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 				DefinitionLevels:   []int32{1, 1, 1},
 				RepetitionLevels:   []int32{0, 0, 0},
 				MaxDefinitionLevel: 1,
-				Info:               common.NewTag(),
+				Info:               &common.Tag{},
 			},
 			pageVersion: 2,
 			expectV2:    true,
@@ -2548,7 +2548,7 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 				DefinitionLevels:   []int32{1, 0, 1, 1},
 				RepetitionLevels:   []int32{0, 0, 0, 0},
 				MaxDefinitionLevel: 1,
-				Info:               common.NewTag(),
+				Info:               &common.Tag{},
 			},
 			pageVersion: 2,
 			expectV2:    true,
@@ -2564,7 +2564,7 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 				DefinitionLevels:   []int32{1, 1, 1},
 				RepetitionLevels:   []int32{0, 0, 0},
 				MaxDefinitionLevel: 1,
-				Info:               common.NewTag(),
+				Info:               &common.Tag{},
 			},
 			pageVersion: 2,
 			expectV2:    true,
@@ -2587,7 +2587,7 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 				DefinitionLevels:   []int32{1, 1},
 				RepetitionLevels:   []int32{0, 0},
 				MaxDefinitionLevel: 1,
-				Info:               common.NewTag(),
+				Info:               &common.Tag{},
 			},
 			pageVersion: 1,
 			expectV2:    false,
@@ -2609,7 +2609,7 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 				DefinitionLevels:   []int32{1},
 				RepetitionLevels:   []int32{0},
 				MaxDefinitionLevel: 1,
-				Info:               common.NewTag(),
+				Info:               &common.Tag{},
 			},
 			pageVersion: 2,
 			expectV2:    true,

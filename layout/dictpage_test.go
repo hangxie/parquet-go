@@ -15,7 +15,7 @@ func Test_DictDataPageCompress(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 
 	// Set up DataTable with proper definition and repetition levels
 	page.DataTable = &Table{
@@ -39,7 +39,7 @@ func Test_DictDataPageCompressWithEmptyValues(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 
 	// Set up DataTable
 	page.DataTable = &Table{
@@ -63,7 +63,7 @@ func Test_DictPageCompress(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 
 	// Set up some data for the dictionary page
 	page.DataTable = &Table{
@@ -81,7 +81,7 @@ func Test_DictPageCompressWithEmptyDataTable(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	page.Info = common.NewTag()
+	page.Info = &common.Tag{}
 	page.DataTable = &Table{
 		Values: []any{}, // empty values slice
 	}
@@ -183,7 +183,7 @@ func Test_TableToDictDataPages(t *testing.T) {
 		Values:           []any{int32(10), int32(20), int32(10)},
 		DefinitionLevels: []int32{0, 0, 0},
 		RepetitionLevels: []int32{0, 0, 0},
-		Info:             common.NewTag(),
+		Info:             &common.Tag{},
 	}
 
 	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 2, parquet.CompressionCodec_UNCOMPRESSED)
@@ -204,7 +204,7 @@ func Test_TableToDictDataPagesWithEmptyTable(t *testing.T) {
 		Values:           []any{},
 		DefinitionLevels: []int32{},
 		RepetitionLevels: []int32{},
-		Info:             common.NewTag(),
+		Info:             &common.Tag{},
 	}
 
 	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 1, parquet.CompressionCodec_UNCOMPRESSED)
@@ -225,7 +225,7 @@ func Test_TableToDictDataPagesWithInvalidType(t *testing.T) {
 		Values:           []any{int32(1)},
 		DefinitionLevels: []int32{0},
 		RepetitionLevels: []int32{0},
-		Info:             common.NewTag(),
+		Info:             &common.Tag{},
 	}
 
 	_, _, err := TableToDictDataPages(dictRec, table, 1024, 1, parquet.CompressionCodec_UNCOMPRESSED)

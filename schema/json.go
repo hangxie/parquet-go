@@ -47,7 +47,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			schema.NumChildren = &numField
 			schemaElements = append(schemaElements, schema)
 
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(info, newInfo)
 			infos = append(infos, newInfo)
 
@@ -66,7 +66,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			schema.ConvertedType = &ct1
 			schemaElements = append(schemaElements, schema)
 
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(info, newInfo)
 			infos = append(infos, newInfo)
 
@@ -78,7 +78,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			schema.NumChildren = &numField2
 			schemaElements = append(schemaElements, schema)
 
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(info, newInfo)
 			newInfo.InName, newInfo.ExName = "List", "list"
 			infos = append(infos, newInfo)
@@ -98,7 +98,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			schema.ConvertedType = &ct1
 			schemaElements = append(schemaElements, schema)
 
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(info, newInfo)
 			infos = append(infos, newInfo)
 
@@ -112,7 +112,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			schema.NumChildren = &numField2
 			schemaElements = append(schemaElements, schema)
 
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(info, newInfo)
 			newInfo.InName, newInfo.ExName = "Key_value", "key_value"
 			infos = append(infos, newInfo)
@@ -129,7 +129,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			}
 			schemaElements = append(schemaElements, schema)
 
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(info, newInfo)
 			infos = append(infos, newInfo)
 		}

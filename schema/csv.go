@@ -20,7 +20,7 @@ func NewSchemaHandlerFromMetadata(mds []string) (*SchemaHandler, error) {
 	rootSchema.RepetitionType = &rt
 	schemaList = append(schemaList, rootSchema)
 
-	rootInfo := common.NewTag()
+	rootInfo := &common.Tag{}
 	rootInfo.InName = "Parquet_go_root"
 	rootInfo.ExName = "parquet_go_root"
 	rootInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED

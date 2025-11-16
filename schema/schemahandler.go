@@ -227,7 +227,7 @@ type Item struct {
 
 func NewItem() *Item {
 	item := new(Item)
-	item.Info = common.NewTag()
+	item.Info = &common.Tag{}
 	return item
 }
 
@@ -259,7 +259,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 			schema.NumChildren = &numField
 			schemaElements = append(schemaElements, schema)
 
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(item.Info, newInfo)
 			infos = append(infos, newInfo)
 
@@ -297,7 +297,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 			ct1 := parquet.ConvertedType_LIST
 			schema.ConvertedType = &ct1
 			schemaElements = append(schemaElements, schema)
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(item.Info, newInfo)
 			infos = append(infos, newInfo)
 
@@ -307,7 +307,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 			schema.RepetitionType = &rt2
 			schema.NumChildren = &numField
 			schemaElements = append(schemaElements, schema)
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(item.Info, newInfo)
 			newInfo.InName, newInfo.ExName = "List", "list"
 			infos = append(infos, newInfo)
@@ -342,7 +342,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 			ct1 := parquet.ConvertedType_MAP
 			schema.ConvertedType = &ct1
 			schemaElements = append(schemaElements, schema)
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(item.Info, newInfo)
 			infos = append(infos, newInfo)
 
@@ -355,7 +355,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 			ct2 := parquet.ConvertedType_MAP_KEY_VALUE
 			schema.ConvertedType = &ct2
 			schemaElements = append(schemaElements, schema)
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(item.Info, newInfo)
 			newInfo.InName, newInfo.ExName = "Key_value", "key_value"
 			infos = append(infos, newInfo)
@@ -383,7 +383,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 				return nil, fmt.Errorf("create schema from tag map: %w", err)
 			}
 			schemaElements = append(schemaElements, schema)
-			newInfo = common.NewTag()
+			newInfo = &common.Tag{}
 			common.DeepCopy(item.Info, newInfo)
 			infos = append(infos, newInfo)
 		}
