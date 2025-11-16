@@ -70,7 +70,7 @@ func (file *swiftReader) Seek(offset int64, whence int) (int64, error) {
 func (file *swiftReader) Close() error {
 	if file.fileReader != nil {
 		if err := file.fileReader.Close(); err != nil {
-			return fmt.Errorf("failed to close Swift reader: %w", err)
+			return fmt.Errorf("close Swift reader: %w", err)
 		}
 	}
 	return nil

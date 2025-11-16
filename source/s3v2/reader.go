@@ -2,7 +2,6 @@ package s3v2
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -40,8 +39,8 @@ const (
 )
 
 var (
-	errWhence        = errors.New("Seek: invalid whence")
-	errInvalidOffset = errors.New("Seek: invalid offset")
+	errWhence        = fmt.Errorf("invalid whence")
+	errInvalidOffset = fmt.Errorf("invalid offset")
 )
 
 // NewS3FileReader creates an S3 FileReader, to be used with NewParquetReader
@@ -155,7 +154,7 @@ func (s *s3Reader) openSocket(numBytes int64) error {
 
 	out, err := s.client.GetObject(s.ctx, getObj)
 	if err != nil {
-		return fmt.Errorf("failed to get S3 object: %w", err)
+		return fmt.Errorf("get S3 object: %w", err)
 	}
 	s.socket = out.Body
 	return nil

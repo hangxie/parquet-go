@@ -29,12 +29,12 @@ func NewSchemaHandlerFromMetadata(mds []string) (*SchemaHandler, error) {
 	for _, md := range mds {
 		info, err := common.StringToTag(md)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse metadata: %s", err.Error())
+			return nil, fmt.Errorf("parse metadata: %w", err)
 		}
 		infos = append(infos, info)
 		schema, err := common.NewSchemaElementFromTagMap(info)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create schema from tag map: %s", err.Error())
+			return nil, fmt.Errorf("create schema from tag map: %w", err)
 		}
 		// schema.RepetitionType = parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_OPTIONAL)
 		schemaList = append(schemaList, schema)

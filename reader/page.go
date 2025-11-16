@@ -80,7 +80,7 @@ func readPageHeader(pFile io.ReadSeeker, offset int64) (*parquet.PageHeader, int
 	// Seek to page header position
 	_, err := pFile.Seek(offset, io.SeekStart)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to seek to page: %w", err)
+		return nil, 0, fmt.Errorf("seek to page: %w", err)
 	}
 
 	// Create a position-tracking transport
@@ -97,7 +97,7 @@ func readPageHeader(pFile io.ReadSeeker, offset int64) (*parquet.PageHeader, int
 	// Seek to end of header
 	_, err = pFile.Seek(trackingTransport.pos, io.SeekStart)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to seek after header: %w", err)
+		return nil, 0, fmt.Errorf("seek after header: %w", err)
 	}
 
 	return pageHeader, headerSize, nil
@@ -212,27 +212,27 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 	// Re-read the header to get exact header size
 	_, headerSize, err := readPageHeader(pFile, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read page header: %w", err)
+		return nil, fmt.Errorf("read page header: %w", err)
 	}
 
 	// Move to the actual page data (after header)
 	dataOffset := offset + headerSize
 	_, err = pFile.Seek(dataOffset, io.SeekStart)
 	if err != nil {
-		return nil, fmt.Errorf("failed to seek to page data: %w", err)
+		return nil, fmt.Errorf("seek to page data: %w", err)
 	}
 
 	// Read compressed page data
 	compressedData := make([]byte, pageHeader.CompressedPageSize)
 	_, err = pFile.Read(compressedData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read compressed page data: %w", err)
+		return nil, fmt.Errorf("read compressed page data: %w", err)
 	}
 
 	// Decompress the data
 	uncompressedData, err := compress.Uncompress(compressedData, codec)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decompress page data: %w", err)
+		return nil, fmt.Errorf("decompress page data: %w", err)
 	}
 
 	return uncompressedData, nil
@@ -255,7 +255,7 @@ func DecodeDictionaryPage(data []byte, pageHeader *parquet.PageHeader, physicalT
 	bytesReader := bytes.NewReader(data)
 	values, err := encoding.ReadPlain(bytesReader, physicalType, uint64(numValues), 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode dictionary values: %w", err)
+		return nil, fmt.Errorf("decode dictionary values: %w", err)
 	}
 
 	return values, nil
@@ -283,7 +283,7 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	// Read page header at the offset
 	pageHeader, _, err := readPageHeader(pr.PFile, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read page header: %w", err)
+		return nil, fmt.Errorf("read page header: %w", err)
 	}
 
 	// Verify it's a dictionary page
@@ -294,12 +294,12 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	// Read and decode the page data
 	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read page data: %w", err)
+		return nil, fmt.Errorf("read page data: %w", err)
 	}
 
 	values, err := DecodeDictionaryPage(data, pageHeader, physicalType)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode dictionary page: %w", err)
+		return nil, fmt.Errorf("decode dictionary page: %w", err)
 	}
 
 	return values, nil

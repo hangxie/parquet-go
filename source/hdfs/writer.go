@@ -62,12 +62,12 @@ func (f *hdfsWriter) Write(b []byte) (n int, err error) {
 func (f *hdfsWriter) Close() error {
 	if f.fileWriter != nil {
 		if err := f.fileWriter.Close(); err != nil {
-			return fmt.Errorf("failed to close HDFS file writer: %w", err)
+			return fmt.Errorf("close HDFS file writer: %w", err)
 		}
 	}
 	if f.client != nil {
 		if err := f.client.Close(); err != nil {
-			return fmt.Errorf("failed to close HDFS client: %w", err)
+			return fmt.Errorf("close HDFS client: %w", err)
 		}
 	}
 	return nil

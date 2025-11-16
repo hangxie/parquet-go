@@ -193,7 +193,7 @@ func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
 		}
 		rv := reflect.ValueOf(src)
 		if !rv.IsValid() || rv.Kind() != reflect.Bool {
-			return nil, fmt.Errorf("cannot convert %T to bool", src)
+			return nil, fmt.Errorf("convert %T to bool", src)
 		}
 		return rv.Bool(), nil
 
@@ -203,7 +203,7 @@ func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
 		}
 		rv := reflect.ValueOf(src)
 		if !rv.IsValid() || (rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr) {
-			return nil, fmt.Errorf("cannot convert %T to int32", src)
+			return nil, fmt.Errorf("convert %T to int32", src)
 		}
 		return int32(rv.Int()), nil
 
@@ -213,7 +213,7 @@ func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
 		}
 		rv := reflect.ValueOf(src)
 		if !rv.IsValid() || (rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr) {
-			return nil, fmt.Errorf("cannot convert %T to int64", src)
+			return nil, fmt.Errorf("convert %T to int64", src)
 		}
 		return rv.Int(), nil
 
@@ -223,7 +223,7 @@ func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
 		}
 		rv := reflect.ValueOf(src)
 		if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
-			return nil, fmt.Errorf("cannot convert %T to float32", src)
+			return nil, fmt.Errorf("convert %T to float32", src)
 		}
 		return float32(rv.Float()), nil
 
@@ -233,7 +233,7 @@ func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
 		}
 		rv := reflect.ValueOf(src)
 		if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
-			return nil, fmt.Errorf("cannot convert %T to float64", src)
+			return nil, fmt.Errorf("convert %T to float64", src)
 		}
 		return rv.Float(), nil
 
@@ -243,7 +243,7 @@ func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
 		}
 		rv := reflect.ValueOf(src)
 		if !rv.IsValid() || rv.Kind() != reflect.String {
-			return nil, fmt.Errorf("cannot convert %T to string", src)
+			return nil, fmt.Errorf("convert %T to string", src)
 		}
 		return rv.String(), nil
 

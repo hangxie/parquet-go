@@ -60,7 +60,7 @@ func (file *swiftWriter) Write(p []byte) (n int, err error) {
 func (file *swiftWriter) Close() error {
 	if file.fileWriter != nil {
 		if err := file.fileWriter.Close(); err != nil {
-			return fmt.Errorf("failed to close Swift writer: %w", err)
+			return fmt.Errorf("close Swift writer: %w", err)
 		}
 	}
 	return nil

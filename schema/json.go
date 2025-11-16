@@ -20,7 +20,7 @@ func NewJSONSchemaItem() *JSONSchemaItemType {
 func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 	schema := NewJSONSchemaItem()
 	if err := json.Unmarshal([]byte(str), schema); err != nil {
-		return nil, fmt.Errorf("error in unmarshalling json schema string: %v", err.Error())
+		return nil, fmt.Errorf("unmarshal json schema string: %w", err)
 	}
 
 	stack := make([]*JSONSchemaItemType, 0)
@@ -34,7 +34,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 		stack = stack[:ln-1]
 		info, err := common.StringToTag(item.Tag)
 		if err != nil {
-			return nil, fmt.Errorf("failed parse tag: %s", err.Error())
+			return nil, fmt.Errorf("parse tag: %w", err)
 		}
 		var newInfo *common.Tag
 		switch info.Type {
@@ -125,7 +125,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 		default: // normal variable
 			schema, err := common.NewSchemaElementFromTagMap(info)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create schema from tag map: %s", err.Error())
+				return nil, fmt.Errorf("create schema from tag map: %w", err)
 			}
 			schemaElements = append(schemaElements, schema)
 

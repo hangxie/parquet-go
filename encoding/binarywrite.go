@@ -22,7 +22,7 @@ func BinaryWriteINT32(w io.Writer, nums []any) error {
 	}
 
 	if _, err := w.Write(buf); err != nil {
-		return fmt.Errorf("failed to write INT32 binary data: %w", err)
+		return fmt.Errorf("write INT32 binary data: %w", err)
 	}
 	return nil
 }
@@ -46,7 +46,7 @@ func BinaryWriteINT64(w io.Writer, nums []any) error {
 	}
 
 	if _, err := w.Write(buf); err != nil {
-		return fmt.Errorf("failed to write INT64 binary data: %w", err)
+		return fmt.Errorf("write INT64 binary data: %w", err)
 	}
 	return nil
 }
@@ -66,7 +66,7 @@ func BinaryWriteFLOAT32(w io.Writer, nums []any) error {
 	}
 
 	if _, err := w.Write(buf); err != nil {
-		return fmt.Errorf("failed to write FLOAT32 binary data: %w", err)
+		return fmt.Errorf("write FLOAT32 binary data: %w", err)
 	}
 	return nil
 }
@@ -90,7 +90,7 @@ func BinaryWriteFLOAT64(w io.Writer, nums []any) error {
 	}
 
 	if _, err := w.Write(buf); err != nil {
-		return fmt.Errorf("failed to write FLOAT64 binary data: %w", err)
+		return fmt.Errorf("write FLOAT64 binary data: %w", err)
 	}
 	return nil
 }

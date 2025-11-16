@@ -257,7 +257,7 @@ func Test_SchemaHandler_GetType(t *testing.T) {
 			},
 			path:          "nonexistent_field",
 			expectError:   true,
-			expectedError: "can't find path nonexistent_field",
+			expectedError: "path not found: nonexistent_field",
 		},
 		{
 			name: "complex_nested_type_retrieval",

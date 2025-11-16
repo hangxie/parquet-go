@@ -113,7 +113,7 @@ func Test_ConvertToThriftReader_BufferSize(t *testing.T) {
 
 	for {
 		n, err := thriftReader.Read(buffer[:1000])
-		if err != nil && (err == io.EOF || err.Error() == "EOF") {
+		if err != nil && errors.Is(err, io.EOF) {
 			if n > 0 {
 				readData = append(readData, buffer[:n]...)
 			}
@@ -145,7 +145,7 @@ func Test_ConvertToThriftReader_EmptyData(t *testing.T) {
 	n, err := thriftReader.Read(buffer)
 
 	// When reading empty data, we expect EOF and 0 bytes read
-	if n == 0 && (err == io.EOF || err.Error() == "EOF") {
+	if n == 0 && errors.Is(err, io.EOF) {
 		// This is the expected behavior
 		// Expected behavior: EOF and 0 bytes when reading empty data
 	} else {
@@ -171,7 +171,7 @@ func Test_ConvertToThriftReader_LargeOffset(t *testing.T) {
 	n, err := thriftReader.Read(buffer)
 
 	// When reading beyond data, we expect EOF and 0 bytes read
-	if n == 0 && (err == io.EOF || err.Error() == "EOF") {
+	if n == 0 && errors.Is(err, io.EOF) {
 		// This is the expected behavior
 		// Expected behavior: EOF and 0 bytes when reading beyond data
 	} else {

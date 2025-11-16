@@ -107,7 +107,7 @@ func (s *s3Writer) Write(p []byte) (n int, err error) {
 func (s *s3Writer) Close() error {
 	if s.pipeWriter != nil {
 		if err := s.pipeWriter.Close(); err != nil {
-			return fmt.Errorf("failed to close S3 pipe writer: %w", err)
+			return fmt.Errorf("close S3 pipe writer: %w", err)
 		}
 	}
 
@@ -117,7 +117,7 @@ func (s *s3Writer) Close() error {
 	}
 
 	if err := <-s.writeDone; err != nil {
-		return fmt.Errorf("S3 upload failed: %w", err)
+		return fmt.Errorf("S3 upload: %w", err)
 	}
 	return nil
 }

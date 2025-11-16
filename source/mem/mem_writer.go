@@ -84,12 +84,12 @@ func (fs *memWriter) Write(b []byte) (n int, err error) {
 // Close - close file and execute OnCloseFunc
 func (fs *memWriter) Close() error {
 	if err := fs.file.Close(); err != nil {
-		return fmt.Errorf("failed to close mem file: %w", err)
+		return fmt.Errorf("close mem file: %w", err)
 	}
 	if fs.onClose != nil {
 		f, _ := memFs.Open(fs.filePath)
 		if err := fs.onClose(filepath.Base(fs.filePath), f); err != nil {
-			return fmt.Errorf("failed to execute onClose callback: %w", err)
+			return fmt.Errorf("execute onClose callback: %w", err)
 		}
 	}
 	return nil

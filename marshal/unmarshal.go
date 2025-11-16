@@ -335,7 +335,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 					}()
 
 					if poTypeForConvert == nil {
-						return fmt.Errorf("unable to get type from reflect value, possibly corrupted")
+						return fmt.Errorf("get type from reflect value, possibly corrupted")
 					}
 
 					// Safely get value type
@@ -351,7 +351,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 					if valueType == nil {
 						// This should not happen since we checked value.IsValid() above
-						return fmt.Errorf("unable to get type from valid value, this is unexpected")
+						return fmt.Errorf("get type from valid value, this is unexpected")
 					}
 
 					if poTypeForConvert != valueType {
@@ -359,7 +359,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 						func() {
 							defer func() {
 								if r := recover(); r != nil {
-									convertErr = fmt.Errorf("type conversion failed: %v", r)
+									convertErr = fmt.Errorf("convert type: %v", r)
 								}
 							}()
 							value = value.Convert(poTypeForConvert)
@@ -372,7 +372,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 					func() {
 						defer func() {
 							if r := recover(); r != nil {
-								setErr = fmt.Errorf("setting value failed: %v", r)
+								setErr = fmt.Errorf("set value: %v", r)
 							}
 						}()
 						po.Set(value)

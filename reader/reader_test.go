@@ -166,7 +166,7 @@ func Test_ParquetReader_ReadPartial(t *testing.T) {
 	var invalidResult []string
 	err = pr.ReadPartial(&invalidResult, "nonexistent_field")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "can't find path")
+	require.Contains(t, err.Error(), "path not found")
 
 	err = pr.ReadPartial(nil, nameField)
 	require.Error(t, err)

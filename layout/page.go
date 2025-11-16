@@ -98,7 +98,7 @@ func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parq
 
 		funcTable, err := common.FindFuncTable(pT, cT, logT)
 		if err != nil {
-			return nil, 0, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
+			return nil, 0, fmt.Errorf("find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 		}
 
 		for j < totalLn && size < pageSize {
@@ -666,7 +666,7 @@ func (p *Page) processDictionaryPage() error {
 		uint64(p.Header.DictionaryPageHeader.GetNumValues()),
 		0)
 	if err != nil {
-		return fmt.Errorf("failed to read plain values from dictionary page: %w", err)
+		return fmt.Errorf("read plain values from dictionary page: %w", err)
 	}
 	p.DataTable.Values = values
 	return nil
@@ -676,7 +676,7 @@ func (p *Page) processDictionaryPage() error {
 func (p *Page) processDataPageV2(schemaHandler *schema.SchemaHandler) error {
 	var err error
 	if p.RawData, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
-		return fmt.Errorf("failed to uncompress data page v2: %w", err)
+		return fmt.Errorf("uncompress data page v2: %w", err)
 	}
 	return p.processDataPage(schemaHandler, p.Header.DataPageHeaderV2.GetEncoding())
 }
@@ -705,7 +705,7 @@ func (p *Page) processDataPage(schemaHandler *schema.SchemaHandler, encodingType
 		uint64(len(p.DataTable.DefinitionLevels))-numNulls,
 		uint64(schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetTypeLength()))
 	if err != nil {
-		return fmt.Errorf("failed to read data page values: %w", err)
+		return fmt.Errorf("read data page values: %w", err)
 	}
 
 	j := 0

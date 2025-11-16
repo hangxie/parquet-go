@@ -181,7 +181,7 @@ func (sh *SchemaHandler) GetType(prefixPath string) (reflect.Type, error) {
 
 	ts := sh.GetTypes()
 	if idx, ok := sh.MapIndex[prefixPath]; !ok {
-		return nil, fmt.Errorf("[GetType] Can't find %v", prefixPath)
+		return nil, fmt.Errorf("GetType: path not found: %v", prefixPath)
 	} else {
 		// Use cached children map (built by GetTypes or buildChildrenMap)
 		children := sh.childrenMap

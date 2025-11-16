@@ -17,7 +17,7 @@ func Test_NewCSVWriter(t *testing.T) {
 		schema []string
 		errMsg string
 	}{
-		"bad":   {[]string{"abc"}, "failed to create schema from metadata"},
+		"bad":   {[]string{"abc"}, "create schema from metadata"},
 		"empty": {[]string{}, ""},
 		"good":  {[]string{"Name=First, Type=BYTE_ARRAY, ConvertedType=UTF8, Encoding=PLAIN"}, ""},
 	}

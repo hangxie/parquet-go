@@ -2,8 +2,8 @@ package gocloud
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"gocloud.dev/blob"
 
 	"github.com/hangxie/parquet-go/v2/source"
@@ -32,11 +32,11 @@ func NewBlobWriter(ctx context.Context, b *blob.Bucket, name string) (source.Par
 // Additionally Write is not guaranteed to have succeeded unless Close() also succeeds
 func (b *blobWriter) Write(p []byte) (n int, err error) {
 	if b.writer == nil && b.key == "" {
-		return 0, errors.New("Invalid call to write, you must create or open a ParquetFile for writing")
+		return 0, fmt.Errorf("writer not created or opened")
 	}
 	if b.writer == nil {
 		if w, err := b.bucket.NewWriter(b.ctx, b.key, nil); err != nil {
-			return 0, errors.Wrapf(err, "Could not create blob writer. key=%s", b.key)
+			return 0, fmt.Errorf("create blob writer key=%s: %w", b.key, err)
 		} else {
 			b.writer = w
 		}
@@ -58,7 +58,7 @@ func (b *blobWriter) Close() error {
 
 func (b *blobWriter) Create(name string) (source.ParquetFileWriter, error) {
 	if name == "" {
-		return nil, errors.New("Parquet File name cannot be empty")
+		return nil, fmt.Errorf("file name empty")
 	}
 
 	bf := &blobWriter{
@@ -70,7 +70,7 @@ func (b *blobWriter) Create(name string) (source.ParquetFileWriter, error) {
 
 	w, err := bf.bucket.NewWriter(bf.ctx, name, nil)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Could not create blob writer. blob=%s", name)
+		return nil, fmt.Errorf("create blob writer %s: %w", name, err)
 	}
 
 	bf.key = name

@@ -100,7 +100,7 @@ func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth
 
 		funcTable, err := common.FindFuncTable(pT, cT, logT)
 		if err != nil {
-			return nil, 0, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
+			return nil, 0, fmt.Errorf("find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 		}
 
 		for j < totalLn && size < pageSize {

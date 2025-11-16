@@ -21,7 +21,7 @@ type gcsFileWriter struct {
 func NewGcsFileWriter(ctx context.Context, projectID, bucketName, name string) (*gcsFileWriter, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage client: %w", err)
+		return nil, fmt.Errorf("create storage client: %w", err)
 	}
 
 	r, err := NewGcsFileWriterWithClient(ctx, client, projectID, bucketName, name)
@@ -42,7 +42,7 @@ func NewGcsFileWriterWithClient(ctx context.Context, client *storage.Client, pro
 	// Close writer to flush changes and force the file to be created
 	writer := obj.NewWriter(ctx)
 	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close writer: %w", err)
+		return nil, fmt.Errorf("close writer: %w", err)
 	}
 
 	return &gcsFileWriter{
@@ -86,7 +86,7 @@ func (g *gcsFileWriter) Write(b []byte) (int, error) {
 func (g *gcsFileWriter) Close() error {
 	if !g.externalClient && g.gcsClient != nil {
 		if err := g.gcsClient.Close(); err != nil {
-			return fmt.Errorf("failed to close GCS client: %w", err)
+			return fmt.Errorf("close GCS client: %w", err)
 		}
 
 		g.gcsClient = nil

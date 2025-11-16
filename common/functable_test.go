@@ -85,7 +85,7 @@ func Test_FindFuncTable(t *testing.T) {
 		require.Contains(t, err.Error(), "all types are nil")
 		_, err = FindFuncTable(nil, nil, &parquet.LogicalType{})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "cannot find func table for given types")
+		require.Contains(t, err.Error(), "find func table for given types")
 	})
 }
 

@@ -11,7 +11,7 @@ func BinaryReadINT32(r io.Reader, nums []any) error {
 	buf := make([]byte, len(nums)*4)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {
-		return fmt.Errorf("failed to read INT32 binary data: %w", err)
+		return fmt.Errorf("read INT32 binary data: %w", err)
 	}
 	if len(nums)*4 != n {
 		return io.ErrUnexpectedEOF
@@ -30,7 +30,7 @@ func BinaryReadINT64(r io.Reader, nums []any) error {
 	buf := make([]byte, len(nums)*8)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {
-		return fmt.Errorf("failed to read INT64 binary data: %w", err)
+		return fmt.Errorf("read INT64 binary data: %w", err)
 	}
 	if len(nums)*8 != n {
 		return io.ErrUnexpectedEOF
@@ -53,7 +53,7 @@ func BinaryReadFLOAT32(r io.Reader, nums []any) error {
 	buf := make([]byte, len(nums)*4)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {
-		return fmt.Errorf("failed to read FLOAT32 binary data: %w", err)
+		return fmt.Errorf("read FLOAT32 binary data: %w", err)
 	}
 	if len(nums)*4 != n {
 		return io.ErrUnexpectedEOF
@@ -72,7 +72,7 @@ func BinaryReadFLOAT64(r io.Reader, nums []any) error {
 	buf := make([]byte, len(nums)*8)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {
-		return fmt.Errorf("failed to read FLOAT64 binary data: %w", err)
+		return fmt.Errorf("read FLOAT64 binary data: %w", err)
 	}
 	if len(nums)*8 != n {
 		return io.ErrUnexpectedEOF

@@ -44,7 +44,7 @@ func (rowGroup *RowGroup) RowGroupToTableMap() *map[string]*Table {
 // Read one RowGroup from parquet file (Deprecated)
 func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileReader, schemaHandler *schema.SchemaHandler, NP int64) (*RowGroup, error) {
 	if rowGroupHeader == nil {
-		return nil, fmt.Errorf("rowGroupHeader cannot be nil")
+		return nil, fmt.Errorf("rowGroupHeader is nil")
 	}
 	if NP <= 0 {
 		return nil, fmt.Errorf("NP must be greater than 0, got %d", NP)

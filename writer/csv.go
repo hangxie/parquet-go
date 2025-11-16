@@ -29,7 +29,7 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, np int64) (*CSVWr
 	res := new(CSVWriter)
 	res.SchemaHandler, err = schema.NewSchemaHandlerFromMetadata(md)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create schema from metadata: %s", err.Error())
+		return nil, fmt.Errorf("create schema from metadata: %w", err)
 	}
 	res.PFile = pfile
 	res.PageSize = common.DefaultPageSize         // 8K

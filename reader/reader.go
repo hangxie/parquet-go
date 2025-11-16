@@ -220,7 +220,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 	for _, pathStr := range pr.SchemaHandler.ValueColumns {
 		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr); err != nil {
-				return fmt.Errorf("failed to create column buffer for %s: %w", pathStr, err)
+				return fmt.Errorf("create column buffer for %s: %w", pathStr, err)
 			}
 		}
 	}
@@ -236,7 +236,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 			if _, err := pr.ColumnBuffers[pathStr].SkipRowsWithError(int64(num)); err != nil && err == io.EOF {
 				return nil
 			} else if err != nil {
-				return fmt.Errorf("failed to skip rows for column %s: %w", pathStr, err)
+				return fmt.Errorf("skip rows for column %s: %w", pathStr, err)
 			}
 			return nil
 		})
@@ -293,7 +293,7 @@ func (pr *ParquetReader) ReadPartial(dstInterface any, prefixPath string) error 
 // Read maxReadNumber partial objects
 func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath string) ([]any, error) {
 	if maxReadNumber < 0 {
-		return nil, fmt.Errorf("maxReadNumber cannot be negative: %d", maxReadNumber)
+		return nil, fmt.Errorf("negative maxReadNumber: %d", maxReadNumber)
 	}
 
 	var err error
@@ -323,7 +323,7 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 // Read rows of parquet file with a prefixPath
 func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	if dstInterface == nil {
-		return fmt.Errorf("dstInterface cannot be nil")
+		return fmt.Errorf("dstInterface is nil")
 	}
 
 	tmap := make(map[string]*layout.Table)
@@ -435,7 +435,7 @@ func (pr *ParquetReader) Reset() error {
 		}
 
 		if err := cb.PFile.Close(); err != nil {
-			return fmt.Errorf("failed to close column buffer: %w", err)
+			return fmt.Errorf("close column buffer: %w", err)
 		}
 	}
 
@@ -443,7 +443,7 @@ func (pr *ParquetReader) Reset() error {
 	for pathStr := range pr.ColumnBuffers {
 		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr)
 		if err != nil {
-			return fmt.Errorf("failed to recreate column buffer for %s: %w", pathStr, err)
+			return fmt.Errorf("recreate column buffer for %s: %w", pathStr, err)
 		}
 		pr.ColumnBuffers[pathStr] = newCB
 	}
@@ -458,7 +458,7 @@ func (pr *ParquetReader) ReadStopWithError() error {
 	for pathStr, cb := range pr.ColumnBuffers {
 		if cb != nil {
 			if err := cb.PFile.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("failed to close column buffer for path %s: %w", pathStr, err))
+				errs = append(errs, fmt.Errorf("close column buffer for path %s: %w", pathStr, err))
 			}
 		}
 	}
