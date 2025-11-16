@@ -225,6 +225,34 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 	}
 }
 
+// setPageStatistics sets the min/max/null statistics on a Statistics object
+func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
+	if page.MaxVal != nil {
+		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
+		if err != nil {
+			return err
+		}
+		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
+			tmpBuf = tmpBuf[4:]
+		}
+		stats.Max = tmpBuf
+		stats.MaxValue = tmpBuf
+	}
+	if page.MinVal != nil {
+		tmpBuf, err := encoding.WritePlain([]any{page.MinVal}, *page.Schema.Type)
+		if err != nil {
+			return err
+		}
+		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
+			tmpBuf = tmpBuf[4:]
+		}
+		stats.Min = tmpBuf
+		stats.MinValue = tmpBuf
+	}
+	stats.NullCount = page.NullCount
+	return nil
+}
+
 // Compress the data page to parquet file
 func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byte, error) {
 	ln := len(page.DataTable.DefinitionLevels)
@@ -286,31 +314,9 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 	page.Header.DataPageHeader.Encoding = page.Info.Encoding
 
 	page.Header.DataPageHeader.Statistics = parquet.NewStatistics()
-
-	if page.MaxVal != nil {
-		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
-		if err != nil {
-			return nil, err
-		}
-		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
-			tmpBuf = tmpBuf[4:]
-		}
-		page.Header.DataPageHeader.Statistics.Max = tmpBuf
-		page.Header.DataPageHeader.Statistics.MaxValue = tmpBuf
+	if err = page.setPageStatistics(page.Header.DataPageHeader.Statistics); err != nil {
+		return nil, err
 	}
-	if page.MinVal != nil {
-		tmpBuf, err := encoding.WritePlain([]any{page.MinVal}, *page.Schema.Type)
-		if err != nil {
-			return nil, err
-		}
-		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
-			tmpBuf = tmpBuf[4:]
-		}
-		page.Header.DataPageHeader.Statistics.Min = tmpBuf
-		page.Header.DataPageHeader.Statistics.MinValue = tmpBuf
-	}
-
-	page.Header.DataPageHeader.Statistics.NullCount = page.NullCount
 
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
@@ -391,31 +397,9 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 	page.Header.DataPageHeaderV2.IsCompressed = true
 
 	page.Header.DataPageHeaderV2.Statistics = parquet.NewStatistics()
-
-	if page.MaxVal != nil {
-		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
-		if err != nil {
-			return nil, err
-		}
-		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
-			tmpBuf = tmpBuf[4:]
-		}
-		page.Header.DataPageHeaderV2.Statistics.Max = tmpBuf
-		page.Header.DataPageHeaderV2.Statistics.MaxValue = tmpBuf
+	if err = page.setPageStatistics(page.Header.DataPageHeaderV2.Statistics); err != nil {
+		return nil, err
 	}
-	if page.MinVal != nil {
-		tmpBuf, err := encoding.WritePlain([]any{page.MinVal}, *page.Schema.Type)
-		if err != nil {
-			return nil, err
-		}
-		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
-			tmpBuf = tmpBuf[4:]
-		}
-		page.Header.DataPageHeaderV2.Statistics.Min = tmpBuf
-		page.Header.DataPageHeaderV2.Statistics.MinValue = tmpBuf
-	}
-
-	page.Header.DataPageHeaderV2.Statistics.NullCount = page.NullCount
 
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
