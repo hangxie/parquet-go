@@ -36,8 +36,7 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter,
 	res := new(ArrowWriter)
 	res.SchemaHandler, err = schema.NewSchemaHandlerFromArrow(arrowSchema)
 	if err != nil {
-		return res, fmt.Errorf("unable to create schema from arrow definition: %s",
-			err.Error())
+		return res, fmt.Errorf("create schema from arrow definition: %w", err)
 	}
 
 	res.PFile = pfile

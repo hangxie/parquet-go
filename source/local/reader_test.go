@@ -1,6 +1,8 @@
 package local
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -62,7 +64,7 @@ func Test_LocalReader_PartialRead(t *testing.T) {
 	// Test reading with a larger buffer than the file
 	buffer := make([]byte, 20)
 	n, err := reader.Read(buffer)
-	if err != nil && err.Error() != "EOF" {
+	if err != nil && !errors.Is(err, io.EOF) {
 		require.NoError(t, err)
 	}
 	require.Equal(t, len(testData), n)
@@ -131,7 +133,7 @@ func Test_LocalReader_Read(t *testing.T) {
 			if testCase.expectError {
 				require.Error(t, err)
 			}
-			if !testCase.expectError && err != nil && err.Error() != "EOF" {
+			if !testCase.expectError && err != nil && !errors.Is(err, io.EOF) {
 				require.NoError(t, err)
 			}
 

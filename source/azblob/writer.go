@@ -2,7 +2,6 @@ package azblob
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -25,7 +24,7 @@ type azBlobWriter struct {
 	pipeWriter *io.PipeWriter
 }
 
-var errWriteNotOpened = errors.New("Write url not opened")
+var errWriteNotOpened = fmt.Errorf("write url not opened")
 
 // NewAzBlobFileWriter creates an Azure Blob FileWriter, to be used with NewParquetWriter
 func NewAzBlobFileWriter(ctx context.Context, URL string, credential any, clientOptions blockblob.ClientOptions) (source.ParquetFileWriter, error) {
@@ -40,7 +39,7 @@ func NewAzBlobFileWriter(ctx context.Context, URL string, credential any, client
 		case *blob.SharedKeyCredential:
 			client, err = blockblob.NewClientWithSharedKeyCredential(URL, v, &clientOptions)
 		default:
-			return nil, errors.New("invalid credential type")
+			return nil, fmt.Errorf("invalid credential type")
 		}
 	}
 	if err != nil {
@@ -53,7 +52,7 @@ func NewAzBlobFileWriter(ctx context.Context, URL string, credential any, client
 // NewAzBlobFileWriterWithClient creates an Azure Blob FileWriter, to be used with NewParquetWriter
 func NewAzBlobFileWriterWithClient(ctx context.Context, URL string, client *blockblob.Client) (source.ParquetFileWriter, error) {
 	if client == nil {
-		return nil, errors.New("client cannot be nil")
+		return nil, fmt.Errorf("client is nil")
 	}
 	file := &azBlobWriter{
 		azBlockBlob: azBlockBlob{
@@ -87,7 +86,7 @@ func (s *azBlobWriter) Close() error {
 
 	if s.pipeWriter != nil {
 		if err = s.pipeWriter.Close(); err != nil {
-			return fmt.Errorf("failed to close Azure Blob pipe writer: %w", err)
+			return fmt.Errorf("close Azure Blob pipe writer: %w", err)
 		}
 
 		// wait for pending uploads
@@ -95,7 +94,7 @@ func (s *azBlobWriter) Close() error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("Azure Blob upload failed: %w", err)
+		return fmt.Errorf("Azure Blob upload: %w", err)
 	}
 	return nil
 }

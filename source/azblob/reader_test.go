@@ -88,7 +88,7 @@ func Test_NewAzBlobFileReaderWithClient(t *testing.T) {
 		require.True(t, tc.err.Match(err))
 	}
 	_, err := NewAzBlobFileReaderWithClient(context.Background(), "dummy-url", nil)
-	expected := "client cannot be nil"
+	expected := "client is nil"
 	require.Error(t, err)
 	require.Contains(t, err.Error(), expected)
 }

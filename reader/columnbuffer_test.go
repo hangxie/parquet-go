@@ -1030,7 +1030,7 @@ func Test_ReadPage_RecursiveCall(t *testing.T) {
 	err := cb.ReadPage()
 	// Should error because NextRowGroup will fail (no more row groups)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to move to next row group")
+	require.Contains(t, err.Error(), "move to next row group")
 }
 
 func Test_ReadPageForSkip_RecursiveCall(t *testing.T) {

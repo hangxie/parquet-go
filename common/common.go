@@ -1,7 +1,6 @@
 package common
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -39,37 +38,37 @@ func (mp *fieldAttr) update(key, val string) error {
 		mp.convertedType = val
 	case "length":
 		if mp.Length, err = str2Int32(val); err != nil {
-			return fmt.Errorf("failed to parse length: %s", err.Error())
+			return fmt.Errorf("parse length: %w", err)
 		}
 	case "scale":
 		if mp.Scale, err = str2Int32(val); err != nil {
-			return fmt.Errorf("failed to parse scale: %s", err.Error())
+			return fmt.Errorf("parse scale: %w", err)
 		}
 	case "precision":
 		if mp.Precision, err = str2Int32(val); err != nil {
-			return fmt.Errorf("failed to parse precision: %s", err.Error())
+			return fmt.Errorf("parse precision: %w", err)
 		}
 	case "fieldid":
 		if mp.fieldID, err = str2Int32(val); err != nil {
-			return fmt.Errorf("failed to parse fieldid: %s", err.Error())
+			return fmt.Errorf("parse fieldid: %w", err)
 		}
 	case "isadjustedtoutc":
 		if mp.isAdjustedToUTC, err = str2Bool(val); err != nil {
-			return fmt.Errorf("failed to parse isadjustedtoutc: %s", err.Error())
+			return fmt.Errorf("parse isadjustedtoutc: %w", err)
 		}
 	case "omitstats":
 		if mp.OmitStats, err = str2Bool(val); err != nil {
-			return fmt.Errorf("failed to parse omitstats: %s", err.Error())
+			return fmt.Errorf("parse omitstats: %w", err)
 		}
 	case "repetitiontype":
 		mp.RepetitionType, err = parquet.FieldRepetitionTypeFromString(strings.ToUpper(val))
 		if err != nil {
-			return fmt.Errorf("failed to parse repetitiontype: %w", err)
+			return fmt.Errorf("parse repetitiontype: %w", err)
 		}
 	case "encoding":
 		mp.Encoding, err = parquet.EncodingFromString(strings.ToUpper(val))
 		if err != nil {
-			return fmt.Errorf("failed to parse encoding: %w", err)
+			return fmt.Errorf("parse encoding: %w", err)
 		}
 	default:
 		if strings.HasPrefix(key, "logicaltype") {
@@ -132,7 +131,7 @@ func StringToTag(tag string) (*Tag, error) {
 			err = mp.fieldAttr.update(key, val)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse tag '%s': %w", tag, err)
+			return nil, fmt.Errorf("parse tag '%s': %w", tag, err)
 		}
 	}
 	return mp, nil
@@ -151,7 +150,7 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 	if t, err := parquet.TypeFromString(info.Type); err == nil {
 		schema.Type = &t
 	} else {
-		return nil, fmt.Errorf("field [%s] with type [%s]: %s", info.InName, info.Type, err.Error())
+		return nil, fmt.Errorf("field [%s] with type [%s]: %w", info.InName, info.Type, err)
 	}
 
 	if ct, err := parquet.ConvertedTypeFromString(info.convertedType); err == nil {
@@ -163,7 +162,7 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 	if len(info.logicalTypeFields) > 0 {
 		logicalType, err = newLogicalTypeFromFieldsMap(info.logicalTypeFields)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create logicaltype from field map: %s", err.Error())
+			return nil, fmt.Errorf("create logicaltype from field map: %w", err)
 		}
 	} else {
 		logicalType = newLogicalTypeFromConvertedType(schema, info)
@@ -217,7 +216,7 @@ func newEdgeInterpolationAlgorithmFromString(algoStr string) (*parquet.EdgeInter
 func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, error) {
 	val, ok := mp["logicaltype"]
 	if !ok {
-		return nil, errors.New("does not have logicaltype")
+		return nil, fmt.Errorf("missing logicaltype")
 	}
 
 	var err error
@@ -234,17 +233,17 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 	case "DECIMAL":
 		logicalType.DECIMAL = parquet.NewDecimalType()
 		if logicalType.DECIMAL.Precision, err = str2Int32(mp["logicaltype.precision"]); err != nil {
-			return nil, fmt.Errorf("cannot parse logicaltype.precision as int32: %s", err.Error())
+			return nil, fmt.Errorf("parse logicaltype.precision as int32: %w", err)
 		}
 		if logicalType.DECIMAL.Scale, err = str2Int32(mp["logicaltype.scale"]); err != nil {
-			return nil, fmt.Errorf("cannot parse logicaltype.scale as int32: %s", err.Error())
+			return nil, fmt.Errorf("parse logicaltype.scale as int32: %w", err)
 		}
 	case "DATE":
 		logicalType.DATE = parquet.NewDateType()
 	case "TIME":
 		logicalType.TIME = parquet.NewTimeType()
 		if logicalType.TIME.IsAdjustedToUTC, err = str2Bool(mp["logicaltype.isadjustedtoutc"]); err != nil {
-			return nil, fmt.Errorf("cannot parse logicaltype.isadjustedtoutc as boolean: %s", err.Error())
+			return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
 		}
 		if logicalType.TIME.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
 			return nil, err
@@ -252,7 +251,7 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 	case "TIMESTAMP":
 		logicalType.TIMESTAMP = parquet.NewTimestampType()
 		if logicalType.TIMESTAMP.IsAdjustedToUTC, err = str2Bool(mp["logicaltype.isadjustedtoutc"]); err != nil {
-			return nil, fmt.Errorf("cannot parse logicaltype.isadjustedtoutc as boolean: %s", err.Error())
+			return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
 		}
 		if logicalType.TIMESTAMP.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
 			return nil, err
@@ -261,11 +260,11 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		logicalType.INTEGER = parquet.NewIntType()
 		bitWidth, err := str2Int32(mp["logicaltype.bitwidth"])
 		if err != nil {
-			return nil, fmt.Errorf("cannot parse logicaltype.bitwidth as int32: %s", err.Error())
+			return nil, fmt.Errorf("parse logicaltype.bitwidth as int32: %w", err)
 		}
 		logicalType.INTEGER.BitWidth = int8(bitWidth)
 		if logicalType.INTEGER.IsSigned, err = str2Bool(mp["logicaltype.issigned"]); err != nil {
-			return nil, fmt.Errorf("cannot parse logicaltype.issigned as boolean: %s", err.Error())
+			return nil, fmt.Errorf("parse logicaltype.issigned as boolean: %w", err)
 		}
 	case "JSON":
 		logicalType.JSON = parquet.NewJsonType()
@@ -280,7 +279,7 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		if vStr, ok := mp["logicaltype.specification_version"]; ok && vStr != "" {
 			iv, err := str2Int32(vStr)
 			if err != nil {
-				return nil, fmt.Errorf("cannot parse logicaltype.specification_version as int32: %s", err.Error())
+				return nil, fmt.Errorf("parse logicaltype.specification_version as int32: %w", err)
 			}
 			v := int8(iv)
 			logicalType.VARIANT.SpecificationVersion = &v

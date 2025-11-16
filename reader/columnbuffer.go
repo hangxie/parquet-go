@@ -35,13 +35,13 @@ type ColumnBufferType struct {
 
 func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string) (*ColumnBufferType, error) {
 	if pFile == nil {
-		return nil, fmt.Errorf("pFile cannot be nil")
+		return nil, fmt.Errorf("pFile is nil")
 	}
 	if footer == nil {
-		return nil, fmt.Errorf("footer cannot be nil")
+		return nil, fmt.Errorf("footer is nil")
 	}
 	if schemaHandler == nil {
-		return nil, fmt.Errorf("schema handler cannot be nil")
+		return nil, fmt.Errorf("schema handler is nil")
 	}
 	// If the path exists in the schema handler map, validate its type to catch
 	// corrupt or unsupported schemas early. Otherwise, skip validation because
@@ -111,7 +111,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	if columnChunks[i].FilePath != nil {
 		_ = cbt.PFile.Close()
 		if cbt.PFile, err = cbt.PFile.Open(*columnChunks[i].FilePath); err != nil {
-			return fmt.Errorf("failed to open file %s: %w", *columnChunks[i].FilePath, err)
+			return fmt.Errorf("open file %s: %w", *columnChunks[i].FilePath, err)
 		}
 	}
 
@@ -155,7 +155,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 				}
 			}
 
-			return fmt.Errorf("failed to read page: %w", err)
+			return fmt.Errorf("read page: %w", err)
 		}
 
 		if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
@@ -175,7 +175,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 		cbt.DataTableNumRows += numRows
 	} else {
 		if err := cbt.NextRowGroup(); err != nil {
-			return fmt.Errorf("failed to move to next row group: %w", err)
+			return fmt.Errorf("move to next row group: %w", err)
 		}
 
 		return cbt.ReadPage()

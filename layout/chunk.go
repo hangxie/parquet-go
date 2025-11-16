@@ -33,22 +33,22 @@ func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 		statsStartIdx = 1
 	} else {
 		if len(pages) == 0 {
-			return nil, fmt.Errorf("pages slice cannot be empty")
+			return nil, fmt.Errorf("pages slice empty")
 		}
 	}
 
 	// Validate the metadata page
 	if pages[metadataPageIdx] == nil {
-		return nil, fmt.Errorf("page #%d cannot be nil", metadataPageIdx)
+		return nil, fmt.Errorf("page #%d is nil", metadataPageIdx)
 	}
 	if pages[metadataPageIdx].Schema == nil {
-		return nil, fmt.Errorf("page #%d schema cannot be nil", metadataPageIdx)
+		return nil, fmt.Errorf("page #%d schema is nil", metadataPageIdx)
 	}
 	if pages[metadataPageIdx].Schema.Type == nil {
-		return nil, fmt.Errorf("page #%d schema type cannot be nil", metadataPageIdx)
+		return nil, fmt.Errorf("page #%d schema type is nil", metadataPageIdx)
 	}
 	if pages[metadataPageIdx].Info == nil {
-		return nil, fmt.Errorf("page #%d info cannot be nil", metadataPageIdx)
+		return nil, fmt.Errorf("page #%d info is nil", metadataPageIdx)
 	}
 
 	var numValues int64 = 0
@@ -61,7 +61,7 @@ func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 	pT, cT, logT, omitStats := pages[metadataPageIdx].Schema.Type, pages[metadataPageIdx].Schema.ConvertedType, pages[metadataPageIdx].Schema.LogicalType, pages[metadataPageIdx].Info.OmitStats
 	funcTable, err := common.FindFuncTable(pT, cT, logT)
 	if err != nil {
-		return nil, fmt.Errorf("cannot find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
+		return nil, fmt.Errorf("find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 	}
 
 	// Collect unique encodings from pages
@@ -197,10 +197,10 @@ func DecodeDictChunk(chunk *Chunk) {
 // Read one chunk from parquet file (Deprecated)
 func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, chunkHeader *parquet.ColumnChunk) (*Chunk, error) {
 	if chunkHeader == nil {
-		return nil, fmt.Errorf("chunkHeader cannot be nil")
+		return nil, fmt.Errorf("chunkHeader is nil")
 	}
 	if chunkHeader.MetaData == nil {
-		return nil, fmt.Errorf("chunkHeader.MetaData cannot be nil")
+		return nil, fmt.Errorf("chunkHeader.MetaData is nil")
 	}
 
 	chunk := new(Chunk)

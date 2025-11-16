@@ -190,7 +190,7 @@ func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.Lo
 		}
 	}
 
-	return nil, fmt.Errorf("cannot find func table for given types: %v, %v, %v", pT, cT, logT)
+	return nil, fmt.Errorf("find func table for given types: %v, %v, %v", pT, cT, logT)
 }
 
 func Min(table FuncTable, a, b any) any {

@@ -65,21 +65,21 @@ func Test_FieldAttr_Update(t *testing.T) {
 		"type":                 {"type", "BOOLEAN", fieldAttr{Type: "BOOLEAN"}, ""},
 		"convertedtype":        {"convertedtype", "UTF8", fieldAttr{convertedType: "UTF8"}, ""},
 		"length-good":          {"length", "123", fieldAttr{Length: 123}, ""},
-		"length-bad":           {"length", "abc", fieldAttr{}, "failed to parse length:"},
+		"length-bad":           {"length", "abc", fieldAttr{}, "parse length:"},
 		"scale-good":           {"scale", "123", fieldAttr{Scale: 123}, ""},
-		"scale-bad":            {"scale", "abc", fieldAttr{}, "failed to parse scale:"},
+		"scale-bad":            {"scale", "abc", fieldAttr{}, "parse scale:"},
 		"precision-good":       {"precision", "123", fieldAttr{Precision: 123}, ""},
-		"precision-bad":        {"precision", "abc", fieldAttr{}, "failed to parse precision:"},
+		"precision-bad":        {"precision", "abc", fieldAttr{}, "parse precision:"},
 		"fieldid-good":         {"fieldid", "123", fieldAttr{fieldID: 123}, ""},
-		"fieldid-bad":          {"fieldid", "abc", fieldAttr{}, "failed to parse fieldid:"},
+		"fieldid-bad":          {"fieldid", "abc", fieldAttr{}, "parse fieldid:"},
 		"isadjustedtoutc-good": {"isadjustedtoutc", "true", fieldAttr{isAdjustedToUTC: true}, ""},
-		"isadjustedtoutc-bad":  {"isadjustedtoutc", "abc", fieldAttr{}, "failed to parse isadjustedtoutc:"},
+		"isadjustedtoutc-bad":  {"isadjustedtoutc", "abc", fieldAttr{}, "parse isadjustedtoutc:"},
 		"omitstats-good":       {"omitstats", "true", fieldAttr{OmitStats: true}, ""},
-		"omitstats-bad":        {"omitstats", "abc", fieldAttr{}, "failed to parse omitstats:"},
+		"omitstats-bad":        {"omitstats", "abc", fieldAttr{}, "parse omitstats:"},
 		"repetitiontype-good":  {"repetitiontype", "repeated", fieldAttr{RepetitionType: parquet.FieldRepetitionType_REPEATED}, ""},
-		"repetitiontype-bad":   {"repetitiontype", "foobar", fieldAttr{}, "failed to parse repetitiontype:"},
+		"repetitiontype-bad":   {"repetitiontype", "foobar", fieldAttr{}, "parse repetitiontype:"},
 		"encoding-good":        {"encoding", "plain", fieldAttr{Encoding: parquet.Encoding_PLAIN}, ""},
-		"encoding-bad":         {"encoding", "foobar", fieldAttr{}, "failed to parse encoding:"},
+		"encoding-bad":         {"encoding", "foobar", fieldAttr{}, "parse encoding:"},
 		"logicaltype":          {"logicaltype.foo", "bar", fieldAttr{logicalTypeFields: map[string]string{"logicaltype.foo": "bar"}}, ""},
 		"unknown-tag":          {"unknown-tag.foo", "foobar", fieldAttr{}, "unrecognized tag"},
 	}
@@ -195,7 +195,7 @@ func Test_NewSchemaElementFromTagMap(t *testing.T) {
 				},
 			},
 			parquet.SchemaElement{},
-			"failed to create logicaltype from field map",
+			"create logicaltype from field map",
 		},
 		"all-good": {
 			Tag{
@@ -324,11 +324,11 @@ func Test_StringToTag(t *testing.T) {
 		"name-then-inname": {" name=John,inname = Jane ", Tag{InName: "Jane", ExName: "John"}, ""},
 		"inname-then-name": {" inname=John,name = Jane ", Tag{InName: "John", ExName: "Jane"}, ""},
 		"tag-good":         {"type=BYTE_ARRAY,convertedtype=UTF8", Tag{fieldAttr: fieldAttr{Type: "BYTE_ARRAY", convertedType: "UTF8"}}, ""},
-		"tag-bad":          {"foo=bar", Tag{}, "failed to parse tag"},
+		"tag-bad":          {"foo=bar", Tag{}, "parse tag"},
 		"key-good":         {"keytype=INT32,KeyConvertedtype=TIME", Tag{Key: fieldAttr{Type: "INT32", convertedType: "TIME"}}, ""},
-		"key-bad":          {"keyfoo=bar", Tag{}, "failed to parse tag"},
+		"key-bad":          {"keyfoo=bar", Tag{}, "parse tag"},
 		"value-good":       {"valuetype=INT32, valuerepetitiontype=REPEATED", Tag{Value: fieldAttr{Type: "INT32", RepetitionType: parquet.FieldRepetitionType_REPEATED}}, ""},
-		"value-bad":        {"valuefoo=bar", Tag{}, "failed to parse tag"},
+		"value-bad":        {"valuefoo=bar", Tag{}, "parse tag"},
 	}
 
 	for name, tc := range testCases {
@@ -543,7 +543,7 @@ func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
 		expected parquet.LogicalType
 		errMsg   string
 	}{
-		"missing-logicaltype": {map[string]string{}, parquet.LogicalType{}, "does not have logicaltype"},
+		"missing-logicaltype": {map[string]string{}, parquet.LogicalType{}, "missing logicaltype"},
 		"string": {
 			map[string]string{"logicaltype": "STRING"},
 			parquet.LogicalType{STRING: &parquet.StringType{}},
@@ -587,12 +587,12 @@ func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
 		"decimal-bad-precision": {
 			map[string]string{"logicaltype": "DECIMAL"},
 			parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
-			"cannot parse logicaltype.precision as int32",
+			"parse logicaltype.precision as int32",
 		},
 		"decimal-bad-scale": {
 			map[string]string{"logicaltype": "DECIMAL", "logicaltype.precision": "10"},
 			parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
-			"cannot parse logicaltype.scale as int32",
+			"parse logicaltype.scale as int32",
 		},
 		"decimal-good": {
 			map[string]string{"logicaltype": "DECIMAL", "logicaltype.precision": "10", "logicaltype.scale": "2"},
@@ -602,7 +602,7 @@ func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
 		"time-bad-adjustutc": {
 			map[string]string{"logicaltype": "TIME"},
 			parquet.LogicalType{TIME: &parquet.TimeType{}},
-			"cannot parse logicaltype.isadjustedtoutc as bool",
+			"parse logicaltype.isadjustedtoutc as bool",
 		},
 		"time-bad-unit": {
 			map[string]string{"logicaltype": "TIME", "logicaltype.isadjustedtoutc": "true"},
@@ -617,7 +617,7 @@ func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
 		"timestamp-bad-adjustutc": {
 			map[string]string{"logicaltype": "TIMESTAMP"},
 			parquet.LogicalType{TIME: &parquet.TimeType{}},
-			"cannot parse logicaltype.isadjustedtoutc as bool",
+			"parse logicaltype.isadjustedtoutc as bool",
 		},
 		"timestamp-bad-unit": {
 			map[string]string{"logicaltype": "TIMESTAMP", "logicaltype.isadjustedtoutc": "true"},
@@ -632,12 +632,12 @@ func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
 		"integer-bad-bitwidth": {
 			map[string]string{"logicaltype": "INTEGER"},
 			parquet.LogicalType{INTEGER: &parquet.IntType{}},
-			"cannot parse logicaltype.bitwidth as int32",
+			"parse logicaltype.bitwidth as int32",
 		},
 		"integer-bad-signed": {
 			map[string]string{"logicaltype": "INTEGER", "logicaltype.bitwidth": "64"},
 			parquet.LogicalType{INTEGER: &parquet.IntType{}},
-			"cannot parse logicaltype.issigned as boolean:",
+			"parse logicaltype.issigned as boolean:",
 		},
 		"integer-good": {
 			map[string]string{"logicaltype": "INTEGER", "logicaltype.bitwidth": "64", "logicaltype.issigned": "true"},

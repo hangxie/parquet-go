@@ -3,7 +3,6 @@ package writer
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -234,7 +233,7 @@ func (pw *ParquetWriter) WriteStop() error {
 // Write one object to parquet file
 func (pw *ParquetWriter) Write(src any) error {
 	if pw.stopped {
-		return errors.New("writer is stopped")
+		return fmt.Errorf("writer stopped")
 	}
 
 	var err error
@@ -367,7 +366,7 @@ func (pw *ParquetWriter) flushObjs() error {
 
 	pw.NumRows += int64(len(pw.Objs))
 	if err != nil {
-		return fmt.Errorf("failed to flush objects: %w", err)
+		return fmt.Errorf("flush objects: %w", err)
 	}
 	return nil
 }
@@ -377,7 +376,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 	var err error
 
 	if err = pw.flushObjs(); err != nil {
-		return fmt.Errorf("failed to flush objects during flush: %w", err)
+		return fmt.Errorf("flush objects during flush: %w", err)
 	}
 
 	if (pw.Size+pw.ObjsSize >= pw.RowGroupSize || flag) && len(pw.PagesMapBuf) > 0 {
@@ -392,17 +391,17 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 				dictRec := v.(*layout.DictRecType)
 				dictPage, _, err := layout.DictRecToDictPage(dictRec, int32(pw.PageSize), pw.CompressionType)
 				if err != nil {
-					return fmt.Errorf("failed to convert dict rec to dict page for column %s: %w", name, err)
+					return fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)
 				}
 				tmp := append([]*layout.Page{dictPage}, pages...)
 				chunkMap[name], err = layout.PagesToDictChunk(tmp)
 				if err != nil {
-					return fmt.Errorf("failed to convert pages to dict chunk for column %s: %w", name, err)
+					return fmt.Errorf("convert pages to dict chunk for column %s: %w", name, err)
 				}
 			} else {
 				chunkMap[name], err = layout.PagesToChunk(pages)
 				if err != nil {
-					return fmt.Errorf("failed to convert pages to chunk for column %s: %w", name, err)
+					return fmt.Errorf("convert pages to chunk for column %s: %w", name, err)
 				}
 			}
 		}
@@ -507,7 +506,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 
 				data := page.RawData
 				if _, err = pw.PFile.Write(data); err != nil {
-					return fmt.Errorf("failed to write page data: %w", err)
+					return fmt.Errorf("write page data: %w", err)
 				}
 				pw.Offset += int64(len(data))
 			}

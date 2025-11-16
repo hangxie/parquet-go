@@ -2,7 +2,7 @@ package azblob
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"io"
 	"net/url"
 
@@ -24,9 +24,9 @@ type azBlobReader struct {
 }
 
 var (
-	errWhence        = errors.New("Seek: invalid whence")
-	errInvalidOffset = errors.New("Seek: invalid offset")
-	errReadNotOpened = errors.New("Read: url not opened")
+	errWhence        = fmt.Errorf("invalid whence")
+	errInvalidOffset = fmt.Errorf("invalid offset")
+	errReadNotOpened = fmt.Errorf("url not opened")
 )
 
 // NewAzBlobFileReader creates an Azure Blob FileReader, to be used with NewParquetReader
@@ -42,7 +42,7 @@ func NewAzBlobFileReader(ctx context.Context, URL string, credential any, client
 		case *blob.SharedKeyCredential:
 			client, err = blockblob.NewClientWithSharedKeyCredential(URL, v, &clientOptions)
 		default:
-			return nil, errors.New("invalid credential type")
+			return nil, fmt.Errorf("invalid credential type")
 		}
 	}
 	if err != nil {
@@ -55,7 +55,7 @@ func NewAzBlobFileReader(ctx context.Context, URL string, credential any, client
 // NewAzBlobFileReaderWithClient creates an Azure Blob FileReader, to be used with NewParquetReader
 func NewAzBlobFileReaderWithClient(ctx context.Context, URL string, client *blockblob.Client) (source.ParquetFileReader, error) {
 	if client == nil {
-		return nil, errors.New("client cannot be nil")
+		return nil, fmt.Errorf("client is nil")
 	}
 	file := &azBlobReader{
 		azBlockBlob: azBlockBlob{

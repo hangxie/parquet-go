@@ -25,7 +25,7 @@ const (
 // determine the size of the objects.
 func ConvertArrowToParquetSchema(schema *arrow.Schema) ([]string, error) {
 	if schema == nil {
-		return nil, fmt.Errorf("schema cannot be nil")
+		return nil, fmt.Errorf("schema is nil")
 	}
 
 	metaData := make([]string, len(schema.Fields()))

@@ -66,5 +66,5 @@ func Test_NewGcsFileWriterWithClient(t *testing.T) {
 	require.NoError(t, err)
 	_, err = NewGcsFileWriterWithClient(ctx, client, "test-project", "test-bucket", "test.parquet")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to close writer: googleapi: Error 401")
+	require.Contains(t, err.Error(), "close writer: googleapi: Error 401")
 }

@@ -101,7 +101,7 @@ func Test_NewAzBlobFileWriterWithClient(t *testing.T) {
 		writer, err := NewAzBlobFileWriterWithClient(ctx, testURL, nil)
 		require.Error(t, err)
 		require.Nil(t, writer)
-		require.Contains(t, err.Error(), "client cannot be nil")
+		require.Contains(t, err.Error(), "client is nil")
 	})
 
 	t.Run("valid_client", func(t *testing.T) {
@@ -154,7 +154,7 @@ func Test_AzBlobWriter_Write(t *testing.T) {
 			},
 			writeData:     []byte("test data"),
 			expectError:   true,
-			expectedError: "Write url not opened",
+			expectedError: "write url not opened",
 		},
 		{
 			name: "successful_write",
@@ -389,7 +389,7 @@ func Test_AzBlobWriter_Create(t *testing.T) {
 
 func Test_AzBlobWriter_ErrorMessages(t *testing.T) {
 	// Test that errWriteNotOpened is properly defined
-	require.Equal(t, "Write url not opened", errWriteNotOpened.Error())
+	require.Equal(t, "write url not opened", errWriteNotOpened.Error())
 }
 
 func Test_AzBlobWriter_CredentialTypes(t *testing.T) {

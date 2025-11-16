@@ -84,12 +84,12 @@ func (f *hdfsReader) Read(b []byte) (int, error) {
 func (f *hdfsReader) Close() error {
 	if f.fileReader != nil {
 		if err := f.fileReader.Close(); err != nil {
-			return fmt.Errorf("failed to close HDFS file reader: %w", err)
+			return fmt.Errorf("close HDFS file reader: %w", err)
 		}
 	}
 	if f.client != nil {
 		if err := f.client.Close(); err != nil {
-			return fmt.Errorf("failed to close HDFS client: %w", err)
+			return fmt.Errorf("close HDFS client: %w", err)
 		}
 	}
 	return nil

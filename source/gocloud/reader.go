@@ -2,9 +2,9 @@ package gocloud
 
 import (
 	"context"
+	"fmt"
 	"io"
 
-	"github.com/pkg/errors"
 	"gocloud.dev/blob"
 
 	"github.com/hangxie/parquet-go/v2/source"
@@ -37,11 +37,11 @@ func (b *blobReader) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekEnd:
 		offset = b.size + offset
 	default:
-		return 0, errors.Errorf("Invalid whence. whence=%d", whence)
+		return 0, fmt.Errorf("invalid whence %d", whence)
 	}
 
 	if offset < 0 {
-		return 0, errors.Errorf("Invalid offset. offset=%d", offset)
+		return 0, fmt.Errorf("invalid offset %d", offset)
 	}
 
 	b.offset = offset
@@ -52,7 +52,7 @@ func (b *blobReader) Seek(offset int64, whence int) (int64, error) {
 func (b *blobReader) Read(p []byte) (n int, err error) {
 	r, err := b.bucket.NewRangeReader(b.ctx, b.key, b.offset, int64(len(p)), nil)
 	if err != nil {
-		return 0, errors.Wrapf(err, "Failed to open reader. key=%s, offset=%d, len=%d", b.key, b.offset, len(p))
+		return 0, fmt.Errorf("open reader key=%s offset=%d len=%d: %w", b.key, b.offset, len(p), err)
 	}
 	defer func() {
 		_ = r.Close()
@@ -77,13 +77,13 @@ func (b *blobReader) Open(name string) (source.ParquetFileReader, error) {
 	}
 
 	if e, err := bf.bucket.Exists(bf.ctx, name); !e || err != nil {
-		return nil, errors.Errorf("Requested blob does not exist. blob=%s", name)
+		return nil, fmt.Errorf("blob does not exist: %s", name)
 	}
 
 	bf.key = name
 	attrs, err := bf.bucket.Attributes(bf.ctx, bf.key)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Could not get attributes for blob. blob=%s", name)
+		return nil, fmt.Errorf("get attributes for blob %s: %w", name, err)
 	}
 
 	bf.size = attrs.Size

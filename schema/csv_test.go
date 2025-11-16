@@ -253,7 +253,7 @@ func Test_NewSchemaHandlerFromMetadata(t *testing.T) {
 				"name=field, type=INT64, scale=invalid",
 			},
 			expectError:   true,
-			expectedError: "failed to parse metadata",
+			expectedError: "parse metadata",
 		},
 		{
 			name: "invalid_precision_value",
@@ -261,7 +261,7 @@ func Test_NewSchemaHandlerFromMetadata(t *testing.T) {
 				"name=field, type=INT64, precision=invalid",
 			},
 			expectError:   true,
-			expectedError: "failed to parse metadata",
+			expectedError: "parse metadata",
 		},
 		{
 			name: "invalid_length_value",
@@ -269,7 +269,7 @@ func Test_NewSchemaHandlerFromMetadata(t *testing.T) {
 				"name=field, type=BYTE_ARRAY, length=invalid",
 			},
 			expectError:   true,
-			expectedError: "failed to parse metadata",
+			expectedError: "parse metadata",
 		},
 		// Error Cases - StringToTag Errors
 		{
@@ -278,7 +278,7 @@ func Test_NewSchemaHandlerFromMetadata(t *testing.T) {
 				"this is not a valid tag format at all",
 			},
 			expectError:   true,
-			expectedError: "failed to parse metadata",
+			expectedError: "parse metadata",
 		},
 		{
 			name: "invalid_type_value",

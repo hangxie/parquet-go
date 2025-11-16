@@ -1,7 +1,7 @@
 package buffer
 
 import (
-	"errors"
+	"fmt"
 	"io"
 
 	"github.com/hangxie/parquet-go/v2/source"
@@ -52,7 +52,7 @@ func (bf *bufferReader) Seek(offset int64, whence int) (int64, error) {
 	}
 
 	if newLoc < 0 {
-		return int64(bf.loc), errors.New("unable to seek to a location <0")
+		return int64(bf.loc), fmt.Errorf("seek to negative location")
 	}
 
 	if newLoc > len(bf.buff) {

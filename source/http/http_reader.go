@@ -83,7 +83,7 @@ func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHea
 
 	size, err := strconv.ParseInt(tmp[1], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse data size from %s: %s", contentRangeHeader, contentRange[0])
+		return nil, fmt.Errorf("parse data size from %s: %s", contentRangeHeader, contentRange[0])
 	}
 
 	return &httpReader{

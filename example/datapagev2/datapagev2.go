@@ -39,13 +39,13 @@ func writeDataPageV2(filename string) error {
 	// Create local file writer
 	fw, err := local.NewLocalFileWriter(filename)
 	if err != nil {
-		return fmt.Errorf("failed to create file writer: %w", err)
+		return fmt.Errorf("create file writer: %w", err)
 	}
 
 	// Create parquet writer
 	pw, err := writer.NewParquetWriter(fw, new(User), 4)
 	if err != nil {
-		return fmt.Errorf("failed to create parquet writer: %w", err)
+		return fmt.Errorf("create parquet writer: %w", err)
 	}
 
 	// Set data page version to 2 (default is 1)
@@ -70,12 +70,12 @@ func writeDataPageV2(filename string) error {
 	for _, user := range users {
 		if err := pw.Write(user); err != nil {
 			_ = pw.WriteStop()
-			return fmt.Errorf("failed to write user: %w", err)
+			return fmt.Errorf("write user: %w", err)
 		}
 	}
 
 	if err := pw.WriteStop(); err != nil {
-		return fmt.Errorf("failed to stop writer: %w", err)
+		return fmt.Errorf("stop writer: %w", err)
 	}
 
 	fmt.Printf("Successfully wrote %d users to %s\n", len(users), filename)
@@ -86,17 +86,17 @@ func readParquetFile(filename string) error {
 	// Open local file reader
 	fr, err := local.NewLocalFileReader(filename)
 	if err != nil {
-		return fmt.Errorf("failed to create file reader: %w", err)
+		return fmt.Errorf("create file reader: %w", err)
 	}
 
 	// Create parquet reader
 	pr, err := reader.NewParquetReader(fr, new(User), 4)
 	if err != nil {
-		return fmt.Errorf("failed to create parquet reader: %w", err)
+		return fmt.Errorf("create parquet reader: %w", err)
 	}
 	defer func() {
 		if stopErr := pr.ReadStopWithError(); stopErr != nil {
-			log.Printf("Warning: failed to stop reader: %v", stopErr)
+			log.Printf("Warning: stop reader: %v", stopErr)
 		}
 	}()
 
@@ -106,7 +106,7 @@ func readParquetFile(filename string) error {
 	// Read all users
 	users := make([]User, pr.GetNumRows())
 	if err := pr.Read(&users); err != nil {
-		return fmt.Errorf("failed to read users: %w", err)
+		return fmt.Errorf("read users: %w", err)
 	}
 
 	// Display the data

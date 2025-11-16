@@ -1,7 +1,6 @@
 package schema
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 
@@ -100,7 +99,7 @@ func (sh *SchemaHandler) GetRepetitionType(path []string) (parquet.FieldRepetiti
 	if index, ok := sh.MapIndex[pathStr]; ok {
 		return sh.SchemaElements[index].GetRepetitionType(), nil
 	}
-	return 0, errors.New("name not in schema")
+	return 0, fmt.Errorf("name not in schema")
 }
 
 // MaxDefinitionLevel returns the max definition level type of a column by it's schema path
@@ -203,7 +202,7 @@ func (sh *SchemaHandler) ConvertToInPathStr(pathStr string) (string, error) {
 		return res, nil
 	}
 
-	return "", fmt.Errorf("can't find path %v", pathStr)
+	return "", fmt.Errorf("path not found: %v", pathStr)
 }
 
 // Get root name from the schema handler
@@ -277,7 +276,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 				newItem := NewItem()
 				newItem.Info, err = common.StringToTag(tagStr)
 				if err != nil {
-					return nil, fmt.Errorf("failed parse tag: %s", err.Error())
+					return nil, fmt.Errorf("parse tag: %w", err)
 				}
 				newItem.Info.InName = f.Name
 				newItem.GoType = f.Type
@@ -381,7 +380,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 		} else {
 			schema, err := common.NewSchemaElementFromTagMap(item.Info)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create schema from tag map: %s", err.Error())
+				return nil, fmt.Errorf("create schema from tag map: %w", err)
 			}
 			schemaElements = append(schemaElements, schema)
 			newInfo = common.NewTag()

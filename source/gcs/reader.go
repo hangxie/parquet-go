@@ -23,7 +23,7 @@ type gcsReader struct {
 func NewGcsFileReader(ctx context.Context, projectID, bucketName, name string, generation int64) (*gcsReader, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage client: %w", err)
+		return nil, fmt.Errorf("create storage client: %w", err)
 	}
 
 	r, err := NewGcsFileReaderWithClient(ctx, client, projectID, bucketName, name, generation)
@@ -43,7 +43,7 @@ func NewGcsFileReaderWithClient(ctx context.Context, client *storage.Client, pro
 
 	reader, err := gcsobj.NewReader(ctx, obj)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new reader: %w", err)
+		return nil, fmt.Errorf("create new reader: %w", err)
 	}
 
 	return &gcsReader{
@@ -99,7 +99,7 @@ func (g *gcsReader) Read(b []byte) (int, error) {
 func (g *gcsReader) Close() error {
 	if !g.externalClient && g.gcsClient != nil {
 		if err := g.gcsClient.Close(); err != nil {
-			return fmt.Errorf("failed to close GCS client: %w", err)
+			return fmt.Errorf("close GCS client: %w", err)
 		}
 
 		g.gcsClient = nil
