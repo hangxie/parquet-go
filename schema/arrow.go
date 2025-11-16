@@ -132,7 +132,7 @@ func NewSchemaHandlerFromArrow(arrowSchema *arrow.Schema) (
 	rootSchema.RepetitionType = &rt
 	schemaList = append(schemaList, rootSchema)
 
-	rootInfo := common.NewTag()
+	rootInfo := &common.Tag{}
 	rootInfo.InName = rootNodeName
 	rootInfo.ExName = rootNodeName
 	rootInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED

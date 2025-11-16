@@ -16,14 +16,14 @@ func Test_DecodeDictChunk(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	dictPage.Info = common.NewTag()
+	dictPage.Info = &common.Tag{}
 	dictPage.DataTable = &Table{
 		Values: []any{int32(10), int32(20), int32(30)},
 	}
 
 	dataPage := NewDataPage()
 	dataPage.Schema = dictPage.Schema
-	dataPage.Info = common.NewTag()
+	dataPage.Info = &common.Tag{}
 	dataPage.DataTable = &Table{
 		Values: []any{int64(0), int64(2), int64(1)}, // indices into dictionary
 	}
@@ -57,7 +57,7 @@ func Test_PagesToChunk(t *testing.T) {
 					Type: common.ToPtr(parquet.Type_INT32),
 					Name: "test_col",
 				}
-				page1.Info = common.NewTag()
+				page1.Info = &common.Tag{}
 				page1.MaxVal = int32(10)
 				page1.MinVal = int32(1)
 				nullCount := int64(0)
@@ -73,7 +73,7 @@ func Test_PagesToChunk(t *testing.T) {
 
 				page2 := NewDataPage()
 				page2.Schema = page1.Schema
-				page2.Info = common.NewTag()
+				page2.Info = &common.Tag{}
 				page2.MaxVal = int32(20)
 				page2.MinVal = int32(5)
 				nullCount2 := int64(1)
@@ -102,7 +102,7 @@ func Test_PagesToChunk(t *testing.T) {
 					Type: common.ToPtr(parquet.Type_INT32),
 					Name: "test_col",
 				}
-				page.Info = common.NewTag()
+				page.Info = &common.Tag{}
 				page.MaxVal = int32(10)
 				page.MinVal = int32(1)
 				nullCount := int64(0)
@@ -129,7 +129,7 @@ func Test_PagesToChunk(t *testing.T) {
 					Name: "test_col",
 					// No Type set
 				}
-				page.Info = common.NewTag()
+				page.Info = &common.Tag{}
 				page.MaxVal = int32(10)
 				page.MinVal = int32(1)
 				nullCount := int64(0)
@@ -152,7 +152,7 @@ func Test_PagesToChunk(t *testing.T) {
 					Type: common.ToPtr(parquet.Type_INT32),
 					Name: "test_col",
 				}
-				page.Info = common.NewTag()
+				page.Info = &common.Tag{}
 				page.Info.OmitStats = true // Enable omit stats
 				page.MaxVal = int32(10)
 				page.MinVal = int32(1)
@@ -202,7 +202,7 @@ func Test_PagesToDictChunk(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 		Name: "test_col",
 	}
-	dictPage.Info = common.NewTag()
+	dictPage.Info = &common.Tag{}
 	dictPage.MaxVal = int32(10)
 	dictPage.MinVal = int32(1)
 	nullCount := int64(0)
@@ -218,7 +218,7 @@ func Test_PagesToDictChunk(t *testing.T) {
 	// Create data page
 	dataPage := NewDataPage()
 	dataPage.Schema = dictPage.Schema
-	dataPage.Info = common.NewTag()
+	dataPage.Info = &common.Tag{}
 	dataPage.MaxVal = int32(10)
 	dataPage.MinVal = int32(1)
 	nullCount2 := int64(0)
@@ -244,7 +244,7 @@ func Test_PagesToDictChunkWithInvalidSchema(t *testing.T) {
 	dictPage.Schema = &parquet.SchemaElement{
 		Name: "dict_col",
 	}
-	dictPage.Info = common.NewTag()
+	dictPage.Info = &common.Tag{}
 
 	// Create data page with invalid schema (no Type set)
 	dataPage := NewDataPage()
@@ -252,7 +252,7 @@ func Test_PagesToDictChunkWithInvalidSchema(t *testing.T) {
 		Name: "test_col",
 		// No Type set
 	}
-	dataPage.Info = common.NewTag()
+	dataPage.Info = &common.Tag{}
 
 	pages := []*Page{dictPage, dataPage}
 	_, err := PagesToDictChunk(pages)

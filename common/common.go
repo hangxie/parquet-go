@@ -37,27 +37,35 @@ func (mp *fieldAttr) update(key, val string) error {
 	case "convertedtype":
 		mp.convertedType = val
 	case "length":
-		if mp.Length, err = str2Int32(val); err != nil {
+		var valInt int
+		if valInt, err = strconv.Atoi(val); err != nil {
 			return fmt.Errorf("parse length: %w", err)
 		}
+		mp.Length = int32(valInt)
 	case "scale":
-		if mp.Scale, err = str2Int32(val); err != nil {
+		var valInt int
+		if valInt, err = strconv.Atoi(val); err != nil {
 			return fmt.Errorf("parse scale: %w", err)
 		}
+		mp.Scale = int32(valInt)
 	case "precision":
-		if mp.Precision, err = str2Int32(val); err != nil {
+		var valInt int
+		if valInt, err = strconv.Atoi(val); err != nil {
 			return fmt.Errorf("parse precision: %w", err)
 		}
+		mp.Precision = int32(valInt)
 	case "fieldid":
-		if mp.fieldID, err = str2Int32(val); err != nil {
+		var valInt int
+		if valInt, err = strconv.Atoi(val); err != nil {
 			return fmt.Errorf("parse fieldid: %w", err)
 		}
+		mp.fieldID = int32(valInt)
 	case "isadjustedtoutc":
-		if mp.isAdjustedToUTC, err = str2Bool(val); err != nil {
+		if mp.isAdjustedToUTC, err = strconv.ParseBool(val); err != nil {
 			return fmt.Errorf("parse isadjustedtoutc: %w", err)
 		}
 	case "omitstats":
-		if mp.OmitStats, err = str2Bool(val); err != nil {
+		if mp.OmitStats, err = strconv.ParseBool(val); err != nil {
 			return fmt.Errorf("parse omitstats: %w", err)
 		}
 	case "repetitiontype":
@@ -91,12 +99,8 @@ type Tag struct {
 	Value fieldAttr
 }
 
-func NewTag() *Tag {
-	return &Tag{}
-}
-
 func StringToTag(tag string) (*Tag, error) {
-	mp := NewTag()
+	mp := &Tag{}
 	tagStr := strings.Replace(tag, "\t", "", -1)
 
 	for tag := range strings.SplitSeq(tagStr, ",") {
@@ -232,17 +236,20 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		logicalType.ENUM = parquet.NewEnumType()
 	case "DECIMAL":
 		logicalType.DECIMAL = parquet.NewDecimalType()
-		if logicalType.DECIMAL.Precision, err = str2Int32(mp["logicaltype.precision"]); err != nil {
+		var valInt int
+		if valInt, err = strconv.Atoi(mp["logicaltype.precision"]); err != nil {
 			return nil, fmt.Errorf("parse logicaltype.precision as int32: %w", err)
 		}
-		if logicalType.DECIMAL.Scale, err = str2Int32(mp["logicaltype.scale"]); err != nil {
+		logicalType.DECIMAL.Precision = int32(valInt)
+		if valInt, err = strconv.Atoi(mp["logicaltype.scale"]); err != nil {
 			return nil, fmt.Errorf("parse logicaltype.scale as int32: %w", err)
 		}
+		logicalType.DECIMAL.Scale = int32(valInt)
 	case "DATE":
 		logicalType.DATE = parquet.NewDateType()
 	case "TIME":
 		logicalType.TIME = parquet.NewTimeType()
-		if logicalType.TIME.IsAdjustedToUTC, err = str2Bool(mp["logicaltype.isadjustedtoutc"]); err != nil {
+		if logicalType.TIME.IsAdjustedToUTC, err = strconv.ParseBool(mp["logicaltype.isadjustedtoutc"]); err != nil {
 			return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
 		}
 		if logicalType.TIME.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
@@ -250,7 +257,7 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		}
 	case "TIMESTAMP":
 		logicalType.TIMESTAMP = parquet.NewTimestampType()
-		if logicalType.TIMESTAMP.IsAdjustedToUTC, err = str2Bool(mp["logicaltype.isadjustedtoutc"]); err != nil {
+		if logicalType.TIMESTAMP.IsAdjustedToUTC, err = strconv.ParseBool(mp["logicaltype.isadjustedtoutc"]); err != nil {
 			return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
 		}
 		if logicalType.TIMESTAMP.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
@@ -258,12 +265,12 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		}
 	case "INTEGER":
 		logicalType.INTEGER = parquet.NewIntType()
-		bitWidth, err := str2Int32(mp["logicaltype.bitwidth"])
+		valInt, err := strconv.Atoi(mp["logicaltype.bitwidth"])
 		if err != nil {
 			return nil, fmt.Errorf("parse logicaltype.bitwidth as int32: %w", err)
 		}
-		logicalType.INTEGER.BitWidth = int8(bitWidth)
-		if logicalType.INTEGER.IsSigned, err = str2Bool(mp["logicaltype.issigned"]); err != nil {
+		logicalType.INTEGER.BitWidth = int8(valInt)
+		if logicalType.INTEGER.IsSigned, err = strconv.ParseBool(mp["logicaltype.issigned"]); err != nil {
 			return nil, fmt.Errorf("parse logicaltype.issigned as boolean: %w", err)
 		}
 	case "JSON":
@@ -277,11 +284,11 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 	case "VARIANT":
 		logicalType.VARIANT = parquet.NewVariantType()
 		if vStr, ok := mp["logicaltype.specification_version"]; ok && vStr != "" {
-			iv, err := str2Int32(vStr)
+			valInt, err := strconv.Atoi(vStr)
 			if err != nil {
 				return nil, fmt.Errorf("parse logicaltype.specification_version as int32: %w", err)
 			}
-			v := int8(iv)
+			v := int8(valInt)
 			logicalType.VARIANT.SpecificationVersion = &v
 		}
 	case "GEOMETRY":
@@ -378,7 +385,7 @@ func DeepCopy(src, dst *Tag) {
 
 // Get key tag map for map
 func GetKeyTagMap(src *Tag) *Tag {
-	res := NewTag()
+	res := &Tag{}
 	res.InName = "Key"
 	res.ExName = "key"
 	res.fieldAttr = src.Key
@@ -388,7 +395,7 @@ func GetKeyTagMap(src *Tag) *Tag {
 
 // Get value tag map for map
 func GetValueTagMap(src *Tag) *Tag {
-	res := NewTag()
+	res := &Tag{}
 	res.InName = "Value"
 	res.ExName = "value"
 	res.fieldAttr = src.Value
@@ -430,22 +437,6 @@ func headToUpper(str string) string {
 	}
 	// handle non-alpha prefix such as "_"
 	return "PARGO_PREFIX_" + str
-}
-
-func str2Int32(val string) (int32, error) {
-	valInt, err := strconv.Atoi(val)
-	if err != nil {
-		return 0, err
-	}
-	return int32(valInt), nil
-}
-
-func str2Bool(val string) (bool, error) {
-	valBoolean, err := strconv.ParseBool(val)
-	if err != nil {
-		return false, err
-	}
-	return valBoolean, nil
 }
 
 // . -> \x01

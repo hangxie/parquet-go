@@ -50,7 +50,7 @@ func Test_NewTableFromTable(t *testing.T) {
 	src := &Table{
 		Schema: &parquet.SchemaElement{Name: "test"},
 		Path:   []string{"root", "test"},
-		Info:   common.NewTag(),
+		Info:   &common.Tag{},
 	}
 
 	result = NewTableFromTable(src)
