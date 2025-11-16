@@ -39,34 +39,34 @@ func (mp *fieldAttr) update(key, val string) error {
 	case "length":
 		var valInt int
 		if valInt, err = strconv.Atoi(val); err != nil {
-			return fmt.Errorf("parse length: %w", err)
+			return fmt.Errorf("parse length value '%s': %w", val, err)
 		}
 		mp.Length = int32(valInt)
 	case "scale":
 		var valInt int
 		if valInt, err = strconv.Atoi(val); err != nil {
-			return fmt.Errorf("parse scale: %w", err)
+			return fmt.Errorf("parse scale value '%s': %w", val, err)
 		}
 		mp.Scale = int32(valInt)
 	case "precision":
 		var valInt int
 		if valInt, err = strconv.Atoi(val); err != nil {
-			return fmt.Errorf("parse precision: %w", err)
+			return fmt.Errorf("parse precision value '%s': %w", val, err)
 		}
 		mp.Precision = int32(valInt)
 	case "fieldid":
 		var valInt int
 		if valInt, err = strconv.Atoi(val); err != nil {
-			return fmt.Errorf("parse fieldid: %w", err)
+			return fmt.Errorf("parse fieldid value '%s': %w", val, err)
 		}
 		mp.fieldID = int32(valInt)
 	case "isadjustedtoutc":
 		if mp.isAdjustedToUTC, err = strconv.ParseBool(val); err != nil {
-			return fmt.Errorf("parse isadjustedtoutc: %w", err)
+			return fmt.Errorf("parse isadjustedtoutc value '%s': %w", val, err)
 		}
 	case "omitstats":
 		if mp.OmitStats, err = strconv.ParseBool(val); err != nil {
-			return fmt.Errorf("parse omitstats: %w", err)
+			return fmt.Errorf("parse omitstats value '%s': %w", val, err)
 		}
 	case "repetitiontype":
 		mp.RepetitionType, err = parquet.FieldRepetitionTypeFromString(strings.ToUpper(val))
@@ -237,12 +237,14 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 	case "DECIMAL":
 		logicalType.DECIMAL = parquet.NewDecimalType()
 		var valInt int
-		if valInt, err = strconv.Atoi(mp["logicaltype.precision"]); err != nil {
-			return nil, fmt.Errorf("parse logicaltype.precision as int32: %w", err)
+		precisionVal := mp["logicaltype.precision"]
+		if valInt, err = strconv.Atoi(precisionVal); err != nil {
+			return nil, fmt.Errorf("parse logicaltype.precision value '%s' as int32: %w", precisionVal, err)
 		}
 		logicalType.DECIMAL.Precision = int32(valInt)
-		if valInt, err = strconv.Atoi(mp["logicaltype.scale"]); err != nil {
-			return nil, fmt.Errorf("parse logicaltype.scale as int32: %w", err)
+		scaleVal := mp["logicaltype.scale"]
+		if valInt, err = strconv.Atoi(scaleVal); err != nil {
+			return nil, fmt.Errorf("parse logicaltype.scale value '%s' as int32: %w", scaleVal, err)
 		}
 		logicalType.DECIMAL.Scale = int32(valInt)
 	case "DATE":

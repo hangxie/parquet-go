@@ -265,12 +265,12 @@ func DecodeDictionaryPage(data []byte, pageHeader *parquet.PageHeader, physicalT
 // This is useful for tools that need to inspect page structure
 func (pr *ParquetReader) GetAllPageHeaders(rgIndex, colIndex int) ([]PageHeaderInfo, error) {
 	if rgIndex < 0 || rgIndex >= len(pr.Footer.RowGroups) {
-		return nil, fmt.Errorf("invalid row group index: %d", rgIndex)
+		return nil, fmt.Errorf("invalid row group index: %d (valid range: 0-%d)", rgIndex, len(pr.Footer.RowGroups)-1)
 	}
 
 	rg := pr.Footer.RowGroups[rgIndex]
 	if colIndex < 0 || colIndex >= len(rg.Columns) {
-		return nil, fmt.Errorf("invalid column index: %d", colIndex)
+		return nil, fmt.Errorf("invalid column index: %d (valid range: 0-%d)", colIndex, len(rg.Columns)-1)
 	}
 
 	column := rg.Columns[colIndex]

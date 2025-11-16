@@ -84,7 +84,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			infos = append(infos, newInfo)
 
 			if len(item.Fields) != 1 {
-				return nil, fmt.Errorf("LIST needs exact 1 field to define element type")
+				return nil, fmt.Errorf("LIST needs exactly 1 field to define element type, got %d fields", len(item.Fields))
 			}
 			stack = append(stack, item.Fields[0])
 		case "MAP": // map
@@ -118,7 +118,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			infos = append(infos, newInfo)
 
 			if len(item.Fields) != 2 {
-				return nil, fmt.Errorf("MAP needs exact 2 fields to define key and value type")
+				return nil, fmt.Errorf("MAP needs exactly 2 fields to define key and value type, got %d fields", len(item.Fields))
 			}
 			stack = append(stack, item.Fields[1]) // put value
 			stack = append(stack, item.Fields[0]) // put key
