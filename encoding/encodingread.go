@@ -213,37 +213,46 @@ func ReadRLE(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, error) 
 	return res, err
 }
 
-// return res is []INT64
+// ReadBitPacked reads bit-packed values using LSB-first bit order.
+// The header encodes the count: cnt = (header >> 1) * 8
+// Returns []any containing int64 values.
 func ReadBitPacked(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, error) {
-	var err error
-	numGroup := (header >> 1)
-	cnt := numGroup * 8
-	byteCnt := cnt * bitWidth / 8
+	cnt := (header >> 1) * 8
+	return ReadBitPackedCount(bytesReader, cnt, bitWidth)
+}
 
+// ReadBitPackedCount reads cnt bit-packed values directly using LSB-first bit order.
+// Used when count is known in advance (e.g., deprecated BIT_PACKED encoding).
+// Returns []any containing int64 values.
+func ReadBitPackedCount(bytesReader *bytes.Reader, cnt, bitWidth uint64) ([]any, error) {
 	res := make([]any, 0, cnt)
-
 	if cnt == 0 {
 		return res, nil
 	}
-
 	if bitWidth == 0 {
 		for range int(cnt) {
 			res = append(res, int64(0))
 		}
-		return res, err
+		return res, nil
 	}
+
+	// Calculate how many bytes we need to read (round up)
+	byteCnt := (cnt*bitWidth + 7) / 8
+
 	bytesBuf := make([]byte, byteCnt)
-	if _, err = bytesReader.Read(bytesBuf); err != nil {
+	if _, err := bytesReader.Read(bytesBuf); err != nil {
 		return res, err
 	}
 
+	// Unpack bits using LSB-first order
 	i := 0
 	var resCur uint64 = 0
 	var resCurNeedBits uint64 = bitWidth
 	var used uint64 = 0
 	var left uint64 = 8 - used
 	b := bytesBuf[i]
-	for i < len(bytesBuf) {
+
+	for uint64(len(res)) < cnt {
 		if left >= resCurNeedBits {
 			resCur |= uint64(((uint64(b) >> uint64(used)) & ((1 << uint64(resCurNeedBits)) - 1)) << uint64(bitWidth-resCurNeedBits))
 			res = append(res, int64(resCur))
@@ -254,15 +263,14 @@ func ReadBitPacked(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, e
 			resCur = 0
 
 			if left <= 0 && i+1 < len(bytesBuf) {
-				i += 1
+				i++
 				b = bytesBuf[i]
 				left = 8
 				used = 0
 			}
-
 		} else {
 			resCur |= uint64((uint64(b) >> uint64(used)) << uint64(bitWidth-resCurNeedBits))
-			i += 1
+			i++
 			if i < len(bytesBuf) {
 				b = bytesBuf[i]
 			}
@@ -271,7 +279,8 @@ func ReadBitPacked(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, e
 			used = 0
 		}
 	}
-	return res, err
+
+	return res, nil
 }
 
 // res is INT64
