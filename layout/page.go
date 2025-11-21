@@ -211,6 +211,10 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 	switch encodingMethod {
 	case parquet.Encoding_RLE:
 		bitWidth := page.Info.Length
+		// For BOOLEAN type, default to bitWidth=1 if not specified
+		if *page.Schema.Type == parquet.Type_BOOLEAN && bitWidth == 0 {
+			bitWidth = 1
+		}
 		return encoding.WriteRLEBitPackedHybrid(valuesBuf, bitWidth, *page.Schema.Type)
 	case parquet.Encoding_DELTA_BINARY_PACKED:
 		return encoding.WriteDelta(valuesBuf), nil
@@ -719,6 +723,11 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 		return res, nil
 	}
 
+	// For BOOLEAN type, default to bitWidth=1 if not specified
+	if dataType == parquet.Type_BOOLEAN && bitWidth == 0 {
+		bitWidth = 1
+	}
+
 	switch encodingMethod {
 	case parquet.Encoding_PLAIN:
 		return encoding.ReadPlain(bytesReader, dataType, cnt, bitWidth)
@@ -749,11 +758,28 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 			for i := range values {
 				values[i] = int32(values[i].(int64))
 			}
+		} else if dataType == parquet.Type_BOOLEAN {
+			for i := range values {
+				values[i] = values[i].(int64) > 0
+			}
 		}
 		return values[:cnt], nil
 	case parquet.Encoding_BIT_PACKED:
-		// deprecated
-		return res, fmt.Errorf("unsupported Encoding method BIT_PACKED")
+		// deprecated encoding, but still supported for reading older files
+		values, err := encoding.ReadBitPackedCount(bytesReader, cnt, bitWidth)
+		if err != nil {
+			return res, err
+		}
+		if dataType == parquet.Type_INT32 {
+			for i := range values {
+				values[i] = int32(values[i].(int64))
+			}
+		} else if dataType == parquet.Type_BOOLEAN {
+			for i := range values {
+				values[i] = values[i].(int64) > 0
+			}
+		}
+		return values, nil
 	case parquet.Encoding_DELTA_BINARY_PACKED:
 		switch dataType {
 		case parquet.Type_INT32:

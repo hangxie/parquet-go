@@ -1448,10 +1448,13 @@ func Test_ReadDataPageValues(t *testing.T) {
 			encodingMethod: parquet.Encoding_BIT_PACKED,
 			dataType:       parquet.Type_INT32,
 			convertedType:  -1,
-			cnt:            1,
-			bitWidth:       4,
-			setupData:      func() []byte { return []byte{0x01} },
-			expectError:    true,
+			cnt:            4,
+			bitWidth:       3,
+			setupData: func() []byte {
+				// Use WriteBitPackedDeprecated to generate test data for [1, 2, 3, 4]
+				return encoding.WriteBitPackedDeprecated([]any{int64(1), int64(2), int64(3), int64(4)}, 3)
+			},
+			expectError: false,
 		},
 		{
 			name:           "unknown_encoding",
@@ -1594,6 +1597,34 @@ func Test_ReadDataPageValuesMoreCases(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name:           "rle_encoding_boolean",
+			encodingMethod: parquet.Encoding_RLE,
+			dataType:       parquet.Type_BOOLEAN,
+			convertedType:  -1,
+			cnt:            4,
+			bitWidth:       1,
+			setupData: func() []byte {
+				// RLE encoding for booleans: [true, true, false, true]
+				values := []any{int64(1), int64(1), int64(0), int64(1)}
+				data, _ := encoding.WriteRLEBitPackedHybrid(values, 1, parquet.Type_INT64)
+				return data
+			},
+			expectError: false,
+		},
+		{
+			name:           "bit_packed_deprecated_boolean",
+			encodingMethod: parquet.Encoding_BIT_PACKED,
+			dataType:       parquet.Type_BOOLEAN,
+			convertedType:  -1,
+			cnt:            4,
+			bitWidth:       1,
+			setupData: func() []byte {
+				// Deprecated bit packed encoding for booleans: [true, false, true, false]
+				return encoding.WriteBitPackedDeprecated([]any{int64(1), int64(0), int64(1), int64(0)}, 1)
+			},
+			expectError: false,
+		},
+		{
 			name:           "delta_binary_packed_int32",
 			encodingMethod: parquet.Encoding_DELTA_BINARY_PACKED,
 			dataType:       parquet.Type_INT32,
@@ -1703,6 +1734,115 @@ func Test_ReadDataPageValuesMoreCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_ReadDataPageValues_BooleanTypeConversion(t *testing.T) {
+	t.Run("rle_encoding_boolean_values", func(t *testing.T) {
+		// Test that RLE encoding correctly converts int64 to bool
+		values := []any{int64(1), int64(1), int64(0), int64(1)}
+		data, _ := encoding.WriteRLEBitPackedHybrid(values, 1, parquet.Type_INT64)
+		bytesReader := bytes.NewReader(data)
+
+		result, err := ReadDataPageValues(bytesReader, parquet.Encoding_RLE, parquet.Type_BOOLEAN, -1, 4, 1)
+
+		require.NoError(t, err)
+		require.Len(t, result, 4)
+
+		// Verify types are bool, not int64
+		require.IsType(t, true, result[0], "Expected bool type, got %T", result[0])
+		require.IsType(t, true, result[1], "Expected bool type, got %T", result[1])
+		require.IsType(t, true, result[2], "Expected bool type, got %T", result[2])
+		require.IsType(t, true, result[3], "Expected bool type, got %T", result[3])
+
+		// Verify values
+		require.Equal(t, true, result[0])
+		require.Equal(t, true, result[1])
+		require.Equal(t, false, result[2])
+		require.Equal(t, true, result[3])
+	})
+
+	t.Run("bit_packed_deprecated_boolean_values", func(t *testing.T) {
+		// Test that BIT_PACKED encoding correctly converts int64 to bool
+		data := encoding.WriteBitPackedDeprecated([]any{int64(1), int64(0), int64(1), int64(0)}, 1)
+		bytesReader := bytes.NewReader(data)
+
+		result, err := ReadDataPageValues(bytesReader, parquet.Encoding_BIT_PACKED, parquet.Type_BOOLEAN, -1, 4, 1)
+
+		require.NoError(t, err)
+		require.Len(t, result, 4)
+
+		// Verify types are bool, not int64
+		require.IsType(t, true, result[0], "Expected bool type, got %T", result[0])
+		require.IsType(t, true, result[1], "Expected bool type, got %T", result[1])
+		require.IsType(t, true, result[2], "Expected bool type, got %T", result[2])
+		require.IsType(t, true, result[3], "Expected bool type, got %T", result[3])
+
+		// Verify values
+		require.Equal(t, true, result[0])
+		require.Equal(t, false, result[1])
+		require.Equal(t, true, result[2])
+		require.Equal(t, false, result[3])
+	})
+
+	t.Run("rle_encoding_boolean_with_zero_bitwidth", func(t *testing.T) {
+		// Test that RLE encoding with bitWidth=0 defaults to bitWidth=1 for BOOLEAN type
+		// This simulates when struct tag doesn't specify length= for a boolean field
+		values := []any{int64(1), int64(0), int64(1), int64(1), int64(0)}
+		data, _ := encoding.WriteRLEBitPackedHybrid(values, 1, parquet.Type_INT64)
+		bytesReader := bytes.NewReader(data)
+
+		// Read with bitWidth=0 - should be fixed to 1 automatically
+		result, err := ReadDataPageValues(bytesReader, parquet.Encoding_RLE, parquet.Type_BOOLEAN, -1, 5, 0)
+
+		require.NoError(t, err)
+		require.Len(t, result, 5)
+
+		// Verify types are bool, not int64
+		for i := range result {
+			require.IsType(t, true, result[i], "Expected bool type at index %d, got %T", i, result[i])
+		}
+
+		// Verify values
+		require.Equal(t, true, result[0])
+		require.Equal(t, false, result[1])
+		require.Equal(t, true, result[2])
+		require.Equal(t, true, result[3])
+		require.Equal(t, false, result[4])
+	})
+}
+
+func Test_PageEncodingValues_BooleanRLE(t *testing.T) {
+	t.Run("boolean_rle_without_length_specified", func(t *testing.T) {
+		// Test that Page.EncodingValues correctly defaults to bitWidth=1 for BOOLEAN type
+		// when page.Info.Length is 0 (not specified in struct tag)
+		page := NewPage()
+		boolType := parquet.Type_BOOLEAN
+		page.Schema = &parquet.SchemaElement{
+			Type: &boolType,
+		}
+		page.Info = &common.Tag{}
+		page.Info.Encoding = parquet.Encoding_RLE
+		page.Info.Length = 0 // Not set in struct tag
+
+		boolVals := []any{true, false, true, true, false}
+
+		// Encode using Page.EncodingValues (should fix bitWidth to 1)
+		encoded, err := page.EncodingValues(boolVals)
+		require.NoError(t, err)
+
+		// Compare with expected encoding (bitWidth=1)
+		expected, _ := encoding.WriteRLEBitPackedHybrid(boolVals, 1, parquet.Type_BOOLEAN)
+		require.Equal(t, expected, encoded)
+
+		// Verify it can be decoded correctly
+		result, err := ReadDataPageValues(bytes.NewReader(encoded), parquet.Encoding_RLE, parquet.Type_BOOLEAN, -1, 5, 0)
+		require.NoError(t, err)
+		require.Len(t, result, 5)
+
+		for i := range boolVals {
+			require.Equal(t, boolVals[i], result[i])
+		}
+	})
 }
 
 func Test_ReadPage(t *testing.T) {

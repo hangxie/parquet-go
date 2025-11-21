@@ -460,40 +460,26 @@ func WriteBitPackedDeprecated(vals []any, bitWidth int64) []byte {
 		valsInt[i] = uint64(reflect.ValueOf(vals[i]).Int())
 	}
 
-	res := make([]byte, 0)
-	i := 0
-	curByte := byte(0)
-	var curNeed uint64 = 8
-	var valBitLeft uint64 = uint64(bitWidth)
-	var val uint64 = valsInt[0] << uint64(64-bitWidth)
-	for i < ln {
-		if valBitLeft > curNeed {
-			var mask uint64 = ((1 << curNeed) - 1) << (64 - curNeed)
+	// Calculate total bytes needed
+	totalBits := ln * int(bitWidth)
+	byteCnt := (totalBits + 7) / 8
+	res := make([]byte, byteCnt)
 
-			curByte |= byte((val & mask) >> (64 - curNeed))
-			val = val << curNeed
-
-			valBitLeft -= curNeed
-			res = append(res, curByte)
-			curByte = byte(0)
-			curNeed = 8
-
-		} else {
-			curByte |= byte(val >> (64 - curNeed))
-			curNeed -= valBitLeft
-			if curNeed == 0 {
-				res = append(res, curByte)
-				curByte = byte(0)
-				curNeed = 8
+	// Pack bits using LSB-first order (consistent with PLAIN boolean encoding)
+	bitPos := 0 // Current bit position across all bytes
+	for i := range ln {
+		val := valsInt[i]
+		// Write bitWidth bits starting at bitPos
+		for j := 0; j < int(bitWidth); j++ {
+			byteIdx := bitPos / 8
+			bitIdx := bitPos % 8
+			if (val & (1 << j)) != 0 {
+				res[byteIdx] |= (1 << bitIdx)
 			}
-
-			valBitLeft = uint64(bitWidth)
-			i++
-			if i < ln {
-				val = valsInt[i] << uint64(64-bitWidth)
-			}
+			bitPos++
 		}
 	}
+
 	return res
 }
 

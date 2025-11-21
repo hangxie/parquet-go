@@ -50,7 +50,8 @@ func Test_WriteBitPackedDeprecated(t *testing.T) {
 		nums     []any
 		expected []byte
 	}{
-		{[]any{1, 2, 3, 4}, []byte{41}},
+		// [1,2,3,4] with bitWidth=3, LSB-first: 001|010|011|100 = 11010001|00001000 = [0xD1, 0x08] = [209, 8]
+		{[]any{1, 2, 3, 4}, []byte{209, 8}},
 	}
 
 	for _, data := range testData {
