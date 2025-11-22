@@ -435,18 +435,26 @@ func Test_cmpIntBinary(t *testing.T) {
 		signed   bool
 		expected bool
 	}{
-		"8-bits: 0 < 0":        {[]byte{0}, []byte{0}, "LittleEndian", true, false},
-		"8-bits: 0 < -1":       {[]byte{0}, []byte{255}, "LittleEndian", true, false},
-		"8-bits: -1 < 0":       {[]byte{255}, []byte{0}, "LittleEndian", true, true},
-		"8-bits: 255 < 0":      {[]byte{255}, []byte{0}, "LittleEndian", false, false},
-		"16-bits: -1 < 0":      {[]byte{255, 255}, []byte{0, 0}, "LittleEndian", true, true},
-		"16-bits: 65535 < 0":   {[]byte{255, 255}, []byte{0, 0}, "LittleEndian", false, false},
-		"16-bits: -256 < 0":    {[]byte{255, 0}, []byte{0, 0}, "BigEndian", true, true},
-		"16-bits: 65280 < 0":   {[]byte{0, 255}, []byte{0, 0}, "LittleEndian", false, false},
-		"8/16-bits: -1 < -2":   {[]byte{255}, []byte{255, 254}, "BigEndian", true, false},
-		"16/8-bits: -2 < -1":   {[]byte{254, 255}, []byte{255}, "LittleEndian", true, true},
-		"8/16-bits: 255 < 254": {[]byte{255}, []byte{0, 254}, "BigEndian", false, false},
-		"16/8-bits: 254 < 255": {[]byte{254, 0}, []byte{255}, "LittleEndian", false, true},
+		"8-bits: 0 < 0":                    {[]byte{0}, []byte{0}, "LittleEndian", true, false},
+		"8-bits: 0 < -1":                   {[]byte{0}, []byte{255}, "LittleEndian", true, false},
+		"8-bits: -1 < 0":                   {[]byte{255}, []byte{0}, "LittleEndian", true, true},
+		"8-bits: 255 < 0":                  {[]byte{255}, []byte{0}, "LittleEndian", false, false},
+		"16-bits: -1 < 0":                  {[]byte{255, 255}, []byte{0, 0}, "LittleEndian", true, true},
+		"16-bits: 65535 < 0":               {[]byte{255, 255}, []byte{0, 0}, "LittleEndian", false, false},
+		"16-bits: -256 < 0":                {[]byte{255, 0}, []byte{0, 0}, "BigEndian", true, true},
+		"16-bits: 65280 < 0":               {[]byte{0, 255}, []byte{0, 0}, "LittleEndian", false, false},
+		"8/16-bits: -1 < -2":               {[]byte{255}, []byte{255, 254}, "BigEndian", true, false},
+		"16/8-bits: -2 < -1":               {[]byte{254, 255}, []byte{255}, "LittleEndian", true, true},
+		"8/16-bits: 255 < 254":             {[]byte{255}, []byte{0, 254}, "BigEndian", false, false},
+		"16/8-bits: 254 < 255":             {[]byte{254, 0}, []byte{255}, "LittleEndian", false, true},
+		"empty: both empty signed":         {[]byte{}, []byte{}, "BigEndian", true, false},
+		"empty: both empty unsigned":       {[]byte{}, []byte{}, "BigEndian", false, false},
+		"empty: a empty b positive signed": {[]byte{}, []byte{1}, "BigEndian", true, true},
+		"empty: a empty b negative signed": {[]byte{}, []byte{255}, "BigEndian", true, false},
+		"empty: a empty b unsigned":        {[]byte{}, []byte{1}, "BigEndian", false, true},
+		"empty: b empty a positive signed": {[]byte{1}, []byte{}, "BigEndian", true, false},
+		"empty: b empty a negative signed": {[]byte{255}, []byte{}, "BigEndian", true, true},
+		"empty: b empty a unsigned":        {[]byte{1}, []byte{}, "BigEndian", false, false},
 	}
 
 	for name, tc := range testCases {
