@@ -62,35 +62,51 @@ func Test_WriteBitPackedDeprecated(t *testing.T) {
 
 func Test_WriteByteStreamSplit(t *testing.T) {
 	testCases := []struct {
-		name string
-		src  []any
+		name     string
+		src      []any
+		expected int // expected byte length (0 means empty)
 	}{
 		{
-			name: "float32_type",
-			src:  []any{float32(1.1), float32(2.2)},
+			name:     "float32_type",
+			src:      []any{float32(1.1), float32(2.2)},
+			expected: 8, // 2 * 4 bytes
 		},
 		{
-			name: "float64_type",
-			src:  []any{float64(1.1), float64(2.2)},
+			name:     "float64_type",
+			src:      []any{float64(1.1), float64(2.2)},
+			expected: 16, // 2 * 8 bytes
 		},
 		{
-			name: "unsupported_type",
-			src:  []any{int32(1), int32(2)},
+			name:     "int32_type",
+			src:      []any{int32(1), int32(2)},
+			expected: 8, // 2 * 4 bytes
 		},
 		{
-			name: "empty_input",
-			src:  []any{},
+			name:     "int64_type",
+			src:      []any{int64(1), int64(2)},
+			expected: 16, // 2 * 8 bytes
+		},
+		{
+			name:     "fixed_len_byte_array_type",
+			src:      []any{"ab", "cd"},
+			expected: 4, // 2 * 2 bytes
+		},
+		{
+			name:     "unsupported_type",
+			src:      []any{uint32(1), uint32(2)},
+			expected: 0,
+		},
+		{
+			name:     "empty_input",
+			src:      []any{},
+			expected: 0,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := WriteByteStreamSplit(tc.src)
-			if tc.name == "unsupported_type" || tc.name == "empty_input" {
-				require.Len(t, result, 0)
-				return
-			}
-			require.NotZero(t, len(result))
+			require.Len(t, result, tc.expected)
 		})
 	}
 }

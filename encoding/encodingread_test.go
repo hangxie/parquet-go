@@ -170,6 +170,162 @@ func Test_ReadByteStreamSplitFloat64_Error(t *testing.T) {
 	require.Error(t, err)
 }
 
+func Test_ReadByteStreamSplitINT32(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    []any
+		count    uint64
+		expected []any
+	}{
+		{
+			name:     "single_value",
+			input:    []any{int32(12345)},
+			count:    1,
+			expected: []any{int32(12345)},
+		},
+		{
+			name:     "multiple_values",
+			input:    []any{int32(1), int32(2), int32(-3)},
+			count:    3,
+			expected: []any{int32(1), int32(2), int32(-3)},
+		},
+		{
+			name:     "empty_count",
+			input:    []any{},
+			count:    0,
+			expected: []any{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Write then read
+			buf := WriteByteStreamSplitINT32(tc.input)
+			reader := bytes.NewReader(buf)
+			result, err := ReadByteStreamSplitINT32(reader, tc.count)
+			require.NoError(t, err)
+			require.Equal(t, len(tc.expected), len(result))
+			for i := range tc.expected {
+				require.Equal(t, tc.expected[i], result[i])
+			}
+		})
+	}
+}
+
+func Test_ReadByteStreamSplitINT32_Error(t *testing.T) {
+	// Test insufficient data
+	reader := bytes.NewReader([]byte{0x00, 0x00}) // Only 2 bytes, need 4
+	_, err := ReadByteStreamSplitINT32(reader, 1)
+	require.Error(t, err)
+}
+
+func Test_ReadByteStreamSplitINT64(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    []any
+		count    uint64
+		expected []any
+	}{
+		{
+			name:     "single_value",
+			input:    []any{int64(1234567890123)},
+			count:    1,
+			expected: []any{int64(1234567890123)},
+		},
+		{
+			name:     "multiple_values",
+			input:    []any{int64(1), int64(2), int64(-3)},
+			count:    3,
+			expected: []any{int64(1), int64(2), int64(-3)},
+		},
+		{
+			name:     "empty_count",
+			input:    []any{},
+			count:    0,
+			expected: []any{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Write then read
+			buf := WriteByteStreamSplitINT64(tc.input)
+			reader := bytes.NewReader(buf)
+			result, err := ReadByteStreamSplitINT64(reader, tc.count)
+			require.NoError(t, err)
+			require.Equal(t, len(tc.expected), len(result))
+			for i := range tc.expected {
+				require.Equal(t, tc.expected[i], result[i])
+			}
+		})
+	}
+}
+
+func Test_ReadByteStreamSplitINT64_Error(t *testing.T) {
+	// Test insufficient data
+	reader := bytes.NewReader([]byte{0x00, 0x00, 0x00, 0x00}) // Only 4 bytes, need 8
+	_, err := ReadByteStreamSplitINT64(reader, 1)
+	require.Error(t, err)
+}
+
+func Test_ReadByteStreamSplitFixedLenByteArray(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    []any
+		count    uint64
+		elemSize uint64
+		expected []any
+	}{
+		{
+			name:     "single_value",
+			input:    []any{"abcd"},
+			count:    1,
+			elemSize: 4,
+			expected: []any{"abcd"},
+		},
+		{
+			name:     "multiple_values",
+			input:    []any{"ab", "cd", "ef"},
+			count:    3,
+			elemSize: 2,
+			expected: []any{"ab", "cd", "ef"},
+		},
+		{
+			name:     "empty_count",
+			input:    []any{},
+			count:    0,
+			elemSize: 2,
+			expected: []any{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Write then read
+			buf := WriteByteStreamSplitFixedLenByteArray(tc.input)
+			reader := bytes.NewReader(buf)
+			result, err := ReadByteStreamSplitFixedLenByteArray(reader, tc.count, tc.elemSize)
+			require.NoError(t, err)
+			require.Equal(t, len(tc.expected), len(result))
+			for i := range tc.expected {
+				require.Equal(t, tc.expected[i], result[i])
+			}
+		})
+	}
+}
+
+func Test_ReadByteStreamSplitFixedLenByteArray_Error(t *testing.T) {
+	// Test insufficient data
+	reader := bytes.NewReader([]byte{0x00, 0x00}) // Only 2 bytes, need 4
+	_, err := ReadByteStreamSplitFixedLenByteArray(reader, 1, 4)
+	require.Error(t, err)
+
+	// Test zero element size
+	reader2 := bytes.NewReader([]byte{0x00, 0x00, 0x00, 0x00})
+	_, err = ReadByteStreamSplitFixedLenByteArray(reader2, 1, 0)
+	require.Error(t, err)
+}
+
 func Test_ReadDeltaBinaryPackedINT(t *testing.T) {
 	testData := [][]any{
 		{int64(1), int64(2), int64(3), int64(4)},
