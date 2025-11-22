@@ -157,6 +157,43 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 		return nil, fmt.Errorf("field [%s] with type [%s]: %w", info.InName, info.Type, err)
 	}
 
+	// Validate encoding compatibility with type per Parquet spec
+	switch info.Encoding {
+	case parquet.Encoding_RLE:
+		// RLE: BOOLEAN, INT32, INT64 only
+		switch *schema.Type {
+		case parquet.Type_BOOLEAN, parquet.Type_INT32, parquet.Type_INT64:
+			// valid
+		case parquet.Type_BYTE_ARRAY:
+			return nil, fmt.Errorf("field [%s]: RLE encoding is not supported for BYTE_ARRAY, use PLAIN, DELTA_BYTE_ARRAY, or DELTA_LENGTH_BYTE_ARRAY", info.InName)
+		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			return nil, fmt.Errorf("field [%s]: RLE encoding is not supported for FIXED_LEN_BYTE_ARRAY, use PLAIN", info.InName)
+		default:
+			return nil, fmt.Errorf("field [%s]: RLE encoding is not supported for %v", info.InName, *schema.Type)
+		}
+	case parquet.Encoding_DELTA_BINARY_PACKED:
+		// DELTA_BINARY_PACKED: INT32, INT64 only
+		switch *schema.Type {
+		case parquet.Type_INT32, parquet.Type_INT64:
+			// valid
+		default:
+			return nil, fmt.Errorf("field [%s]: DELTA_BINARY_PACKED encoding is only supported for INT32 and INT64, not %v", info.InName, *schema.Type)
+		}
+	case parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
+		// DELTA_BYTE_ARRAY, DELTA_LENGTH_BYTE_ARRAY: BYTE_ARRAY only
+		if *schema.Type != parquet.Type_BYTE_ARRAY {
+			return nil, fmt.Errorf("field [%s]: %v encoding is only supported for BYTE_ARRAY, not %v", info.InName, info.Encoding, *schema.Type)
+		}
+	case parquet.Encoding_BYTE_STREAM_SPLIT:
+		// BYTE_STREAM_SPLIT: FLOAT, DOUBLE, INT32, INT64, FIXED_LEN_BYTE_ARRAY
+		switch *schema.Type {
+		case parquet.Type_FLOAT, parquet.Type_DOUBLE, parquet.Type_INT32, parquet.Type_INT64, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			// valid
+		default:
+			return nil, fmt.Errorf("field [%s]: BYTE_STREAM_SPLIT encoding is only supported for FLOAT, DOUBLE, INT32, INT64, FIXED_LEN_BYTE_ARRAY, not %v", info.InName, *schema.Type)
+		}
+	}
+
 	if ct, err := parquet.ConvertedTypeFromString(info.convertedType); err == nil {
 		schema.ConvertedType = &ct
 	}

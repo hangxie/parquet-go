@@ -221,6 +221,45 @@ func Test_NewSchemaElementFromTagMap(t *testing.T) {
 			},
 			"",
 		},
+		"rle-byte-array-invalid": {
+			Tag{
+				InName: "TestField",
+				fieldAttr: fieldAttr{
+					Type:     "BYTE_ARRAY",
+					Encoding: parquet.Encoding_RLE,
+				},
+			},
+			parquet.SchemaElement{},
+			"RLE encoding is not supported for BYTE_ARRAY",
+		},
+		"rle-fixed-len-byte-array-invalid": {
+			Tag{
+				InName: "TestField",
+				fieldAttr: fieldAttr{
+					Type:     "FIXED_LEN_BYTE_ARRAY",
+					Encoding: parquet.Encoding_RLE,
+				},
+			},
+			parquet.SchemaElement{},
+			"RLE encoding is not supported for FIXED_LEN_BYTE_ARRAY",
+		},
+		"rle-boolean-valid": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:     "BOOLEAN",
+					Encoding: parquet.Encoding_RLE,
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_BOOLEAN),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+			},
+			"",
+		},
 	}
 
 	for name, tc := range testCases {
