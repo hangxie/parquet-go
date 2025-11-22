@@ -210,19 +210,51 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 	}
 	switch encodingMethod {
 	case parquet.Encoding_RLE:
+		// RLE: BOOLEAN, INT32, INT64 only
+		switch *page.Schema.Type {
+		case parquet.Type_BOOLEAN, parquet.Type_INT32, parquet.Type_INT64:
+			// valid
+		default:
+			return nil, fmt.Errorf("RLE encoding is not supported for %v", *page.Schema.Type)
+		}
 		bitWidth := page.Info.Length
-		// For BOOLEAN type, default to bitWidth=1 if not specified
-		if *page.Schema.Type == parquet.Type_BOOLEAN && bitWidth == 0 {
-			bitWidth = 1
+		if bitWidth == 0 {
+			switch *page.Schema.Type {
+			case parquet.Type_BOOLEAN:
+				bitWidth = 1
+			case parquet.Type_INT32:
+				bitWidth = 32
+			case parquet.Type_INT64:
+				bitWidth = 64
+			}
 		}
 		return encoding.WriteRLEBitPackedHybrid(valuesBuf, bitWidth, *page.Schema.Type)
 	case parquet.Encoding_DELTA_BINARY_PACKED:
+		// DELTA_BINARY_PACKED: INT32, INT64 only
+		if *page.Schema.Type != parquet.Type_INT32 && *page.Schema.Type != parquet.Type_INT64 {
+			return nil, fmt.Errorf("DELTA_BINARY_PACKED encoding is only supported for INT32 and INT64, not %v", *page.Schema.Type)
+		}
 		return encoding.WriteDelta(valuesBuf), nil
 	case parquet.Encoding_DELTA_BYTE_ARRAY:
+		// DELTA_BYTE_ARRAY: BYTE_ARRAY only
+		if *page.Schema.Type != parquet.Type_BYTE_ARRAY {
+			return nil, fmt.Errorf("DELTA_BYTE_ARRAY encoding is only supported for BYTE_ARRAY, not %v", *page.Schema.Type)
+		}
 		return encoding.WriteDeltaByteArray(valuesBuf), nil
 	case parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
+		// DELTA_LENGTH_BYTE_ARRAY: BYTE_ARRAY only
+		if *page.Schema.Type != parquet.Type_BYTE_ARRAY {
+			return nil, fmt.Errorf("DELTA_LENGTH_BYTE_ARRAY encoding is only supported for BYTE_ARRAY, not %v", *page.Schema.Type)
+		}
 		return encoding.WriteDeltaLengthByteArray(valuesBuf), nil
 	case parquet.Encoding_BYTE_STREAM_SPLIT:
+		// BYTE_STREAM_SPLIT: FLOAT, DOUBLE, INT32, INT64, FIXED_LEN_BYTE_ARRAY only
+		switch *page.Schema.Type {
+		case parquet.Type_FLOAT, parquet.Type_DOUBLE, parquet.Type_INT32, parquet.Type_INT64, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			// valid
+		default:
+			return nil, fmt.Errorf("BYTE_STREAM_SPLIT encoding is only supported for FLOAT, DOUBLE, INT32, INT64, FIXED_LEN_BYTE_ARRAY, not %v", *page.Schema.Type)
+		}
 		return encoding.WriteByteStreamSplit(valuesBuf), nil
 	default:
 		return encoding.WritePlain(valuesBuf, *page.Schema.Type)
@@ -723,9 +755,16 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 		return res, nil
 	}
 
-	// For BOOLEAN type, default to bitWidth=1 if not specified
-	if dataType == parquet.Type_BOOLEAN && bitWidth == 0 {
-		bitWidth = 1
+	// Default bitWidth based on type if not specified
+	if bitWidth == 0 {
+		switch dataType {
+		case parquet.Type_BOOLEAN:
+			bitWidth = 1
+		case parquet.Type_INT32:
+			bitWidth = 32
+		case parquet.Type_INT64:
+			bitWidth = 64
+		}
 	}
 
 	switch encodingMethod {
@@ -817,8 +856,14 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 			return encoding.ReadByteStreamSplitFloat32(bytesReader, cnt)
 		case parquet.Type_DOUBLE:
 			return encoding.ReadByteStreamSplitFloat64(bytesReader, cnt)
+		case parquet.Type_INT32:
+			return encoding.ReadByteStreamSplitINT32(bytesReader, cnt)
+		case parquet.Type_INT64:
+			return encoding.ReadByteStreamSplitINT64(bytesReader, cnt)
+		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			return encoding.ReadByteStreamSplitFixedLenByteArray(bytesReader, cnt, bitWidth)
 		default:
-			return res, fmt.Errorf("the encoding method BYTE_STREAM_SPLIT can only be used with Float and double types, got %v", dataType)
+			return res, fmt.Errorf("the encoding method BYTE_STREAM_SPLIT is only supported for FLOAT, DOUBLE, INT32, INT64, FIXED_LEN_BYTE_ARRAY, got %v", dataType)
 		}
 	default:
 		return res, fmt.Errorf("unknown Encoding method: %v", encodingMethod)
