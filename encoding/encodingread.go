@@ -201,10 +201,21 @@ func ReadRLE(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, error) 
 			return res, err
 		}
 	}
-	for len(data) < 4 {
-		data = append(data, byte(0))
+
+	var val int64
+	if bitWidth > 32 {
+		// For INT64 or larger, use Uint64
+		for len(data) < 8 {
+			data = append(data, byte(0))
+		}
+		val = int64(binary.LittleEndian.Uint64(data))
+	} else {
+		// For INT32, BOOLEAN, or smaller, use Uint32
+		for len(data) < 4 {
+			data = append(data, byte(0))
+		}
+		val = int64(binary.LittleEndian.Uint32(data))
 	}
-	val := int64(binary.LittleEndian.Uint32(data))
 	res = make([]any, cnt)
 
 	for i := range int(cnt) {
@@ -539,6 +550,89 @@ func ReadByteStreamSplitFloat64(bytesReader *bytes.Reader, cnt uint64) ([]any, e
 			uint64(buf[cnt*5+i])<<40 |
 			uint64(buf[cnt*6+i])<<48 |
 			uint64(buf[cnt*7+i])<<56)
+	}
+
+	return res, err
+}
+
+func ReadByteStreamSplitINT32(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadByteStreamSplitINT32: %w", err)
+	}
+	res := make([]any, cnt)
+	buf := make([]byte, cnt*4)
+
+	n, err := io.ReadFull(bytesReader, buf)
+	if err != nil {
+		return res, err
+	}
+	if cnt*4 != uint64(n) {
+		return res, io.ErrUnexpectedEOF
+	}
+
+	for i := range cnt {
+		res[i] = int32(uint32(buf[i]) |
+			uint32(buf[cnt+i])<<8 |
+			uint32(buf[cnt*2+i])<<16 |
+			uint32(buf[cnt*3+i])<<24)
+	}
+
+	return res, err
+}
+
+func ReadByteStreamSplitINT64(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadByteStreamSplitINT64: %w", err)
+	}
+	res := make([]any, cnt)
+	buf := make([]byte, cnt*8)
+
+	n, err := io.ReadFull(bytesReader, buf)
+	if err != nil {
+		return res, err
+	}
+	if cnt*8 != uint64(n) {
+		return res, io.ErrUnexpectedEOF
+	}
+
+	for i := range cnt {
+		res[i] = int64(uint64(buf[i]) |
+			uint64(buf[cnt+i])<<8 |
+			uint64(buf[cnt*2+i])<<16 |
+			uint64(buf[cnt*3+i])<<24 |
+			uint64(buf[cnt*4+i])<<32 |
+			uint64(buf[cnt*5+i])<<40 |
+			uint64(buf[cnt*6+i])<<48 |
+			uint64(buf[cnt*7+i])<<56)
+	}
+
+	return res, err
+}
+
+func ReadByteStreamSplitFixedLenByteArray(bytesReader *bytes.Reader, cnt, elemSize uint64) ([]any, error) {
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadByteStreamSplitFixedLenByteArray: %w", err)
+	}
+	if elemSize == 0 {
+		return nil, fmt.Errorf("ReadByteStreamSplitFixedLenByteArray: element size must be > 0")
+	}
+	res := make([]any, cnt)
+	buf := make([]byte, cnt*elemSize)
+
+	n, err := io.ReadFull(bytesReader, buf)
+	if err != nil {
+		return res, err
+	}
+	if cnt*elemSize != uint64(n) {
+		return res, io.ErrUnexpectedEOF
+	}
+
+	for i := range cnt {
+		elem := make([]byte, elemSize)
+		for j := range elemSize {
+			elem[j] = buf[cnt*j+i]
+		}
+		res[i] = string(elem)
 	}
 
 	return res, err
