@@ -423,6 +423,27 @@ func cmpIntBinary(as, bs, order string, signed bool) bool {
 	bbs := []byte(bs)
 	la, lb := len(abs), len(bbs)
 
+	// handle empty slices - empty is treated as zero
+	if la == 0 && lb == 0 {
+		return false // equal, not less than
+	}
+	if la == 0 {
+		// a is zero, b is non-zero
+		// for signed: zero < positive, zero > negative
+		// for unsigned: zero < any non-zero
+		if signed {
+			return (bbs[0]>>7)&1 == 0 // true if b is positive
+		}
+		return true
+	}
+	if lb == 0 {
+		// b is zero, a is non-zero
+		if signed {
+			return (abs[0]>>7)&1 == 1 // true if a is negative
+		}
+		return false
+	}
+
 	// convert to big endian to simplify logic below
 	if order == "LittleEndian" {
 		for i, j := 0, len(abs)-1; i < j; i, j = i+1, j-1 {
