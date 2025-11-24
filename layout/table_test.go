@@ -35,13 +35,13 @@ func equalInt32Slices(a, b []int32) bool {
 	return true
 }
 
-func Test_NewEmptyTable(t *testing.T) {
+func TestNewEmptyTable(t *testing.T) {
 	table := NewEmptyTable()
 	require.NotNil(t, table)
 	require.NotNil(t, table.Info)
 }
 
-func Test_NewTableFromTable(t *testing.T) {
+func TestNewTableFromTable(t *testing.T) {
 	// Test with nil table
 	result := NewTableFromTable(nil)
 	require.Nil(t, result)
@@ -61,7 +61,7 @@ func Test_NewTableFromTable(t *testing.T) {
 	require.Equal(t, int32(0), result.MaxRepetitionLevel)
 }
 
-func Test_Table_Merge(t *testing.T) {
+func TestTable_Merge(t *testing.T) {
 	tests := []struct {
 		name                string
 		setupSource         func() *Table
@@ -156,7 +156,7 @@ func Test_Table_Merge(t *testing.T) {
 	}
 }
 
-func Test_Table_Pop(t *testing.T) {
+func TestTable_Pop(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupTable     func() *Table

@@ -91,7 +91,7 @@ func createMalformedRangeServer() *httptest.Server {
 // test coverage should be sufficient for now, as the multipart wrapper
 // is a simple passthrough implementation.
 
-func Test_HttpReader_Clone(t *testing.T) {
+func TestHttpReader_Clone(t *testing.T) {
 	server := createTestServer()
 	defer server.Close()
 
@@ -108,7 +108,7 @@ func Test_HttpReader_Clone(t *testing.T) {
 	require.NotSame(t, reader, clonedReader)
 }
 
-func Test_HttpReader_Close(t *testing.T) {
+func TestHttpReader_Close(t *testing.T) {
 	server := createTestServer()
 	defer server.Close()
 
@@ -120,7 +120,7 @@ func Test_HttpReader_Close(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_HttpReader_Open(t *testing.T) {
+func TestHttpReader_Open(t *testing.T) {
 	server := createTestServer()
 	defer server.Close()
 
@@ -137,7 +137,7 @@ func Test_HttpReader_Open(t *testing.T) {
 	require.NotSame(t, reader, newReader)
 }
 
-func Test_HttpReader_Read(t *testing.T) {
+func TestHttpReader_Read(t *testing.T) {
 	server := createTestServer()
 	defer server.Close()
 
@@ -157,7 +157,7 @@ func Test_HttpReader_Read(t *testing.T) {
 	}
 }
 
-func Test_HttpReader_ReadAfterSeek(t *testing.T) {
+func TestHttpReader_ReadAfterSeek(t *testing.T) {
 	server := createTestServer()
 	defer server.Close()
 
@@ -181,7 +181,7 @@ func Test_HttpReader_ReadAfterSeek(t *testing.T) {
 	}
 }
 
-func Test_HttpReader_ReadMultiple(t *testing.T) {
+func TestHttpReader_ReadMultiple(t *testing.T) {
 	server := createTestServer()
 	defer server.Close()
 
@@ -215,141 +215,215 @@ func Test_HttpReader_ReadMultiple(t *testing.T) {
 	}
 }
 
-func Test_HttpReader_Seek(t *testing.T) {
-	server := createTestServer()
-	defer server.Close()
-
-	reader, err := NewHttpReader(server.URL, false, false, nil)
-	require.NoError(t, err)
-
-	// Test seek from start
-	offset, err := reader.Seek(10, io.SeekStart)
-	require.NoError(t, err)
-	require.Equal(t, int64(10), offset)
-
-	// Test seek current
-	offset, err = reader.Seek(5, io.SeekCurrent)
-	require.NoError(t, err)
-	require.Equal(t, int64(15), offset)
-
-	// Test seek from end
-	offset, err = reader.Seek(-10, io.SeekEnd)
-	require.NoError(t, err)
-	expectedOffset := int64(len(testData)) - 10
-	require.Equal(t, expectedOffset, offset)
-}
-
-func Test_HttpReader_SeekBoundaries(t *testing.T) {
-	server := createTestServer()
-	defer server.Close()
-
-	reader, err := NewHttpReader(server.URL, false, false, nil)
-	require.NoError(t, err)
-
-	// Test seek to negative offset (should clamp to 0)
-	offset, err := reader.Seek(-100, io.SeekStart)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), offset)
-
-	// Test seek beyond end (should clamp to size)
-	offset, err = reader.Seek(int64(len(testData))+100, io.SeekStart)
-	require.NoError(t, err)
-	require.Equal(t, int64(len(testData)), offset)
-}
-
-func Test_HttpReader_SeekInvalidWhence(t *testing.T) {
-	server := createTestServer()
-	defer server.Close()
-
-	reader, err := NewHttpReader(server.URL, false, false, nil)
-	require.NoError(t, err)
-
-	// Test invalid whence
-	_, err = reader.Seek(0, 999)
-	require.Error(t, err)
-
-	expectedError := "unknown whence"
-	require.Contains(t, err.Error(), expectedError)
-}
-
-func Test_NewHttpReader_DedicatedTransport(t *testing.T) {
-	server := createTestServer()
-	defer server.Close()
-
-	reader, err := NewHttpReader(server.URL, true, false, nil)
-	require.NoError(t, err)
-
-	require.NotNil(t, reader)
-}
-
-func Test_NewHttpReader_IgnoreTLSError(t *testing.T) {
-	server := createTestServer()
-	defer server.Close()
-
-	reader, err := NewHttpReader(server.URL, false, true, nil)
-	require.NoError(t, err)
-
-	require.NotNil(t, reader)
-}
-
-func Test_NewHttpReader_InvalidURL(t *testing.T) {
-	invalidURL := "not-a-valid-url"
-
-	_, err := NewHttpReader(invalidURL, false, false, nil)
-	require.Error(t, err)
-}
-
-func Test_NewHttpReader_MalformedContentRange(t *testing.T) {
-	server := createMalformedRangeServer()
-	defer server.Close()
-
-	_, err := NewHttpReader(server.URL, false, false, nil)
-	require.Error(t, err)
-
-	expectedError := "format is unknown"
-	require.Contains(t, err.Error(), expectedError)
-}
-
-func Test_NewHttpReader_NoRangeSupport(t *testing.T) {
-	server := createNonRangeServer()
-	defer server.Close()
-
-	_, err := NewHttpReader(server.URL, false, false, nil)
-	require.Error(t, err)
-
-	expectedError := "does not support range"
-	require.Contains(t, err.Error(), expectedError)
-}
-
-func Test_NewHttpReader_Success(t *testing.T) {
-	server := createTestServer()
-	defer server.Close()
-
-	reader, err := NewHttpReader(server.URL, false, false, nil)
-	require.NoError(t, err)
-
-	require.NotNil(t, reader)
-
-	// Test that it implements the interface
-	var _ source.ParquetFileReader = reader
-}
-
-func Test_NewHttpReader_WithExtraHeaders(t *testing.T) {
-	server := createTestServer()
-	defer server.Close()
-
-	extraHeaders := map[string]string{
-		"Authorization": "Bearer token",
-		"User-Agent":    "test-agent",
+func TestHttpReader_Seek(t *testing.T) {
+	tests := []struct {
+		name           string
+		offset         int64
+		whence         int
+		expectedOffset int64 // -1 means calculate dynamically
+		errMsg         string
+	}{
+		{
+			name:           "seek_from_start",
+			offset:         10,
+			whence:         io.SeekStart,
+			expectedOffset: 10,
+			errMsg:         "",
+		},
+		{
+			name:           "seek_current",
+			offset:         5,
+			whence:         io.SeekCurrent,
+			expectedOffset: 5, // Will be adjusted in test
+			errMsg:         "",
+		},
+		{
+			name:           "seek_from_end",
+			offset:         -10,
+			whence:         io.SeekEnd,
+			expectedOffset: -1, // Will be calculated as len(testData) - 10
+			errMsg:         "",
+		},
+		{
+			name:           "seek_negative_offset_clamped",
+			offset:         -100,
+			whence:         io.SeekStart,
+			expectedOffset: 0,
+			errMsg:         "",
+		},
+		{
+			name:           "seek_beyond_end_clamped",
+			offset:         int64(len(testData)) + 100,
+			whence:         io.SeekStart,
+			expectedOffset: -1, // Will be calculated as len(testData)
+			errMsg:         "",
+		},
+		{
+			name:           "invalid_whence",
+			offset:         0,
+			whence:         999,
+			expectedOffset: 0,
+			errMsg:         "unknown whence",
+		},
 	}
 
-	reader, err := NewHttpReader(server.URL, false, false, extraHeaders)
+	server := createTestServer()
+	defer server.Close()
+
+	reader, err := NewHttpReader(server.URL, false, false, nil)
 	require.NoError(t, err)
 
-	require.NotNil(t, reader)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset reader position for each test
+			if tt.name != "seek_current" {
+				_, _ = reader.Seek(0, io.SeekStart)
+			} else {
+				// For seek_current test, start at position 10
+				_, _ = reader.Seek(10, io.SeekStart)
+				tt.expectedOffset = 15 // 10 + 5
+			}
+
+			offset, err := reader.Seek(tt.offset, tt.whence)
+
+			if tt.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+
+				expectedOff := tt.expectedOffset
+				if expectedOff == -1 {
+					if tt.name == "seek_from_end" {
+						expectedOff = int64(len(testData)) - 10
+					} else if tt.name == "seek_beyond_end_clamped" {
+						expectedOff = int64(len(testData))
+					}
+				}
+
+				require.Equal(t, expectedOff, offset)
+			}
+		})
+	}
 }
 
-func Test_SetDefaultClient(t *testing.T) {
+func TestNewHttpReader(t *testing.T) {
+	tests := []struct {
+		name               string
+		setupServer        func() (string, func()) // returns URL and cleanup function
+		dedicatedTransport bool
+		ignoreTLS          bool
+		extraHeaders       map[string]string
+		errMsg             string // empty string means no error expected
+	}{
+		{
+			name: "success",
+			setupServer: func() (string, func()) {
+				server := createTestServer()
+				return server.URL, server.Close
+			},
+			dedicatedTransport: false,
+			ignoreTLS:          false,
+			extraHeaders:       nil,
+			errMsg:             "",
+		},
+		{
+			name: "dedicated_transport",
+			setupServer: func() (string, func()) {
+				server := createTestServer()
+				return server.URL, server.Close
+			},
+			dedicatedTransport: true,
+			ignoreTLS:          false,
+			extraHeaders:       nil,
+			errMsg:             "",
+		},
+		{
+			name: "ignore_tls_error",
+			setupServer: func() (string, func()) {
+				server := createTestServer()
+				return server.URL, server.Close
+			},
+			dedicatedTransport: false,
+			ignoreTLS:          true,
+			extraHeaders:       nil,
+			errMsg:             "",
+		},
+		{
+			name: "with_extra_headers",
+			setupServer: func() (string, func()) {
+				server := createTestServer()
+				return server.URL, server.Close
+			},
+			dedicatedTransport: false,
+			ignoreTLS:          false,
+			extraHeaders: map[string]string{
+				"Authorization": "Bearer token",
+				"User-Agent":    "test-agent",
+			},
+			errMsg: "",
+		},
+		{
+			name: "invalid_url",
+			setupServer: func() (string, func()) {
+				return "not-a-valid-url", func() {}
+			},
+			dedicatedTransport: false,
+			ignoreTLS:          false,
+			extraHeaders:       nil,
+			errMsg:             "", // Any error is acceptable for invalid URL
+		},
+		{
+			name: "malformed_content_range",
+			setupServer: func() (string, func()) {
+				server := createMalformedRangeServer()
+				return server.URL, server.Close
+			},
+			dedicatedTransport: false,
+			ignoreTLS:          false,
+			extraHeaders:       nil,
+			errMsg:             "format is unknown",
+		},
+		{
+			name: "no_range_support",
+			setupServer: func() (string, func()) {
+				server := createNonRangeServer()
+				return server.URL, server.Close
+			},
+			dedicatedTransport: false,
+			ignoreTLS:          false,
+			extraHeaders:       nil,
+			errMsg:             "does not support range",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url, cleanup := tt.setupServer()
+			defer cleanup()
+
+			reader, err := NewHttpReader(url, tt.dedicatedTransport, tt.ignoreTLS, tt.extraHeaders)
+
+			if tt.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else if tt.name == "invalid_url" {
+				// For invalid URL, just expect an error
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, reader)
+
+				// For the success case, verify it implements the interface
+				if tt.name == "success" {
+					var _ source.ParquetFileReader = reader
+				}
+			}
+		})
+	}
+}
+
+func TestSetDefaultClient(t *testing.T) {
 	// Save original client
 	originalClient := defaultClient
 	defer func() {
@@ -376,7 +450,7 @@ func Test_SetDefaultClient(t *testing.T) {
 }
 
 // Integration test with real-world HTTP endpoints
-func Test_http_reader_no_range_support(t *testing.T) {
+func TestHttp_reader_no_range_support(t *testing.T) {
 	testCases := []struct {
 		URL           string
 		expectedError error
@@ -397,7 +471,7 @@ func Test_http_reader_no_range_support(t *testing.T) {
 	}
 }
 
-func Test_NewHttpReader_ConcurrentSafety(t *testing.T) {
+func TestNewHttpReader_ConcurrentSafety(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("Content-Length", "1000")

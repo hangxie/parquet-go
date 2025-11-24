@@ -87,12 +87,12 @@ func (m *mockParquetFileReader) Clone() (ParquetFileReader, error) {
 
 // Test the buffer size constant
 
-func Test_BufferSizeConstant(t *testing.T) {
+func TestBufferSizeConstant(t *testing.T) {
 	expectedBufferSize := 4096
 	require.Equal(t, expectedBufferSize, bufferSize, "Expected buffer size %d, got %d", expectedBufferSize, bufferSize)
 }
 
-func Test_ConvertToThriftReader_BufferSize(t *testing.T) {
+func TestConvertToThriftReader_BufferSize(t *testing.T) {
 	// Test that the buffer size constant is used correctly
 	testData := make([]byte, bufferSize*2) // Data larger than buffer
 	for i := range testData {
@@ -128,7 +128,7 @@ func Test_ConvertToThriftReader_BufferSize(t *testing.T) {
 	require.True(t, bytes.Equal(readData, testData))
 }
 
-func Test_ConvertToThriftReader_EmptyData(t *testing.T) {
+func TestConvertToThriftReader_EmptyData(t *testing.T) {
 	// Test with empty data
 	testData := []byte{}
 
@@ -153,7 +153,7 @@ func Test_ConvertToThriftReader_EmptyData(t *testing.T) {
 	}
 }
 
-func Test_ConvertToThriftReader_LargeOffset(t *testing.T) {
+func TestConvertToThriftReader_LargeOffset(t *testing.T) {
 	// Test data
 	testData := []byte("Small data")
 
@@ -179,7 +179,7 @@ func Test_ConvertToThriftReader_LargeOffset(t *testing.T) {
 	}
 }
 
-func Test_ConvertToThriftReader_NegativeOffset(t *testing.T) {
+func TestConvertToThriftReader_NegativeOffset(t *testing.T) {
 	// Test data
 	testData := []byte("Hello, this is test data")
 
@@ -202,7 +202,7 @@ func Test_ConvertToThriftReader_NegativeOffset(t *testing.T) {
 	require.True(t, bytes.Equal(buffer, expected), "Expected %s, got %s", string(expected), string(buffer))
 }
 
-func Test_ConvertToThriftReader_SeekError(t *testing.T) {
+func TestConvertToThriftReader_SeekError(t *testing.T) {
 	// Test data
 	testData := []byte("Hello, this is test data")
 
@@ -216,7 +216,7 @@ func Test_ConvertToThriftReader_SeekError(t *testing.T) {
 	require.Nil(t, thriftReader)
 }
 
-func Test_ConvertToThriftReader_Success(t *testing.T) {
+func TestConvertToThriftReader_Success(t *testing.T) {
 	// Test data
 	testData := []byte("Hello, this is test data for Parquet file reader conversion to Thrift reader")
 
@@ -239,7 +239,7 @@ func Test_ConvertToThriftReader_Success(t *testing.T) {
 	require.True(t, bytes.Equal(buffer, expected))
 }
 
-func Test_ConvertToThriftReader_TypeAssertion(t *testing.T) {
+func TestConvertToThriftReader_TypeAssertion(t *testing.T) {
 	// Test that the returned object is indeed a *thrift.TBufferedTransport
 	testData := []byte("test data")
 	mockReader := newMockParquetFileReader(testData)
@@ -255,7 +255,7 @@ func Test_ConvertToThriftReader_TypeAssertion(t *testing.T) {
 	require.Equal(t, 4, n, "Expected to read 4 bytes, got %d", n)
 }
 
-func Test_ConvertToThriftReader_WithOffset(t *testing.T) {
+func TestConvertToThriftReader_WithOffset(t *testing.T) {
 	// Test data
 	testData := []byte("Hello, this is test data for Parquet file reader conversion to Thrift reader")
 

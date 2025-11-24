@@ -9,7 +9,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_DECIMAL(t *testing.T) {
+func TestDECIMAL(t *testing.T) {
 	a1, _ := StrToParquetType("1.23", parquet.TypePtr(parquet.Type_INT32), parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), 9, 2)
 	sa1 := DECIMAL_INT_ToString(int64(a1.(int32)), 9, 2)
 	require.Equal(t, "1.23", sa1)
@@ -99,7 +99,7 @@ func Test_DECIMAL(t *testing.T) {
 	require.Equal(t, "65535.0000", sa22)
 }
 
-func Test_INT96(t *testing.T) {
+func TestINT96(t *testing.T) {
 	t1 := time.Now().Truncate(time.Microsecond).UTC()
 	s := TimeToINT96(t1)
 	t2 := INT96ToTime(s)
@@ -107,7 +107,7 @@ func Test_INT96(t *testing.T) {
 	require.True(t, t1.Equal(t2), "INT96 error: expected %v, got %v", t1, t2)
 }
 
-func Test_TIMESTAMP_MICROSToTime(t *testing.T) {
+func TestTIMESTAMP_MICROSToTime(t *testing.T) {
 	micros := int64(1672574445123456) // Some microseconds since epoch
 
 	result := TIMESTAMP_MICROSToTime(micros, true)
@@ -120,7 +120,7 @@ func Test_TIMESTAMP_MICROSToTime(t *testing.T) {
 	require.True(t, result2.Equal(expected2), "TIMESTAMP_MICROSToTime(UTC=false) expected %v, got %v", expected2, result2)
 }
 
-func Test_TIMESTAMP_MILLISToTime(t *testing.T) {
+func TestTIMESTAMP_MILLISToTime(t *testing.T) {
 	millis := int64(1672574445123) // Some milliseconds since epoch
 
 	result := TIMESTAMP_MILLISToTime(millis, true)
@@ -133,7 +133,7 @@ func Test_TIMESTAMP_MILLISToTime(t *testing.T) {
 	require.True(t, result2.Equal(expected2), "TIMESTAMP_MILLISToTime(UTC=false) expected %v, got %v", expected2, result2)
 }
 
-func Test_TIMESTAMP_NANOSToTime(t *testing.T) {
+func TestTIMESTAMP_NANOSToTime(t *testing.T) {
 	nanos := int64(1672574445123456789) // Some nanoseconds since epoch
 
 	result := TIMESTAMP_NANOSToTime(nanos, true)
@@ -146,7 +146,7 @@ func Test_TIMESTAMP_NANOSToTime(t *testing.T) {
 	require.True(t, result2.Equal(expected2), "TIMESTAMP_NANOSToTime(UTC=false) expected %v, got %v", expected2, result2)
 }
 
-func Test_TimeToTIMESTAMP_MICROS(t *testing.T) {
+func TestTimeToTIMESTAMP_MICROS(t *testing.T) {
 	testTime := time.Date(2023, 1, 1, 12, 30, 45, 123456789, time.UTC)
 
 	result := TimeToTIMESTAMP_MICROS(testTime, true)
@@ -160,7 +160,7 @@ func Test_TimeToTIMESTAMP_MICROS(t *testing.T) {
 	require.Equal(t, expected2, result2, "TimeToTIMESTAMP_MICROS(UTC=false) expected %d, got %d", expected2, result2)
 }
 
-func Test_TimeToTIMESTAMP_MILLIS(t *testing.T) {
+func TestTimeToTIMESTAMP_MILLIS(t *testing.T) {
 	testTime := time.Date(2023, 1, 1, 12, 30, 45, 123456789, time.UTC)
 
 	result := TimeToTIMESTAMP_MILLIS(testTime, true)
@@ -174,7 +174,7 @@ func Test_TimeToTIMESTAMP_MILLIS(t *testing.T) {
 	require.Equal(t, expected2, result2, "TimeToTIMESTAMP_MILLIS(UTC=false) expected %d, got %d", expected2, result2)
 }
 
-func Test_TimeToTIMESTAMP_NANOS(t *testing.T) {
+func TestTimeToTIMESTAMP_NANOS(t *testing.T) {
 	testTime := time.Date(2023, 1, 1, 12, 30, 45, 123456789, time.UTC)
 
 	result := TimeToTIMESTAMP_NANOS(testTime, true)
@@ -188,7 +188,7 @@ func Test_TimeToTIMESTAMP_NANOS(t *testing.T) {
 	require.Equal(t, expected2, result2, "TimeToTIMESTAMP_NANOS(UTC=false) expected %d, got %d", expected2, result2)
 }
 
-func Test_TimeToTIME_MICROS(t *testing.T) {
+func TestTimeToTIME_MICROS(t *testing.T) {
 	testTime := time.Date(2023, 1, 1, 12, 30, 45, 123456789, time.UTC)
 
 	result := TimeToTIME_MICROS(testTime, true)
@@ -201,7 +201,7 @@ func Test_TimeToTIME_MICROS(t *testing.T) {
 	require.Equal(t, expected2, result2, "TimeToTIME_MICROS(UTC=false) expected %d, got %d", expected2, result2)
 }
 
-func Test_TimeToTIME_MILLIS(t *testing.T) {
+func TestTimeToTIME_MILLIS(t *testing.T) {
 	testTime := time.Date(2023, 1, 1, 12, 30, 45, 123456789, time.UTC)
 
 	result := TimeToTIME_MILLIS(testTime, true)
@@ -214,7 +214,7 @@ func Test_TimeToTIME_MILLIS(t *testing.T) {
 	require.Equal(t, expected2, result2, "TimeToTIME_MILLIS(UTC=false) expected %d, got %d", expected2, result2)
 }
 
-func Test_TIME_MILLISToTimeFormat(t *testing.T) {
+func TestTIME_MILLISToTimeFormat(t *testing.T) {
 	tests := []struct {
 		name     string
 		millis   int32
@@ -255,7 +255,7 @@ func Test_TIME_MILLISToTimeFormat(t *testing.T) {
 	}
 }
 
-func Test_TIME_MICROSToTimeFormat(t *testing.T) {
+func TestTIME_MICROSToTimeFormat(t *testing.T) {
 	tests := []struct {
 		name     string
 		micros   int64
@@ -296,7 +296,7 @@ func Test_TIME_MICROSToTimeFormat(t *testing.T) {
 	}
 }
 
-func Test_IntervalToString(t *testing.T) {
+func TestIntervalToString(t *testing.T) {
 	tests := []struct {
 		name     string
 		interval []byte

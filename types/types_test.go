@@ -15,7 +15,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_InterfaceToParquetType(t *testing.T) {
+func TestInterfaceToParquetType(t *testing.T) {
 	tests := []struct {
 		name        string
 		value       any
@@ -183,7 +183,7 @@ func Test_InterfaceToParquetType(t *testing.T) {
 	}
 }
 
-func Test_JSONTypeToParquetType(t *testing.T) {
+func TestJSONTypeToParquetType(t *testing.T) {
 	tests := []struct {
 		name        string
 		value       any
@@ -388,7 +388,7 @@ func Test_JSONTypeToParquetType(t *testing.T) {
 	}
 }
 
-func Test_ParquetTypeToGoReflectType(t *testing.T) {
+func TestParquetTypeToGoReflectType(t *testing.T) {
 	tests := []struct {
 		name         string
 		pT           *parquet.Type
@@ -538,7 +538,7 @@ func Test_ParquetTypeToGoReflectType(t *testing.T) {
 	}
 }
 
-func Test_StrIntToBinary(t *testing.T) {
+func TestStrIntToBinary(t *testing.T) {
 	testCases := []struct {
 		name        string
 		expectedNum int32
@@ -673,7 +673,7 @@ func Test_StrIntToBinary(t *testing.T) {
 	}
 }
 
-func Test_StrToParquetType(t *testing.T) {
+func TestStrToParquetType(t *testing.T) {
 	testCases := []struct {
 		name           string
 		inputStr       string
@@ -919,7 +919,7 @@ func Test_StrToParquetType(t *testing.T) {
 	}
 }
 
-func Test_ParquetTypeToGoReflectType_NilChecks(t *testing.T) {
+func TestParquetTypeToGoReflectType_NilChecks(t *testing.T) {
 	tests := []struct {
 		name       string
 		pT         *parquet.Type
@@ -1035,7 +1035,7 @@ func Test_ParquetTypeToGoReflectType_NilChecks(t *testing.T) {
 }
 
 // Test edge cases with various combinations
-func Test_ParquetTypeToGoReflectType_EdgeCases(t *testing.T) {
+func TestParquetTypeToGoReflectType_EdgeCases(t *testing.T) {
 	// Test with repeated repetition type (should go to required path due to nil check)
 	repeatedType := parquet.FieldRepetitionType_REPEATED
 	int32Type := parquet.Type_INT32
@@ -1050,7 +1050,7 @@ func Test_ParquetTypeToGoReflectType_EdgeCases(t *testing.T) {
 }
 
 // Test that all the safety checks prevent panics in various scenarios
-func Test_ParquetTypeToGoReflectType_SafetyChecks(t *testing.T) {
+func TestParquetTypeToGoReflectType_SafetyChecks(t *testing.T) {
 	testCases := []struct {
 		name string
 		pT   *parquet.Type
@@ -1069,7 +1069,7 @@ func Test_ParquetTypeToGoReflectType_SafetyChecks(t *testing.T) {
 	}
 }
 
-func Test_ParquetTypeToJSONType(t *testing.T) {
+func TestParquetTypeToJSONType(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     any
@@ -1326,7 +1326,7 @@ func Test_ParquetTypeToJSONType(t *testing.T) {
 	}
 }
 
-func Test_ParquetTypeToJSONTypeWithLogical(t *testing.T) {
+func TestParquetTypeToJSONTypeWithLogical(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     any
@@ -1677,7 +1677,7 @@ func createTimeLogicalType(millis, micros, nanos bool) *parquet.LogicalType {
 	return lt
 }
 
-func Test_convertIntervalValue(t *testing.T) {
+func TestConvertIntervalValue(t *testing.T) {
 	tests := []struct {
 		name     string
 		val      any
@@ -1728,7 +1728,7 @@ func Test_convertIntervalValue(t *testing.T) {
 	}
 }
 
-func Test_TIMESTAMP_MILLISToISO8601(t *testing.T) {
+func TestTIMESTAMP_MILLISToISO8601(t *testing.T) {
 	tests := []struct {
 		name          string
 		millis        int64
@@ -1769,7 +1769,7 @@ func Test_TIMESTAMP_MILLISToISO8601(t *testing.T) {
 	}
 }
 
-func Test_TIMESTAMP_MICROSToISO8601(t *testing.T) {
+func TestTIMESTAMP_MICROSToISO8601(t *testing.T) {
 	tests := []struct {
 		name          string
 		micros        int64
@@ -1804,7 +1804,7 @@ func Test_TIMESTAMP_MICROSToISO8601(t *testing.T) {
 	}
 }
 
-func Test_ConvertTimestampValue(t *testing.T) {
+func TestConvertTimestampValue(t *testing.T) {
 	tests := []struct {
 		name          string
 		val           any
@@ -1851,7 +1851,7 @@ func Test_ConvertTimestampValue(t *testing.T) {
 	}
 }
 
-func Test_convertTimestampLogicalValue(t *testing.T) {
+func TestConvertTimestampLogicalValue(t *testing.T) {
 	tests := []struct {
 		name      string
 		val       any
@@ -1921,7 +1921,7 @@ func Test_convertTimestampLogicalValue(t *testing.T) {
 	}
 }
 
-func Test_convertBinaryValue(t *testing.T) {
+func TestConvertBinaryValue(t *testing.T) {
 	tests := []struct {
 		name     string
 		val      any
@@ -1977,7 +1977,7 @@ func Test_convertBinaryValue(t *testing.T) {
 	}
 }
 
-func Test_ConvertUUIDValue(t *testing.T) {
+func TestConvertUUIDValue(t *testing.T) {
 	tests := []struct {
 		name     string
 		val      any
@@ -2058,7 +2058,7 @@ func Test_ConvertUUIDValue(t *testing.T) {
 	}
 }
 
-func Test_ConvertDecimalValue(t *testing.T) {
+func TestConvertDecimalValue(t *testing.T) {
 	pT := parquet.TypePtr(parquet.Type_INT32)
 
 	// int32 - now returns float64 instead of string
@@ -2081,7 +2081,7 @@ func Test_ConvertDecimalValue(t *testing.T) {
 	require.Equal(t, float32(123.45), res)
 }
 
-func Test_convertINT96Value(t *testing.T) {
+func TestConvertINT96Value(t *testing.T) {
 	// nil
 	res := convertINT96Value(nil)
 	require.Nil(t, res)
@@ -2098,7 +2098,7 @@ func Test_convertINT96Value(t *testing.T) {
 	require.Equal(t, 123, res)
 }
 
-func Test_ConvertDateLogicalValue(t *testing.T) {
+func TestConvertDateLogicalValue(t *testing.T) {
 	tests := []struct {
 		name     string
 		val      any
@@ -2153,7 +2153,7 @@ func Test_ConvertDateLogicalValue(t *testing.T) {
 
 // moved to geospatial_test.go: Test_GeometryAndGeography_MoreModes and helpers
 
-func Test_ConvertFloat16LogicalValue(t *testing.T) {
+func TestConvertFloat16LogicalValue(t *testing.T) {
 	tests := []struct {
 		name string
 		in   any
@@ -2213,7 +2213,7 @@ func Test_ConvertFloat16LogicalValue(t *testing.T) {
 	})
 }
 
-func Test_ConvertIntegerLogicalValue(t *testing.T) {
+func TestConvertIntegerLogicalValue(t *testing.T) {
 	pT32 := parquet.TypePtr(parquet.Type_INT32)
 	pT64 := parquet.TypePtr(parquet.Type_INT64)
 	mkInt := func(width int8, signed bool) *parquet.IntType {
@@ -2261,7 +2261,7 @@ func Test_ConvertIntegerLogicalValue(t *testing.T) {
 }
 
 // moved to geospatial_test.go: Test_Geography_HybridFallbackAndStringInput
-func Test_ConvertBSONLogicalValue(t *testing.T) {
+func TestConvertBSONLogicalValue(t *testing.T) {
 	tests := []struct {
 		name     string
 		val      any
@@ -2315,7 +2315,7 @@ func Test_ConvertBSONLogicalValue(t *testing.T) {
 // Test JSONTypeToParquetType function comprehensively to improve its 30.8% coverage
 
 // Test ParquetTypeToJSONType comprehensively to improve its 52.0% coverage
-func Test_ParquetTypeToJSONType_Comprehensive(t *testing.T) {
+func TestParquetTypeToJSONType_Comprehensive(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     any
@@ -2591,7 +2591,7 @@ func Test_ParquetTypeToJSONType_Comprehensive(t *testing.T) {
 	}
 }
 
-func Test_decimalByteArrayToFloat(t *testing.T) {
+func TestDecimalByteArrayToFloat(t *testing.T) {
 	tests := []struct {
 		name      string
 		data      []byte
@@ -2624,7 +2624,7 @@ func Test_decimalByteArrayToFloat(t *testing.T) {
 	}
 }
 
-func Test_ConvertTimeLogicalValue(t *testing.T) {
+func TestConvertTimeLogicalValue(t *testing.T) {
 	tests := []struct {
 		name     string
 		value    any

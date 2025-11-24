@@ -19,7 +19,7 @@ var (
 	gcsObjectVersion = int64(-1)
 )
 
-func Test_GcsReader_Close(t *testing.T) {
+func TestGcsReader_Close(t *testing.T) {
 	t.Run("nil-reader", func(t *testing.T) {
 		reader := &gcsReader{
 			gcsFile: gcsFile{
@@ -64,7 +64,7 @@ func Test_GcsReader_Close(t *testing.T) {
 	})
 }
 
-func Test_GcsReader_Open(t *testing.T) {
+func TestGcsReader_Open(t *testing.T) {
 	t.Run("internal-client", func(t *testing.T) {
 		reader := &gcsReader{}
 		_, err := reader.Open(gcsObjectName)
@@ -86,7 +86,7 @@ func Test_GcsReader_Open(t *testing.T) {
 	})
 }
 
-func Test_GcsReader_Clone(t *testing.T) {
+func TestGcsReader_Clone(t *testing.T) {
 	ctx := context.Background()
 
 	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
@@ -100,7 +100,7 @@ func Test_GcsReader_Clone(t *testing.T) {
 	require.Equal(t, reader, pr)
 }
 
-func Test_GcsReader_Seek(t *testing.T) {
+func TestGcsReader_Seek(t *testing.T) {
 	ctx := context.Background()
 
 	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
@@ -114,7 +114,7 @@ func Test_GcsReader_Seek(t *testing.T) {
 	require.Equal(t, int64(10), offset)
 }
 
-func Test_GcsReader_Read(t *testing.T) {
+func TestGcsReader_Read(t *testing.T) {
 	ctx := context.Background()
 
 	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
@@ -130,7 +130,7 @@ func Test_GcsReader_Read(t *testing.T) {
 	require.Equal(t, "PAR1", string(buf))
 }
 
-func Test_NewGcsFileReaderWithClient(t *testing.T) {
+func TestNewGcsFileReaderWithClient(t *testing.T) {
 	ctx := context.Background()
 
 	client, err := storage.NewClient(ctx, option.WithoutAuthentication())

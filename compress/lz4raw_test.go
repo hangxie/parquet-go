@@ -9,7 +9,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_Lz4RawCompress(t *testing.T) {
+func TestLz4RawCompress(t *testing.T) {
 	lz4RawCompressor := compressors[parquet.CompressionCodec_LZ4_RAW]
 	input := []byte("Peter Parker")
 	compressed := []byte{

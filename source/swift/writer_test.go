@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_SwiftWriterCloseWithNilFileWriter(t *testing.T) {
+func TestSwiftWriterCloseWithNilFileWriter(t *testing.T) {
 	writer := &swiftWriter{
 		swiftFile: swiftFile{
 			connection: &swift.Connection{},
@@ -22,7 +22,7 @@ func Test_SwiftWriterCloseWithNilFileWriter(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_SwiftWriterMethodsExist(t *testing.T) {
+func TestSwiftWriterMethodsExist(t *testing.T) {
 	writer := &swiftWriter{}
 
 	// Verify all required methods exist
@@ -35,7 +35,7 @@ func Test_SwiftWriterMethodsExist(t *testing.T) {
 	}
 }
 
-func Test_SwiftWriterMethodSignatures(t *testing.T) {
+func TestSwiftWriterMethodSignatures(t *testing.T) {
 	writer := &swiftWriter{}
 	writerType := reflect.TypeOf(writer)
 
@@ -47,7 +47,7 @@ func Test_SwiftWriterMethodSignatures(t *testing.T) {
 	require.Equal(t, 2, writeType.NumOut())
 }
 
-func Test_SwiftWriterFieldAccess(t *testing.T) {
+func TestSwiftWriterFieldAccess(t *testing.T) {
 	writer := &swiftWriter{
 		swiftFile: swiftFile{
 			connection: &swift.Connection{},
@@ -63,7 +63,7 @@ func Test_SwiftWriterFieldAccess(t *testing.T) {
 	require.NotNil(t, writer.connection)
 }
 
-func Test_SwiftWriterWriteDelegation(t *testing.T) {
+func TestSwiftWriterWriteDelegation(t *testing.T) {
 	writer := &swiftWriter{
 		swiftFile: swiftFile{
 			connection: &swift.Connection{},
@@ -78,7 +78,7 @@ func Test_SwiftWriterWriteDelegation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_SwiftFileStructure(t *testing.T) {
+func TestSwiftFileStructure(t *testing.T) {
 	conn := &swift.Connection{}
 
 	file := swiftFile{
@@ -92,7 +92,7 @@ func Test_SwiftFileStructure(t *testing.T) {
 	require.Equal(t, "test.parquet", file.filePath)
 }
 
-func Test_SwiftWriterStructure(t *testing.T) {
+func TestSwiftWriterStructure(t *testing.T) {
 	conn := &swift.Connection{}
 
 	writer := &swiftWriter{

@@ -11,7 +11,7 @@ import (
 
 // Tests for schema handler functionality
 
-func Test_NewSchemaHandlerFromSchemaHandler(t *testing.T) {
+func TestNewSchemaHandlerFromSchemaHandler(t *testing.T) {
 	// Create an original schema using NewSchemaHandlerFromStruct for simplicity
 	originalSchema, err := NewSchemaHandlerFromStruct(new(struct {
 		Field1 int32  `parquet:"name=field1, type=INT32"`
@@ -41,7 +41,7 @@ func Test_NewSchemaHandlerFromSchemaHandler(t *testing.T) {
 	require.NotSame(t, &originalSchema.SchemaElements, &schema2.SchemaElements)
 }
 
-func Test_NewSchemaHandlerFromSchemaList(t *testing.T) {
+func TestNewSchemaHandlerFromSchemaList(t *testing.T) {
 	// Create a simple schema element list directly
 	requiredRep := parquet.FieldRepetitionType_REQUIRED
 	optionalRep := parquet.FieldRepetitionType_OPTIONAL
@@ -77,7 +77,7 @@ func Test_NewSchemaHandlerFromSchemaList(t *testing.T) {
 	require.NotNil(t, schema2.PathMap)
 }
 
-func Test_NewSchemaHandlerFromStruct(t *testing.T) {
+func TestNewSchemaHandlerFromStruct(t *testing.T) {
 	tests := []struct {
 		name              string
 		structDef         interface{}
@@ -331,7 +331,7 @@ func Test_NewSchemaHandlerFromStruct(t *testing.T) {
 	}
 }
 
-func Test_SchemaHandler_GetRepetitionLevelIndex(t *testing.T) {
+func TestSchemaHandler_GetRepetitionLevelIndex(t *testing.T) {
 	// Create a schema with repeated and nested fields
 	schema, err := NewSchemaHandlerFromStruct(new(struct {
 		SimpleField   string   `parquet:"name=simple_field, type=BYTE_ARRAY, convertedtype=UTF8"`
@@ -376,7 +376,7 @@ func Test_SchemaHandler_GetRepetitionLevelIndex(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-func Test_SchemaHandler_GetRootExName(t *testing.T) {
+func TestSchemaHandler_GetRootExName(t *testing.T) {
 	// Create a schema with various field types
 	schema, err := NewSchemaHandlerFromStruct(new(struct {
 		SimpleField  string `parquet:"name=simple_field, type=BYTE_ARRAY, convertedtype=UTF8"`
@@ -404,7 +404,7 @@ func Test_SchemaHandler_GetRootExName(t *testing.T) {
 	require.Equal(t, "", emptyRootName)
 }
 
-func Test_SchemaHandler_MaxDefinitionLevel(t *testing.T) {
+func TestSchemaHandler_MaxDefinitionLevel(t *testing.T) {
 	// Create a schema with optional and required fields
 	schema, err := NewSchemaHandlerFromStruct(new(struct {
 		RequiredField string   `parquet:"name=required_field, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=REQUIRED"`
@@ -458,7 +458,7 @@ func Test_SchemaHandler_MaxDefinitionLevel(t *testing.T) {
 	require.Equal(t, int32(0), level)
 }
 
-func Test_SchemaHandler_MaxRepetitionLevel(t *testing.T) {
+func TestSchemaHandler_MaxRepetitionLevel(t *testing.T) {
 	// Create a schema with multiple levels of repetition
 	schema, err := NewSchemaHandlerFromStruct(new(struct {
 		SimpleField   string   `parquet:"name=simple_field, type=BYTE_ARRAY, convertedtype=UTF8"`
@@ -501,7 +501,7 @@ func Test_SchemaHandler_MaxRepetitionLevel(t *testing.T) {
 	require.Equal(t, int32(0), level)
 }
 
-func Test_SchemaHandler_SetValueColumns_BoundsChecking(t *testing.T) {
+func TestSchemaHandler_SetValueColumns_BoundsChecking(t *testing.T) {
 	tests := []struct {
 		name     string
 		handler  *SchemaHandler
@@ -605,7 +605,7 @@ func Test_SchemaHandler_SetValueColumns_BoundsChecking(t *testing.T) {
 	}
 }
 
-func Test_SchemaHandler_BoundsEdgeCases(t *testing.T) {
+func TestSchemaHandler_BoundsEdgeCases(t *testing.T) {
 	tests := []struct {
 		name    string
 		handler *SchemaHandler

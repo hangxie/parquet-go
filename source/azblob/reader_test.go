@@ -57,7 +57,7 @@ var testCases []testCase = []testCase{
 	},
 }
 
-func Test_NewAzBlobFileReader(t *testing.T) {
+func TestNewAzBlobFileReader(t *testing.T) {
 	for _, tc := range testCases {
 		_, err := NewAzBlobFileReader(context.Background(), tc.url, nil, blockblob.ClientOptions{
 			ClientOptions: policy.ClientOptions{
@@ -76,7 +76,7 @@ func Test_NewAzBlobFileReader(t *testing.T) {
 	}
 }
 
-func Test_NewAzBlobFileReaderWithClient(t *testing.T) {
+func TestNewAzBlobFileReaderWithClient(t *testing.T) {
 	for _, tc := range testCases {
 		testClient, _ := blockblob.NewClientWithNoCredential(tc.url, &blockblob.ClientOptions{})
 		_, err := NewAzBlobFileReaderWithClient(context.Background(), tc.url, testClient)
@@ -93,7 +93,7 @@ func Test_NewAzBlobFileReaderWithClient(t *testing.T) {
 	require.Contains(t, err.Error(), expected)
 }
 
-func Test_NewAzBlobFileReaderWithSharedKey(t *testing.T) {
+func TestNewAzBlobFileReaderWithSharedKey(t *testing.T) {
 	for _, tc := range testCases {
 		_, err := NewAzBlobFileReader(context.Background(), tc.url, nil, blockblob.ClientOptions{
 			ClientOptions: policy.ClientOptions{
@@ -112,7 +112,7 @@ func Test_NewAzBlobFileReaderWithSharedKey(t *testing.T) {
 	}
 }
 
-func Test_azBlobReader_Seek(t *testing.T) {
+func TestAzBlobReader_Seek(t *testing.T) {
 	reader := &azBlobReader{
 		fileSize: 1000,
 		offset:   0,
@@ -152,7 +152,7 @@ func Test_azBlobReader_Seek(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid offset")
 }
 
-func Test_azBlobReader_Read(t *testing.T) {
+func TestAzBlobReader_Read(t *testing.T) {
 	// Test read when not opened
 	reader := &azBlobReader{}
 	buf := make([]byte, 10)
@@ -175,13 +175,13 @@ func Test_azBlobReader_Read(t *testing.T) {
 	require.Equal(t, 0, n)
 }
 
-func Test_azBlobReader_Close(t *testing.T) {
+func TestAzBlobReader_Close(t *testing.T) {
 	reader := &azBlobReader{}
 	err := reader.Close()
 	require.NoError(t, err) // Close is a no-op, should never error
 }
 
-func Test_azBlobReader_Clone(t *testing.T) {
+func TestAzBlobReader_Clone(t *testing.T) {
 	// Test Clone with valid client (will fail due to network call, but covers the method)
 	testURL := "https://example.blob.core.windows.net/container/blob"
 	parsedURL, _ := url.Parse(testURL)

@@ -58,7 +58,7 @@ func (s Student) String() string {
 	return res
 }
 
-func Test_MarshalUnmarshal(t *testing.T) {
+func TestMarshalUnmarshal(t *testing.T) {
 	schemaHandler, _ := schema.NewSchemaHandlerFromStruct(new(Student))
 
 	math01ID := int64(1)
@@ -122,7 +122,7 @@ func Test_MarshalUnmarshal(t *testing.T) {
 	require.Equal(t, s0, s1)
 }
 
-func Test_Unmarshal_PanicZeroValue(t *testing.T) {
+func TestUnmarshal_PanicZeroValue(t *testing.T) {
 	type TestStruct struct {
 		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 	}
@@ -143,7 +143,7 @@ func Test_Unmarshal_PanicZeroValue(t *testing.T) {
 	require.Contains(t, err.Error(), "dstInterface must be a non-nil pointer")
 }
 
-func Test_ConvertToJSONFriendly_Combined(t *testing.T) {
+func TestConvertToJSONFriendly_Combined(t *testing.T) {
 	type DecimalStruct struct {
 		Decimal1 int32  `parquet:"name=decimal1, type=INT32, convertedtype=DECIMAL, scale=2, precision=9"`
 		Decimal2 int64  `parquet:"name=decimal2, type=INT64, convertedtype=DECIMAL, scale=3, precision=18"`
@@ -333,7 +333,7 @@ func Test_ConvertToJSONFriendly_Combined(t *testing.T) {
 	}
 }
 
-func Test_getFieldNameFromTag(t *testing.T) {
+func TestGetFieldNameFromTag(t *testing.T) {
 	tests := []struct {
 		name     string
 		field    reflect.StructField
@@ -413,7 +413,7 @@ func Test_getFieldNameFromTag(t *testing.T) {
 	}
 }
 
-func Test_convertValueToJSONFriendlyWithContext(t *testing.T) {
+func TestConvertValueToJSONFriendlyWithContext(t *testing.T) {
 	type TestStruct struct {
 		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 		Value int32  `parquet:"name=value, type=INT32, convertedtype=DECIMAL, scale=2, precision=9"`
@@ -535,7 +535,7 @@ func Test_convertValueToJSONFriendlyWithContext(t *testing.T) {
 	}
 }
 
-func Test_ConvertToJSONFriendly_NonDefaultRootName(t *testing.T) {
+func TestConvertToJSONFriendly_NonDefaultRootName(t *testing.T) {
 	// Test the fix for hardcoded "Parquet_go_root" assumption
 	// Create a schema with a custom root name to verify the fix works
 
@@ -587,7 +587,7 @@ func Test_ConvertToJSONFriendly_NonDefaultRootName(t *testing.T) {
 	require.Equal(t, expected, result)
 }
 
-func Test_convertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
+func TestConvertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
 	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(struct{}))
 	require.NoError(t, err)
 
@@ -634,7 +634,7 @@ func Test_convertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
 	}
 }
 
-func Test_Unmarshal_ErrorHandling_ReflectionSafety(t *testing.T) {
+func TestUnmarshal_ErrorHandling_ReflectionSafety(t *testing.T) {
 	// This test verifies that the new error handling and safety checks work properly
 	// by testing the unmarshal function with edge cases that could cause panics
 
@@ -673,7 +673,7 @@ func Test_Unmarshal_ErrorHandling_ReflectionSafety(t *testing.T) {
 	})
 }
 
-func Test_Unmarshal_EdgeCases_InvalidValues(t *testing.T) {
+func TestUnmarshal_EdgeCases_InvalidValues(t *testing.T) {
 	// This test ensures the improved error handling works with edge cases
 	type SimpleStruct struct {
 		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
@@ -710,7 +710,7 @@ func Test_Unmarshal_EdgeCases_InvalidValues(t *testing.T) {
 	})
 }
 
-func Test_Unmarshal_ReflectionSafety_TypeConversion(t *testing.T) {
+func TestUnmarshal_ReflectionSafety_TypeConversion(t *testing.T) {
 	// This test focuses on the new safety features added to handle type conversion and reflection errors
 	type ConversionTestStruct struct {
 		IntField    int32  `parquet:"name=int_field, type=INT32"`
@@ -768,7 +768,7 @@ func Test_Unmarshal_ReflectionSafety_TypeConversion(t *testing.T) {
 }
 
 // Additional coverage for marshal/unmarshal.go focusing on edge branches
-func Test_Unmarshal_TypeConversionAndNilHandling(t *testing.T) {
+func TestUnmarshal_TypeConversionAndNilHandling(t *testing.T) {
 	type Conv struct {
 		A int64 `parquet:"name=a, type=INT64"`
 	}
@@ -809,7 +809,7 @@ func Test_Unmarshal_TypeConversionAndNilHandling(t *testing.T) {
 	require.Equal(t, int64(0), dst[0].A) // remained zero value
 }
 
-func Test_Unmarshal_FieldNotFound(t *testing.T) {
+func TestUnmarshal_FieldNotFound(t *testing.T) {
 	type Pair struct {
 		A int32 `parquet:"name=a, type=INT32"`
 		B int32 `parquet:"name=b, type=INT32"`
@@ -844,7 +844,7 @@ func Test_Unmarshal_FieldNotFound(t *testing.T) {
 	require.Contains(t, err.Error(), "field \"NotExist\" not found")
 }
 
-func Test_Unmarshal_MapAndList_MultipleEntries(t *testing.T) {
+func TestUnmarshal_MapAndList_MultipleEntries(t *testing.T) {
 	type Combo struct {
 		M map[string]int32 `parquet:"name=m, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
 		L []int32          `parquet:"name=l, type=LIST, valuetype=INT32"`
@@ -916,7 +916,7 @@ func createConversionContext() *conversionContext {
 }
 
 // Test_OldStyleList targets test old style list
-func Test_OldStyleList(t *testing.T) {
+func TestOldStyleList(t *testing.T) {
 	t.Run("unmarshal_old_list_multi_inner_segments", func(t *testing.T) {
 		schemaHandler := createOldListSchema()
 

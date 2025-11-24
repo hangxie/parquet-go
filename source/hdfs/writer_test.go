@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_HdfsWriterStructure(t *testing.T) {
+func TestHdfsWriterStructure(t *testing.T) {
 	writer := &hdfsWriter{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -24,7 +24,7 @@ func Test_HdfsWriterStructure(t *testing.T) {
 	require.Nil(t, writer.fileWriter)
 }
 
-func Test_HdfsWriterClose(t *testing.T) {
+func TestHdfsWriterClose(t *testing.T) {
 	writer := &hdfsWriter{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -39,12 +39,12 @@ func Test_HdfsWriterClose(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_NewHdfsFileWriterError(t *testing.T) {
+func TestNewHdfsFileWriterError(t *testing.T) {
 	_, err := NewHdfsFileWriter([]string{"nonexistent:9000"}, "test-user", "test.parquet")
 	require.Error(t, err)
 }
 
-func Test_HdfsWriterWriteDelegation(t *testing.T) {
+func TestHdfsWriterWriteDelegation(t *testing.T) {
 	writer := &hdfsWriter{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -60,7 +60,7 @@ func Test_HdfsWriterWriteDelegation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_HdfsWriter_Create(t *testing.T) {
+func TestHdfsWriter_Create(t *testing.T) {
 	writer := &hdfsWriter{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},

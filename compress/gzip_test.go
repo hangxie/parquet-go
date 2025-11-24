@@ -8,7 +8,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_GzipCompression(t *testing.T) {
+func TestGzipCompression(t *testing.T) {
 	gzipCompressor := compressors[parquet.CompressionCodec_GZIP]
 	input := []byte("test data")
 	compressed := gzipCompressor.Compress(input)

@@ -14,7 +14,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/schema"
 )
 
-func Test_DataPageCompressWithStatistics(t *testing.T) {
+func TestDataPageCompressWithStatistics(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
@@ -46,7 +46,7 @@ func Test_DataPageCompressWithStatistics(t *testing.T) {
 	require.NotNil(t, page.Header.DataPageHeader.Statistics.NullCount)
 }
 
-func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
+func TestGeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 	// Create WKB point data for testing (point at coordinates 10.5, 20.3)
 	wkbPoint := []byte{
 		0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x40, 0xcd, 0xcc, 0xcc,
@@ -245,7 +245,7 @@ func Test_GeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 	}
 }
 
-func Test_DataPageV2CompressWithComplexData(t *testing.T) {
+func TestDataPageV2CompressWithComplexData(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT64),
@@ -276,7 +276,7 @@ func Test_DataPageV2CompressWithComplexData(t *testing.T) {
 	require.NotNil(t, page.Header.DataPageHeaderV2.Statistics)
 }
 
-func Test_GetRLDLFromRawData(t *testing.T) {
+func TestGetRLDLFromRawData(t *testing.T) {
 	// Create schema handler
 	schemaElements := []*parquet.SchemaElement{
 		{
@@ -482,7 +482,7 @@ func Test_GetRLDLFromRawData(t *testing.T) {
 	}
 }
 
-func Test_GetRLDLFromRawDataComplexScenarios(t *testing.T) {
+func TestGetRLDLFromRawDataComplexScenarios(t *testing.T) {
 	// Create schema handler with nested/repeated fields
 	schemaElements := []*parquet.SchemaElement{
 		{
@@ -647,7 +647,7 @@ func Test_GetRLDLFromRawDataComplexScenarios(t *testing.T) {
 	}
 }
 
-func Test_NewDataPage(t *testing.T) {
+func TestNewDataPage(t *testing.T) {
 	page := NewDataPage()
 	require.NotNil(t, page)
 	require.NotNil(t, page.Header)
@@ -655,7 +655,7 @@ func Test_NewDataPage(t *testing.T) {
 	require.NotNil(t, page.Info)
 }
 
-func Test_NewDictPage(t *testing.T) {
+func TestNewDictPage(t *testing.T) {
 	page := NewDictPage()
 	require.NotNil(t, page)
 	require.NotNil(t, page.Header)
@@ -663,7 +663,7 @@ func Test_NewDictPage(t *testing.T) {
 	require.NotNil(t, page.Info)
 }
 
-func Test_NewPage(t *testing.T) {
+func TestNewPage(t *testing.T) {
 	page := NewPage()
 	require.NotNil(t, page)
 	require.NotNil(t, page.Header)
@@ -671,7 +671,7 @@ func Test_NewPage(t *testing.T) {
 	require.Nil(t, page.DataTable)
 }
 
-func Test_PageDataPageCompress(t *testing.T) {
+func TestPageDataPageCompress(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT32),
@@ -691,7 +691,7 @@ func Test_PageDataPageCompress(t *testing.T) {
 	require.NotEmpty(t, data)
 }
 
-func Test_PageDataPageV2Compress(t *testing.T) {
+func TestPageDataPageV2Compress(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT32),
@@ -711,7 +711,7 @@ func Test_PageDataPageV2Compress(t *testing.T) {
 	require.NotEmpty(t, data)
 }
 
-func Test_PageDecode(t *testing.T) {
+func TestPageDecode(t *testing.T) {
 	testCases := []struct {
 		name     string
 		page     *Page
@@ -863,7 +863,7 @@ func Test_PageDecode(t *testing.T) {
 	}
 }
 
-func Test_PageEncodingValues(t *testing.T) {
+func TestPageEncodingValues(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT32),
@@ -877,7 +877,7 @@ func Test_PageEncodingValues(t *testing.T) {
 	require.NotEmpty(t, data)
 }
 
-func Test_PageEncodingValuesErrorCases(t *testing.T) {
+func TestPageEncodingValuesErrorCases(t *testing.T) {
 	testCases := []struct {
 		name     string
 		encoding parquet.Encoding
@@ -922,7 +922,7 @@ func Test_PageEncodingValuesErrorCases(t *testing.T) {
 	}
 }
 
-func Test_PageEncodingValuesWithDifferentEncodings(t *testing.T) {
+func TestPageEncodingValuesWithDifferentEncodings(t *testing.T) {
 	testCases := []struct {
 		name     string
 		encoding parquet.Encoding
@@ -1002,7 +1002,7 @@ func Test_PageEncodingValuesWithDifferentEncodings(t *testing.T) {
 	}
 }
 
-func Test_PageEncodingValuesWithEmptyValues(t *testing.T) {
+func TestPageEncodingValuesWithEmptyValues(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT32),
@@ -1017,7 +1017,7 @@ func Test_PageEncodingValuesWithEmptyValues(t *testing.T) {
 	require.Empty(t, data)
 }
 
-func Test_Page_GetValueFromRawData(t *testing.T) {
+func TestPage_GetValueFromRawData(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupPage   func() *Page
@@ -1422,7 +1422,7 @@ func Test_Page_GetValueFromRawData(t *testing.T) {
 	}
 }
 
-func Test_ReadDataPageValues(t *testing.T) {
+func TestReadDataPageValues(t *testing.T) {
 	testCases := []struct {
 		name           string
 		encodingMethod parquet.Encoding
@@ -1521,7 +1521,7 @@ func Test_ReadDataPageValues(t *testing.T) {
 	}
 }
 
-func Test_ReadDataPageValuesMoreCases(t *testing.T) {
+func TestReadDataPageValuesMoreCases(t *testing.T) {
 	testCases := []struct {
 		name           string
 		encodingMethod parquet.Encoding
@@ -1736,7 +1736,7 @@ func Test_ReadDataPageValuesMoreCases(t *testing.T) {
 	}
 }
 
-func Test_ReadDataPageValues_BooleanTypeConversion(t *testing.T) {
+func TestReadDataPageValues_BooleanTypeConversion(t *testing.T) {
 	t.Run("rle_encoding_boolean_values", func(t *testing.T) {
 		// Test that RLE encoding correctly converts int64 to bool
 		values := []any{int64(1), int64(1), int64(0), int64(1)}
@@ -1811,7 +1811,7 @@ func Test_ReadDataPageValues_BooleanTypeConversion(t *testing.T) {
 	})
 }
 
-func Test_PageEncodingValues_BooleanRLE(t *testing.T) {
+func TestPageEncodingValues_BooleanRLE(t *testing.T) {
 	t.Run("boolean_rle_without_length_specified", func(t *testing.T) {
 		// Test that Page.EncodingValues correctly defaults to bitWidth=1 for BOOLEAN type
 		// when page.Info.Length is 0 (not specified in struct tag)
@@ -1845,7 +1845,7 @@ func Test_PageEncodingValues_BooleanRLE(t *testing.T) {
 	})
 }
 
-func Test_ReadPage(t *testing.T) {
+func TestReadPage(t *testing.T) {
 	// Create schema handler
 	schemaElements := []*parquet.SchemaElement{
 		{
@@ -2052,7 +2052,7 @@ func Test_ReadPage(t *testing.T) {
 	}
 }
 
-func Test_ReadPage2(t *testing.T) {
+func TestReadPage2(t *testing.T) {
 	// Create schema handler
 	schemaElements := []*parquet.SchemaElement{
 		{
@@ -2155,7 +2155,7 @@ func Test_ReadPage2(t *testing.T) {
 	}
 }
 
-func Test_ReadPageErrorCases(t *testing.T) {
+func TestReadPageErrorCases(t *testing.T) {
 	// Create schema handler
 	schemaElements := []*parquet.SchemaElement{
 		{
@@ -2287,7 +2287,7 @@ func Test_ReadPageErrorCases(t *testing.T) {
 	}
 }
 
-func Test_ReadPageHeader(t *testing.T) {
+func TestReadPageHeader(t *testing.T) {
 	testCases := []struct {
 		name        string
 		setupData   func() []byte
@@ -2383,7 +2383,7 @@ func Test_ReadPageHeader(t *testing.T) {
 	}
 }
 
-func Test_ReadPageRawData(t *testing.T) {
+func TestReadPageRawData(t *testing.T) {
 	// Create a simple schema handler
 	schemaElements := []*parquet.SchemaElement{
 		{
@@ -2490,7 +2490,7 @@ func Test_ReadPageRawData(t *testing.T) {
 	}
 }
 
-func Test_TableToDataPages(t *testing.T) {
+func TestTableToDataPages(t *testing.T) {
 	// Create a simple table with INT32 values
 	table := &Table{
 		Schema: &parquet.SchemaElement{
@@ -2509,7 +2509,7 @@ func Test_TableToDataPages(t *testing.T) {
 	require.Positive(t, totalSize)
 }
 
-func Test_TableToDataPagesComplexScenarios(t *testing.T) {
+func TestTableToDataPagesComplexScenarios(t *testing.T) {
 	testCases := []struct {
 		name              string
 		table             *Table
@@ -2602,7 +2602,7 @@ func Test_TableToDataPagesComplexScenarios(t *testing.T) {
 	}
 }
 
-func Test_TableToDataPagesWithEmptyTable(t *testing.T) {
+func TestTableToDataPagesWithEmptyTable(t *testing.T) {
 	// Create an empty table
 	table := &Table{
 		Schema: &parquet.SchemaElement{
@@ -2621,7 +2621,7 @@ func Test_TableToDataPagesWithEmptyTable(t *testing.T) {
 	require.Zero(t, totalSize)
 }
 
-func Test_TableToDataPagesWithInvalidType(t *testing.T) {
+func TestTableToDataPagesWithInvalidType(t *testing.T) {
 	// Create a table with invalid schema type
 	table := &Table{
 		Schema: &parquet.SchemaElement{
@@ -2638,7 +2638,7 @@ func Test_TableToDataPagesWithInvalidType(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_TableToDataPagesWithVersion(t *testing.T) {
+func TestTableToDataPagesWithVersion(t *testing.T) {
 	testCases := []struct {
 		name        string
 		table       *Table
@@ -2794,7 +2794,7 @@ func Test_TableToDataPagesWithVersion(t *testing.T) {
 	}
 }
 
-func Test_Page_Decode_BoundsChecking(t *testing.T) {
+func TestPage_Decode_BoundsChecking(t *testing.T) {
 	tests := []struct {
 		name       string
 		setupPages func() (*Page, *Page)
@@ -2945,7 +2945,7 @@ func Test_Page_Decode_BoundsChecking(t *testing.T) {
 	}
 }
 
-func Test_Page_Decode_NilSafety(t *testing.T) {
+func TestPage_Decode_NilSafety(t *testing.T) {
 	tests := []struct {
 		name       string
 		setupPages func() (*Page, *Page)
@@ -3015,7 +3015,7 @@ func Test_Page_Decode_NilSafety(t *testing.T) {
 	}
 }
 
-func Test_Table_Pop_ArrayConsistency(t *testing.T) {
+func TestTable_Pop_ArrayConsistency(t *testing.T) {
 	tests := []struct {
 		name     string
 		table    *Table
@@ -3092,7 +3092,7 @@ func Test_Table_Pop_ArrayConsistency(t *testing.T) {
 	}
 }
 
-func Test_ExtractGeometryType(t *testing.T) {
+func TestExtractGeometryType(t *testing.T) {
 	t.Run("point_little_endian", func(t *testing.T) {
 		// Hardcoded WKB point (10.5, 20.3) little-endian
 		wkb := []byte{
@@ -3157,7 +3157,7 @@ func Test_ExtractGeometryType(t *testing.T) {
 	})
 }
 
-func Test_ComputePageGeospatialStatistics(t *testing.T) {
+func TestComputePageGeospatialStatistics(t *testing.T) {
 	t.Run("single_point", func(t *testing.T) {
 		// Hardcoded WKB point (10.5, 20.3) little-endian
 		wkb := []byte{
@@ -3344,7 +3344,7 @@ func Test_ComputePageGeospatialStatistics(t *testing.T) {
 	})
 }
 
-func Test_ReadDataPageValues_BoundsChecking(t *testing.T) {
+func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 	testCases := []struct {
 		name           string
 		encodingMethod parquet.Encoding

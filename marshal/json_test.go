@@ -10,7 +10,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/schema"
 )
 
-func Test_MarshalJSON(t *testing.T) {
+func TestMarshalJSON(t *testing.T) {
 	tests := []struct {
 		name         string
 		schemaString string
@@ -103,7 +103,7 @@ func Test_MarshalJSON(t *testing.T) {
 	}
 }
 
-func Test_MarshalJSON_Comprehensive(t *testing.T) {
+func TestMarshalJSON_Comprehensive(t *testing.T) {
 	t.Run("simple_struct", func(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
@@ -364,7 +364,7 @@ func Test_MarshalJSON_Comprehensive(t *testing.T) {
 	})
 }
 
-func Test_MarshalJSON_EdgeCases(t *testing.T) {
+func TestMarshalJSON_EdgeCases(t *testing.T) {
 	t.Run("json_decode_error", func(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
@@ -492,7 +492,7 @@ func Test_MarshalJSON_EdgeCases(t *testing.T) {
 	})
 }
 
-func Test_MarshalJSON_UseNumber(t *testing.T) {
+func TestMarshalJSON_UseNumber(t *testing.T) {
 	// Test that UseNumber() is working correctly for numeric precision
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
@@ -525,7 +525,7 @@ func Test_MarshalJSON_UseNumber(t *testing.T) {
 }
 
 // Test Real MAP type using Go struct to generate proper schema
-func Test_MarshalJSON_RealMapType(t *testing.T) {
+func TestMarshalJSON_RealMapType(t *testing.T) {
 	// Create schema using Go struct with MAP field
 	type MapStruct struct {
 		MapField map[string]int32 `parquet:"name=map, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
@@ -556,7 +556,7 @@ func Test_MarshalJSON_RealMapType(t *testing.T) {
 }
 
 // Test Real LIST type using Go struct to generate proper schema
-func Test_MarshalJSON_RealListType(t *testing.T) {
+func TestMarshalJSON_RealListType(t *testing.T) {
 	// Create schema using Go struct with LIST field
 	type ListStruct struct {
 		ListField []string `parquet:"name=list, type=LIST, convertedtype=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
@@ -587,7 +587,7 @@ func Test_MarshalJSON_RealListType(t *testing.T) {
 }
 
 // Test Repeated field type (non-LIST) with empty arrays (covers lines 189-213)
-func Test_MarshalJSON_RepeatedFieldEmpty(t *testing.T) {
+func TestMarshalJSON_RepeatedFieldEmpty(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
@@ -609,7 +609,7 @@ func Test_MarshalJSON_RepeatedFieldEmpty(t *testing.T) {
 	require.NotNil(t, result)
 }
 
-func Test_MarshalJSON_ComplexPath_IsChildPath(t *testing.T) {
+func TestMarshalJSON_ComplexPath_IsChildPath(t *testing.T) {
 	// Test cases that exercise the IsChildPath logic in the marshal code
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
@@ -648,7 +648,7 @@ func Test_MarshalJSON_ComplexPath_IsChildPath(t *testing.T) {
 	require.Nil(t, leafColumn.Values[0])
 }
 
-func Test_MarshalJSON_StringToVariableName(t *testing.T) {
+func TestMarshalJSON_StringToVariableName(t *testing.T) {
 	// Test the StringToVariableName conversion used in struct handling
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
@@ -696,7 +696,7 @@ func Test_MarshalJSON_StringToVariableName(t *testing.T) {
 }
 
 // Test types.JSONTypeToParquetType error handling (covers lines 218-222)
-func Test_MarshalJSON_TypeConversionError(t *testing.T) {
+func TestMarshalJSON_TypeConversionError(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
@@ -709,7 +709,7 @@ func Test_MarshalJSON_TypeConversionError(t *testing.T) {
 }
 
 // Test map with invalid key access (covers line 125 condition)
-func Test_MarshalJSON_MapInvalidKeyAccess(t *testing.T) {
+func TestMarshalJSON_MapInvalidKeyAccess(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
@@ -743,7 +743,7 @@ func Test_MarshalJSON_MapInvalidKeyAccess(t *testing.T) {
 	require.Nil(t, missingField.Values[0])
 }
 
-func Test_MarshalJSON_InvalidMapIndexValue(t *testing.T) {
+func TestMarshalJSON_InvalidMapIndexValue(t *testing.T) {
 	// Test with valid map value but invalid index access
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
@@ -777,7 +777,7 @@ func Test_MarshalJSON_InvalidMapIndexValue(t *testing.T) {
 }
 
 // Test MapIndex access with invalid values to trigger error paths
-func Test_MarshalJSON_MapIndexErrors(t *testing.T) {
+func TestMarshalJSON_MapIndexErrors(t *testing.T) {
 	// Test struct field access that could have invalid map index
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
@@ -807,7 +807,7 @@ func Test_MarshalJSON_MapIndexErrors(t *testing.T) {
 }
 
 // Test struct field mapping with StringToVariableName conversion
-func Test_MarshalJSON_StructFieldMapping(t *testing.T) {
+func TestMarshalJSON_StructFieldMapping(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
@@ -836,7 +836,7 @@ func Test_MarshalJSON_StructFieldMapping(t *testing.T) {
 }
 
 // Test nil map index values (covers line 125 IsValid() check)
-func Test_MarshalJSON_NilMapIndexValues(t *testing.T) {
+func TestMarshalJSON_NilMapIndexValues(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
@@ -871,7 +871,7 @@ func Test_MarshalJSON_NilMapIndexValues(t *testing.T) {
 }
 
 // Test additional edge cases for comprehensive coverage
-func Test_MarshalJSON_AdditionalEdgeCases(t *testing.T) {
+func TestMarshalJSON_AdditionalEdgeCases(t *testing.T) {
 	// Test 1: Optional fields in MAP values (covers line 104-106 optional handling)
 	t.Run("map_with_optional_values", func(t *testing.T) {
 		type MapOptionalStruct struct {
@@ -953,7 +953,7 @@ func Test_MarshalJSON_AdditionalEdgeCases(t *testing.T) {
 	})
 }
 
-func Test_MarshalJSON_NodeBufReset(t *testing.T) {
+func TestMarshalJSON_NodeBufReset(t *testing.T) {
 	// Test that covers multiple JSON records to exercise NodeBuf.Reset() functionality
 	schemaString := `{
 		"Tag": "name=parquet_go_root",

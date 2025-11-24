@@ -10,7 +10,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_SchemaHandler_GetColumnNum(t *testing.T) {
+func TestSchemaHandler_GetColumnNum(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupHandler func() *SchemaHandler
@@ -56,7 +56,7 @@ func Test_SchemaHandler_GetColumnNum(t *testing.T) {
 	}
 }
 
-func Test_SchemaHandler_GetRepetitionType(t *testing.T) {
+func TestSchemaHandler_GetRepetitionType(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupHandler func() *SchemaHandler
@@ -144,7 +144,7 @@ func Test_SchemaHandler_GetRepetitionType(t *testing.T) {
 	}
 }
 
-func Test_SchemaHandler_GetType(t *testing.T) {
+func TestSchemaHandler_GetType(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupHandler  func() *SchemaHandler
@@ -343,7 +343,7 @@ func Test_SchemaHandler_GetType(t *testing.T) {
 // merged scenario: malformed leaf type should not panic GetTypes and should
 // fall back to interface{} for the leaf reflect type
 
-func Test_SchemaHandler_GetTypes(t *testing.T) {
+func TestSchemaHandler_GetTypes(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupHandler  func() *SchemaHandler
@@ -992,7 +992,7 @@ func Test_SchemaHandler_GetTypes(t *testing.T) {
 	}
 }
 
-func Test_SchemaHandler_Caching(t *testing.T) {
+func TestSchemaHandler_Caching(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupHandler func() *SchemaHandler

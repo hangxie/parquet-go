@@ -12,11 +12,11 @@ import (
 	"github.com/hangxie/parquet-go/v2/source"
 )
 
-func Test_GcsFileInterfaceComplianceWriter(t *testing.T) {
+func TestGcsFileInterfaceComplianceWriter(t *testing.T) {
 	var _ source.ParquetFileWriter = (*gcsFileWriter)(nil)
 }
 
-func Test_GcsWriterCreate(t *testing.T) {
+func TestGcsWriterCreate(t *testing.T) {
 	writer := &gcsFileWriter{
 		gcsFile: gcsFile{
 			gcsClient:  nil,
@@ -30,7 +30,7 @@ func Test_GcsWriterCreate(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_GcsWriterNilOperations(t *testing.T) {
+func TestGcsWriterNilOperations(t *testing.T) {
 	writer := &gcsFileWriter{
 		gcsFile: gcsFile{
 			gcsClient: nil,
@@ -42,7 +42,7 @@ func Test_GcsWriterNilOperations(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_GcsWriterStructure(t *testing.T) {
+func TestGcsWriterStructure(t *testing.T) {
 	ctx := context.Background()
 
 	writer := &gcsFileWriter{
@@ -60,7 +60,7 @@ func Test_GcsWriterStructure(t *testing.T) {
 	require.Equal(t, "test.parquet", writer.filePath)
 }
 
-func Test_NewGcsFileWriterWithClient(t *testing.T) {
+func TestNewGcsFileWriterWithClient(t *testing.T) {
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 	require.NoError(t, err)

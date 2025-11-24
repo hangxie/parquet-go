@@ -146,7 +146,7 @@ func parseInt(s string) int {
 // Test data
 var testData = []byte("Hello, this is test data for S3v2 parquet file reader and writer testing with comprehensive coverage")
 
-func Test_GetBytesRange_KnownFileSize(t *testing.T) {
+func TestGetBytesRange_KnownFileSize(t *testing.T) {
 	reader := &s3Reader{
 		offset:   10,
 		fileSize: 1000,
@@ -164,7 +164,7 @@ func Test_GetBytesRange_KnownFileSize(t *testing.T) {
 	require.Equal(t, expected, rangeStr)
 }
 
-func Test_GetBytesRange_NegativeBegin(t *testing.T) {
+func TestGetBytesRange_NegativeBegin(t *testing.T) {
 	reader := &s3Reader{
 		offset:   -10,
 		fileSize: 1000,
@@ -176,7 +176,7 @@ func Test_GetBytesRange_NegativeBegin(t *testing.T) {
 	require.Equal(t, expected, rangeStr)
 }
 
-func Test_GetBytesRange_SeekEnd(t *testing.T) {
+func TestGetBytesRange_SeekEnd(t *testing.T) {
 	reader := &s3Reader{
 		offset:   -50,
 		fileSize: 1000,
@@ -188,7 +188,7 @@ func Test_GetBytesRange_SeekEnd(t *testing.T) {
 	require.Equal(t, expected, rangeStr)
 }
 
-func Test_GetBytesRange_UnknownFileSize(t *testing.T) {
+func TestGetBytesRange_UnknownFileSize(t *testing.T) {
 	reader := &s3Reader{
 		offset:   10,
 		fileSize: 0, // Unknown file size
@@ -207,7 +207,7 @@ func Test_GetBytesRange_UnknownFileSize(t *testing.T) {
 	require.Equal(t, expected, rangeStr)
 }
 
-func Test_NewS3FileReaderWithClient_Success(t *testing.T) {
+func TestNewS3FileReaderWithClient_Success(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -223,7 +223,7 @@ func Test_NewS3FileReaderWithClient_Success(t *testing.T) {
 	var _ source.ParquetFileReader = reader
 }
 
-func Test_NewS3FileReaderWithClient_WithVersion(t *testing.T) {
+func TestNewS3FileReaderWithClient_WithVersion(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -237,7 +237,7 @@ func Test_NewS3FileReaderWithClient_WithVersion(t *testing.T) {
 	require.NotNil(t, reader)
 }
 
-func Test_NewS3FileReaderWithParams_DefaultMinRequestSize(t *testing.T) {
+func TestNewS3FileReaderWithParams_DefaultMinRequestSize(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -257,7 +257,7 @@ func Test_NewS3FileReaderWithParams_DefaultMinRequestSize(t *testing.T) {
 	require.NotNil(t, reader)
 }
 
-func Test_NewS3FileReaderWithParams_Success(t *testing.T) {
+func TestNewS3FileReaderWithParams_Success(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -277,7 +277,7 @@ func Test_NewS3FileReaderWithParams_Success(t *testing.T) {
 	require.NotNil(t, reader)
 }
 
-func Test_S3Reader_Clone(t *testing.T) {
+func TestS3Reader_Clone(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -297,7 +297,7 @@ func Test_S3Reader_Clone(t *testing.T) {
 	require.NotSame(t, reader, clonedReader)
 }
 
-func Test_S3Reader_Close(t *testing.T) {
+func TestS3Reader_Close(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -313,7 +313,7 @@ func Test_S3Reader_Close(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_S3Reader_GetObjectError(t *testing.T) {
+func TestS3Reader_GetObjectError(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -335,7 +335,7 @@ func Test_S3Reader_GetObjectError(t *testing.T) {
 	require.Contains(t, err.Error(), expectedError)
 }
 
-func Test_S3Reader_HeadObjectError(t *testing.T) {
+func TestS3Reader_HeadObjectError(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -350,7 +350,7 @@ func Test_S3Reader_HeadObjectError(t *testing.T) {
 	require.Contains(t, err.Error(), expectedError)
 }
 
-func Test_S3Reader_Open(t *testing.T) {
+func TestS3Reader_Open(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -372,7 +372,7 @@ func Test_S3Reader_Open(t *testing.T) {
 	require.NotNil(t, emptyNameReader)
 }
 
-func Test_S3Reader_Read_BeyondEOF(t *testing.T) {
+func TestS3Reader_Read_BeyondEOF(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -396,7 +396,7 @@ func Test_S3Reader_Read_BeyondEOF(t *testing.T) {
 	require.Equal(t, 0, n)
 }
 
-func Test_S3Reader_Read_MultipleChunks(t *testing.T) {
+func TestS3Reader_Read_MultipleChunks(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -427,7 +427,7 @@ func Test_S3Reader_Read_MultipleChunks(t *testing.T) {
 	require.True(t, bytes.Equal(combined, testData))
 }
 
-func Test_S3Reader_Read_Success(t *testing.T) {
+func TestS3Reader_Read_Success(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -449,7 +449,7 @@ func Test_S3Reader_Read_Success(t *testing.T) {
 	require.True(t, bytes.Equal(buffer, expected))
 }
 
-func Test_S3Reader_Seek_InvalidOffset(t *testing.T) {
+func TestS3Reader_Seek_InvalidOffset(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -469,7 +469,7 @@ func Test_S3Reader_Seek_InvalidOffset(t *testing.T) {
 	require.Equal(t, errInvalidOffset, err)
 }
 
-func Test_S3Reader_Seek_InvalidWhence(t *testing.T) {
+func TestS3Reader_Seek_InvalidWhence(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -485,7 +485,7 @@ func Test_S3Reader_Seek_InvalidWhence(t *testing.T) {
 	require.Equal(t, errWhence, err)
 }
 
-func Test_S3Reader_Seek_SeekCurrent(t *testing.T) {
+func TestS3Reader_Seek_SeekCurrent(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -506,7 +506,7 @@ func Test_S3Reader_Seek_SeekCurrent(t *testing.T) {
 	require.Equal(t, int64(15), offset)
 }
 
-func Test_S3Reader_Seek_SeekEnd(t *testing.T) {
+func TestS3Reader_Seek_SeekEnd(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"
@@ -531,7 +531,7 @@ func Test_S3Reader_Seek_SeekEnd(t *testing.T) {
 	require.Equal(t, expectedOffset, offset)
 }
 
-func Test_S3Reader_Seek_SeekStart(t *testing.T) {
+func TestS3Reader_Seek_SeekStart(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
 	bucket := "test-bucket"

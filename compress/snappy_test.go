@@ -8,7 +8,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_Codec_SNAPPY(t *testing.T) {
+func TestCodec_SNAPPY(t *testing.T) {
 	raw := []byte{1, 2, 3}
 	compressed := []byte{0x3, 0x8, 0x1, 0x2, 0x3}
 

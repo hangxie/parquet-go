@@ -9,7 +9,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/schema"
 )
 
-func Test_MarshalArrow(t *testing.T) {
+func TestMarshalArrow(t *testing.T) {
 	// Create a simple schema for Arrow data
 	schemaString := `{
 		"Tag": "name=parquet_go_root",

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_NewSchemaHandlerFromJSON(t *testing.T) {
+func TestNewSchemaHandlerFromJSON(t *testing.T) {
 	tests := []struct {
 		name          string
 		jsonSchema    string

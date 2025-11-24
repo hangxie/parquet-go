@@ -126,7 +126,7 @@ func createNestedParquetData() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func Test_ParquetReader_GetNumRows(t *testing.T) {
+func TestParquetReader_GetNumRows(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
 	defer pr.ReadStop()
@@ -136,7 +136,7 @@ func Test_ParquetReader_GetNumRows(t *testing.T) {
 	require.Greater(t, numRows, int64(0))
 }
 
-func Test_ParquetReader_ReadPartial(t *testing.T) {
+func TestParquetReader_ReadPartial(t *testing.T) {
 	// Create test data with nested structure
 	data, err := createNestedParquetData()
 	require.NoError(t, err)
@@ -172,7 +172,7 @@ func Test_ParquetReader_ReadPartial(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_ParquetReader_ReadPartialByNumber(t *testing.T) {
+func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 	// Create test data
 	data, err := createNestedParquetData()
 	require.NoError(t, err)
@@ -221,7 +221,7 @@ func Test_ParquetReader_ReadPartialByNumber(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_ParquetReader_ReadStop(t *testing.T) {
+func TestParquetReader_ReadStop(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
 
@@ -250,7 +250,7 @@ func Test_ParquetReader_ReadStop(t *testing.T) {
 	pr3.ReadStop()
 }
 
-func Test_ParquetReader_ReadStopWithError(t *testing.T) {
+func TestParquetReader_ReadStopWithError(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
 
@@ -282,7 +282,7 @@ func Test_ParquetReader_ReadStopWithError(t *testing.T) {
 	require.NoError(t, err) // Should not error with empty buffers
 }
 
-func Test_ParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
+func TestParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
 	// Create a simple parquet reader using existing data
 	pr, err := parquetReader()
 	require.NoError(t, err)
@@ -325,7 +325,7 @@ func Test_ParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_SkipRows(t *testing.T) {
+func TestParquetReader_SkipRows(t *testing.T) {
 	testCases := map[string]struct {
 		skip int64
 	}{
@@ -349,7 +349,7 @@ func Test_ParquetReader_SkipRows(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_IndexMapBoundsChecking(t *testing.T) {
+func TestParquetReader_IndexMapBoundsChecking(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupReader  func() *ParquetReader
@@ -486,7 +486,7 @@ func Test_ParquetReader_IndexMapBoundsChecking(t *testing.T) {
 	}
 }
 
-func Test_ColumnBufferType_MapIndexBoundsChecking(t *testing.T) {
+func TestColumnBufferType_MapIndexBoundsChecking(t *testing.T) {
 	tests := []struct {
 		name   string
 		buffer *ColumnBufferType
@@ -605,7 +605,7 @@ func Test_ColumnBufferType_MapIndexBoundsChecking(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_RenameSchema_NilChecks(t *testing.T) {
+func TestParquetReader_RenameSchema_NilChecks(t *testing.T) {
 	tests := []struct {
 		name   string
 		setup  func() *ParquetReader
@@ -747,7 +747,7 @@ func Test_ParquetReader_RenameSchema_NilChecks(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_SkipRowsByIndex_NilChecks(t *testing.T) {
+func TestParquetReader_SkipRowsByIndex_NilChecks(t *testing.T) {
 	tests := []struct {
 		name   string
 		setup  func() *ParquetReader
@@ -799,7 +799,7 @@ func Test_ParquetReader_SkipRowsByIndex_NilChecks(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
+func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 	tests := []struct {
 		name        string
 		setup       func() *ParquetReader
@@ -856,7 +856,7 @@ func Test_ParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 	}
 }
 
-func Test_ColumnBufferType_ReadPage_NilChecks(t *testing.T) {
+func TestColumnBufferType_ReadPage_NilChecks(t *testing.T) {
 	tests := []struct {
 		name   string
 		setup  func() *ColumnBufferType
@@ -942,7 +942,7 @@ func Test_ColumnBufferType_ReadPage_NilChecks(t *testing.T) {
 	}
 }
 
-func Test_NewParquetReader_WithOptions(t *testing.T) {
+func TestNewParquetReader_WithOptions(t *testing.T) {
 	// Create a simple parquet file buffer using the existing pattern
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
@@ -977,7 +977,7 @@ func Test_NewParquetReader_WithOptions(t *testing.T) {
 	pr2.ReadStop()
 }
 
-func Test_ParquetReader_Reset(t *testing.T) {
+func TestParquetReader_Reset(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
 	defer pr.ReadStop()
@@ -1026,7 +1026,7 @@ func Test_ParquetReader_Reset(t *testing.T) {
 	require.Equal(t, records1, records3)
 }
 
-func Test_ParquetReader_Reset_MultipleResets(t *testing.T) {
+func TestParquetReader_Reset_MultipleResets(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
 	defer pr.ReadStop()
@@ -1055,7 +1055,7 @@ func Test_ParquetReader_Reset_MultipleResets(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_Reset_AfterReadAll(t *testing.T) {
+func TestParquetReader_Reset_AfterReadAll(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
 	defer pr.ReadStop()

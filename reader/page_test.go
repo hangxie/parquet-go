@@ -71,7 +71,7 @@ func getTestParquetFile(t *testing.T) string {
 	return testParquetLocalPath
 }
 
-func Test_GetAllPageHeaders(t *testing.T) {
+func TestGetAllPageHeaders(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func Test_GetAllPageHeaders(t *testing.T) {
 	})
 }
 
-func Test_ReadDictionaryPageValues(t *testing.T) {
+func TestReadDictionaryPageValues(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func Test_ReadDictionaryPageValues(t *testing.T) {
 	})
 }
 
-func Test_GetAllPageHeaders_AllPageTypes(t *testing.T) {
+func TestGetAllPageHeaders_AllPageTypes(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func Test_GetAllPageHeaders_AllPageTypes(t *testing.T) {
 		"Should have dictionary or data pages")
 }
 
-func Test_ReadAllPageHeaders(t *testing.T) {
+func TestReadAllPageHeaders(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
@@ -229,7 +229,7 @@ func Test_ReadAllPageHeaders(t *testing.T) {
 	}
 }
 
-func Test_ReadPageData(t *testing.T) {
+func TestReadPageData(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
@@ -262,7 +262,7 @@ func Test_ReadPageData(t *testing.T) {
 	require.Equal(t, firstPage.UncompressedSize, int32(len(pageData)))
 }
 
-func Test_DecodeDictionaryPage(t *testing.T) {
+func TestDecodeDictionaryPage(t *testing.T) {
 	t.Run("decode from real parquet file", func(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
@@ -474,7 +474,7 @@ func Test_DecodeDictionaryPage(t *testing.T) {
 	})
 }
 
-func Test_ExtractPageHeaderInfo(t *testing.T) {
+func TestExtractPageHeaderInfo(t *testing.T) {
 	t.Run("DATA_PAGE", func(t *testing.T) {
 		// Create DATA_PAGE header
 		pageHeader := parquet.NewPageHeader()
@@ -713,7 +713,7 @@ func Test_ExtractPageHeaderInfo(t *testing.T) {
 	})
 }
 
-func Test_ReadAllPageHeaders_NegativeCases(t *testing.T) {
+func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
 	t.Run("nil column chunk metadata", func(t *testing.T) {
 		// Create a mock reader (won't be used)
 		testFile := getTestParquetFile(t)
@@ -773,7 +773,7 @@ func Test_ReadAllPageHeaders_NegativeCases(t *testing.T) {
 	})
 }
 
-func Test_ReadPageData_NegativeCases(t *testing.T) {
+func TestReadPageData_NegativeCases(t *testing.T) {
 	t.Run("invalid offset - cannot seek", func(t *testing.T) {
 		data := []byte{0x00}
 		buf := buffer.NewBufferReaderFromBytesNoAlloc(data)
@@ -845,7 +845,7 @@ func Test_ReadPageData_NegativeCases(t *testing.T) {
 	})
 }
 
-func Test_ReadDictionaryPageValues_NegativeCases(t *testing.T) {
+func TestReadDictionaryPageValues_NegativeCases(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
@@ -901,7 +901,7 @@ func Test_ReadDictionaryPageValues_NegativeCases(t *testing.T) {
 	})
 }
 
-func Test_DecodeDictionaryPage_NegativeCases(t *testing.T) {
+func TestDecodeDictionaryPage_NegativeCases(t *testing.T) {
 	t.Run("nil page header", func(t *testing.T) {
 		// This would panic in real code, but testing the validation
 		pageHeader := parquet.NewPageHeader()

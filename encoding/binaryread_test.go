@@ -44,104 +44,84 @@ func (m *mockReader) Read(p []byte) (n int, err error) {
 	return toRead, nil
 }
 
-func Test_BinaryReadFLOAT32(t *testing.T) {
+func TestBinaryRead(t *testing.T) {
 	tests := []struct {
 		name        string
+		typeName    string
 		input       []byte
-		nums        []any
+		numValues   int
 		expected    []any
 		expectError bool
 		errorType   error
-		isSpecial   bool // for infinity values that need special comparison
+		useMockFail bool
 	}{
-		{
-			name:     "zero",
-			input:    []byte{0x00, 0x00, 0x00, 0x00},
-			nums:     make([]any, 1),
-			expected: []any{float32(0.0)},
-		},
-		{
-			name:     "positive_float",
-			input:    []byte{0x00, 0x00, 0x80, 0x3F}, // 1.0 in IEEE 754 little endian
-			nums:     make([]any, 1),
-			expected: []any{float32(1.0)},
-		},
-		{
-			name:     "negative_float",
-			input:    []byte{0x00, 0x00, 0x80, 0xBF}, // -1.0 in IEEE 754 little endian
-			nums:     make([]any, 1),
-			expected: []any{float32(-1.0)},
-		},
-		{
-			name:     "pi_approximation",
-			input:    []byte{0xDB, 0x0F, 0x49, 0x40}, // approximately 3.14159 in little endian
-			nums:     make([]any, 1),
-			expected: []any{float32(3.1415927)},
-		},
-		{
-			name: "multiple_values",
-			input: []byte{
-				0x00, 0x00, 0x80, 0x3F, // 1.0
-				0x00, 0x00, 0x00, 0x40, // 2.0
-				0x00, 0x00, 0x40, 0x40, // 3.0
-			},
-			nums:     make([]any, 3),
-			expected: []any{float32(1.0), float32(2.0), float32(3.0)},
-		},
-		{
-			name:     "empty_array",
-			input:    []byte{},
-			nums:     []any{},
-			expected: []any{},
-		},
-		{
-			name:        "insufficient_data",
-			input:       []byte{0x00, 0x00, 0x00}, // Only 3 bytes for float32
-			nums:        make([]any, 1),
-			expectError: true,
-			errorType:   io.ErrUnexpectedEOF,
-		},
-		{
-			name:        "partial_second_value",
-			input:       []byte{0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, // 4 bytes + 2 bytes
-			nums:        make([]any, 2),
-			expectError: true,
-			errorType:   io.ErrUnexpectedEOF,
-		},
-		{
-			name:        "read_error",
-			input:       []byte{0x00, 0x00, 0x00, 0x00},
-			nums:        make([]any, 1),
-			expectError: true,
-		},
-		{
-			name:      "positive_infinity",
-			input:     []byte{0x00, 0x00, 0x80, 0x7F}, // +Inf in IEEE 754 little endian
-			nums:      make([]any, 1),
-			expected:  []any{float32(math.Inf(1))},
-			isSpecial: true,
-		},
-		{
-			name:      "negative_infinity",
-			input:     []byte{0x00, 0x00, 0x80, 0xFF}, // -Inf in IEEE 754 little endian
-			nums:      make([]any, 1),
-			expected:  []any{float32(math.Inf(-1))},
-			isSpecial: true,
-		},
+		// FLOAT32 tests
+		{name: "float32/zero", typeName: "float32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{float32(0.0)}},
+		{name: "float32/positive", typeName: "float32", input: []byte{0x00, 0x00, 0x80, 0x3F}, numValues: 1, expected: []any{float32(1.0)}},
+		{name: "float32/negative", typeName: "float32", input: []byte{0x00, 0x00, 0x80, 0xBF}, numValues: 1, expected: []any{float32(-1.0)}},
+		{name: "float32/pi", typeName: "float32", input: []byte{0xDB, 0x0F, 0x49, 0x40}, numValues: 1, expected: []any{float32(3.1415927)}},
+		{name: "float32/multiple", typeName: "float32", input: []byte{0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x40, 0x40}, numValues: 3, expected: []any{float32(1.0), float32(2.0), float32(3.0)}},
+		{name: "float32/empty", typeName: "float32", input: []byte{}, numValues: 0, expected: []any{}},
+		{name: "float32/insufficient", typeName: "float32", input: []byte{0x00, 0x00, 0x00}, numValues: 1, expectError: true, errorType: io.ErrUnexpectedEOF},
+		{name: "float32/partial_second", typeName: "float32", input: []byte{0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, numValues: 2, expectError: true, errorType: io.ErrUnexpectedEOF},
+		{name: "float32/read_error", typeName: "float32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, useMockFail: true},
+
+		// FLOAT64 tests
+		{name: "float64/zero", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{float64(0.0)}},
+		{name: "float64/positive", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F}, numValues: 1, expected: []any{float64(1.0)}},
+		{name: "float64/negative", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0xBF}, numValues: 1, expected: []any{float64(-1.0)}},
+		{name: "float64/max", typeName: "float64", input: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0x7F}, numValues: 1, expected: []any{math.MaxFloat64}},
+		{name: "float64/smallest", typeName: "float64", input: []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{math.SmallestNonzeroFloat64}},
+		{name: "float64/multiple", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x40}, numValues: 3, expected: []any{float64(1.0), float64(2.0), float64(3.0)}},
+		{name: "float64/empty", typeName: "float64", input: []byte{}, numValues: 0, expected: []any{}},
+		{name: "float64/insufficient", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, errorType: io.ErrUnexpectedEOF},
+		{name: "float64/read_error", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, useMockFail: true},
+
+		// INT32 tests
+		{name: "int32/zero", typeName: "int32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{int32(0)}},
+		{name: "int32/positive", typeName: "int32", input: []byte{0x7B, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{int32(123)}},
+		{name: "int32/negative", typeName: "int32", input: []byte{0xFF, 0xFF, 0xFF, 0xFF}, numValues: 1, expected: []any{int32(-1)}},
+		{name: "int32/max", typeName: "int32", input: []byte{0xFF, 0xFF, 0xFF, 0x7F}, numValues: 1, expected: []any{int32(2147483647)}},
+		{name: "int32/min", typeName: "int32", input: []byte{0x00, 0x00, 0x00, 0x80}, numValues: 1, expected: []any{int32(-2147483648)}},
+		{name: "int32/multiple", typeName: "int32", input: []byte{0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF}, numValues: 3, expected: []any{int32(1), int32(2), int32(-1)}},
+		{name: "int32/empty", typeName: "int32", input: []byte{}, numValues: 0, expected: []any{}},
+		{name: "int32/insufficient", typeName: "int32", input: []byte{0x00, 0x00, 0x00}, numValues: 1, expectError: true, errorType: io.ErrUnexpectedEOF},
+		{name: "int32/read_error", typeName: "int32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, useMockFail: true},
+
+		// INT64 tests
+		{name: "int64/zero", typeName: "int64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{int64(0)}},
+		{name: "int64/positive", typeName: "int64", input: []byte{0x7B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{int64(123)}},
+		{name: "int64/negative", typeName: "int64", input: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, numValues: 1, expected: []any{int64(-1)}},
+		{name: "int64/max", typeName: "int64", input: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F}, numValues: 1, expected: []any{int64(9223372036854775807)}},
+		{name: "int64/min", typeName: "int64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80}, numValues: 1, expected: []any{int64(-9223372036854775808)}},
+		{name: "int64/multiple", typeName: "int64", input: []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, numValues: 3, expected: []any{int64(1), int64(2), int64(-1)}},
+		{name: "int64/empty", typeName: "int64", input: []byte{}, numValues: 0, expected: []any{}},
+		{name: "int64/insufficient", typeName: "int64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, errorType: io.ErrUnexpectedEOF},
+		{name: "int64/read_error", typeName: "int64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, useMockFail: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var reader io.Reader
-			if tt.name == "read_error" {
-				reader = &mockReader{
-					data:       tt.input,
-					failOnRead: true,
-				}
+			if tt.useMockFail {
+				reader = &mockReader{data: tt.input, failOnRead: true}
 			} else {
 				reader = bytes.NewReader(tt.input)
 			}
-			err := BinaryReadFLOAT32(reader, tt.nums)
+
+			nums := make([]any, tt.numValues)
+			var err error
+
+			switch tt.typeName {
+			case "float32":
+				err = BinaryReadFLOAT32(reader, nums)
+			case "float64":
+				err = BinaryReadFLOAT64(reader, nums)
+			case "int32":
+				err = BinaryReadINT32(reader, nums)
+			case "int64":
+				err = BinaryReadINT64(reader, nums)
+			}
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -152,421 +132,45 @@ func Test_BinaryReadFLOAT32(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-
-			require.Len(t, tt.nums, len(tt.expected))
+			require.Len(t, nums, len(tt.expected))
 
 			for i, expected := range tt.expected {
-				if tt.isSpecial {
-					// Special handling for infinity values
-					result := tt.nums[i].(float32)
-					expectedFloat := expected.(float32)
-					if math.IsInf(float64(expectedFloat), 1) {
-						require.True(t, math.IsInf(float64(result), 1), "Expected +Inf, got %v", result)
-					} else if math.IsInf(float64(expectedFloat), -1) {
-						require.True(t, math.IsInf(float64(result), -1), "Expected -Inf, got %v", result)
-					}
-				} else {
-					require.Equal(t, expected, tt.nums[i], "Value mismatch at index %d", i)
-				}
+				require.Equal(t, expected, nums[i], "Value mismatch at index %d", i)
 			}
 		})
 	}
 }
 
-func Test_BinaryReadFLOAT64(t *testing.T) {
-	tests := []struct {
-		name        string
-		input       []byte
-		nums        []any
-		expected    []any
-		expectError bool
-		errorType   error
-		isSpecial   bool // for infinity values that need special comparison
+func TestBinaryReadEdgeCases(t *testing.T) {
+	edgeCases := []struct {
+		name     string
+		typeName string
+		dataLen  int
 	}{
-		{
-			name:     "zero",
-			input:    []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-			nums:     make([]any, 1),
-			expected: []any{float64(0.0)},
-		},
-		{
-			name:     "positive_float",
-			input:    []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F}, // 1.0 in IEEE 754 little endian
-			nums:     make([]any, 1),
-			expected: []any{float64(1.0)},
-		},
-		{
-			name:     "negative_float",
-			input:    []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0xBF}, // -1.0 in IEEE 754 little endian
-			nums:     make([]any, 1),
-			expected: []any{float64(-1.0)},
-		},
-		{
-			name:     "max_float64",
-			input:    []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0x7F}, // math.MaxFloat64 in little endian
-			nums:     make([]any, 1),
-			expected: []any{math.MaxFloat64},
-		},
-		{
-			name:     "smallest_positive_float64",
-			input:    []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // math.SmallestNonzeroFloat64 in little endian
-			nums:     make([]any, 1),
-			expected: []any{math.SmallestNonzeroFloat64},
-		},
-		{
-			name: "multiple_values",
-			input: []byte{
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, // 1.0
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, // 2.0
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x40, // 3.0
-			},
-			nums:     make([]any, 3),
-			expected: []any{float64(1.0), float64(2.0), float64(3.0)},
-		},
-		{
-			name:     "empty_array",
-			input:    []byte{},
-			nums:     []any{},
-			expected: []any{},
-		},
-		{
-			name:        "insufficient_data",
-			input:       []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Only 7 bytes for float64
-			nums:        make([]any, 1),
-			expectError: true,
-			errorType:   io.ErrUnexpectedEOF,
-		},
-		{
-			name: "partial_second_value",
-			input: []byte{
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Complete first value
-				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, // Incomplete second value (6 bytes)
-			},
-			nums:        make([]any, 2),
-			expectError: true,
-			errorType:   io.ErrUnexpectedEOF,
-		},
-		{
-			name:        "read_error",
-			input:       []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-			nums:        make([]any, 1),
-			expectError: true,
-		},
-		{
-			name:      "positive_infinity",
-			input:     []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x7F}, // +Inf in IEEE 754 little endian
-			nums:      make([]any, 1),
-			expected:  []any{math.Inf(1)},
-			isSpecial: true,
-		},
-		{
-			name:      "negative_infinity",
-			input:     []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0xFF}, // -Inf in IEEE 754 little endian
-			nums:      make([]any, 1),
-			expected:  []any{math.Inf(-1)},
-			isSpecial: true,
-		},
+		{name: "int32_mismatch", typeName: "int32", dataLen: 3},
+		{name: "int64_mismatch", typeName: "int64", dataLen: 7},
+		{name: "float32_mismatch", typeName: "float32", dataLen: 3},
+		{name: "float64_mismatch", typeName: "float64", dataLen: 7},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var reader io.Reader
-			if tt.name == "read_error" {
-				reader = &mockReader{
-					data:       tt.input,
-					failOnRead: true,
-				}
-			} else {
-				reader = bytes.NewReader(tt.input)
-			}
-			err := BinaryReadFLOAT64(reader, tt.nums)
+	for _, tc := range edgeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &mockReader{data: make([]byte, tc.dataLen)}
+			nums := make([]any, 1)
 
-			if tt.expectError {
-				require.Error(t, err)
-				if tt.errorType != nil {
-					require.ErrorIs(t, err, tt.errorType)
-				}
-				return
+			var err error
+			switch tc.typeName {
+			case "int32":
+				err = BinaryReadINT32(reader, nums)
+			case "int64":
+				err = BinaryReadINT64(reader, nums)
+			case "float32":
+				err = BinaryReadFLOAT32(reader, nums)
+			case "float64":
+				err = BinaryReadFLOAT64(reader, nums)
 			}
 
-			require.NoError(t, err)
-
-			require.Len(t, tt.nums, len(tt.expected))
-
-			for i, expected := range tt.expected {
-				if tt.isSpecial {
-					// Special handling for infinity values
-					result := tt.nums[i].(float64)
-					expectedFloat := expected.(float64)
-					if math.IsInf(expectedFloat, 1) {
-						require.True(t, math.IsInf(result, 1), "Expected +Inf, got %v", result)
-					} else if math.IsInf(expectedFloat, -1) {
-						require.True(t, math.IsInf(result, -1), "Expected -Inf, got %v", result)
-					}
-				} else {
-					require.Equal(t, expected, tt.nums[i], "Value mismatch at index %d", i)
-				}
-			}
+			require.Error(t, err)
 		})
 	}
-}
-
-func Test_BinaryReadINT32(t *testing.T) {
-	tests := []struct {
-		name        string
-		input       []byte
-		nums        []any
-		expected    []any
-		expectError bool
-		errorType   error
-	}{
-		{
-			name:     "single_zero",
-			input:    []byte{0x00, 0x00, 0x00, 0x00},
-			nums:     make([]any, 1),
-			expected: []any{int32(0)},
-		},
-		{
-			name:     "single_positive",
-			input:    []byte{0x7B, 0x00, 0x00, 0x00}, // 123 in little endian
-			nums:     make([]any, 1),
-			expected: []any{int32(123)},
-		},
-		{
-			name:     "single_negative",
-			input:    []byte{0xFF, 0xFF, 0xFF, 0xFF}, // -1 in little endian
-			nums:     make([]any, 1),
-			expected: []any{int32(-1)},
-		},
-		{
-			name:     "max_int32",
-			input:    []byte{0xFF, 0xFF, 0xFF, 0x7F}, // 2147483647 in little endian
-			nums:     make([]any, 1),
-			expected: []any{int32(2147483647)},
-		},
-		{
-			name:     "min_int32",
-			input:    []byte{0x00, 0x00, 0x00, 0x80}, // -2147483648 in little endian
-			nums:     make([]any, 1),
-			expected: []any{int32(-2147483648)},
-		},
-		{
-			name: "multiple_values",
-			input: []byte{
-				0x01, 0x00, 0x00, 0x00, // 1
-				0x02, 0x00, 0x00, 0x00, // 2
-				0xFF, 0xFF, 0xFF, 0xFF, // -1
-			},
-			nums:     make([]any, 3),
-			expected: []any{int32(1), int32(2), int32(-1)},
-		},
-		{
-			name:     "empty_array",
-			input:    []byte{},
-			nums:     []any{},
-			expected: []any{},
-		},
-		{
-			name:        "insufficient_data",
-			input:       []byte{0x00, 0x00, 0x00}, // Only 3 bytes for int32
-			nums:        make([]any, 1),
-			expectError: true,
-			errorType:   io.ErrUnexpectedEOF,
-		},
-		{
-			name:        "partial_second_value",
-			input:       []byte{0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, // 4 bytes + 2 bytes
-			nums:        make([]any, 2),
-			expectError: true,
-			errorType:   io.ErrUnexpectedEOF,
-		},
-		{
-			name:        "read_error",
-			input:       []byte{0x00, 0x00, 0x00, 0x00},
-			nums:        make([]any, 1),
-			expectError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var reader io.Reader
-			if tt.name == "read_error" {
-				reader = &mockReader{
-					data:       tt.input,
-					failOnRead: true,
-				}
-			} else {
-				reader = bytes.NewReader(tt.input)
-			}
-			err := BinaryReadINT32(reader, tt.nums)
-
-			if tt.expectError {
-				require.Error(t, err)
-				if tt.errorType != nil {
-					require.ErrorIs(t, err, tt.errorType)
-				}
-				return
-			}
-
-			require.NoError(t, err)
-
-			require.Len(t, tt.nums, len(tt.expected))
-
-			for i, expected := range tt.expected {
-				require.Equal(t, expected, tt.nums[i], "Value mismatch at index %d", i)
-			}
-		})
-	}
-}
-
-func Test_BinaryReadINT64(t *testing.T) {
-	tests := []struct {
-		name        string
-		input       []byte
-		nums        []any
-		expected    []any
-		expectError bool
-		errorType   error
-	}{
-		{
-			name:     "single_zero",
-			input:    []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-			nums:     make([]any, 1),
-			expected: []any{int64(0)},
-		},
-		{
-			name:     "single_positive",
-			input:    []byte{0x7B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // 123 in little endian
-			nums:     make([]any, 1),
-			expected: []any{int64(123)},
-		},
-		{
-			name:     "single_negative",
-			input:    []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, // -1 in little endian
-			nums:     make([]any, 1),
-			expected: []any{int64(-1)},
-		},
-		{
-			name:     "max_int64",
-			input:    []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F}, // 9223372036854775807 in little endian
-			nums:     make([]any, 1),
-			expected: []any{int64(9223372036854775807)},
-		},
-		{
-			name:     "min_int64",
-			input:    []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80}, // -9223372036854775808 in little endian
-			nums:     make([]any, 1),
-			expected: []any{int64(-9223372036854775808)},
-		},
-		{
-			name: "multiple_values",
-			input: []byte{
-				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 1
-				0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 2
-				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // -1
-			},
-			nums:     make([]any, 3),
-			expected: []any{int64(1), int64(2), int64(-1)},
-		},
-		{
-			name:     "empty_array",
-			input:    []byte{},
-			nums:     []any{},
-			expected: []any{},
-		},
-		{
-			name:        "insufficient_data",
-			input:       []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Only 7 bytes for int64
-			nums:        make([]any, 1),
-			expectError: true,
-			errorType:   io.ErrUnexpectedEOF,
-		},
-		{
-			name: "partial_second_value",
-			input: []byte{
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Complete first value
-				0x01, 0x00, 0x00, 0x00, 0x00, 0x00, // Incomplete second value (6 bytes)
-			},
-			nums:        make([]any, 2),
-			expectError: true,
-			errorType:   io.ErrUnexpectedEOF,
-		},
-		{
-			name:        "read_error",
-			input:       []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-			nums:        make([]any, 1),
-			expectError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var reader io.Reader
-			if tt.name == "read_error" {
-				reader = &mockReader{
-					data:       tt.input,
-					failOnRead: true,
-				}
-			} else {
-				reader = bytes.NewReader(tt.input)
-			}
-			err := BinaryReadINT64(reader, tt.nums)
-
-			if tt.expectError {
-				require.Error(t, err)
-				if tt.errorType != nil {
-					require.ErrorIs(t, err, tt.errorType)
-				}
-				return
-			}
-
-			require.NoError(t, err)
-
-			require.Len(t, tt.nums, len(tt.expected))
-
-			for i, expected := range tt.expected {
-				require.Equal(t, expected, tt.nums[i], "Value mismatch at index %d", i)
-			}
-		})
-	}
-}
-
-func Test_BinaryRead_EdgeCases(t *testing.T) {
-	t.Run("ReadFull_ByteCountMismatch_INT32", func(t *testing.T) {
-		// Test case where there are fewer bytes available than expected
-		mockReader := &mockReader{
-			data: []byte{0x00, 0x00, 0x00}, // Only 3 bytes available for 4-byte int32
-		}
-		nums := make([]any, 1)
-		err := BinaryReadINT32(mockReader, nums)
-		require.Error(t, err)
-	})
-
-	t.Run("ReadFull_ByteCountMismatch_INT64", func(t *testing.T) {
-		mockReader := &mockReader{
-			data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Only 7 bytes for 8-byte int64
-		}
-		nums := make([]any, 1)
-		err := BinaryReadINT64(mockReader, nums)
-		require.Error(t, err)
-	})
-
-	t.Run("ReadFull_ByteCountMismatch_FLOAT32", func(t *testing.T) {
-		mockReader := &mockReader{
-			data: []byte{0x00, 0x00, 0x00}, // Only 3 bytes for 4-byte float32
-		}
-		nums := make([]any, 1)
-		err := BinaryReadFLOAT32(mockReader, nums)
-		require.Error(t, err)
-	})
-
-	t.Run("ReadFull_ByteCountMismatch_FLOAT64", func(t *testing.T) {
-		mockReader := &mockReader{
-			data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Only 7 bytes for 8-byte float64
-		}
-		nums := make([]any, 1)
-		err := BinaryReadFLOAT64(mockReader, nums)
-		require.Error(t, err)
-	})
 }

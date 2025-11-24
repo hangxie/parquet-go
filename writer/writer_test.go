@@ -60,202 +60,237 @@ func (m *invalidFileWriter) Write(data []byte) (n int, err error) {
 	return 0, errWrite
 }
 
-func Test_ColumnIndex_AllNullCounts(t *testing.T) {
-	type Entry struct {
-		X *int64 `parquet:"name=x, type=INT64"`
-		Y *int64 `parquet:"name=z, type=INT64"`
-	}
+func TestColumnIndex(t *testing.T) {
+	t.Run("all_null_counts", func(t *testing.T) {
+		type Entry struct {
+			X *int64 `parquet:"name=x, type=INT64"`
+			Y *int64 `parquet:"name=z, type=INT64"`
+		}
 
-	var buf bytes.Buffer
-	fw := writerfile.NewWriterFile(&buf)
-	pw, err := NewParquetWriter(fw, new(Entry), 1)
-	require.NoError(t, err)
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(Entry), 1)
+		require.NoError(t, err)
 
-	entries := []Entry{
-		{common.ToPtr(int64(0)), nil},
-		{common.ToPtr(int64(1)), nil},
-		{common.ToPtr(int64(2)), nil},
-		{common.ToPtr(int64(3)), nil},
-		{common.ToPtr(int64(4)), nil},
-		{common.ToPtr(int64(5)), nil},
-	}
-	for _, entry := range entries {
-		require.NoError(t, pw.Write(entry))
-	}
-	require.NoError(t, pw.WriteStop())
+		entries := []Entry{
+			{common.ToPtr(int64(0)), nil},
+			{common.ToPtr(int64(1)), nil},
+			{common.ToPtr(int64(2)), nil},
+			{common.ToPtr(int64(3)), nil},
+			{common.ToPtr(int64(4)), nil},
+			{common.ToPtr(int64(5)), nil},
+		}
+		for _, entry := range entries {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
 
-	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	defer func() {
-		require.NoError(t, pf.Close())
-	}()
-	pr, err := reader.NewParquetReader(pf, nil, 1)
-	require.Nil(t, err)
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+		pr, err := reader.NewParquetReader(pf, nil, 1)
+		require.Nil(t, err)
 
-	require.Nil(t, pr.ReadFooter())
+		require.Nil(t, pr.ReadFooter())
 
-	require.Equal(t, 1, len(pr.Footer.RowGroups))
-	columns := pr.Footer.RowGroups[0].GetColumns()
-	require.Equal(t, 2, len(columns))
+		require.Equal(t, 1, len(pr.Footer.RowGroups))
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, 2, len(columns))
 
-	colIdx, err := readColumnIndex(pr.PFile, *columns[0].ColumnIndexOffset)
-	require.NoError(t, err)
-	require.Equal(t, true, colIdx.IsSetNullCounts())
-	require.Equal(t, []int64{0}, colIdx.GetNullCounts())
+		colIdx, err := readColumnIndex(pr.PFile, *columns[0].ColumnIndexOffset)
+		require.NoError(t, err)
+		require.Equal(t, true, colIdx.IsSetNullCounts())
+		require.Equal(t, []int64{0}, colIdx.GetNullCounts())
 
-	colIdx, err = readColumnIndex(pr.PFile, *columns[1].ColumnIndexOffset)
-	require.NoError(t, err)
-	require.Equal(t, true, colIdx.IsSetNullCounts())
-	require.Equal(t, []int64{6}, colIdx.GetNullCounts())
+		colIdx, err = readColumnIndex(pr.PFile, *columns[1].ColumnIndexOffset)
+		require.NoError(t, err)
+		require.Equal(t, true, colIdx.IsSetNullCounts())
+		require.Equal(t, []int64{6}, colIdx.GetNullCounts())
+	})
+
+	t.Run("null_counts", func(t *testing.T) {
+		type Entry struct {
+			X *int64 `parquet:"name=x, type=INT64"`
+			Y *int64 `parquet:"name=y, type=INT64"`
+			Z *int64 `parquet:"name=z, type=INT64, omitstats=true"`
+			U int64  `parquet:"name=u, type=INT64"`
+			V int64  `parquet:"name=v, type=INT64, omitstats=true"`
+		}
+
+		type Expect struct {
+			IsSetNullCounts bool
+			NullCounts      []int64
+		}
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(Entry), 1)
+		require.NoError(t, err)
+
+		entries := []Entry{
+			{common.ToPtr(int64(0)), common.ToPtr(int64(0)), common.ToPtr(int64(0)), 1, 1},
+			{nil, common.ToPtr(int64(1)), common.ToPtr(int64(1)), 2, 2},
+			{nil, nil, nil, 3, 3},
+		}
+		for _, entry := range entries {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+		pr, err := reader.NewParquetReader(pf, nil, 1)
+		require.Nil(t, err)
+
+		require.Nil(t, pr.ReadFooter())
+
+		require.Equal(t, 1, len(pr.Footer.RowGroups))
+		chunks := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, 5, len(chunks))
+
+		expects := []Expect{
+			{true, []int64{2}},
+			{true, []int64{1}},
+			{false, nil},
+			{true, []int64{0}},
+			{false, nil},
+		}
+		for i, chunk := range chunks {
+			colIdx, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
+			require.NoError(t, err)
+			require.Equal(t, expects[i].IsSetNullCounts, colIdx.IsSetNullCounts())
+			require.Equal(t, expects[i].NullCounts, colIdx.GetNullCounts())
+		}
+	})
 }
 
-func Test_ParquetWriter(t *testing.T) {
-	tests := []struct {
-		name     string
-		testFunc func(t *testing.T)
-	}{
-		{
-			name: "double_write_stop",
-			testFunc: func(t *testing.T) {
-				// Create writer
-				pw, buf, err := createTestParquetWriter(new(test), 1)
-				require.NoError(t, err)
+func TestParquetWriter(t *testing.T) {
+	t.Run("double_write_stop", func(t *testing.T) {
+		pw, buf, err := createTestParquetWriter(new(test), 1)
+		require.NoError(t, err)
 
-				// Write test data
-				testData := []test{
-					{ColA: "cola_0", ColB: "colb_0"},
-					{ColA: "cola_1", ColB: "colb_1"},
-					{ColA: "cola_2", ColB: "colb_2"},
-				}
+		testData := []test{
+			{ColA: "cola_0", ColB: "colb_0"},
+			{ColA: "cola_1", ColB: "colb_1"},
+			{ColA: "cola_2", ColB: "colb_2"},
+		}
 
-				for _, record := range testData {
-					err = pw.Write(record)
-					require.NoError(t, err)
-				}
+		for _, record := range testData {
+			err = pw.Write(record)
+			require.NoError(t, err)
+		}
 
-				// Call WriteStop twice to verify it's idempotent
-				err = pw.WriteStop()
-				require.NoError(t, err)
+		err = pw.WriteStop()
+		require.NoError(t, err)
 
-				err = pw.WriteStop()
-				require.NoError(t, err)
+		err = pw.WriteStop()
+		require.NoError(t, err)
 
-				// Verify data can be read correctly
-				pr, pf, err := createTestParquetReader(buf.Bytes(), new(test), 1)
-				require.NoError(t, err)
-				defer func() {
-					require.NoError(t, pf.Close())
-				}()
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(test), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
 
-				numRows := int(pr.GetNumRows())
-				require.Equal(t, len(testData), numRows)
+		numRows := int(pr.GetNumRows())
+		require.Equal(t, len(testData), numRows)
 
-				actualRows := make([]test, numRows)
-				err = pr.Read(&actualRows)
-				require.NoError(t, err)
+		actualRows := make([]test, numRows)
+		err = pr.Read(&actualRows)
+		require.NoError(t, err)
 
-				_ = pr.ReadStopWithError()
-			},
-		},
-		{
-			name: "set_schema_handler_from_json_valid",
-			testFunc: func(t *testing.T) {
-				var buf bytes.Buffer
-				fw := writerfile.NewWriterFile(&buf)
-				pw, err := NewParquetWriter(fw, new(struct{}), 1)
-				require.NoError(t, err)
+		_ = pr.ReadStopWithError()
+	})
 
-				jsonSchema := `{
-					"Tag": "name=parquet-go-root",
-					"Fields": [
-						{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"},
-						{"Tag": "name=age, type=INT32"}
-					]
-				}`
+	t.Run("set_schema_handler_from_json_valid", func(t *testing.T) {
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(struct{}), 1)
+		require.NoError(t, err)
 
-				err = pw.SetSchemaHandlerFromJSON(jsonSchema)
-				require.NoError(t, err)
+		jsonSchema := `{
+			"Tag": "name=parquet-go-root",
+			"Fields": [
+				{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"},
+				{"Tag": "name=age, type=INT32"}
+			]
+		}`
 
-				// Verify schema was set
-				require.NotNil(t, pw.SchemaHandler)
-				require.Greater(t, len(pw.Footer.Schema), 0)
-			},
-		},
-		{
-			name: "set_schema_handler_from_json_invalid",
-			testFunc: func(t *testing.T) {
-				var buf bytes.Buffer
-				fw := writerfile.NewWriterFile(&buf)
-				pw, err := NewParquetWriter(fw, new(struct{}), 1)
-				require.NoError(t, err)
+		err = pw.SetSchemaHandlerFromJSON(jsonSchema)
+		require.NoError(t, err)
 
-				invalidJSON := `{"invalid": json}`
-				err = pw.SetSchemaHandlerFromJSON(invalidJSON)
-				require.Error(t, err)
-			},
-		},
-		{
-			name: "set_schema_handler_from_json_empty",
-			testFunc: func(t *testing.T) {
-				var buf bytes.Buffer
-				fw := writerfile.NewWriterFile(&buf)
-				pw, err := NewParquetWriter(fw, new(struct{}), 1)
-				require.NoError(t, err)
+		require.NotNil(t, pw.SchemaHandler)
+		require.Greater(t, len(pw.Footer.Schema), 0)
+	})
 
-				err = pw.SetSchemaHandlerFromJSON("")
-				require.Error(t, err)
-			},
-		},
-		{
-			name: "write_stop_race_condition_on_error",
-			testFunc: func(t *testing.T) {
-				var buf bytes.Buffer
-				fw := writerfile.NewWriterFile(&buf)
-				pw, err := NewJSONWriter(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=x, type=INT64"}]}`, fw, 4)
-				require.NoError(t, err)
+	t.Run("set_schema_handler_from_json_invalid", func(t *testing.T) {
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(struct{}), 1)
+		require.NoError(t, err)
 
-				for i := range 10 {
-					entry := fmt.Sprintf(`{"not-x":%d}`, i)
-					require.NoError(t, pw.Write(entry))
-				}
-				require.Error(t, pw.WriteStop())
-			},
-		},
-		{
-			name: "zero_rows",
-			testFunc: func(t *testing.T) {
-				type TestSchema struct {
-					ColA string `parquet:"name=col_a, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-					ColB string `parquet:"name=col_b, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-				}
+		invalidJSON := `{"invalid": json}`
+		err = pw.SetSchemaHandlerFromJSON(invalidJSON)
+		require.Error(t, err)
+	})
 
-				// Create writer and write zero rows
-				pw, buf, err := createTestParquetWriter(new(TestSchema), 1)
-				require.NoError(t, err)
+	t.Run("set_schema_handler_from_json_empty", func(t *testing.T) {
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(struct{}), 1)
+		require.NoError(t, err)
 
-				err = pw.WriteStop()
-				require.NoError(t, err)
+		err = pw.SetSchemaHandlerFromJSON("")
+		require.Error(t, err)
+	})
 
-				// Create reader and verify zero rows
-				pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestSchema), 1)
-				require.NoError(t, err)
-				defer func() {
-					require.NoError(t, pf.Close())
-				}()
+	t.Run("write_stop_race_condition_on_error", func(t *testing.T) {
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewJSONWriter(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=x, type=INT64"}]}`, fw, 4)
+		require.NoError(t, err)
 
-				require.Equal(t, int64(0), pr.GetNumRows())
-				// need to contain version and create_by even if no data was written
-				require.Equal(t, int32(2), pr.Footer.Version)
-				require.Equal(t, "github.com/hangxie/parquet-go v2 latest", *pr.Footer.CreatedBy)
-			},
-		},
-	}
+		for i := range 10 {
+			entry := fmt.Sprintf(`{"not-x":%d}`, i)
+			require.NoError(t, pw.Write(entry))
+		}
+		require.Error(t, pw.WriteStop())
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, tt.testFunc)
-	}
+	t.Run("zero_rows", func(t *testing.T) {
+		type TestSchema struct {
+			ColA string `parquet:"name=col_a, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+			ColB string `parquet:"name=col_b, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(TestSchema), 1)
+		require.NoError(t, err)
+
+		err = pw.WriteStop()
+		require.NoError(t, err)
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestSchema), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		require.Equal(t, int64(0), pr.GetNumRows())
+		require.Equal(t, int32(2), pr.Footer.Version)
+		require.Equal(t, "github.com/hangxie/parquet-go v2 latest", *pr.Footer.CreatedBy)
+	})
+
+	t.Run("invalid_file", func(t *testing.T) {
+		pw, err := NewParquetWriter(&invalidFileWriter{}, new(test), 1)
+		require.Nil(t, pw)
+		require.ErrorIs(t, err, errWrite)
+	})
 }
 
-func Test_NewParquetWriterFromWriter(t *testing.T) {
+func TestNewParquetWriterFromWriter(t *testing.T) {
 	type TestStruct struct {
 		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 		Age  int32  `parquet:"name=age, type=INT32"`
@@ -267,7 +302,6 @@ func Test_NewParquetWriterFromWriter(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, pw)
 
-		// Test that we can write and close
 		data := TestStruct{Name: "Alice", Age: 30}
 		err = pw.Write(data)
 		require.NoError(t, err)
@@ -275,15 +309,12 @@ func Test_NewParquetWriterFromWriter(t *testing.T) {
 		err = pw.WriteStop()
 		require.NoError(t, err)
 
-		// Verify some data was written
 		require.Greater(t, buf.Len(), 0)
 	})
 
 	t.Run("invalid_object", func(t *testing.T) {
 		var buf bytes.Buffer
-		// Using nil object should fail during schema creation
 		pw, err := NewParquetWriterFromWriter(&buf, nil, 1)
-		// Should either return error or create writer that fails later
 		if err != nil {
 			require.Error(t, err)
 			require.Nil(t, pw)
@@ -293,286 +324,193 @@ func Test_NewParquetWriterFromWriter(t *testing.T) {
 	})
 }
 
-func Test_NewParquetWriter_InvalidFile(t *testing.T) {
-	pw, err := NewParquetWriter(&invalidFileWriter{}, new(test), 1)
-	require.Nil(t, pw)
-	require.ErrorIs(t, err, errWrite)
-}
-
-func Test_ColumnIndex_NullCounts(t *testing.T) {
-	type Entry struct {
-		X *int64 `parquet:"name=x, type=INT64"`
-		Y *int64 `parquet:"name=y, type=INT64"`
-		Z *int64 `parquet:"name=z, type=INT64, omitstats=true"`
-		U int64  `parquet:"name=u, type=INT64"`
-		V int64  `parquet:"name=v, type=INT64, omitstats=true"`
-	}
-
-	type Expect struct {
-		IsSetNullCounts bool
-		NullCounts      []int64
-	}
-
-	var buf bytes.Buffer
-	fw := writerfile.NewWriterFile(&buf)
-	pw, err := NewParquetWriter(fw, new(Entry), 1)
-	require.NoError(t, err)
-
-	entries := []Entry{
-		{common.ToPtr(int64(0)), common.ToPtr(int64(0)), common.ToPtr(int64(0)), 1, 1},
-		{nil, common.ToPtr(int64(1)), common.ToPtr(int64(1)), 2, 2},
-		{nil, nil, nil, 3, 3},
-	}
-	for _, entry := range entries {
-		require.NoError(t, pw.Write(entry))
-	}
-	require.NoError(t, pw.WriteStop())
-
-	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	defer func() {
-		require.NoError(t, pf.Close())
-	}()
-	pr, err := reader.NewParquetReader(pf, nil, 1)
-	require.Nil(t, err)
-
-	require.Nil(t, pr.ReadFooter())
-
-	require.Equal(t, 1, len(pr.Footer.RowGroups))
-	chunks := pr.Footer.RowGroups[0].GetColumns()
-	require.Equal(t, 5, len(chunks))
-
-	expects := []Expect{
-		{true, []int64{2}},
-		{true, []int64{1}},
-		{false, nil},
-		{true, []int64{0}},
-		{false, nil},
-	}
-	for i, chunk := range chunks {
-		colIdx, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
-		require.NoError(t, err)
-		require.Equal(t, expects[i].IsSetNullCounts, colIdx.IsSetNullCounts())
-		require.Equal(t, expects[i].NullCounts, colIdx.GetNullCounts())
-	}
-}
-
-// Test_DataPageV2 verifies that data page V2 can be written and read correctly
-func Test_DataPageV2(t *testing.T) {
+func TestDataPageVersion(t *testing.T) {
 	type TestStruct struct {
 		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 		Age   int32  `parquet:"name=age, type=INT32"`
 		Score *int64 `parquet:"name=score, type=INT64"`
 	}
 
-	// Create writer with V2 pages
-	pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
-	require.NoError(t, err)
+	t.Run("v2_basic", func(t *testing.T) {
+		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		require.NoError(t, err)
 
-	// Set data page version to 2
-	pw.DataPageVersion = 2
+		pw.DataPageVersion = 2
 
-	// Write test data
-	testData := []TestStruct{
-		{Name: "Alice", Age: 25, Score: common.ToPtr(int64(100))},
-		{Name: "Bob", Age: 30, Score: common.ToPtr(int64(200))},
-		{Name: "Charlie", Age: 35, Score: nil},
-		{Name: "David", Age: 40, Score: common.ToPtr(int64(400))},
-	}
-
-	for _, entry := range testData {
-		require.NoError(t, pw.Write(entry))
-	}
-	require.NoError(t, pw.WriteStop())
-
-	// Verify the file was written
-	require.Greater(t, buf.Len(), 0)
-
-	// Read back and verify data
-	pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
-	require.NoError(t, err)
-	defer func() { _ = pf.Close() }()
-	defer func() { _ = pr.ReadStopWithError() }()
-
-	require.Equal(t, int64(4), pr.GetNumRows())
-
-	// Read all rows
-	results := make([]TestStruct, 4)
-	require.NoError(t, pr.Read(&results))
-
-	// Verify data
-	for i := range testData {
-		require.Equal(t, testData[i].Name, results[i].Name)
-		require.Equal(t, testData[i].Age, results[i].Age)
-		if testData[i].Score == nil {
-			require.Nil(t, results[i].Score)
-		} else {
-			require.NotNil(t, results[i].Score)
-			require.Equal(t, *testData[i].Score, *results[i].Score)
+		testData := []TestStruct{
+			{Name: "Alice", Age: 25, Score: common.ToPtr(int64(100))},
+			{Name: "Bob", Age: 30, Score: common.ToPtr(int64(200))},
+			{Name: "Charlie", Age: 35, Score: nil},
+			{Name: "David", Age: 40, Score: common.ToPtr(int64(400))},
 		}
-	}
-}
 
-// Test_DataPageV2WithDictionary verifies that data page V2 works with dictionary encoding
-func Test_DataPageV2WithDictionary(t *testing.T) {
-	type TestStruct struct {
-		Category string `parquet:"name=category, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-		Value    int32  `parquet:"name=value, type=INT32"`
-	}
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
 
-	// Create writer with V2 pages
-	pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
-	require.NoError(t, err)
+		require.Greater(t, buf.Len(), 0)
 
-	// Set data page version to 2
-	pw.DataPageVersion = 2
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
 
-	// Write test data with repeated categories (good for dictionary encoding)
-	testData := []TestStruct{
-		{Category: "A", Value: 1},
-		{Category: "B", Value: 2},
-		{Category: "A", Value: 3},
-		{Category: "C", Value: 4},
-		{Category: "B", Value: 5},
-		{Category: "A", Value: 6},
-	}
+		require.Equal(t, int64(4), pr.GetNumRows())
 
-	for _, entry := range testData {
-		require.NoError(t, pw.Write(entry))
-	}
-	require.NoError(t, pw.WriteStop())
+		results := make([]TestStruct, 4)
+		require.NoError(t, pr.Read(&results))
 
-	// Verify the file was written
-	require.Greater(t, buf.Len(), 0)
+		for i := range testData {
+			require.Equal(t, testData[i].Name, results[i].Name)
+			require.Equal(t, testData[i].Age, results[i].Age)
+			if testData[i].Score == nil {
+				require.Nil(t, results[i].Score)
+			} else {
+				require.NotNil(t, results[i].Score)
+				require.Equal(t, *testData[i].Score, *results[i].Score)
+			}
+		}
+	})
 
-	// Read back and verify data
-	pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
-	require.NoError(t, err)
-	defer func() { _ = pf.Close() }()
-	defer func() { _ = pr.ReadStopWithError() }()
+	t.Run("v2_with_dictionary", func(t *testing.T) {
+		type DictStruct struct {
+			Category string `parquet:"name=category, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+			Value    int32  `parquet:"name=value, type=INT32"`
+		}
 
-	require.Equal(t, int64(6), pr.GetNumRows())
+		pw, buf, err := createTestParquetWriter(new(DictStruct), 1)
+		require.NoError(t, err)
 
-	// Read all rows
-	results := make([]TestStruct, 6)
-	require.NoError(t, pr.Read(&results))
+		pw.DataPageVersion = 2
 
-	// Verify data
-	for i := range testData {
-		require.Equal(t, testData[i].Category, results[i].Category)
-		require.Equal(t, testData[i].Value, results[i].Value)
-	}
-}
+		testData := []DictStruct{
+			{Category: "A", Value: 1},
+			{Category: "B", Value: 2},
+			{Category: "A", Value: 3},
+			{Category: "C", Value: 4},
+			{Category: "B", Value: 5},
+			{Category: "A", Value: 6},
+		}
 
-// Test_DataPageV1DefaultBehavior verifies that V1 is still the default
-func Test_DataPageV1DefaultBehavior(t *testing.T) {
-	type TestStruct struct {
-		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
-	}
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
 
-	// Create writer without setting DataPageVersion (should default to V1)
-	pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
-	require.NoError(t, err)
+		require.Greater(t, buf.Len(), 0)
 
-	// Verify default is 1
-	require.Equal(t, int32(1), pw.DataPageVersion)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
 
-	// Write test data
-	testData := []TestStruct{
-		{Name: "Test1"},
-		{Name: "Test2"},
-	}
+		require.Equal(t, int64(6), pr.GetNumRows())
 
-	for _, entry := range testData {
-		require.NoError(t, pw.Write(entry))
-	}
-	require.NoError(t, pw.WriteStop())
+		results := make([]DictStruct, 6)
+		require.NoError(t, pr.Read(&results))
 
-	// Verify the file was written and can be read
-	pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
-	require.NoError(t, err)
-	defer func() { _ = pf.Close() }()
-	defer func() { _ = pr.ReadStopWithError() }()
+		for i := range testData {
+			require.Equal(t, testData[i].Category, results[i].Category)
+			require.Equal(t, testData[i].Value, results[i].Value)
+		}
+	})
 
-	require.Equal(t, int64(2), pr.GetNumRows())
-}
+	t.Run("v1_default_behavior", func(t *testing.T) {
+		type SimpleStruct struct {
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
 
-// Test_DataPageVersionSwitching verifies that page version can be changed after creation
-func Test_DataPageVersionSwitching(t *testing.T) {
-	type TestStruct struct {
-		Value int32 `parquet:"name=value, type=INT32"`
-	}
+		pw, buf, err := createTestParquetWriter(new(SimpleStruct), 1)
+		require.NoError(t, err)
 
-	// Create writer
-	pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
-	require.NoError(t, err)
+		require.Equal(t, int32(1), pw.DataPageVersion)
 
-	// Start with V1 (default)
-	require.Equal(t, int32(1), pw.DataPageVersion)
+		testData := []SimpleStruct{
+			{Name: "Test1"},
+			{Name: "Test2"},
+		}
 
-	// Switch to V2
-	pw.DataPageVersion = 2
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
 
-	// Write test data
-	testData := []TestStruct{
-		{Value: 1},
-		{Value: 2},
-		{Value: 3},
-	}
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(SimpleStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
 
-	for _, entry := range testData {
-		require.NoError(t, pw.Write(entry))
-	}
-	require.NoError(t, pw.WriteStop())
+		require.Equal(t, int64(2), pr.GetNumRows())
+	})
 
-	// Verify the file was written and can be read
-	pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
-	require.NoError(t, err)
-	defer func() { _ = pf.Close() }()
-	defer func() { _ = pr.ReadStopWithError() }()
+	t.Run("version_switching", func(t *testing.T) {
+		type ValueStruct struct {
+			Value int32 `parquet:"name=value, type=INT32"`
+		}
 
-	require.Equal(t, int64(3), pr.GetNumRows())
+		pw, buf, err := createTestParquetWriter(new(ValueStruct), 1)
+		require.NoError(t, err)
 
-	results := make([]TestStruct, 3)
-	require.NoError(t, pr.Read(&results))
+		require.Equal(t, int32(1), pw.DataPageVersion)
 
-	for i := range testData {
-		require.Equal(t, testData[i].Value, results[i].Value)
-	}
-}
+		pw.DataPageVersion = 2
 
-// Test_DataPageV2PageHeaderType verifies that V2 pages have correct page header type
-func Test_DataPageV2PageHeaderType(t *testing.T) {
-	type TestStruct struct {
-		Value int32 `parquet:"name=value, type=INT32"`
-	}
+		testData := []ValueStruct{
+			{Value: 1},
+			{Value: 2},
+			{Value: 3},
+		}
 
-	// Create writer with V2 pages
-	pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
-	require.NoError(t, err)
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
 
-	pw.DataPageVersion = 2
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(ValueStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
 
-	// Write enough data to create at least one page
-	for i := 0; i < 100; i++ {
-		require.NoError(t, pw.Write(TestStruct{Value: int32(i)}))
-	}
-	require.NoError(t, pw.WriteStop())
+		require.Equal(t, int64(3), pr.GetNumRows())
 
-	// Read the parquet file metadata to verify page types
-	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	defer func() { _ = pf.Close() }()
+		results := make([]ValueStruct, 3)
+		require.NoError(t, pr.Read(&results))
 
-	pr, err := reader.NewParquetReader(pf, new(TestStruct), 1)
-	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+		for i := range testData {
+			require.Equal(t, testData[i].Value, results[i].Value)
+		}
+	})
 
-	// Verify we can read all rows correctly
-	require.Equal(t, int64(100), pr.GetNumRows())
+	t.Run("v2_page_header_type", func(t *testing.T) {
+		type ValueStruct struct {
+			Value int32 `parquet:"name=value, type=INT32"`
+		}
 
-	results := make([]TestStruct, 100)
-	require.NoError(t, pr.Read(&results))
+		pw, buf, err := createTestParquetWriter(new(ValueStruct), 1)
+		require.NoError(t, err)
 
-	for i := range results {
-		require.Equal(t, int32(i), results[i].Value)
-	}
+		pw.DataPageVersion = 2
+
+		for i := 0; i < 100; i++ {
+			require.NoError(t, pw.Write(ValueStruct{Value: int32(i)}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() { _ = pf.Close() }()
+
+		pr, err := reader.NewParquetReader(pf, new(ValueStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		require.Equal(t, int64(100), pr.GetNumRows())
+
+		results := make([]ValueStruct, 100)
+		require.NoError(t, pr.Read(&results))
+
+		for i := range results {
+			require.Equal(t, int32(i), results[i].Value)
+		}
+	})
 }

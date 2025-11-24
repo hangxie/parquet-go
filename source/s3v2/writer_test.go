@@ -85,7 +85,7 @@ func (m *mockS3WriteClient) AbortMultipartUpload(ctx context.Context, input *s3.
 // Test data
 var testDataWriter = []byte("Hello, this is test data for S3v2 parquet file reader and writer testing with comprehensive coverage")
 
-func Test_NewS3FileWriterWithClient_Success(t *testing.T) {
+func TestNewS3FileWriterWithClient_Success(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"
@@ -99,7 +99,7 @@ func Test_NewS3FileWriterWithClient_Success(t *testing.T) {
 	var _ source.ParquetFileWriter = writer
 }
 
-func Test_S3Writer_CloseWithoutWrite(t *testing.T) {
+func TestS3Writer_CloseWithoutWrite(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"
@@ -113,7 +113,7 @@ func Test_S3Writer_CloseWithoutWrite(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_S3Writer_Create(t *testing.T) {
+func TestS3Writer_Create(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"
@@ -131,7 +131,7 @@ func Test_S3Writer_Create(t *testing.T) {
 	require.NotEqual(t, writer, newWriter)
 }
 
-func Test_S3Writer_UploadError(t *testing.T) {
+func TestS3Writer_UploadError(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"
@@ -155,7 +155,7 @@ func Test_S3Writer_UploadError(t *testing.T) {
 	require.Contains(t, err.Error(), expectedError)
 }
 
-func Test_S3Writer_WithPutObjectInputOptions(t *testing.T) {
+func TestS3Writer_WithPutObjectInputOptions(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"
@@ -173,7 +173,7 @@ func Test_S3Writer_WithPutObjectInputOptions(t *testing.T) {
 	require.NotNil(t, writer)
 }
 
-func Test_S3Writer_WithUploaderOptions(t *testing.T) {
+func TestS3Writer_WithUploaderOptions(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"
@@ -191,7 +191,7 @@ func Test_S3Writer_WithUploaderOptions(t *testing.T) {
 	require.NotNil(t, writer)
 }
 
-func Test_S3Writer_WriteAfterError(t *testing.T) {
+func TestS3Writer_WriteAfterError(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"
@@ -219,7 +219,7 @@ func Test_S3Writer_WriteAfterError(t *testing.T) {
 	}
 }
 
-func Test_S3Writer_Write_Multiple(t *testing.T) {
+func TestS3Writer_Write_Multiple(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"
@@ -249,7 +249,7 @@ func Test_S3Writer_Write_Multiple(t *testing.T) {
 	require.True(t, bytes.Equal(uploadedData, testDataWriter))
 }
 
-func Test_S3Writer_Write_Success(t *testing.T) {
+func TestS3Writer_Write_Success(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
 	bucket := "test-bucket"

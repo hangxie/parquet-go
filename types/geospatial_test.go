@@ -72,7 +72,7 @@ func f64le(v float64) []byte {
 }
 
 // Moved from types/types_test.go: tests exercising geospatial.go behaviours
-func Test_ConvertGeometryAndGeographyLogicalValue(t *testing.T) {
+func TestConvertGeometryAndGeographyLogicalValue(t *testing.T) {
 	// sample WKB: little-endian, Point(1,2)
 	sample := []byte{
 		1, 1, 0, 0, 0,
@@ -159,7 +159,7 @@ func Test_ConvertGeometryAndGeographyLogicalValue(t *testing.T) {
 	SetGeospatialHybridRawBase64(false)
 }
 
-func Test_GeometryAndGeography_AdditionalBranches(t *testing.T) {
+func TestGeometryAndGeography_AdditionalBranches(t *testing.T) {
 	invalid := []byte{1, 99, 0, 0, 0}
 	geom := parquet.NewGeometryType()
 	crs := "EPSG:4326"
@@ -212,7 +212,7 @@ func Test_GeometryAndGeography_AdditionalBranches(t *testing.T) {
 	require.Equal(t, []float64{1.5, 2.5}, gj["coordinates"]) // shifted
 }
 
-func Test_GeometryAndGeography_MoreModes(t *testing.T) {
+func TestGeometryAndGeography_MoreModes(t *testing.T) {
 	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
 	SetGeometryJSONMode(GeospatialModeHex)
 	geom := parquet.NewGeometryType()
@@ -258,7 +258,7 @@ func Test_GeometryAndGeography_MoreModes(t *testing.T) {
 	SetGeospatialHybridRawBase64(false)
 }
 
-func Test_Geography_HybridFallbackAndStringInput(t *testing.T) {
+func TestGeography_HybridFallbackAndStringInput(t *testing.T) {
 	invalid := []byte{1, 99, 0, 0, 0}
 	geog := parquet.NewGeographyType()
 	crs := "OGC:CRS84"
@@ -285,7 +285,7 @@ func Test_Geography_HybridFallbackAndStringInput(t *testing.T) {
 	require.NotContains(t, out3, "wkb_b64")
 }
 
-func Test_ConvertGeography_ReprojectorNoOp(t *testing.T) {
+func TestConvertGeography_ReprojectorNoOp(t *testing.T) {
 	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
 	geog := parquet.NewGeographyType()
 	crs := "EPSG:3857"
@@ -300,7 +300,7 @@ func Test_ConvertGeography_ReprojectorNoOp(t *testing.T) {
 	require.Equal(t, []float64{1, 2}, g["coordinates"]) // unchanged
 }
 
-func Test_ConvertGeography_GeoJSON_NoReproject(t *testing.T) {
+func TestConvertGeography_GeoJSON_NoReproject(t *testing.T) {
 	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
 	geog := parquet.NewGeographyType()
 	crs := "EPSG:4326"
@@ -312,7 +312,7 @@ func Test_ConvertGeography_GeoJSON_NoReproject(t *testing.T) {
 	require.Equal(t, []float64{1, 2}, g["coordinates"]) // unchanged geometry only
 }
 
-func Test_ConvertGeography_Defaults_NilGeoPointer(t *testing.T) {
+func TestConvertGeography_Defaults_NilGeoPointer(t *testing.T) {
 	invalid := []byte{1, 99, 0, 0, 0}
 	SetGeographyJSONMode(GeospatialModeBase64)
 	out := ConvertGeographyLogicalValue(invalid, nil).(map[string]any)
@@ -367,7 +367,7 @@ func wkbPolygonLE(rings [][][]float64) []byte {
 }
 
 // Test roundCoordinate function edge cases
-func Test_roundCoordinate(t *testing.T) {
+func TestRoundCoordinate(t *testing.T) {
 	// Save original precision setting
 	originalPrecision := geospatialCoordPrecision
 	defer func() {
@@ -433,7 +433,7 @@ func Test_roundCoordinate(t *testing.T) {
 	}
 }
 
-func Test_wkbToGeoJSON_LineStringAndPolygon(t *testing.T) {
+func TestWkbToGeoJSON_LineStringAndPolygon(t *testing.T) {
 	ls := wkbLineStringLE([][]float64{{0, 0}, {1, 1.2}, {2, -3.4}})
 	gj, ok := wkbToGeoJSON(ls)
 	require.True(t, ok)
@@ -447,7 +447,7 @@ func Test_wkbToGeoJSON_LineStringAndPolygon(t *testing.T) {
 	require.Equal(t, [][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}}, gj2["coordinates"])
 }
 
-func Test_wkbToGeoJSON_InvalidInputs(t *testing.T) {
+func TestWkbToGeoJSON_InvalidInputs(t *testing.T) {
 	// too short
 	if _, ok := wkbToGeoJSON([]byte{1, 1, 0}); ok {
 		t.Fatal("expected failure for too short header")
@@ -525,7 +525,7 @@ func Test_wkbToGeoJSON_InvalidInputs(t *testing.T) {
 	}
 }
 
-func Test_wrapGeoJSONHybrid(t *testing.T) {
+func TestWrapGeoJSONHybrid(t *testing.T) {
 	geo := map[string]any{"type": "Point", "coordinates": []float64{1, 2}}
 	raw := []byte{0x01, 0x02, 0xFF}
 
@@ -546,7 +546,7 @@ func Test_wrapGeoJSONHybrid(t *testing.T) {
 	require.NotContains(t, outB64, "wkb_hex")
 }
 
-func Test_SetGeospatialGeoJSONAsFeature(t *testing.T) {
+func TestSetGeospatialGeoJSONAsFeature(t *testing.T) {
 	// Save original setting
 	orig := geospatialGeoJSONAsFeature
 	defer func() { geospatialGeoJSONAsFeature = orig }()
@@ -570,7 +570,7 @@ func Test_SetGeospatialGeoJSONAsFeature(t *testing.T) {
 	require.Equal(t, props, feature["properties"])
 }
 
-func Test_SetGeospatialCoordinatePrecision(t *testing.T) {
+func TestSetGeospatialCoordinatePrecision(t *testing.T) {
 	// Save original setting
 	orig := geospatialCoordPrecision
 	defer func() { geospatialCoordPrecision = orig }()
@@ -699,7 +699,7 @@ func buildWKBMultiPolygon(polygons [][][][2]float64) []byte {
 	return buf
 }
 
-func Test_wkbToGeoJSON_MultiGeometries(t *testing.T) {
+func TestWkbToGeoJSON_MultiGeometries(t *testing.T) {
 	tests := []struct {
 		name           string
 		geometryType   string
@@ -806,7 +806,7 @@ func Test_wkbToGeoJSON_MultiGeometries(t *testing.T) {
 	}
 }
 
-func Test_wkbToGeoJSON_PrecisionHandling(t *testing.T) {
+func TestWkbToGeoJSON_PrecisionHandling(t *testing.T) {
 	// Save original precision
 	orig := geospatialCoordPrecision
 	defer func() { geospatialCoordPrecision = orig }()
@@ -881,7 +881,7 @@ func Test_wkbToGeoJSON_PrecisionHandling(t *testing.T) {
 	}
 }
 
-func Test_wkbToGeoJSON_Endianness(t *testing.T) {
+func TestWkbToGeoJSON_Endianness(t *testing.T) {
 	tests := []struct {
 		name           string
 		geometryType   string
@@ -964,7 +964,7 @@ func Test_wkbToGeoJSON_Endianness(t *testing.T) {
 
 // SPHERICAL GeoJSON tests
 
-func Test_SPHERICAL_GeoJSON_Encoding(t *testing.T) {
+func TestSPHERICAL_GeoJSON_Encoding(t *testing.T) {
 	// Create valid WKB Point data (1, 2)
 	wkbPoint := []byte{
 		0x01,                   // little-endian
@@ -1095,7 +1095,7 @@ func Test_SPHERICAL_GeoJSON_Encoding(t *testing.T) {
 	})
 }
 
-func Test_EdgeInterpolationAlgorithm_JSON_Marshaling(t *testing.T) {
+func TestEdgeInterpolationAlgorithm_JSON_Marshaling(t *testing.T) {
 	algorithms := []parquet.EdgeInterpolationAlgorithm{
 		parquet.EdgeInterpolationAlgorithm_SPHERICAL,
 		parquet.EdgeInterpolationAlgorithm_VINCENTY,
@@ -1134,7 +1134,7 @@ func Test_EdgeInterpolationAlgorithm_JSON_Marshaling(t *testing.T) {
 	}
 }
 
-func Test_EdgeInterpolationAlgorithm_Invalid_JSON(t *testing.T) {
+func TestEdgeInterpolationAlgorithm_Invalid_JSON(t *testing.T) {
 	type TestStruct struct {
 		Algorithm parquet.EdgeInterpolationAlgorithm `json:"algorithm"`
 	}
@@ -1163,7 +1163,7 @@ func Test_EdgeInterpolationAlgorithm_Invalid_JSON(t *testing.T) {
 	}
 }
 
-func Test_wkbToGeoJSON_MultiGeometries_EdgeCases(t *testing.T) {
+func TestWkbToGeoJSON_MultiGeometries_EdgeCases(t *testing.T) {
 	// Test MultiLineString with invalid LineString type
 	wkb := make([]byte, 0)
 	wkb = append(wkb, 1) // little-endian
@@ -1239,7 +1239,7 @@ func buildWKBGeometryCollection(geoms [][]byte) []byte {
 	return buf
 }
 
-func Test_wkbToGeoJSON_GeometryCollection(t *testing.T) {
+func TestWkbToGeoJSON_GeometryCollection(t *testing.T) {
 	// Create simple GeometryCollection with Point and LineString
 	pointWKB := []byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x40}
 	lineWKB := wkbLineStringLE([][]float64{{0, 0}, {1, 1}})
@@ -1261,7 +1261,7 @@ func Test_wkbToGeoJSON_GeometryCollection(t *testing.T) {
 	require.Equal(t, [][]float64{{0, 0}, {1, 1}}, geometries[1]["coordinates"])
 }
 
-func Test_wkbToGeoJSON_GeometryCollection_Complex(t *testing.T) {
+func TestWkbToGeoJSON_GeometryCollection_Complex(t *testing.T) {
 	// Create complex GeometryCollection with multiple geometry types
 	pointWKB := []byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40}
 	multiPointWKB := buildWKBMultiPoint([][2]float64{{3, 4}, {5, 6}})
@@ -1293,7 +1293,7 @@ func Test_wkbToGeoJSON_GeometryCollection_Complex(t *testing.T) {
 	require.Len(t, polyCoords[0], 5)
 }
 
-func Test_wkbToGeoJSON_GeometryCollection_Empty(t *testing.T) {
+func TestWkbToGeoJSON_GeometryCollection_Empty(t *testing.T) {
 	// Test empty GeometryCollection
 	wkb := buildWKBGeometryCollection([][]byte{})
 	gj, ok := wkbToGeoJSON(wkb)
@@ -1304,7 +1304,7 @@ func Test_wkbToGeoJSON_GeometryCollection_Empty(t *testing.T) {
 	require.Len(t, geometries, 0)
 }
 
-func Test_wkbToGeoJSON_GeometryCollection_Errors(t *testing.T) {
+func TestWkbToGeoJSON_GeometryCollection_Errors(t *testing.T) {
 	// Test GeometryCollection with truncated data
 	wkb := make([]byte, 0)
 	wkb = append(wkb, 1) // little-endian
@@ -1326,7 +1326,7 @@ func Test_wkbToGeoJSON_GeometryCollection_Errors(t *testing.T) {
 	require.False(t, ok, "Should fail for GeometryCollection with invalid geometry")
 }
 
-func Test_calculateWKBSize(t *testing.T) {
+func TestCalculateWKBSize(t *testing.T) {
 	// Test Point
 	pointWKB := []byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40}
 	size, ok := calculateWKBSize(pointWKB)
@@ -1390,7 +1390,7 @@ func Test_calculateWKBSize(t *testing.T) {
 	require.False(t, ok)
 }
 
-func Test_wkbToGeoJSON_GeometryCollection_BigEndian(t *testing.T) {
+func TestWkbToGeoJSON_GeometryCollection_BigEndian(t *testing.T) {
 	// Test big-endian GeometryCollection
 	pointWKB := wkbPoint(0, 1.5, 2.5) // big-endian point
 	lineWKB := make([]byte, 0)
@@ -1431,7 +1431,7 @@ func Test_wkbToGeoJSON_GeometryCollection_BigEndian(t *testing.T) {
 }
 
 // Test error handling in parseLineString
-func Test_parseLineString_ErrorHandling(t *testing.T) {
+func TestParseLineString_ErrorHandling(t *testing.T) {
 	tests := []struct {
 		name     string
 		buffer   []byte
@@ -1478,7 +1478,7 @@ func Test_parseLineString_ErrorHandling(t *testing.T) {
 }
 
 // Test error handling in parsePolygon
-func Test_parsePolygon_ErrorHandling(t *testing.T) {
+func TestParsePolygon_ErrorHandling(t *testing.T) {
 	tests := []struct {
 		name     string
 		buffer   []byte
@@ -1525,7 +1525,7 @@ func Test_parsePolygon_ErrorHandling(t *testing.T) {
 }
 
 // Test calculateWKBSize error paths and edge cases
-func Test_calculateWKBSize_ErrorHandling(t *testing.T) {
+func TestCalculateWKBSize_ErrorHandling(t *testing.T) {
 	tests := []struct {
 		name     string
 		wkb      []byte
@@ -1587,7 +1587,7 @@ func Test_calculateWKBSize_ErrorHandling(t *testing.T) {
 }
 
 // Test wkbToGeoJSON comprehensive error handling
-func Test_wkbToGeoJSON_ComprehensiveErrorHandling(t *testing.T) {
+func TestWkbToGeoJSON_ComprehensiveErrorHandling(t *testing.T) {
 	tests := []struct {
 		name     string
 		wkb      []byte
@@ -1664,7 +1664,7 @@ func Test_wkbToGeoJSON_ComprehensiveErrorHandling(t *testing.T) {
 }
 
 // Test SetGeospatialHybridRawBase64 configuration function
-func Test_SetGeospatialHybridRawBase64(t *testing.T) {
+func TestSetGeospatialHybridRawBase64(t *testing.T) {
 	// Save original setting
 	originalSetting := geospatialHybridUseBase64
 	defer func() {
@@ -1681,7 +1681,7 @@ func Test_SetGeospatialHybridRawBase64(t *testing.T) {
 }
 
 // Test SetGeospatialReprojector configuration function
-func Test_SetGeospatialReprojector(t *testing.T) {
+func TestSetGeospatialReprojector(t *testing.T) {
 	// Save original reprojector
 	originalReprojector := geospatialReprojector
 	defer func() {
@@ -1701,7 +1701,7 @@ func Test_SetGeospatialReprojector(t *testing.T) {
 }
 
 // Test edge cases for wkbToGeoJSON with big-endian byte order issues
-func Test_wkbToGeoJSON_BigEndian_EdgeCases(t *testing.T) {
+func TestWkbToGeoJSON_BigEndian_EdgeCases(t *testing.T) {
 	// Test MultiPoint with mixed endianness in header vs points
 	tests := []struct {
 		name     string
@@ -1729,7 +1729,7 @@ func Test_wkbToGeoJSON_BigEndian_EdgeCases(t *testing.T) {
 }
 
 // Test wrapGeoJSONHybrid edge cases
-func Test_wrapGeoJSONHybrid_EdgeCases(t *testing.T) {
+func TestWrapGeoJSONHybrid_EdgeCases(t *testing.T) {
 	geo := map[string]any{"type": "Point", "coordinates": []float64{1, 2}}
 	raw := []byte{1, 2, 3, 4}
 
@@ -1753,7 +1753,7 @@ func Test_wrapGeoJSONHybrid_EdgeCases(t *testing.T) {
 }
 
 // Test calculateWKBSize with valid geometries to improve coverage
-func Test_calculateWKBSize_ValidGeometries(t *testing.T) {
+func TestCalculateWKBSize_ValidGeometries(t *testing.T) {
 	tests := []struct {
 		name         string
 		wkb          []byte
@@ -1798,7 +1798,7 @@ func Test_calculateWKBSize_ValidGeometries(t *testing.T) {
 }
 
 // Test inline round function edge cases within wkbToGeoJSON
-func Test_wkbToGeoJSON_InlineRoundFunction(t *testing.T) {
+func TestWkbToGeoJSON_InlineRoundFunction(t *testing.T) {
 	// Save original precision setting
 	originalPrecision := geospatialCoordPrecision
 	defer func() {
@@ -1844,7 +1844,7 @@ func Test_wkbToGeoJSON_InlineRoundFunction(t *testing.T) {
 }
 
 // Test calculateWKBSize big-endian edge cases for better coverage
-func Test_calculateWKBSize_BigEndianPaths(t *testing.T) {
+func TestCalculateWKBSize_BigEndianPaths(t *testing.T) {
 	tests := []struct {
 		name         string
 		wkb          []byte
@@ -1887,7 +1887,7 @@ func Test_calculateWKBSize_BigEndianPaths(t *testing.T) {
 }
 
 // Test more comprehensive error paths in wkbToGeoJSON
-func Test_wkbToGeoJSON_AdvancedErrorPaths(t *testing.T) {
+func TestWkbToGeoJSON_AdvancedErrorPaths(t *testing.T) {
 	tests := []struct {
 		name     string
 		wkb      []byte
@@ -1924,7 +1924,7 @@ func Test_wkbToGeoJSON_AdvancedErrorPaths(t *testing.T) {
 }
 
 // Test boundary conditions and edge cases for calculateWKBSize
-func Test_calculateWKBSize_BoundaryConditions(t *testing.T) {
+func TestCalculateWKBSize_BoundaryConditions(t *testing.T) {
 	tests := []struct {
 		name     string
 		wkb      []byte
@@ -1951,7 +1951,7 @@ func Test_calculateWKBSize_BoundaryConditions(t *testing.T) {
 }
 
 // Test edge cases in parseLineString and parsePolygon with boundary conditions
-func Test_parseGeometry_BoundaryConditions(t *testing.T) {
+func TestParseGeometry_BoundaryConditions(t *testing.T) {
 	// Test parseLineString with edge case: point count at buffer boundary
 	t.Run("parseLineString_point_count_at_boundary", func(t *testing.T) {
 		// Buffer with exactly enough space for point count but no coordinates
@@ -1969,7 +1969,7 @@ func Test_parseGeometry_BoundaryConditions(t *testing.T) {
 }
 
 // Test specific uncovered paths in parsePolygon
-func Test_parsePolygon_UncoveredPaths(t *testing.T) {
+func TestParsePolygon_UncoveredPaths(t *testing.T) {
 	tests := []struct {
 		name     string
 		buffer   []byte
@@ -2009,7 +2009,7 @@ func Test_parsePolygon_UncoveredPaths(t *testing.T) {
 }
 
 // Test specific uncovered paths in wkbToGeoJSON MultiLineString
-func Test_wkbToGeoJSON_MultiLineString_UncoveredPaths(t *testing.T) {
+func TestWkbToGeoJSON_MultiLineString_UncoveredPaths(t *testing.T) {
 	tests := []struct {
 		name     string
 		wkb      []byte
@@ -2041,7 +2041,7 @@ func Test_wkbToGeoJSON_MultiLineString_UncoveredPaths(t *testing.T) {
 }
 
 // Test very specific boundary conditions for maximum coverage
-func Test_wkbToGeoJSON_PrecisionBoundaryConditions(t *testing.T) {
+func TestWkbToGeoJSON_PrecisionBoundaryConditions(t *testing.T) {
 	// Save original precision setting
 	originalPrecision := geospatialCoordPrecision
 	defer func() {
@@ -2077,7 +2077,7 @@ func Test_wkbToGeoJSON_PrecisionBoundaryConditions(t *testing.T) {
 }
 
 // Test u32 function error paths in wkbToGeoJSON
-func Test_wkbToGeoJSON_u32_ErrorPaths(t *testing.T) {
+func TestWkbToGeoJSON_u32_ErrorPaths(t *testing.T) {
 	tests := []struct {
 		name     string
 		wkb      []byte
@@ -2114,7 +2114,7 @@ func Test_wkbToGeoJSON_u32_ErrorPaths(t *testing.T) {
 }
 
 // Test the remaining very specific paths to maximize coverage
-func Test_wkbToGeoJSON_MaximumCoverage(t *testing.T) {
+func TestWkbToGeoJSON_MaximumCoverage(t *testing.T) {
 	tests := []struct {
 		name     string
 		wkb      []byte
@@ -2141,7 +2141,7 @@ func Test_wkbToGeoJSON_MaximumCoverage(t *testing.T) {
 }
 
 // Test the remaining parsePolygon big-endian paths
-func Test_parsePolygon_MaximumCoverage(t *testing.T) {
+func TestParsePolygon_MaximumCoverage(t *testing.T) {
 	t.Run("parsePolygon_big_endian_ring_point_count", func(t *testing.T) {
 		// Test the big-endian path for reading ring point count
 		buffer := make([]byte, 16)
@@ -2166,7 +2166,7 @@ func Test_parsePolygon_MaximumCoverage(t *testing.T) {
 }
 
 // Test edge case where GeometryCollection buffer ends exactly at geometry boundary
-func Test_wkbToGeoJSON_GeometryCollection_BufferBoundary(t *testing.T) {
+func TestWkbToGeoJSON_GeometryCollection_BufferBoundary(t *testing.T) {
 	t.Run("geometrycollection_buffer_ends_at_geometry_boundary", func(t *testing.T) {
 		wkb := []byte{1, 7, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0}
 
@@ -2175,7 +2175,7 @@ func Test_wkbToGeoJSON_GeometryCollection_BufferBoundary(t *testing.T) {
 	})
 }
 
-func Test_BoundingBoxCalculator(t *testing.T) {
+func TestBoundingBoxCalculator(t *testing.T) {
 	t.Run("single_point", func(t *testing.T) {
 		calc := NewBoundingBoxCalculator()
 		calc.AddPoint(10.5, 20.3)
@@ -2554,7 +2554,7 @@ func createSimpleWKBPolygon(rings [][][2]float64, littleEndian bool) []byte {
 	return buf
 }
 
-func Test_BoundingBoxCalculator_AddWKB(t *testing.T) {
+func TestBoundingBoxCalculator_AddWKB(t *testing.T) {
 	t.Run("point_little_endian", func(t *testing.T) {
 		calc := NewBoundingBoxCalculator()
 		wkb := createSimpleWKBPoint(10.5, 20.3, true)

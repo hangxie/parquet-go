@@ -18,11 +18,11 @@ import (
 )
 
 // Test interface compliance
-func Test_AzBlobWriterInterfaceCompliance(t *testing.T) {
+func TestAzBlobWriterInterfaceCompliance(t *testing.T) {
 	var _ source.ParquetFileWriter = (*azBlobWriter)(nil)
 }
 
-func Test_NewAzBlobFileWriter(t *testing.T) {
+func TestNewAzBlobFileWriter(t *testing.T) {
 	ctx := context.Background()
 	clientOptions := blockblob.ClientOptions{
 		ClientOptions: policy.ClientOptions{
@@ -93,7 +93,7 @@ func Test_NewAzBlobFileWriter(t *testing.T) {
 	}
 }
 
-func Test_NewAzBlobFileWriterWithClient(t *testing.T) {
+func TestNewAzBlobFileWriterWithClient(t *testing.T) {
 	ctx := context.Background()
 	testURL := "https://teststorage.blob.core.windows.net/container/test.parquet"
 
@@ -135,7 +135,7 @@ func Test_NewAzBlobFileWriterWithClient(t *testing.T) {
 	})
 }
 
-func Test_AzBlobWriter_Write(t *testing.T) {
+func TestAzBlobWriter_Write(t *testing.T) {
 	testCases := []struct {
 		name          string
 		setupWriter   func() *azBlobWriter
@@ -228,7 +228,7 @@ func Test_AzBlobWriter_Write(t *testing.T) {
 	}
 }
 
-func Test_AzBlobWriter_Close(t *testing.T) {
+func TestAzBlobWriter_Close(t *testing.T) {
 	testCases := []struct {
 		name        string
 		setupWriter func() *azBlobWriter
@@ -300,7 +300,7 @@ func Test_AzBlobWriter_Close(t *testing.T) {
 	}
 }
 
-func Test_AzBlobWriter_Create(t *testing.T) {
+func TestAzBlobWriter_Create(t *testing.T) {
 	ctx := context.Background()
 	client, err := blockblob.NewClientWithNoCredential(
 		"https://test.blob.core.windows.net/container/test.parquet",
@@ -387,12 +387,12 @@ func Test_AzBlobWriter_Create(t *testing.T) {
 	}
 }
 
-func Test_AzBlobWriter_ErrorMessages(t *testing.T) {
+func TestAzBlobWriter_ErrorMessages(t *testing.T) {
 	// Test that errWriteNotOpened is properly defined
 	require.Equal(t, "write url not opened", errWriteNotOpened.Error())
 }
 
-func Test_AzBlobWriter_CredentialTypes(t *testing.T) {
+func TestAzBlobWriter_CredentialTypes(t *testing.T) {
 	ctx := context.Background()
 	testURL := "https://test.blob.core.windows.net/container/test.parquet"
 	clientOptions := blockblob.ClientOptions{}
@@ -425,7 +425,7 @@ func Test_AzBlobWriter_CredentialTypes(t *testing.T) {
 	})
 }
 
-func Test_AzBlobWriter_WriteWithCloseError(t *testing.T) {
+func TestAzBlobWriter_WriteWithCloseError(t *testing.T) {
 	// Test that Write calls CloseWithError when write fails
 	r, w := io.Pipe()
 
@@ -452,7 +452,7 @@ func Test_AzBlobWriter_WriteWithCloseError(t *testing.T) {
 	require.Contains(t, err.Error(), "close")
 }
 
-func Test_AzBlobWriter_CreateWithUploadFailure(t *testing.T) {
+func TestAzBlobWriter_CreateWithUploadFailure(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a client that will fail during upload
@@ -485,7 +485,7 @@ func Test_AzBlobWriter_CreateWithUploadFailure(t *testing.T) {
 	require.Error(t, err) // Should get upload error from goroutine
 }
 
-func Test_AzBlobWriter_ConcurrentOperations(t *testing.T) {
+func TestAzBlobWriter_ConcurrentOperations(t *testing.T) {
 	ctx := context.Background()
 	client, err := blockblob.NewClientWithNoCredential(
 		"https://test.blob.core.windows.net/container/test.parquet",
@@ -533,7 +533,7 @@ func Test_AzBlobWriter_ConcurrentOperations(t *testing.T) {
 	}
 }
 
-func Test_AzBlobWriter_EdgeCases(t *testing.T) {
+func TestAzBlobWriter_EdgeCases(t *testing.T) {
 	t.Run("write_after_close", func(t *testing.T) {
 		r, w := io.Pipe()
 		writeDone := make(chan error, 1)

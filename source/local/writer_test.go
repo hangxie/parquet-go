@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_LocalWriter_Create(t *testing.T) {
+func TestLocalWriter_Create(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test_create.parquet")
 
@@ -25,7 +25,7 @@ func Test_LocalWriter_Create(t *testing.T) {
 	require.False(t, os.IsNotExist(err))
 }
 
-func Test_LocalWriter_Write(t *testing.T) {
+func TestLocalWriter_Write(t *testing.T) {
 	testCases := []struct {
 		name         string
 		writeData    [][]byte // Support multiple writes
@@ -115,7 +115,7 @@ func Test_LocalWriter_Write(t *testing.T) {
 	}
 }
 
-func Test_NewLocalFileWriter(t *testing.T) {
+func TestNewLocalFileWriter(t *testing.T) {
 	testCases := []struct {
 		name             string
 		setupPath        func(t *testing.T) string
