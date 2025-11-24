@@ -1,5 +1,10 @@
 # parquet-go/v2
 
+[![](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/hangxie/parquet-go/blob/main/LICENSE)
+[![](https://img.shields.io/github/v/tag/hangxie/parquet-go.svg?color=brightgreen&label=version&sort=semver)](https://github.com/hangxie/parquet-go/releases)
+[![[parquet-go]](https://github.com/hangxie/parquet-go/actions/workflows/build.yml/badge.svg)](https://github.com/hangxie/parquet-go/actions/workflows/build.yml)
+[![](https://github.com/hangxie/parquet-go/wiki/coverage.svg)](https://github.com/hangxie/parquet-go/wiki/Coverage-Report)
+
 Please read [v1 README.md](READMEv1.md) and [parquet-go-source README.md](source/README.md) first.
 
 This repo was forked from https://github.com/xitongsys/parquet-go, and merged https://github.com/xitongsys/parquet-go-source. v2 introduce incompatible changes that can benefit future enhancements, eg:
