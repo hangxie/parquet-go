@@ -71,14 +71,14 @@ func (m *mockParquetFileReader) Clone() (source.ParquetFileReader, error) {
 	return newReader, nil
 }
 
-func Test_NewRowGroup(t *testing.T) {
+func TestNewRowGroup(t *testing.T) {
 	rowGroup := NewRowGroup()
 	require.NotNil(t, rowGroup)
 	// Chunks slice is not initialized by NewRowGroup - it's nil initially
 	require.NotNil(t, rowGroup.RowGroupHeader)
 }
 
-func Test_ReadRowGroup_Comprehensive(t *testing.T) {
+func TestReadRowGroup_Comprehensive(t *testing.T) {
 	t.Run("single_column_single_parallelism", func(t *testing.T) {
 		// Create a row group header with one column chunk
 		rowGroupHeader := &parquet.RowGroup{
@@ -350,7 +350,7 @@ func Test_ReadRowGroup_Comprehensive(t *testing.T) {
 	})
 }
 
-func Test_ReadRowGroup_ErrorConditions(t *testing.T) {
+func TestReadRowGroup_ErrorConditions(t *testing.T) {
 	// Test ReadRowGroup with error conditions
 	// Since ReadRowGroup is deprecated and involves complex file reading setup,
 	// we'll test error paths and basic functionality
@@ -388,7 +388,7 @@ func Test_ReadRowGroup_ErrorConditions(t *testing.T) {
 	})
 }
 
-func Test_RowGroupToTableMap(t *testing.T) {
+func TestRowGroupToTableMap(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupRowGroup func() *RowGroup

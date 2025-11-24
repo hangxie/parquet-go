@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_MemWriter_CloseWithoutOnCloseFunc(t *testing.T) {
+func TestMemWriter_CloseWithoutOnCloseFunc(t *testing.T) {
 	memFs = afero.NewMemMapFs()
 
 	writer := &memWriter{}
@@ -26,7 +26,7 @@ func Test_MemWriter_CloseWithoutOnCloseFunc(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_MemWriter_Create(t *testing.T) {
+func TestMemWriter_Create(t *testing.T) {
 	memFs = afero.NewMemMapFs()
 
 	writer := &memWriter{}
@@ -43,7 +43,7 @@ func Test_MemWriter_Create(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_MemWriter_OnCloseError(t *testing.T) {
+func TestMemWriter_OnCloseError(t *testing.T) {
 	memFs = afero.NewMemMapFs()
 
 	onCloseError := func(filename string, reader io.Reader) error {
@@ -61,7 +61,7 @@ func Test_MemWriter_OnCloseError(t *testing.T) {
 	require.True(t, errors.Is(err, io.ErrUnexpectedEOF))
 }
 
-func Test_MemWriter_WithSubdirectoryPath(t *testing.T) {
+func TestMemWriter_WithSubdirectoryPath(t *testing.T) {
 	memFs = afero.NewMemMapFs()
 
 	onCloseCalled := false
@@ -87,7 +87,7 @@ func Test_MemWriter_WithSubdirectoryPath(t *testing.T) {
 	require.Equal(t, "test.parquet", closedFilename)
 }
 
-func Test_MemWriter_Write(t *testing.T) {
+func TestMemWriter_Write(t *testing.T) {
 	memFs = afero.NewMemMapFs()
 
 	writer := &memWriter{}
@@ -122,7 +122,7 @@ func Test_MemWriter_Write(t *testing.T) {
 	require.Equal(t, string(testData), string(content))
 }
 
-func Test_NewMemFileWriter(t *testing.T) {
+func TestNewMemFileWriter(t *testing.T) {
 	// Reset memFs to nil to test initialization
 	memFs = nil
 
@@ -167,7 +167,7 @@ func Test_NewMemFileWriter(t *testing.T) {
 	}
 }
 
-func Test_NewMemFileWriterWithExistingFs(t *testing.T) {
+func TestNewMemFileWriterWithExistingFs(t *testing.T) {
 	// Set up an existing file system
 	existingFs := afero.NewMemMapFs()
 	memFs = existingFs
@@ -182,7 +182,7 @@ func Test_NewMemFileWriterWithExistingFs(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_SetAndGetInMemFileFs(t *testing.T) {
+func TestSetAndGetInMemFileFs(t *testing.T) {
 	// Reset memFs to nil first
 	memFs = nil
 

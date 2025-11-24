@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_GetConfig(t *testing.T) {
+func TestGetConfig(t *testing.T) {
 	// Save original config
 	originalCfg := cfg
 	defer func() {

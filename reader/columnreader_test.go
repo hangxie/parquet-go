@@ -99,7 +99,7 @@ func createMinimalValidParquetData() []byte {
 	return data
 }
 
-func Test_NewParquetColumnReader(t *testing.T) {
+func TestNewParquetColumnReader(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupReader func() source.ParquetFileReader
@@ -174,7 +174,7 @@ func Test_NewParquetColumnReader(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_EdgeCases(t *testing.T) {
+func TestParquetReader_EdgeCases(t *testing.T) {
 	t.Run("nil_schema_handler", func(t *testing.T) {
 		pr := &ParquetReader{
 			SchemaHandler: nil,
@@ -199,7 +199,7 @@ func Test_ParquetReader_EdgeCases(t *testing.T) {
 	})
 }
 
-func Test_ParquetReader_ReadColumnByIndex(t *testing.T) {
+func TestParquetReader_ReadColumnByIndex(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupReader func() *ParquetReader
@@ -278,7 +278,7 @@ func Test_ParquetReader_ReadColumnByIndex(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_ReadColumnByIndex_ErrorPropagation(t *testing.T) {
+func TestParquetReader_ReadColumnByIndex_ErrorPropagation(t *testing.T) {
 	// Test that ReadColumnByIndex properly propagates errors from ReadColumnByPath
 	t.Run("error_from_read_column_by_path", func(t *testing.T) {
 		pr := &ParquetReader{
@@ -302,7 +302,7 @@ func Test_ParquetReader_ReadColumnByIndex_ErrorPropagation(t *testing.T) {
 	})
 }
 
-func Test_ParquetReader_ReadColumnByPath_Comprehensive(t *testing.T) {
+func TestParquetReader_ReadColumnByPath_Comprehensive(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupReader   func() *ParquetReader
@@ -416,7 +416,7 @@ func Test_ParquetReader_ReadColumnByPath_Comprehensive(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_SkipRowsByIndex(t *testing.T) {
+func TestParquetReader_SkipRowsByIndex(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupReader func() *ParquetReader
@@ -449,7 +449,7 @@ func Test_ParquetReader_SkipRowsByIndex(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_SkipRowsByIndexWithError(t *testing.T) {
+func TestParquetReader_SkipRowsByIndexWithError(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupReader func() *ParquetReader
@@ -508,7 +508,7 @@ func Test_ParquetReader_SkipRowsByIndexWithError(t *testing.T) {
 	}
 }
 
-func Test_NewParquetColumnReader_Success(t *testing.T) {
+func TestNewParquetColumnReader_Success(t *testing.T) {
 	// Create a real parquet file to test with
 	pr, err := parquetReader()
 	require.NoError(t, err)
@@ -526,7 +526,7 @@ func Test_NewParquetColumnReader_Success(t *testing.T) {
 	columnReader.ReadStop()
 }
 
-func Test_ParquetReader_SkipRowsByPath_WithValidData(t *testing.T) {
+func TestParquetReader_SkipRowsByPath_WithValidData(t *testing.T) {
 	// Create a real parquet reader
 	pr, err := parquetReader()
 	require.NoError(t, err)
@@ -545,7 +545,7 @@ func Test_ParquetReader_SkipRowsByPath_WithValidData(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_SkipRowsByIndex_Success(t *testing.T) {
+func TestParquetReader_SkipRowsByIndex_Success(t *testing.T) {
 	// Create a real parquet reader
 	pr, err := parquetReader()
 	require.NoError(t, err)
@@ -571,7 +571,7 @@ func Test_ParquetReader_SkipRowsByIndex_Success(t *testing.T) {
 	emptyReader.SkipRowsByIndex(0, 5) // Should return early
 }
 
-func Test_ParquetReader_SkipRowsByIndexWithError_Success(t *testing.T) {
+func TestParquetReader_SkipRowsByIndexWithError_Success(t *testing.T) {
 	// Create a real parquet reader
 	pr, err := parquetReader()
 	require.NoError(t, err)
@@ -599,7 +599,7 @@ func Test_ParquetReader_SkipRowsByIndexWithError_Success(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_ParquetReader_ReadColumnByPath_WithValidData(t *testing.T) {
+func TestParquetReader_ReadColumnByPath_WithValidData(t *testing.T) {
 	// Create a real parquet reader
 	pr, err := parquetReader()
 	require.NoError(t, err)
@@ -621,7 +621,7 @@ func Test_ParquetReader_ReadColumnByPath_WithValidData(t *testing.T) {
 	}
 }
 
-func Test_ParquetReader_ErrorPaths(t *testing.T) {
+func TestParquetReader_ErrorPaths(t *testing.T) {
 	t.Run("skip_rows_column_buffer_error", func(t *testing.T) {
 		// Create a mock reader that will fail when creating column buffer
 		pr := &ParquetReader{
@@ -704,7 +704,7 @@ func Test_ParquetReader_ErrorPaths(t *testing.T) {
 	// These lines serve as safety measures but are not easily testable without complex concurrency scenarios.
 }
 
-func Test_ParquetReader_SkipRowsByPath_Comprehensive(t *testing.T) {
+func TestParquetReader_SkipRowsByPath_Comprehensive(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupReader    func() *ParquetReader

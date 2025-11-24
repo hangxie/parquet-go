@@ -11,7 +11,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_FindFuncTable(t *testing.T) {
+func TestFindFuncTable(t *testing.T) {
 	testCases := map[string]struct {
 		pT       *parquet.Type
 		cT       *parquet.ConvertedType
@@ -89,7 +89,7 @@ func Test_FindFuncTable(t *testing.T) {
 	})
 }
 
-func Test_float16FuncTable(t *testing.T) {
+func TestFloat16FuncTable(t *testing.T) {
 	// 0x3C00 -> 1.0; 0x3800 -> 0.5; 0xC000 -> -2.0 (big-endian)
 	be := func(u16 uint16) string { return string([]byte{byte(u16 >> 8), byte(u16)}) }
 
@@ -106,7 +106,7 @@ func Test_float16FuncTable(t *testing.T) {
 	require.Equal(t, int32(2), sz)
 }
 
-func Test_float16FuncTable_FallbackLexicographic(t *testing.T) {
+func TestFloat16FuncTable_FallbackLexicographic(t *testing.T) {
 	ftab := float16FuncTable{}
 
 	// Inputs not decodable as float16 (len != 2) use lexicographic order on raw bytes
@@ -119,7 +119,7 @@ func Test_float16FuncTable_FallbackLexicographic(t *testing.T) {
 	require.False(t, ftab.LessThan("a", 123))
 }
 
-func Test_halfToFloat32(t *testing.T) {
+func TestHalfToFloat32(t *testing.T) {
 	be := func(u16 uint16) string { return string([]byte{byte(u16 >> 8), byte(u16)}) }
 
 	// expected for smallest positive subnormal: (1/1024) * 2^-14
@@ -165,7 +165,7 @@ func Test_halfToFloat32(t *testing.T) {
 	}
 }
 
-func Test_toBytes(t *testing.T) {
+func TestToBytes(t *testing.T) {
 	// Non-empty string
 	b := toBytes("ab")
 	require.Equal(t, []byte("ab"), b)
@@ -184,7 +184,7 @@ func Test_toBytes(t *testing.T) {
 	require.Nil(t, toBytes(123))
 }
 
-func Test_LessThan(t *testing.T) {
+func TestLessThan(t *testing.T) {
 	toHex := func(input string) string {
 		ret, _ := hex.DecodeString(input)
 		return string(ret)
@@ -221,7 +221,7 @@ func Test_LessThan(t *testing.T) {
 	}
 }
 
-func Test_Max(t *testing.T) {
+func TestMax(t *testing.T) {
 	testCases := map[string]struct {
 		Num1, Num2 any
 		PT         *parquet.Type
@@ -244,7 +244,7 @@ func Test_Max(t *testing.T) {
 	}
 }
 
-func Test_Min(t *testing.T) {
+func TestMin(t *testing.T) {
 	testCases := map[string]struct {
 		Num1, Num2 any
 		PT         *parquet.Type
@@ -267,7 +267,7 @@ func Test_Min(t *testing.T) {
 	}
 }
 
-func Test_MinMaxSize(t *testing.T) {
+func TestMinMaxSize(t *testing.T) {
 	toHex := func(input string) string {
 		ret, _ := hex.DecodeString(input)
 		return string(ret)
@@ -377,7 +377,7 @@ func Test_MinMaxSize(t *testing.T) {
 	}
 }
 
-func Test_SizeOf(t *testing.T) {
+func TestSizeOf(t *testing.T) {
 	testCases := map[string]struct {
 		val      reflect.Value
 		expected int64
@@ -427,7 +427,7 @@ func Test_SizeOf(t *testing.T) {
 	}
 }
 
-func Test_cmpIntBinary(t *testing.T) {
+func TestCmpIntBinary(t *testing.T) {
 	testCases := map[string]struct {
 		a        []byte
 		b        []byte
@@ -464,7 +464,7 @@ func Test_cmpIntBinary(t *testing.T) {
 	}
 }
 
-func Test_Int96FuncTable_LessThan_NilChecks(t *testing.T) {
+func TestInt96FuncTable_LessThan_NilChecks(t *testing.T) {
 	table := int96FuncTable{}
 
 	testCases := map[string]struct {
@@ -537,7 +537,7 @@ func Test_Int96FuncTable_LessThan_NilChecks(t *testing.T) {
 	}
 }
 
-func Test_IntervalFuncTable_LessThan_NilChecks(t *testing.T) {
+func TestIntervalFuncTable_LessThan_NilChecks(t *testing.T) {
 	table := intervalFuncTable{}
 
 	testCases := map[string]struct {
@@ -616,7 +616,7 @@ func Test_IntervalFuncTable_LessThan_NilChecks(t *testing.T) {
 }
 
 // Test the bounds checking with malformed data that could cause index out of bounds
-func Test_Int96FuncTable_BoundsChecking(t *testing.T) {
+func TestInt96FuncTable_BoundsChecking(t *testing.T) {
 	table := int96FuncTable{}
 
 	// Test with exactly 11 bytes (one less than required)
@@ -630,7 +630,7 @@ func Test_Int96FuncTable_BoundsChecking(t *testing.T) {
 	require.False(t, result)
 }
 
-func Test_IntervalFuncTable_BoundsChecking(t *testing.T) {
+func TestIntervalFuncTable_BoundsChecking(t *testing.T) {
 	table := intervalFuncTable{}
 
 	// Test with exactly 11 bytes (one less than required)

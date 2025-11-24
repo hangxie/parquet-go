@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_LocalReader_Clone(t *testing.T) {
+func TestLocalReader_Clone(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.parquet")
 
@@ -31,7 +31,7 @@ func Test_LocalReader_Clone(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_LocalReader_Open(t *testing.T) {
+func TestLocalReader_Open(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.parquet")
 
@@ -47,7 +47,7 @@ func Test_LocalReader_Open(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_LocalReader_PartialRead(t *testing.T) {
+func TestLocalReader_PartialRead(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.parquet")
 	testData := []byte("Hello, World!")
@@ -71,7 +71,7 @@ func Test_LocalReader_PartialRead(t *testing.T) {
 	require.Equal(t, string(testData), string(buffer[:n]))
 }
 
-func Test_LocalReader_Read(t *testing.T) {
+func TestLocalReader_Read(t *testing.T) {
 	testCases := []struct {
 		name         string
 		testData     []byte
@@ -150,7 +150,7 @@ func Test_LocalReader_Read(t *testing.T) {
 	}
 }
 
-func Test_LocalReader_Seek(t *testing.T) {
+func TestLocalReader_Seek(t *testing.T) {
 	testData := []byte("Hello, World!")
 
 	testCases := []struct {
@@ -248,7 +248,7 @@ func Test_LocalReader_Seek(t *testing.T) {
 	}
 }
 
-func Test_NewLocalFileReader(t *testing.T) {
+func TestNewLocalFileReader(t *testing.T) {
 	testCases := []struct {
 		name            string
 		setupFile       func(t *testing.T) string

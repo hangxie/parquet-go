@@ -9,7 +9,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/schema"
 )
 
-func Test_MarshalCSV(t *testing.T) {
+func TestMarshalCSV(t *testing.T) {
 	// Create a simple schema for CSV data
 	schemaString := `{
 		"Tag": "name=parquet_go_root",

@@ -8,7 +8,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_Codec_UNCOMPRESSED(t *testing.T) {
+func TestCodec_UNCOMPRESSED(t *testing.T) {
 	raw := []byte{1, 2, 3}
 	compressed := compressors[parquet.CompressionCodec_UNCOMPRESSED].Compress(raw)
 	require.Equal(t, raw, compressed)

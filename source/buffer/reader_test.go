@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_BufferReader_Clone(t *testing.T) {
+func TestBufferReader_Clone(t *testing.T) {
 	testData := []byte("Hello, Reader!")
 	reader := NewBufferReaderFromBytes(testData)
 
@@ -20,13 +20,13 @@ func Test_BufferReader_Clone(t *testing.T) {
 	require.Equal(t, &reader.buff[0], &clonedBytes[0])
 }
 
-func Test_BufferReader_Close(t *testing.T) {
+func TestBufferReader_Close(t *testing.T) {
 	reader := NewBufferReaderFromBytes([]byte("test"))
 	err := reader.Close()
 	require.NoError(t, err)
 }
 
-func Test_BufferReader_Open(t *testing.T) {
+func TestBufferReader_Open(t *testing.T) {
 	testData := []byte("Hello, Reader!")
 	reader := NewBufferReaderFromBytes(testData)
 
@@ -39,7 +39,7 @@ func Test_BufferReader_Open(t *testing.T) {
 	require.Equal(t, string(testData), string(openedBytes))
 }
 
-func Test_BufferReader_Read(t *testing.T) {
+func TestBufferReader_Read(t *testing.T) {
 	testData := []byte("Hello, World!")
 	reader := NewBufferReaderFromBytes(testData)
 
@@ -58,7 +58,7 @@ func Test_BufferReader_Read(t *testing.T) {
 	require.Equal(t, ", World!", string(buffer2[:n2]))
 }
 
-func Test_BufferReader_Seek(t *testing.T) {
+func TestBufferReader_Seek(t *testing.T) {
 	testData := []byte("Hello, World!")
 	reader := NewBufferReaderFromBytes(testData)
 
@@ -86,7 +86,7 @@ func Test_BufferReader_Seek(t *testing.T) {
 	require.Equal(t, int64(7), pos)
 }
 
-func Test_BufferReader_Seek_errors(t *testing.T) {
+func TestBufferReader_Seek_errors(t *testing.T) {
 	testData := []byte("Hello")
 	reader := NewBufferReaderFromBytes(testData)
 
@@ -100,7 +100,7 @@ func Test_BufferReader_Seek_errors(t *testing.T) {
 	require.Equal(t, int64(len(testData)), pos)
 }
 
-func Test_NewBufferReaderFromBytes(t *testing.T) {
+func TestNewBufferReaderFromBytes(t *testing.T) {
 	testData := []byte("Hello, Reader!")
 	reader := NewBufferReaderFromBytes(testData)
 
@@ -116,7 +116,7 @@ func Test_NewBufferReaderFromBytes(t *testing.T) {
 	require.NotEqual(t, byte('X'), readerBytes[0])
 }
 
-func Test_NewBufferReaderFromBytesNoAlloc(t *testing.T) {
+func TestNewBufferReaderFromBytesNoAlloc(t *testing.T) {
 	testData := []byte("Hello, Reader!")
 	reader := NewBufferReaderFromBytesNoAlloc(testData)
 

@@ -81,7 +81,7 @@ func createMockFileHeader(filename string, data []byte) *multipart.FileHeader {
 	}
 }
 
-func Test_NewMultipartFileWrapper(t *testing.T) {
+func TestNewMultipartFileWrapper(t *testing.T) {
 	testData := []byte("test multipart file content")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("test.parquet", testData)
@@ -94,11 +94,11 @@ func Test_NewMultipartFileWrapper(t *testing.T) {
 	var _ source.ParquetFileReader = reader
 }
 
-func Test_MultipartFileReader_InterfaceCompliance(t *testing.T) {
+func TestMultipartFileReader_InterfaceCompliance(t *testing.T) {
 	var _ source.ParquetFileReader = (*multipartFileReader)(nil)
 }
 
-func Test_MultipartFileReader_Clone(t *testing.T) {
+func TestMultipartFileReader_Clone(t *testing.T) {
 	testData := []byte("test data for cloning")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("test.parquet", testData)
@@ -116,7 +116,7 @@ func Test_MultipartFileReader_Clone(t *testing.T) {
 	var _ source.ParquetFileReader = clonedReader
 }
 
-func Test_MultipartFileReader_Read(t *testing.T) {
+func TestMultipartFileReader_Read(t *testing.T) {
 	testData := []byte("Hello, this is test data for multipart reader!")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("test.parquet", testData)
@@ -148,7 +148,7 @@ func Test_MultipartFileReader_Read(t *testing.T) {
 	require.Equal(t, expectedRemaining, string(remaining[:n3]))
 }
 
-func Test_MultipartFileReader_Read_EmptyFile(t *testing.T) {
+func TestMultipartFileReader_Read_EmptyFile(t *testing.T) {
 	testData := []byte("")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("empty.parquet", testData)
@@ -161,7 +161,7 @@ func Test_MultipartFileReader_Read_EmptyFile(t *testing.T) {
 	require.Equal(t, 0, n)
 }
 
-func Test_MultipartFileReader_Seek(t *testing.T) {
+func TestMultipartFileReader_Seek(t *testing.T) {
 	testData := []byte("0123456789ABCDEFGHIJ")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("test.parquet", testData)
@@ -207,7 +207,7 @@ func Test_MultipartFileReader_Seek(t *testing.T) {
 	require.Equal(t, "FGHIJ", string(buffer3[:n3]))
 }
 
-func Test_MultipartFileReader_Seek_InvalidOffset(t *testing.T) {
+func TestMultipartFileReader_Seek_InvalidOffset(t *testing.T) {
 	testData := []byte("test data")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("test.parquet", testData)
@@ -225,7 +225,7 @@ func Test_MultipartFileReader_Seek_InvalidOffset(t *testing.T) {
 	}
 }
 
-func Test_MultipartFileReader_Close(t *testing.T) {
+func TestMultipartFileReader_Close(t *testing.T) {
 	testData := []byte("test data for close")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("test.parquet", testData)
@@ -243,7 +243,7 @@ func Test_MultipartFileReader_Close(t *testing.T) {
 	require.True(t, mockFile.closed)
 }
 
-func Test_MultipartFileReader_Open(t *testing.T) {
+func TestMultipartFileReader_Open(t *testing.T) {
 	testData := []byte("test data for open operation")
 
 	// Create a more realistic test using actual multipart data
@@ -293,7 +293,7 @@ func Test_MultipartFileReader_Open(t *testing.T) {
 	}
 }
 
-func Test_MultipartFileReader_Open_ErrorHandling(t *testing.T) {
+func TestMultipartFileReader_Open_ErrorHandling(t *testing.T) {
 	// Create a fileHeader that will fail to open
 	testData := []byte("test data")
 	mockFile := newMockMultipartFile(testData)
@@ -314,7 +314,7 @@ func Test_MultipartFileReader_Open_ErrorHandling(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_MultipartFileReader_ReadWriteOperations(t *testing.T) {
+func TestMultipartFileReader_ReadWriteOperations(t *testing.T) {
 	testData := []byte("Sequential read test data for multipart reader functionality")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("test.parquet", testData)
@@ -345,7 +345,7 @@ func Test_MultipartFileReader_ReadWriteOperations(t *testing.T) {
 	require.Equal(t, string(testData), string(fullContent))
 }
 
-func Test_MultipartFileReader_LargeDataHandling(t *testing.T) {
+func TestMultipartFileReader_LargeDataHandling(t *testing.T) {
 	// Create larger test data
 	largeData := make([]byte, 1024)
 	for i := range largeData {
@@ -386,7 +386,7 @@ func Test_MultipartFileReader_LargeDataHandling(t *testing.T) {
 	require.Equal(t, len(largeData), totalRead)
 }
 
-func Test_MultipartFileReader_SeekBoundaryConditions(t *testing.T) {
+func TestMultipartFileReader_SeekBoundaryConditions(t *testing.T) {
 	testData := []byte("Boundary test data")
 	mockFile := newMockMultipartFile(testData)
 	fileHeader := createMockFileHeader("test.parquet", testData)

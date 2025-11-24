@@ -8,7 +8,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_Compress(t *testing.T) {
+func TestCompress(t *testing.T) {
 	testCases := []struct {
 		name         string
 		codec        parquet.CompressionCodec
@@ -74,7 +74,7 @@ func Test_Compress(t *testing.T) {
 	}
 }
 
-func Test_CompressLargeData(t *testing.T) {
+func TestCompressLargeData(t *testing.T) {
 	// Test with larger data that should benefit from compression
 	largeData := make([]byte, 10000)
 	for i := range largeData {
@@ -90,7 +90,7 @@ func Test_CompressLargeData(t *testing.T) {
 	require.Equal(t, largeData, decompressed)
 }
 
-func Test_ErrorHandling(t *testing.T) {
+func TestErrorHandling(t *testing.T) {
 	// Test Uncompress with unsupported codec
 	_, err := Uncompress([]byte{1, 2, 3}, parquet.CompressionCodec(999))
 	require.Error(t, err)
@@ -101,7 +101,7 @@ func Test_ErrorHandling(t *testing.T) {
 	require.Nil(t, result)
 }
 
-func Test_Uncompress(t *testing.T) {
+func TestUncompress(t *testing.T) {
 	testCases := []struct {
 		name             string
 		codec            parquet.CompressionCodec

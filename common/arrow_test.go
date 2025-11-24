@@ -70,7 +70,7 @@ func buildTimestampArray(mem memory.Allocator, values []arrow.Timestamp, valid [
 	return builder.NewArray()
 }
 
-func Test_ArrowColToParquetCol(t *testing.T) {
+func TestArrowColToParquetCol(t *testing.T) {
 	mem := memory.NewGoAllocator()
 
 	testCases := map[string]struct {
@@ -191,7 +191,7 @@ func Test_ArrowColToParquetCol(t *testing.T) {
 	}
 }
 
-func Test_TransposeTable(t *testing.T) {
+func TestTransposeTable(t *testing.T) {
 	testCases := map[string]struct {
 		table    [][]any
 		expected [][]any
@@ -208,13 +208,13 @@ func Test_TransposeTable(t *testing.T) {
 	}
 }
 
-func Test_newTable(t *testing.T) {
+func TestNewTable(t *testing.T) {
 	actual := newTable(5, 6)
 	require.Equal(t, 5, len(actual))
 	require.Equal(t, 6, len(actual[0]))
 }
 
-func Test_nonNullableFieldContainsNullError(t *testing.T) {
+func TestNonNullableFieldContainsNullError(t *testing.T) {
 	err := nonNullableFieldContainsNullError(arrow.Field{Name: "unit-test"}, 3)
 	require.Equal(t, "field with name 'unit-test' is marked non-nullable but its column array contains Null value at index 3", err.Error())
 }

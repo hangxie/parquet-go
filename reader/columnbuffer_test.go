@@ -155,7 +155,7 @@ func newSchemaHandlerWithPath(path string) *schema.SchemaHandler {
 	return sh
 }
 
-func Test_NewColumnBuffer(t *testing.T) {
+func TestNewColumnBuffer(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupFile      func() source.ParquetFileReader
@@ -446,7 +446,7 @@ func Test_NewColumnBuffer(t *testing.T) {
 	}
 }
 
-func Test_NewColumnBuffer_EdgeCases(t *testing.T) {
+func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 	t.Run("complex_nested_path", func(t *testing.T) {
 		mockFile := newMockColumnBufferFileReader([]byte{})
 		footer := &parquet.FileMetaData{
@@ -558,7 +558,7 @@ func Test_NewColumnBuffer_EdgeCases(t *testing.T) {
 	})
 }
 
-func Test_ReadRowsWithError(t *testing.T) {
+func TestReadRowsWithError(t *testing.T) {
 	tests := []struct {
 		name           string
 		setup          func() *ColumnBufferType
@@ -626,7 +626,7 @@ func Test_ReadRowsWithError(t *testing.T) {
 	}
 }
 
-func Test_ReadRows_DeprecatedWrapper(t *testing.T) {
+func TestReadRows_DeprecatedWrapper(t *testing.T) {
 	dt := &layout.Table{
 		Values:           []any{int64(1), int64(2), int64(3)},
 		DefinitionLevels: []int32{1, 1, 1},
@@ -639,7 +639,7 @@ func Test_ReadRows_DeprecatedWrapper(t *testing.T) {
 	require.NotNil(t, tbl)
 }
 
-func Test_SkipRowsWithError(t *testing.T) {
+func TestSkipRowsWithError(t *testing.T) {
 	tests := []struct {
 		name         string
 		setup        func() *ColumnBufferType
@@ -747,7 +747,7 @@ func Test_SkipRowsWithError(t *testing.T) {
 	}
 }
 
-func Test_SkipRows_DeprecatedWrapper(t *testing.T) {
+func TestSkipRows_DeprecatedWrapper(t *testing.T) {
 	dt := &layout.Table{
 		Values:           []any{int64(7), int64(8)},
 		DefinitionLevels: []int32{1, 1},
@@ -760,7 +760,7 @@ func Test_SkipRows_DeprecatedWrapper(t *testing.T) {
 	require.Equal(t, int64(0), cb.DataTableNumRows)
 }
 
-func Test_NewColumnBuffer_FilePathOpenError(t *testing.T) {
+func TestNewColumnBuffer_FilePathOpenError(t *testing.T) {
 	mockFile := newMockColumnBufferFileReader([]byte{})
 	mockFile.SetOpenFails(true)
 
@@ -786,7 +786,7 @@ func Test_NewColumnBuffer_FilePathOpenError(t *testing.T) {
 	require.Nil(t, cb)
 }
 
-func Test_SkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
+func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	mockFile := newMockColumnBufferFileReader([]byte{})
 	footer := &parquet.FileMetaData{
 		RowGroups: []*parquet.RowGroup{
@@ -809,7 +809,7 @@ func Test_SkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	require.Equal(t, int64(0), n)
 }
 
-func Test_ReadPage_ChunkHeaderConditions(t *testing.T) {
+func TestReadPage_ChunkHeaderConditions(t *testing.T) {
 	tests := []struct {
 		name        string
 		setup       func() *ColumnBufferType
@@ -863,7 +863,7 @@ func Test_ReadPage_ChunkHeaderConditions(t *testing.T) {
 	}
 }
 
-func Test_ReadPageForSkip_Conditions(t *testing.T) {
+func TestReadPageForSkip_Conditions(t *testing.T) {
 	tests := []struct {
 		name        string
 		setup       func() *ColumnBufferType
@@ -918,7 +918,7 @@ func Test_ReadPageForSkip_Conditions(t *testing.T) {
 	}
 }
 
-func Test_SkipRowsWithError_RowGroupSkipping(t *testing.T) {
+func TestSkipRowsWithError_RowGroupSkipping(t *testing.T) {
 	// Test skipping entire row groups
 	mockFile := newMockColumnBufferFileReader([]byte{})
 	footer := &parquet.FileMetaData{
@@ -951,7 +951,7 @@ func Test_SkipRowsWithError_RowGroupSkipping(t *testing.T) {
 	}
 }
 
-func Test_ReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
+func TestReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
 	ph := parquet.NewPageHeader()
 	ph.Type = parquet.PageType_DATA_PAGE
 	ph.CompressedPageSize = 10
@@ -1005,7 +1005,7 @@ func Test_ReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
 	}
 }
 
-func Test_ReadPage_RecursiveCall(t *testing.T) {
+func TestReadPage_RecursiveCall(t *testing.T) {
 	// Test the else branch that calls NextRowGroup and recursively calls ReadPage
 	footer := &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}}
 	sh := newSchemaHandlerWithPath("leaf")
@@ -1033,7 +1033,7 @@ func Test_ReadPage_RecursiveCall(t *testing.T) {
 	require.Contains(t, err.Error(), "move to next row group")
 }
 
-func Test_ReadPageForSkip_RecursiveCall(t *testing.T) {
+func TestReadPageForSkip_RecursiveCall(t *testing.T) {
 	// Test the else branch that calls NextRowGroup and recursively calls ReadPageForSkip
 	footer := &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}}
 	sh := newSchemaHandlerWithPath("leaf")

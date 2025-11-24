@@ -9,7 +9,7 @@ import (
 
 // Comprehensive tests for NewSchemaHandlerFromArrow function
 
-func Test_NewSchemaHandlerFromArrow(t *testing.T) {
+func TestNewSchemaHandlerFromArrow(t *testing.T) {
 	t.Run("simple_schema", func(t *testing.T) {
 		// Test with simple Arrow schema covering basic types
 		arrowSchema := arrow.NewSchema([]arrow.Field{
@@ -276,7 +276,7 @@ func Test_NewSchemaHandlerFromArrow(t *testing.T) {
 	})
 }
 
-func Test_TypeConversion(t *testing.T) {
+func TestTypeConversion(t *testing.T) {
 	tests := []struct {
 		title                   string
 		testSchema              *arrow.Schema

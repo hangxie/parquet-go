@@ -8,7 +8,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_NewSchemaHandlerFromMetadata(t *testing.T) {
+func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 	tests := []struct {
 		name              string
 		metadata          []string

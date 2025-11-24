@@ -8,7 +8,7 @@ import (
 	"gocloud.dev/blob/memblob"
 )
 
-func Test_BlobWriter_Write(t *testing.T) {
+func TestBlobWriter_Write(t *testing.T) {
 	b := memblob.OpenBucket(nil)
 	defer func() {
 		_ = b.Close()

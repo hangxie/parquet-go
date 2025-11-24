@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_BufferFile_Bytes(t *testing.T) {
+func TestBufferFile_Bytes(t *testing.T) {
 	testData := []byte("Hello, Buffer!")
 	bf := bufferFile{buff: testData}
 
@@ -15,20 +15,20 @@ func Test_BufferFile_Bytes(t *testing.T) {
 	require.Equal(t, string(testData), string(bytes))
 }
 
-func Test_BufferWriter_Close(t *testing.T) {
+func TestBufferWriter_Close(t *testing.T) {
 	writer := NewBufferWriter()
 	err := writer.Close()
 	require.NoError(t, err)
 }
 
-func Test_BufferWriter_Create(t *testing.T) {
+func TestBufferWriter_Create(t *testing.T) {
 	writer := NewBufferWriter()
 	created, err := writer.Create("dummy")
 	require.NoError(t, err)
 	require.NotNil(t, created)
 }
 
-func Test_BufferWriter_Write(t *testing.T) {
+func TestBufferWriter_Write(t *testing.T) {
 	writer := NewBufferWriter()
 	testData := []byte("Hello, Writer!")
 
@@ -40,7 +40,7 @@ func Test_BufferWriter_Write(t *testing.T) {
 	require.Equal(t, string(testData), string(writtenData))
 }
 
-func Test_BufferWriter_Write_expansion(t *testing.T) {
+func TestBufferWriter_Write_expansion(t *testing.T) {
 	// Create writer with small capacity
 	writer := NewBufferWriterCapacity(5)
 
@@ -57,7 +57,7 @@ func Test_BufferWriter_Write_expansion(t *testing.T) {
 	require.Greater(t, cap(writer.buff), 5)
 }
 
-func Test_BufferWriter_Write_multiple(t *testing.T) {
+func TestBufferWriter_Write_multiple(t *testing.T) {
 	writer := NewBufferWriter()
 
 	chunks := [][]byte{
@@ -77,20 +77,20 @@ func Test_BufferWriter_Write_multiple(t *testing.T) {
 	require.Equal(t, expected, string(writtenData))
 }
 
-func Test_NewBufferWriter(t *testing.T) {
+func TestNewBufferWriter(t *testing.T) {
 	writer := NewBufferWriter()
 	require.NotNil(t, writer)
 	require.Equal(t, DefaultCapacity, cap(writer.buff))
 }
 
-func Test_NewBufferWriterCapacity(t *testing.T) {
+func TestNewBufferWriterCapacity(t *testing.T) {
 	capacity := 1024
 	writer := NewBufferWriterCapacity(capacity)
 	require.NotNil(t, writer)
 	require.Equal(t, capacity, cap(writer.buff))
 }
 
-func Test_NewBufferWriterFromBytesNoAlloc(t *testing.T) {
+func TestNewBufferWriterFromBytesNoAlloc(t *testing.T) {
 	testData := []byte("Hello, Writer!")
 	writer := NewBufferWriterFromBytesNoAlloc(testData)
 	require.NotNil(t, writer)

@@ -9,7 +9,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_DictDataPageCompress(t *testing.T) {
+func TestDictDataPageCompress(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT32),
@@ -33,7 +33,7 @@ func Test_DictDataPageCompress(t *testing.T) {
 	require.NotZero(t, len(data))
 }
 
-func Test_DictDataPageCompressWithEmptyValues(t *testing.T) {
+func TestDictDataPageCompressWithEmptyValues(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT32),
@@ -57,7 +57,7 @@ func Test_DictDataPageCompressWithEmptyValues(t *testing.T) {
 	require.NotZero(t, len(data))
 }
 
-func Test_DictPageCompress(t *testing.T) {
+func TestDictPageCompress(t *testing.T) {
 	page := NewDictPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT32),
@@ -75,7 +75,7 @@ func Test_DictPageCompress(t *testing.T) {
 	require.NotZero(t, len(data))
 }
 
-func Test_DictPageCompressWithEmptyDataTable(t *testing.T) {
+func TestDictPageCompressWithEmptyDataTable(t *testing.T) {
 	page := NewDictPage()
 	page.Schema = &parquet.SchemaElement{
 		Type: common.ToPtr(parquet.Type_INT32),
@@ -91,7 +91,7 @@ func Test_DictPageCompressWithEmptyDataTable(t *testing.T) {
 	require.NotZero(t, len(data))
 }
 
-func Test_DictRecToDictPage(t *testing.T) {
+func TestDictRecToDictPage(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupDictRec func() *DictRecType
@@ -157,7 +157,7 @@ func Test_DictRecToDictPage(t *testing.T) {
 	}
 }
 
-func Test_NewDictRec(t *testing.T) {
+func TestNewDictRec(t *testing.T) {
 	dictRec := NewDictRec(parquet.Type_INT32)
 	require.NotNil(t, dictRec)
 	require.NotNil(t, dictRec.DictMap)
@@ -165,7 +165,7 @@ func Test_NewDictRec(t *testing.T) {
 	require.Equal(t, parquet.Type_INT32, dictRec.Type)
 }
 
-func Test_TableToDictDataPages(t *testing.T) {
+func TestTableToDictDataPages(t *testing.T) {
 	dictRec := NewDictRec(parquet.Type_INT32)
 
 	// Add some dictionary values
@@ -192,7 +192,7 @@ func Test_TableToDictDataPages(t *testing.T) {
 	require.Positive(t, totalSize)
 }
 
-func Test_TableToDictDataPagesWithEmptyTable(t *testing.T) {
+func TestTableToDictDataPagesWithEmptyTable(t *testing.T) {
 	dictRec := NewDictRec(parquet.Type_INT32)
 
 	// Create an empty table
@@ -213,7 +213,7 @@ func Test_TableToDictDataPagesWithEmptyTable(t *testing.T) {
 	require.Equal(t, int64(0), totalSize)
 }
 
-func Test_TableToDictDataPagesWithInvalidType(t *testing.T) {
+func TestTableToDictDataPagesWithInvalidType(t *testing.T) {
 	dictRec := NewDictRec(parquet.Type_INT32)
 
 	// Create a table with invalid schema

@@ -9,7 +9,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_DecodeDictChunk(t *testing.T) {
+func TestDecodeDictChunk(t *testing.T) {
 	// Create a chunk with dictionary and data pages
 	dictPage := NewDictPage()
 	dictPage.Schema = &parquet.SchemaElement{
@@ -40,7 +40,7 @@ func Test_DecodeDictChunk(t *testing.T) {
 	require.Equal(t, int32(10), chunk.Pages[0].DataTable.Values[0])
 }
 
-func Test_PagesToChunk(t *testing.T) {
+func TestPagesToChunk(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupPages    func() []*Page
@@ -195,7 +195,7 @@ func Test_PagesToChunk(t *testing.T) {
 	}
 }
 
-func Test_PagesToDictChunk(t *testing.T) {
+func TestPagesToDictChunk(t *testing.T) {
 	// Create dictionary page
 	dictPage := NewDictPage()
 	dictPage.Schema = &parquet.SchemaElement{
@@ -238,7 +238,7 @@ func Test_PagesToDictChunk(t *testing.T) {
 	require.Equal(t, 2, len(chunk.Pages))
 }
 
-func Test_PagesToDictChunkWithInvalidSchema(t *testing.T) {
+func TestPagesToDictChunkWithInvalidSchema(t *testing.T) {
 	// Create dictionary page
 	dictPage := NewDictPage()
 	dictPage.Schema = &parquet.SchemaElement{
@@ -259,7 +259,7 @@ func Test_PagesToDictChunkWithInvalidSchema(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_ReadChunk_ErrorConditions(t *testing.T) {
+func TestReadChunk_ErrorConditions(t *testing.T) {
 	// Test ReadChunk with error conditions
 	// Since ReadChunk is deprecated and involves complex thrift reader setup,
 	// we'll test error paths with minimal mocking
@@ -302,7 +302,7 @@ func Test_ReadChunk_ErrorConditions(t *testing.T) {
 	}
 }
 
-func Test_PagesToChunk_NilChecks(t *testing.T) {
+func TestPagesToChunk_NilChecks(t *testing.T) {
 	tests := []struct {
 		name        string
 		pages       []*Page
@@ -377,7 +377,7 @@ func Test_PagesToChunk_NilChecks(t *testing.T) {
 	}
 }
 
-func Test_PagesToDictChunk_NilChecks(t *testing.T) {
+func TestPagesToDictChunk_NilChecks(t *testing.T) {
 	tests := []struct {
 		name        string
 		pages       []*Page
@@ -450,7 +450,7 @@ func Test_PagesToDictChunk_NilChecks(t *testing.T) {
 	}
 }
 
-func Test_DecodeDictChunk_NilChecks(t *testing.T) {
+func TestDecodeDictChunk_NilChecks(t *testing.T) {
 	tests := []struct {
 		name  string
 		chunk *Chunk
@@ -547,7 +547,7 @@ func Test_DecodeDictChunk_NilChecks(t *testing.T) {
 	}
 }
 
-func Test_PagesToChunk_NullCountNilChecks(t *testing.T) {
+func TestPagesToChunk_NullCountNilChecks(t *testing.T) {
 	// Test the specific case where NullCount might be nil
 	pageType := parquet.Type_INT32
 	info := &common.Tag{}
@@ -595,7 +595,7 @@ func Test_PagesToChunk_NullCountNilChecks(t *testing.T) {
 	}
 }
 
-func Test_PagesToDictChunk_NullCountNilChecks(t *testing.T) {
+func TestPagesToDictChunk_NullCountNilChecks(t *testing.T) {
 	// Test the specific case where NullCount might be nil in dict chunks
 	pageType := parquet.Type_INT32
 	info := &common.Tag{}
@@ -620,7 +620,7 @@ func Test_PagesToDictChunk_NullCountNilChecks(t *testing.T) {
 	}
 }
 
-func Test_aggregateGeospatialStatistics(t *testing.T) {
+func TestAggregateGeospatialStatistics(t *testing.T) {
 	t.Run("single_page_with_stats", func(t *testing.T) {
 		page := &Page{
 			GeospatialBBox: &parquet.BoundingBox{
@@ -806,7 +806,7 @@ func Test_aggregateGeospatialStatistics(t *testing.T) {
 	})
 }
 
-func Test_PagesToChunk_GeospatialStatistics(t *testing.T) {
+func TestPagesToChunk_GeospatialStatistics(t *testing.T) {
 	t.Run("geometry_logical_type_with_stats", func(t *testing.T) {
 		// Create pages with geospatial statistics
 		page1 := createTestPage(0, 10, 0, 10, []int32{1})
@@ -982,7 +982,7 @@ func Test_PagesToChunk_GeospatialStatistics(t *testing.T) {
 }
 
 // Test the integration of geospatial statistics aggregation in PagesToDictChunk
-func Test_PagesToDictChunk_GeospatialStatistics(t *testing.T) {
+func TestPagesToDictChunk_GeospatialStatistics(t *testing.T) {
 	t.Run("dict_chunk_with_geometry_stats", func(t *testing.T) {
 		// Create dictionary page (first page)
 		dictPage := &Page{
@@ -1126,7 +1126,7 @@ func Test_PagesToDictChunk_GeospatialStatistics(t *testing.T) {
 	})
 }
 
-func Test_ChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
+func TestChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 	// Create WKB point data for testing
 	wkbPoint := []byte{
 		0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x40, 0xcd, 0xcc, 0xcc,

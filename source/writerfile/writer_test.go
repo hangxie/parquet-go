@@ -21,7 +21,7 @@ func (m *mockWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func Test_NewWriterFile(t *testing.T) {
+func TestNewWriterFile(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	writerFile := NewWriterFile(buffer)
 
@@ -36,7 +36,7 @@ func Test_NewWriterFile(t *testing.T) {
 	require.Equal(t, "test", buffer.String())
 }
 
-func Test_WriterFile_Close(t *testing.T) {
+func TestWriterFile_Close(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	writerFile := NewWriterFile(buffer)
 
@@ -50,7 +50,7 @@ func Test_WriterFile_Close(t *testing.T) {
 	require.Equal(t, len(testData), n, "Expected to write %d bytes after close, got %d", len(testData), n)
 }
 
-func Test_WriterFile_Create(t *testing.T) {
+func TestWriterFile_Create(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	writerFile := NewWriterFile(buffer)
 
@@ -59,7 +59,7 @@ func Test_WriterFile_Create(t *testing.T) {
 	require.Equal(t, writerFile, created)
 }
 
-func Test_WriterFile_WithBytesBuffer(t *testing.T) {
+func TestWriterFile_WithBytesBuffer(t *testing.T) {
 	// Test with the most common use case - bytes.Buffer
 	buffer := &bytes.Buffer{}
 	writerFile := NewWriterFile(buffer)
@@ -81,7 +81,7 @@ func Test_WriterFile_WithBytesBuffer(t *testing.T) {
 	require.Equal(t, expected, buffer.String())
 }
 
-func Test_WriterFile_Write(t *testing.T) {
+func TestWriterFile_Write(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	writerFile := NewWriterFile(buffer)
 
@@ -94,7 +94,7 @@ func Test_WriterFile_Write(t *testing.T) {
 	require.Equal(t, string(testData), buffer.String())
 }
 
-func Test_WriterFile_WriteError(t *testing.T) {
+func TestWriterFile_WriteError(t *testing.T) {
 	expectedError := errors.New("mock write error")
 	mockWriter := &mockWriter{err: expectedError}
 	writerFile := NewWriterFile(mockWriter)
@@ -105,7 +105,7 @@ func Test_WriterFile_WriteError(t *testing.T) {
 	require.Equal(t, 0, n)
 }
 
-func Test_WriterFile_WriteMultiple(t *testing.T) {
+func TestWriterFile_WriteMultiple(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	writerFile := NewWriterFile(buffer)
 
@@ -127,7 +127,7 @@ func Test_WriterFile_WriteMultiple(t *testing.T) {
 	require.Equal(t, len(expected), totalWritten)
 }
 
-func Test_WriterFile_WriteWithMockWriter(t *testing.T) {
+func TestWriterFile_WriteWithMockWriter(t *testing.T) {
 	mockWriter := &mockWriter{}
 	writerFile := NewWriterFile(mockWriter)
 

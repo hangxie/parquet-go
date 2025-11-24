@@ -9,12 +9,12 @@ import (
 	"github.com/hangxie/parquet-go/v2/source"
 )
 
-func Test_HdfsFileInterfaceCompliance(t *testing.T) {
+func TestHdfsFileInterfaceCompliance(t *testing.T) {
 	var _ source.ParquetFileReader = (*hdfsReader)(nil)
 	var _ source.ParquetFileWriter = (*hdfsWriter)(nil)
 }
 
-func Test_HdfsFileStructure(t *testing.T) {
+func TestHdfsFileStructure(t *testing.T) {
 	file := hdfsFile{
 		hosts:    []string{"localhost:9000"},
 		user:     "test-user",
@@ -27,7 +27,7 @@ func Test_HdfsFileStructure(t *testing.T) {
 	require.Equal(t, "test.parquet", file.filePath)
 }
 
-func Test_HdfsReaderStructure(t *testing.T) {
+func TestHdfsReaderStructure(t *testing.T) {
 	reader := &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -44,7 +44,7 @@ func Test_HdfsReaderStructure(t *testing.T) {
 	require.Nil(t, reader.fileReader)
 }
 
-func Test_HdfsReaderClose(t *testing.T) {
+func TestHdfsReaderClose(t *testing.T) {
 	reader := &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -59,12 +59,12 @@ func Test_HdfsReaderClose(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_NewHdfsFileReaderError(t *testing.T) {
+func TestNewHdfsFileReaderError(t *testing.T) {
 	_, err := NewHdfsFileReader([]string{"nonexistent:9000"}, "test-user", "test.parquet")
 	require.Error(t, err)
 }
 
-func Test_HdfsReaderMethodDelegation(t *testing.T) {
+func TestHdfsReaderMethodDelegation(t *testing.T) {
 	reader := &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -80,7 +80,7 @@ func Test_HdfsReaderMethodDelegation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_HdfsReaderSeekDelegation(t *testing.T) {
+func TestHdfsReaderSeekDelegation(t *testing.T) {
 	reader := &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -95,7 +95,7 @@ func Test_HdfsReaderSeekDelegation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_HdfsReader_Open(t *testing.T) {
+func TestHdfsReader_Open(t *testing.T) {
 	reader := &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"localhost:9000"},
@@ -110,7 +110,7 @@ func Test_HdfsReader_Open(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_HdfsReader_Clone(t *testing.T) {
+func TestHdfsReader_Clone(t *testing.T) {
 	reader := &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    []string{"nonexistent:9000"},

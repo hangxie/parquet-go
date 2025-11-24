@@ -14,7 +14,7 @@ type marshalCases struct {
 	integerPtr *int
 }
 
-func Test_ParquetMapStructMarshal(t *testing.T) {
+func TestParquetMapStructMarshal(t *testing.T) {
 	// Create a simple schema to test map struct marshaling
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
@@ -62,7 +62,7 @@ func Test_ParquetMapStructMarshal(t *testing.T) {
 	require.Empty(t, emptyResult)
 }
 
-func Test_ParquetPtrMarshal(t *testing.T) {
+func TestParquetPtrMarshal(t *testing.T) {
 	var integer int = 10
 	testData := &marshalCases{
 		integerPtr: &integer,

@@ -8,7 +8,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
-func Test_DeepCopy(t *testing.T) {
+func TestDeepCopy(t *testing.T) {
 	testCases := map[string]struct {
 		src      Tag
 		expected Tag
@@ -56,7 +56,7 @@ func Test_DeepCopy(t *testing.T) {
 	}
 }
 
-func Test_FieldAttr_Update(t *testing.T) {
+func TestFieldAttr_Update(t *testing.T) {
 	testCases := map[string]struct {
 		key, val string
 		expected fieldAttr
@@ -99,7 +99,7 @@ func Test_FieldAttr_Update(t *testing.T) {
 	}
 }
 
-func Test_GetKeyTagMap(t *testing.T) {
+func TestGetKeyTagMap(t *testing.T) {
 	testCases := map[string]struct {
 		src      Tag
 		expected Tag
@@ -130,7 +130,7 @@ func Test_GetKeyTagMap(t *testing.T) {
 	}
 }
 
-func Test_GetValueTagMap(t *testing.T) {
+func TestGetValueTagMap(t *testing.T) {
 	testCases := map[string]struct {
 		src      Tag
 		expected Tag
@@ -161,7 +161,7 @@ func Test_GetValueTagMap(t *testing.T) {
 	}
 }
 
-func Test_IsChildPath(t *testing.T) {
+func TestIsChildPath(t *testing.T) {
 	testCases := map[string]struct {
 		parent   string
 		child    string
@@ -180,7 +180,7 @@ func Test_IsChildPath(t *testing.T) {
 	}
 }
 
-func Test_NewSchemaElementFromTagMap(t *testing.T) {
+func TestNewSchemaElementFromTagMap(t *testing.T) {
 	testCases := map[string]struct {
 		tag      Tag
 		expected parquet.SchemaElement
@@ -276,7 +276,7 @@ func Test_NewSchemaElementFromTagMap(t *testing.T) {
 	}
 }
 
-func Test_PathStrIndex(t *testing.T) {
+func TestPathStrIndex(t *testing.T) {
 	testCases := map[string]struct {
 		path     string
 		expected int
@@ -294,7 +294,7 @@ func Test_PathStrIndex(t *testing.T) {
 	}
 }
 
-func Test_PathToStr(t *testing.T) {
+func TestPathToStr(t *testing.T) {
 	testCases := map[string]struct {
 		path     []string
 		expected string
@@ -311,7 +311,7 @@ func Test_PathToStr(t *testing.T) {
 	}
 }
 
-func Test_ReformPathStr(t *testing.T) {
+func TestReformPathStr(t *testing.T) {
 	testCases := map[string]struct {
 		path     string
 		expected string
@@ -329,7 +329,7 @@ func Test_ReformPathStr(t *testing.T) {
 	}
 }
 
-func Test_StrToPath(t *testing.T) {
+func TestStrToPath(t *testing.T) {
 	testCases := map[string]struct {
 		str      string
 		expected []string
@@ -345,7 +345,7 @@ func Test_StrToPath(t *testing.T) {
 	}
 }
 
-func Test_StringToTag(t *testing.T) {
+func TestStringToTag(t *testing.T) {
 	testCases := map[string]struct {
 		tag      string
 		expected Tag
@@ -378,7 +378,7 @@ func Test_StringToTag(t *testing.T) {
 	}
 }
 
-func Test_StringToVariableName(t *testing.T) {
+func TestStringToVariableName(t *testing.T) {
 	testCases := map[string]struct {
 		str      string
 		expected string
@@ -398,7 +398,7 @@ func Test_StringToVariableName(t *testing.T) {
 	}
 }
 
-func Test_ToPtr(t *testing.T) {
+func TestToPtr(t *testing.T) {
 	testCases := map[string]struct {
 		val any
 	}{
@@ -427,7 +427,7 @@ func Test_ToPtr(t *testing.T) {
 	}
 }
 
-func Test_headToUpper(t *testing.T) {
+func TestHeadToUpper(t *testing.T) {
 	testCases := map[string]struct {
 		str      string
 		expected string
@@ -446,7 +446,7 @@ func Test_headToUpper(t *testing.T) {
 	}
 }
 
-func Test_newLogicalTypeFromConvertedType(t *testing.T) {
+func TestNewLogicalTypeFromConvertedType(t *testing.T) {
 	testCases := map[string]struct {
 		schema   parquet.SchemaElement
 		tag      Tag
@@ -568,7 +568,7 @@ func Test_newLogicalTypeFromConvertedType(t *testing.T) {
 	}
 }
 
-func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
+func TestNewLogicalTypeFromFieldsMap(t *testing.T) {
 	v1 := int8(1)
 	crs := "OGC:CRS84"
 	testCases := map[string]struct {
@@ -724,7 +724,7 @@ func Test_newLogicalTypeFromFieldsMap(t *testing.T) {
 	}
 }
 
-func Test_newTimeUnitFromString(t *testing.T) {
+func TestNewTimeUnitFromString(t *testing.T) {
 	testCases := map[string]struct {
 		unit     string
 		expected parquet.TimeUnit
@@ -750,7 +750,7 @@ func Test_newTimeUnitFromString(t *testing.T) {
 	}
 }
 
-func Test_newEdgeInterpolationAlgorithmFromString(t *testing.T) {
+func TestNewEdgeInterpolationAlgorithmFromString(t *testing.T) {
 	tests := []struct {
 		in     string
 		want   parquet.EdgeInterpolationAlgorithm

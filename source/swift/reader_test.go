@@ -11,12 +11,12 @@ import (
 	"github.com/hangxie/parquet-go/v2/source"
 )
 
-func Test_SwiftFileInterfaceCompliance(t *testing.T) {
+func TestSwiftFileInterfaceCompliance(t *testing.T) {
 	var _ source.ParquetFileReader = (*swiftReader)(nil)
 	var _ source.ParquetFileWriter = (*swiftWriter)(nil)
 }
 
-func Test_SwiftReaderCloseWithNilFileReader(t *testing.T) {
+func TestSwiftReaderCloseWithNilFileReader(t *testing.T) {
 	reader := &swiftReader{
 		swiftFile: swiftFile{
 			connection: &swift.Connection{},
@@ -31,7 +31,7 @@ func Test_SwiftReaderCloseWithNilFileReader(t *testing.T) {
 }
 
 // Test that these functions exist and can be called (even if they fail)
-func Test_NewSwiftFileReaderExists(t *testing.T) {
+func TestNewSwiftFileReaderExists(t *testing.T) {
 	// Just test that the function exists and can be called
 	fn := reflect.ValueOf(NewSwiftFileReader)
 	require.True(t, fn.IsValid())
@@ -42,7 +42,7 @@ func Test_NewSwiftFileReaderExists(t *testing.T) {
 	require.Equal(t, 2, fnType.NumOut())
 }
 
-func Test_SwiftReaderMethodsExist(t *testing.T) {
+func TestSwiftReaderMethodsExist(t *testing.T) {
 	reader := &swiftReader{}
 
 	// Verify all required methods exist
@@ -56,7 +56,7 @@ func Test_SwiftReaderMethodsExist(t *testing.T) {
 }
 
 // Test method signatures
-func Test_SwiftReaderMethodSignatures(t *testing.T) {
+func TestSwiftReaderMethodSignatures(t *testing.T) {
 	reader := &swiftReader{}
 	readerType := reflect.TypeOf(reader)
 
@@ -83,7 +83,7 @@ func Test_SwiftReaderMethodSignatures(t *testing.T) {
 }
 
 // Test struct field access
-func Test_SwiftReaderFieldAccess(t *testing.T) {
+func TestSwiftReaderFieldAccess(t *testing.T) {
 	reader := &swiftReader{
 		swiftFile: swiftFile{
 			connection: &swift.Connection{},
@@ -100,7 +100,7 @@ func Test_SwiftReaderFieldAccess(t *testing.T) {
 }
 
 // Test that method calls are delegated to the correct fields
-func Test_SwiftReaderReadDelegation(t *testing.T) {
+func TestSwiftReaderReadDelegation(t *testing.T) {
 	reader := &swiftReader{
 		swiftFile: swiftFile{
 			connection: &swift.Connection{},
@@ -115,7 +115,7 @@ func Test_SwiftReaderReadDelegation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_SwiftReaderSeekDelegation(t *testing.T) {
+func TestSwiftReaderSeekDelegation(t *testing.T) {
 	reader := &swiftReader{
 		swiftFile: swiftFile{
 			connection: &swift.Connection{},
@@ -129,7 +129,7 @@ func Test_SwiftReaderSeekDelegation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_SwiftReaderStructure(t *testing.T) {
+func TestSwiftReaderStructure(t *testing.T) {
 	conn := &swift.Connection{}
 
 	reader := &swiftReader{
