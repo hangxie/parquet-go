@@ -301,7 +301,7 @@ func main() {
 |SNAPPY|✓|
 |GZIP|✓|
 |LZO|✗|
-|BROTLI|✗|
+|BROTLI|✓|
 |LZ4|✓|
 |LZ4_RAW|✓|
 |ZSTD|✓|
