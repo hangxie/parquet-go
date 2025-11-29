@@ -75,7 +75,7 @@ func (p *positionTracker) Open() error {
 }
 
 // readPageHeader reads a page header from the given offset
-// This is an internal helper function used by ReadAllPageHeaders
+// This is an internal helper function used by readAllPageHeaders
 func readPageHeader(pFile io.ReadSeeker, offset int64) (*parquet.PageHeader, int64, error) {
 	// Seek to page header position
 	_, err := pFile.Seek(offset, io.SeekStart)
@@ -162,7 +162,16 @@ func ExtractPageHeaderInfo(pageHeader *parquet.PageHeader, offset int64, index i
 
 // ReadAllPageHeaders reads all page headers from a column chunk
 // Returns a slice of PageHeaderInfo containing metadata about each page
+//
+// Deprecated: Use ParquetReader.GetAllPageHeaders instead, which provides proper validation
+// and uses row group/column indices rather than requiring direct access to internal fields.
 func ReadAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) ([]PageHeaderInfo, error) {
+	return readAllPageHeaders(pFile, columnChunk)
+}
+
+// readAllPageHeaders reads all page headers from a column chunk
+// Returns a slice of PageHeaderInfo containing metadata about each page
+func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) ([]PageHeaderInfo, error) {
 	meta := columnChunk.MetaData
 	if meta == nil {
 		return nil, fmt.Errorf("column chunk metadata is nil")
@@ -204,6 +213,42 @@ func ReadAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) (
 	}
 
 	return pages, nil
+}
+
+// readFirstDataPageHeader reads page headers sequentially until finding the first data page header.
+// This is more efficient than reading all page headers when you only need the first data page.
+// It skips dictionary pages and other non-data pages to find the first actual data page.
+func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) (*PageHeaderInfo, error) {
+	meta := columnChunk.MetaData
+	if meta == nil {
+		return nil, fmt.Errorf("column chunk metadata is nil")
+	}
+
+	// Start reading from the DataPageOffset
+	offset := meta.DataPageOffset
+	if meta.DictionaryPageOffset != nil && *meta.DictionaryPageOffset < offset {
+		// If there's a dictionary page before the data page, start from there
+		offset = *meta.DictionaryPageOffset
+	}
+
+	// Read page headers sequentially until we find the first data page
+	for {
+		pageHeader, headerSize, err := readPageHeader(pFile, offset)
+		if err != nil {
+			return nil, fmt.Errorf("read page header at offset %d: %w", offset, err)
+		}
+
+		// Check if this is a data page
+		switch pageHeader.Type {
+		case parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2:
+			// Found the first data page, extract and return its info
+			headerInfo := ExtractPageHeaderInfo(pageHeader, offset, 0)
+			return &headerInfo, nil
+		}
+
+		// Not a data page, move to next page
+		offset = offset + headerSize + int64(pageHeader.CompressedPageSize)
+	}
 }
 
 // ReadPageData reads and decompresses the data from a page at the given offset
@@ -274,7 +319,23 @@ func (pr *ParquetReader) GetAllPageHeaders(rgIndex, colIndex int) ([]PageHeaderI
 	}
 
 	column := rg.Columns[colIndex]
-	return ReadAllPageHeaders(pr.PFile, column)
+	return readAllPageHeaders(pr.PFile, column)
+}
+
+// GetFirstDataPageHeader returns metadata for the first data page in a column chunk
+// This is more efficient than GetAllPageHeaders when you only need the first data page
+func (pr *ParquetReader) GetFirstDataPageHeader(rgIndex, colIndex int) (*PageHeaderInfo, error) {
+	if rgIndex < 0 || rgIndex >= len(pr.Footer.RowGroups) {
+		return nil, fmt.Errorf("invalid row group index: %d (valid range: 0-%d)", rgIndex, len(pr.Footer.RowGroups)-1)
+	}
+
+	rg := pr.Footer.RowGroups[rgIndex]
+	if colIndex < 0 || colIndex >= len(rg.Columns) {
+		return nil, fmt.Errorf("invalid column index: %d (valid range: 0-%d)", colIndex, len(rg.Columns)-1)
+	}
+
+	column := rg.Columns[colIndex]
+	return readFirstDataPageHeader(pr.PFile, column)
 }
 
 // ReadDictionaryPageValues reads and decodes dictionary page values at the given offset
