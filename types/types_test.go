@@ -897,6 +897,27 @@ func TestStrToParquetType(t *testing.T) {
 			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			scale:          3,
 		},
+		{
+			name:           "bson-converted",
+			inputStr:       "bson_data_as_string",
+			expectedGoData: string("bson_data_as_string"),
+			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+		},
+		{
+			name:           "json-converted",
+			inputStr:       `{"key":"value"}`,
+			expectedGoData: string(`{"key":"value"}`),
+			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_JSON),
+		},
+		{
+			name:           "enum-converted",
+			inputStr:       "RED",
+			expectedGoData: string("RED"),
+			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_ENUM),
+		},
 	}
 
 	for _, testCase := range testCases {
