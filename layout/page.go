@@ -102,6 +102,17 @@ func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parq
 		}
 
 		for j < totalLn && size < pageSize {
+			if table.Values[j] == nil {
+				// Check if this is a required field with a value that should be present
+				// DefinitionLevel == MaxDefinitionLevel means we're at a leaf that should have a value
+				if table.Schema.GetRepetitionType() == parquet.FieldRepetitionType_REQUIRED &&
+					table.DefinitionLevels[j] == table.MaxDefinitionLevel {
+					return nil, 0, fmt.Errorf("nil value encountered for REQUIRED field %s at index %d", table.Path, j)
+				}
+				nullCount++
+				j++
+				continue
+			}
 			if table.DefinitionLevels[j] == table.MaxDefinitionLevel {
 				numValues++
 				var elSize int32
@@ -111,9 +122,6 @@ func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parq
 					minVal, maxVal, elSize = funcTable.MinMaxSize(minVal, maxVal, table.Values[j])
 				}
 				size += elSize
-			}
-			if table.Values[j] == nil {
-				nullCount++
 			}
 			j++
 		}
@@ -294,11 +302,23 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 	ln := len(page.DataTable.DefinitionLevels)
 
 	// valuesBuf == nil means "up to i, every item in DefinitionLevels was
-	// MaxDefinitionLevel". This lets us avoid allocating the array for the
+	// MaxDefinitionLevel and non-nil". This lets us avoid allocating the array for the
 	// (somewhat) common case of "all values present".
 	var valuesBuf []any
 	for i := range ln {
-		if page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
+		if page.DataTable.Values[i] == nil {
+			// Check if this is a required field with a value that should be present
+			// DefinitionLevel == MaxDefinitionLevel means we're at a leaf that should have a value
+			if page.Schema.GetRepetitionType() == parquet.FieldRepetitionType_REQUIRED &&
+				page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
+				return nil, fmt.Errorf("nil value encountered for REQUIRED field %s at index %d", page.DataTable.Path, i)
+			}
+			// Null value for optional field - need to allocate valuesBuf if not already done
+			if valuesBuf == nil {
+				valuesBuf = make([]any, i, ln)
+				copy(valuesBuf[:i], page.DataTable.Values[:i])
+			}
+		} else if page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
 			if valuesBuf != nil {
 				valuesBuf = append(valuesBuf, page.DataTable.Values[i])
 			}
@@ -373,6 +393,16 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 
 	valuesBuf := make([]any, 0)
 	for i := range ln {
+		if page.DataTable.Values[i] == nil {
+			// Check if this is a required field with a value that should be present
+			// DefinitionLevel == MaxDefinitionLevel means we're at a leaf that should have a value
+			if page.Schema.GetRepetitionType() == parquet.FieldRepetitionType_REQUIRED &&
+				page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
+				return nil, fmt.Errorf("nil value encountered for REQUIRED field %s at index %d", page.DataTable.Path, i)
+			}
+			// Skip nil values for optional fields
+			continue
+		}
 		if page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
 			valuesBuf = append(valuesBuf, page.DataTable.Values[i])
 		}
