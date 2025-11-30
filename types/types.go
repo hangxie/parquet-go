@@ -172,6 +172,9 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 			res := StrIntToBinary(s, "BigEndian", 0, true)
 			return res, nil
 		}
+	case parquet.ConvertedType_BSON, parquet.ConvertedType_JSON, parquet.ConvertedType_ENUM:
+		// These are BYTE_ARRAY types that should preserve the string value as-is
+		return s, nil
 	default:
 		return nil, nil
 	}
