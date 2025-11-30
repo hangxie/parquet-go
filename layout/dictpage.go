@@ -104,6 +104,17 @@ func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth
 		}
 
 		for j < totalLn && size < pageSize {
+			if table.Values[j] == nil {
+				// Check if this is a required field with a value that should be present
+				// DefinitionLevel == MaxDefinitionLevel means we're at a leaf that should have a value
+				if table.Schema.GetRepetitionType() == parquet.FieldRepetitionType_REQUIRED &&
+					table.DefinitionLevels[j] == table.MaxDefinitionLevel {
+					return nil, 0, fmt.Errorf("nil value encountered for REQUIRED field %s at index %d", table.Path, j)
+				}
+				nullCount++
+				j++
+				continue
+			}
 			if table.DefinitionLevels[j] == table.MaxDefinitionLevel {
 				numValues++
 				var elSize int32
@@ -121,9 +132,6 @@ func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth
 					dictRec.DictMap[table.Values[j]] = idx
 					values = append(values, idx)
 				}
-			}
-			if table.Values[i] == nil {
-				nullCount++
 			}
 			j++
 		}
