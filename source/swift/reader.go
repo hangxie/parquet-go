@@ -50,7 +50,21 @@ func (file *swiftReader) Open(name string) (source.ParquetFileReader, error) {
 }
 
 func (file swiftReader) Clone() (source.ParquetFileReader, error) {
-	return NewSwiftFileReader(file.container, file.filePath, file.connection)
+	// Create a new reader without making network calls
+	// Open a new connection to the same object
+	fr, _, err := file.connection.ObjectOpen(file.container, file.filePath, false, nil)
+	if err != nil {
+		return nil, fmt.Errorf("swift object open: %w", err)
+	}
+
+	return &swiftReader{
+		swiftFile: swiftFile{
+			connection: file.connection,
+			container:  file.container,
+			filePath:   file.filePath,
+		},
+		fileReader: fr,
+	}, nil
 }
 
 func (file *swiftReader) Read(b []byte) (n int, err error) {

@@ -208,7 +208,22 @@ func (s *s3Reader) Open(name string) (source.ParquetFileReader, error) {
 }
 
 func (s *s3Reader) Clone() (source.ParquetFileReader, error) {
-	return NewS3FileReaderWithClient(s.ctx, s.client, s.bucketName, s.key, s.version)
+	// Create a new instance without making network calls
+	// Reuse already-known metadata
+	return &s3Reader{
+		s3File: s3File{
+			ctx:        s.ctx,
+			bucketName: s.bucketName,
+			key:        s.key,
+		},
+		client:         s.client,
+		readOpened:     s.readOpened,
+		fileSize:       s.fileSize,
+		version:        s.version,
+		minRequestSize: s.minRequestSize,
+		offset:         0,
+		whence:         0,
+	}, nil
 }
 
 // openRead verifies the requested file is accessible and

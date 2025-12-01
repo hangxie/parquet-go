@@ -54,7 +54,26 @@ func (f *hdfsReader) Open(name string) (source.ParquetFileReader, error) {
 }
 
 func (f hdfsReader) Clone() (source.ParquetFileReader, error) {
-	return NewHdfsFileReader(f.hosts, f.user, f.filePath)
+	// Create a new reader without creating a new HDFS client
+	// Reuse the existing client connection
+	if f.client == nil {
+		return nil, fmt.Errorf("client is nil")
+	}
+
+	fileReader, err := f.client.Open(f.filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open hdfs file: %w", err)
+	}
+
+	return &hdfsReader{
+		hdfsFile: hdfsFile{
+			hosts:    f.hosts,
+			user:     f.user,
+			filePath: f.filePath,
+			client:   f.client,
+		},
+		fileReader: fileReader,
+	}, nil
 }
 
 func (f *hdfsReader) Seek(offset int64, pos int) (int64, error) {

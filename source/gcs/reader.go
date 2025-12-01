@@ -81,8 +81,26 @@ func (g *gcsReader) Open(name string) (source.ParquetFileReader, error) {
 
 // Clone will make a copy of reader
 func (g gcsReader) Clone() (source.ParquetFileReader, error) {
-	// need to create a new reader as offset, etc. are hidden under reader
-	return NewGcsFileReaderWithClient(g.ctx, g.gcsClient, g.projectID, g.bucketName, g.filePath, g.generation)
+	// Create a new reader without making network calls
+	// The underlying gcsobj.Reader manages its own offset internally
+	reader, err := gcsobj.NewReader(g.ctx, g.object)
+	if err != nil {
+		return nil, fmt.Errorf("create new reader: %w", err)
+	}
+
+	return &gcsReader{
+		gcsFile: gcsFile{
+			projectID:      g.projectID,
+			bucketName:     g.bucketName,
+			filePath:       g.filePath,
+			gcsClient:      g.gcsClient,
+			object:         g.object,
+			ctx:            g.ctx,
+			externalClient: g.externalClient,
+		},
+		gcsReader:  reader,
+		generation: g.generation,
+	}, nil
 }
 
 // Seek implements io.Seeker.

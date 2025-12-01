@@ -182,18 +182,77 @@ func TestAzBlobReader_Close(t *testing.T) {
 }
 
 func TestAzBlobReader_Clone(t *testing.T) {
-	// Test Clone with valid client (will fail due to network call, but covers the method)
-	testURL := "https://example.blob.core.windows.net/container/blob"
-	parsedURL, _ := url.Parse(testURL)
-	testClient, _ := blockblob.NewClientWithNoCredential(testURL, &blockblob.ClientOptions{})
-	reader := &azBlobReader{
-		azBlockBlob: azBlockBlob{
-			ctx:             context.Background(),
-			url:             parsedURL,
-			blockBlobClient: testClient,
-		},
-	}
-	// This will error due to network call, but it covers the Clone method
-	_, err := reader.Clone()
-	require.Error(t, err) // Expected to fail due to network call
+	t.Run("mock", func(t *testing.T) {
+		testURL := "https://example.blob.core.windows.net/container/blob"
+		parsedURL, _ := url.Parse(testURL)
+		testClient, _ := blockblob.NewClientWithNoCredential(testURL, &blockblob.ClientOptions{})
+		reader := &azBlobReader{
+			azBlockBlob: azBlockBlob{
+				ctx:             context.Background(),
+				url:             parsedURL,
+				blockBlobClient: testClient,
+			},
+			fileSize: 1234,
+			offset:   100,
+		}
+
+		cloned, err := reader.Clone()
+		require.NoError(t, err)
+		require.NotNil(t, cloned)
+
+		require.NotSame(t, reader, cloned)
+
+		clonedReader := cloned.(*azBlobReader)
+		require.Equal(t, reader.fileSize, clonedReader.fileSize)
+		require.Equal(t, int64(0), clonedReader.offset)
+		require.Equal(t, reader.url, clonedReader.url)
+		require.Equal(t, reader.blockBlobClient, clonedReader.blockBlobClient)
+	})
+
+	t.Run("real", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("Skipping integration test with real Azure Blob file")
+		}
+
+		ctx := context.Background()
+		containerURL := "https://azureopendatastorage.blob.core.windows.net/laborstatisticscontainer"
+		blobName := "lfs/part-00000-tid-6312913918496818658-3a88e4f5-ebeb-4691-bfb6-e7bd5d4f2dd0-63558-c000.snappy.parquet"
+		blobURL := containerURL + "/" + blobName
+
+		reader1, err := NewAzBlobFileReader(ctx, blobURL, nil, blockblob.ClientOptions{})
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, reader1.Close())
+		}()
+
+		buf1 := make([]byte, 1024)
+		n1, err := reader1.Read(buf1)
+		require.NoError(t, err)
+		require.Equal(t, 1024, n1)
+
+		reader2, err := reader1.Clone()
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, reader2.Close())
+		}()
+
+		buf2 := make([]byte, 1024)
+		n2, err := reader2.Read(buf2)
+		require.NoError(t, err)
+		require.Equal(t, 1024, n2)
+
+		require.Equal(t, buf1, buf2)
+
+		buf3 := make([]byte, 512)
+		n3, err := reader1.Read(buf3)
+		require.NoError(t, err)
+		require.Equal(t, 512, n3)
+
+		buf4 := make([]byte, 512)
+		n4, err := reader2.Read(buf4)
+		require.NoError(t, err)
+		require.Equal(t, 512, n4)
+
+		require.Equal(t, buf3, buf4)
+	})
 }

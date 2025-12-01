@@ -91,5 +91,15 @@ func (b *blobReader) Open(name string) (source.ParquetFileReader, error) {
 }
 
 func (b blobReader) Clone() (source.ParquetFileReader, error) {
-	return NewBlobReader(b.ctx, b.bucket, b.key)
+	// Create a new instance without making network calls
+	// Reuse already-known metadata
+	return &blobReader{
+		blobFile: blobFile{
+			ctx:    b.ctx,
+			bucket: b.bucket,
+			key:    b.key,
+			size:   b.size,
+		},
+		offset: 0,
+	}, nil
 }
