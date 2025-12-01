@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/require"
 
@@ -278,23 +280,83 @@ func TestNewS3FileReaderWithParams_Success(t *testing.T) {
 }
 
 func TestS3Reader_Clone(t *testing.T) {
-	ctx := context.Background()
-	client := newMockS3ReadClient()
-	bucket := "test-bucket"
-	key := "test-file.parquet"
+	t.Run("mock", func(t *testing.T) {
+		ctx := context.Background()
+		client := newMockS3ReadClient()
+		bucket := "test-bucket"
+		key := "test-file.parquet"
 
-	client.setObject(bucket, key, testData)
+		client.setObject(bucket, key, testData)
 
-	reader, err := NewS3FileReaderWithClient(ctx, client, bucket, key, nil)
-	require.NoError(t, err)
+		reader, err := NewS3FileReaderWithClient(ctx, client, bucket, key, nil)
+		require.NoError(t, err)
 
-	// Test Clone
-	clonedReader, err := reader.Clone()
-	require.NoError(t, err)
-	require.NotNil(t, clonedReader)
+		clonedReader, err := reader.Clone()
+		require.NoError(t, err)
+		require.NotNil(t, clonedReader)
 
-	// Verify clone is independent
-	require.NotSame(t, reader, clonedReader)
+		require.NotSame(t, reader, clonedReader)
+	})
+
+	t.Run("real", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("Skipping integration test with real S3 file")
+		}
+
+		ctx := context.Background()
+		bucket := "daylight-openstreetmap"
+		key := "parquet/osm_features/release=v1.58/type=way/20241112_191814_00139_grr7u_0041fe64-a5ba-4375-88bf-ef790dfedfff"
+
+		cfg, err := config.LoadDefaultConfig(ctx,
+			config.WithRegion("us-west-2"),
+			config.WithCredentialsProvider(aws.AnonymousCredentials{}),
+		)
+		require.NoError(t, err)
+
+		client := s3.NewFromConfig(cfg)
+
+		params := S3FileReaderParams{
+			Bucket:   bucket,
+			Key:      key,
+			S3Client: client,
+		}
+
+		reader1, err := NewS3FileReaderWithParams(ctx, params)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, reader1.Close())
+		}()
+
+		buf1 := make([]byte, 1024)
+		n1, err := reader1.Read(buf1)
+		require.NoError(t, err)
+		require.Equal(t, 1024, n1)
+
+		reader2, err := reader1.Clone()
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, reader2.Close())
+		}()
+
+		buf2 := make([]byte, 1024)
+		n2, err := reader2.Read(buf2)
+		require.NoError(t, err)
+		require.Equal(t, 1024, n2)
+
+		require.Equal(t, buf1, buf2)
+
+		buf3 := make([]byte, 512)
+		n3, err := reader1.Read(buf3)
+		require.NoError(t, err)
+		require.Equal(t, 512, n3)
+
+		buf4 := make([]byte, 512)
+		n4, err := reader2.Read(buf4)
+		require.NoError(t, err)
+		require.Equal(t, 512, n4)
+
+		require.Equal(t, buf3, buf4)
+	})
 }
 
 func TestS3Reader_Close(t *testing.T) {

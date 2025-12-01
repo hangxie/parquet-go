@@ -14,21 +14,47 @@ func TestLocalReader_Clone(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.parquet")
 
-	err := os.WriteFile(tmpFile, []byte("test data"), 0o644)
+	testData := []byte("0123456789ABCDEF")
+	err := os.WriteFile(tmpFile, testData, 0o644)
 	require.NoError(t, err)
 
-	reader, err := NewLocalFileReader(tmpFile)
+	reader1, err := NewLocalFileReader(tmpFile)
 	require.NoError(t, err)
 	defer func() {
-		require.NoError(t, reader.Close())
+		require.NoError(t, reader1.Close())
 	}()
 
-	cloned, err := reader.Clone()
+	buf1 := make([]byte, 3)
+	n1, err := reader1.Read(buf1)
 	require.NoError(t, err)
-	require.NotNil(t, cloned)
+	require.Equal(t, 3, n1)
+	require.Equal(t, testData[:3], buf1)
 
-	err = cloned.Close()
+	reader2, err := reader1.Clone()
 	require.NoError(t, err)
+	require.NotNil(t, reader2)
+	defer func() {
+		require.NoError(t, reader2.Close())
+	}()
+
+	buf2 := make([]byte, 3)
+	n2, err := reader2.Read(buf2)
+	require.NoError(t, err)
+	require.Equal(t, 3, n2)
+	require.Equal(t, buf1, buf2)
+
+	buf3 := make([]byte, 1)
+	n3, err := reader1.Read(buf3)
+	require.NoError(t, err)
+	require.Equal(t, 1, n3)
+
+	buf4 := make([]byte, 1)
+	n4, err := reader2.Read(buf4)
+	require.NoError(t, err)
+	require.Equal(t, 1, n4)
+
+	require.Equal(t, buf3, buf4)
+	require.Equal(t, testData[3:4], buf3)
 }
 
 func TestLocalReader_Open(t *testing.T) {

@@ -92,11 +92,54 @@ func createMalformedRangeServer() *httptest.Server {
 // is a simple passthrough implementation.
 
 func TestHttpReader_Clone(t *testing.T) {
-	server := createTestServer()
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		rangeHeader := r.Header.Get("Range")
+
+		if rangeHeader == "" {
+			w.Header().Set("Content-Length", strconv.Itoa(len(testData)))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(testData)
+			return
+		}
+
+		rangeStr := strings.TrimPrefix(rangeHeader, "bytes=")
+		parts := strings.Split(rangeStr, "-")
+		if len(parts) != 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		start, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		end, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		if start < 0 || end >= int64(len(testData)) || start > end {
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(testData)))
+		w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(testData[start : end+1])
+	}))
 	defer server.Close()
 
 	reader, err := NewHttpReader(server.URL, false, false, nil)
 	require.NoError(t, err)
+
+	// Record the number of requests after creating the initial reader
+	initialRequestCount := requestCount
 
 	// Test Clone method
 	clonedReader, err := reader.Clone()
@@ -106,6 +149,9 @@ func TestHttpReader_Clone(t *testing.T) {
 
 	// Verify it's a different instance
 	require.NotSame(t, reader, clonedReader)
+
+	// Verify that Clone() did not make any additional HTTP requests
+	require.Equal(t, initialRequestCount, requestCount, "Clone() should not make additional HTTP requests")
 }
 
 func TestHttpReader_Close(t *testing.T) {
@@ -155,6 +201,30 @@ func TestHttpReader_Read(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		require.Equal(t, expected[i], buffer[i], "Byte %d mismatch", i)
 	}
+}
+
+func TestHttpReader_ReadSingleByte(t *testing.T) {
+	server := createTestServer()
+	defer server.Close()
+
+	reader, err := NewHttpReader(server.URL, false, false, nil)
+	require.NoError(t, err)
+
+	// Test reading exactly 1 byte (this was the bug case)
+	buffer := make([]byte, 1)
+	n, err := reader.Read(buffer)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, n)
+	require.Equal(t, testData[0], buffer[0], "First byte mismatch")
+
+	// Read another single byte to ensure offset is updated correctly
+	buffer2 := make([]byte, 1)
+	n, err = reader.Read(buffer2)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, n)
+	require.Equal(t, testData[1], buffer2[0], "Second byte mismatch")
 }
 
 func TestHttpReader_ReadAfterSeek(t *testing.T) {

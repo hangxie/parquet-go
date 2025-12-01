@@ -167,5 +167,15 @@ func (s *azBlobReader) Open(URL string) (source.ParquetFileReader, error) {
 }
 
 func (s azBlobReader) Clone() (source.ParquetFileReader, error) {
-	return NewAzBlobFileReaderWithClient(s.ctx, s.url.String(), s.blockBlobClient)
+	// Create a new instance without making network calls
+	// Reuse already-known metadata
+	return &azBlobReader{
+		azBlockBlob: azBlockBlob{
+			ctx:             s.ctx,
+			url:             s.url,
+			blockBlobClient: s.blockBlobClient,
+		},
+		fileSize: s.fileSize,
+		offset:   0,
+	}, nil
 }

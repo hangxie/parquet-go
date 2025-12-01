@@ -106,12 +106,16 @@ func (r *httpReader) Open(_ string) (source.ParquetFileReader, error) {
 }
 
 func (r httpReader) Clone() (source.ParquetFileReader, error) {
-	return NewHttpReader(
-		r.url,
-		r.dedicatedTransport,
-		r.httpClient.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify,
-		r.extraHeaders,
-	)
+	// Create a new instance without making an HTTP request
+	// since we already have all the necessary information
+	return &httpReader{
+		url:                r.url,
+		size:               r.size,
+		offset:             0,
+		httpClient:         r.httpClient,
+		extraHeaders:       r.extraHeaders,
+		dedicatedTransport: r.dedicatedTransport,
+	}, nil
 }
 
 func (r *httpReader) Seek(offset int64, pos int) (int64, error) {
@@ -155,9 +159,7 @@ func (r *httpReader) Read(b []byte) (int, error) {
 
 	buf, err := io.ReadAll(resp.Body)
 	bytesRead := len(buf)
-	for i := range bytesRead {
-		b[i] = buf[i]
-	}
+	copy(b, buf)
 
 	r.offset += int64(bytesRead)
 	if r.offset > r.size {
