@@ -2701,3 +2701,256 @@ func TestConvertTimeLogicalValue(t *testing.T) {
 		})
 	}
 }
+
+func TestStrToParquetTypeWithLogical(t *testing.T) {
+	tests := []struct {
+		name     string
+		s        string
+		pT       *parquet.Type
+		cT       *parquet.ConvertedType
+		lT       *parquet.LogicalType
+		length   int
+		scale    int
+		expected any
+	}{
+		// FLOAT16 tests
+		{
+			name: "float16_human_readable",
+			s:    "3.14",
+			pT:   parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:   &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			// expected is 2-byte float16 representation
+		},
+		{
+			name: "float16_negative",
+			s:    "-1.5",
+			pT:   parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:   &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+		},
+		// UUID tests
+		{
+			name:     "uuid_human_readable",
+			s:        "550e8400-e29b-41d4-a716-446655440000",
+			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:       &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			expected: "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00",
+		},
+		{
+			name:     "uuid_already_binary",
+			s:        "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00",
+			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:       &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			expected: "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00",
+		},
+		// TIMESTAMP nanos tests
+		{
+			name: "timestamp_nanos_human_readable",
+			s:    "2024-01-15T10:30:00Z",
+			pT:   parquet.TypePtr(parquet.Type_INT64),
+			lT: &parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{
+				Unit: &parquet.TimeUnit{NANOS: &parquet.NanoSeconds{}},
+			}},
+			expected: int64(1705314600000000000),
+		},
+		{
+			name: "timestamp_nanos_raw_integer",
+			s:    "1705314600000000000",
+			pT:   parquet.TypePtr(parquet.Type_INT64),
+			lT: &parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{
+				Unit: &parquet.TimeUnit{NANOS: &parquet.NanoSeconds{}},
+			}},
+			expected: int64(1705314600000000000),
+		},
+		// TIME nanos tests
+		{
+			name: "time_nanos_human_readable",
+			s:    "10:30:00.123456789",
+			pT:   parquet.TypePtr(parquet.Type_INT64),
+			lT: &parquet.LogicalType{TIME: &parquet.TimeType{
+				Unit: &parquet.TimeUnit{NANOS: &parquet.NanoSeconds{}},
+			}},
+			expected: int64(37800123456789),
+		},
+		{
+			name: "time_nanos_raw_integer",
+			s:    "37800123456789",
+			pT:   parquet.TypePtr(parquet.Type_INT64),
+			lT: &parquet.LogicalType{TIME: &parquet.TimeType{
+				Unit: &parquet.TimeUnit{NANOS: &parquet.NanoSeconds{}},
+			}},
+			expected: int64(37800123456789),
+		},
+		// DATE tests via LogicalType
+		{
+			name:     "date_human_readable_logical",
+			s:        "2024-01-15",
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			lT:       &parquet.LogicalType{DATE: &parquet.DateType{}},
+			expected: int32(19737),
+		},
+		{
+			name:     "date_raw_integer_logical",
+			s:        "19737",
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			lT:       &parquet.LogicalType{DATE: &parquet.DateType{}},
+			expected: int32(19737),
+		},
+		// Fallback to ConvertedType
+		{
+			name:     "fallback_to_converted_type",
+			s:        "2024-01-15",
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DATE),
+			lT:       nil,
+			expected: int32(19737),
+		},
+		// Nil LogicalType
+		{
+			name:     "nil_logical_type",
+			s:        "42",
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_INT_32),
+			lT:       nil,
+			expected: int32(42),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := StrToParquetTypeWithLogical(tt.s, tt.pT, tt.cT, tt.lT, tt.length, tt.scale)
+			require.NoError(t, err)
+			if tt.expected != nil {
+				require.Equal(t, tt.expected, result)
+			} else {
+				require.NotNil(t, result)
+			}
+		})
+	}
+}
+
+func TestStrToParquetType_HumanReadable(t *testing.T) {
+	tests := []struct {
+		name     string
+		s        string
+		pT       parquet.Type
+		cT       parquet.ConvertedType
+		expected any
+	}{
+		// DATE
+		{
+			name:     "date_human_readable",
+			s:        "2024-01-15",
+			pT:       parquet.Type_INT32,
+			cT:       parquet.ConvertedType_DATE,
+			expected: int32(19737),
+		},
+		{
+			name:     "date_raw_integer",
+			s:        "19737",
+			pT:       parquet.Type_INT32,
+			cT:       parquet.ConvertedType_DATE,
+			expected: int32(19737),
+		},
+		// TIME_MILLIS
+		{
+			name:     "time_millis_human_readable",
+			s:        "10:30:00.123",
+			pT:       parquet.Type_INT32,
+			cT:       parquet.ConvertedType_TIME_MILLIS,
+			expected: int32(37800123),
+		},
+		{
+			name:     "time_millis_raw_integer",
+			s:        "37800123",
+			pT:       parquet.Type_INT32,
+			cT:       parquet.ConvertedType_TIME_MILLIS,
+			expected: int32(37800123),
+		},
+		// TIME_MICROS
+		{
+			name:     "time_micros_human_readable",
+			s:        "10:30:00.123456",
+			pT:       parquet.Type_INT64,
+			cT:       parquet.ConvertedType_TIME_MICROS,
+			expected: int64(37800123456),
+		},
+		{
+			name:     "time_micros_raw_integer",
+			s:        "37800123456",
+			pT:       parquet.Type_INT64,
+			cT:       parquet.ConvertedType_TIME_MICROS,
+			expected: int64(37800123456),
+		},
+		// TIMESTAMP_MILLIS
+		{
+			name:     "timestamp_millis_human_readable",
+			s:        "2024-01-15T10:30:00Z",
+			pT:       parquet.Type_INT64,
+			cT:       parquet.ConvertedType_TIMESTAMP_MILLIS,
+			expected: int64(1705314600000),
+		},
+		{
+			name:     "timestamp_millis_raw_integer",
+			s:        "1705314600000",
+			pT:       parquet.Type_INT64,
+			cT:       parquet.ConvertedType_TIMESTAMP_MILLIS,
+			expected: int64(1705314600000),
+		},
+		// TIMESTAMP_MICROS
+		{
+			name:     "timestamp_micros_human_readable",
+			s:        "2024-01-15T10:30:00Z",
+			pT:       parquet.Type_INT64,
+			cT:       parquet.ConvertedType_TIMESTAMP_MICROS,
+			expected: int64(1705314600000000),
+		},
+		{
+			name:     "timestamp_micros_raw_integer",
+			s:        "1705314600000000",
+			pT:       parquet.Type_INT64,
+			cT:       parquet.ConvertedType_TIMESTAMP_MICROS,
+			expected: int64(1705314600000000),
+		},
+		// INTERVAL
+		{
+			name: "interval_human_readable",
+			s:    "1 mon 2 day 3.456 sec",
+			pT:   parquet.Type_FIXED_LEN_BYTE_ARRAY,
+			cT:   parquet.ConvertedType_INTERVAL,
+		},
+		{
+			name: "interval_raw_integer",
+			s:    "123456",
+			pT:   parquet.Type_FIXED_LEN_BYTE_ARRAY,
+			cT:   parquet.ConvertedType_INTERVAL,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pT := tt.pT
+			cT := tt.cT
+			result, err := StrToParquetType(tt.s, &pT, &cT, 0, 0)
+			require.NoError(t, err)
+			if tt.expected != nil {
+				require.Equal(t, tt.expected, result)
+			} else {
+				require.NotNil(t, result)
+			}
+		})
+	}
+}
+
+func TestStrToParquetType_INT96(t *testing.T) {
+	// INT96 human readable
+	pT := parquet.Type_INT96
+	result, err := StrToParquetType("2024-01-15T10:30:00Z", &pT, nil, 0, 0)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 12, len(result.(string)))
+
+	// INT96 raw integer fallback
+	result2, err := StrToParquetType("123456789", &pT, nil, 0, 0)
+	require.NoError(t, err)
+	require.NotNil(t, result2)
+}

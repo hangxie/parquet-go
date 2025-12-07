@@ -296,6 +296,273 @@ func TestTIME_MICROSToTimeFormat(t *testing.T) {
 	}
 }
 
+func TestParseDateString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int32
+		hasError bool
+	}{
+		{
+			name:     "valid_date_epoch",
+			input:    "1970-01-01",
+			expected: 0,
+		},
+		{
+			name:     "valid_date_2024",
+			input:    "2024-01-15",
+			expected: 19737, // Days since epoch
+		},
+		{
+			name:     "valid_date_past",
+			input:    "1969-12-31",
+			expected: -1,
+		},
+		{
+			name:     "invalid_format",
+			input:    "01/15/2024",
+			hasError: true,
+		},
+		{
+			name:     "empty_string",
+			input:    "",
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ParseDateString(tt.input)
+			if tt.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestParseTimeString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int64
+		hasError bool
+	}{
+		{
+			name:     "time_millis",
+			input:    "12:34:56.789",
+			expected: 45296789000000, // nanoseconds
+		},
+		{
+			name:     "time_micros",
+			input:    "12:34:56.789012",
+			expected: 45296789012000, // nanoseconds
+		},
+		{
+			name:     "time_nanos",
+			input:    "12:34:56.789012345",
+			expected: 45296789012345, // nanoseconds
+		},
+		{
+			name:     "time_no_fraction",
+			input:    "12:34:56",
+			expected: 45296000000000, // nanoseconds
+		},
+		{
+			name:     "midnight",
+			input:    "00:00:00.000",
+			expected: 0,
+		},
+		{
+			name:     "invalid_format",
+			input:    "12-34-56",
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ParseTimeString(tt.input)
+			if tt.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestParseIntervalString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []byte
+		hasError bool
+	}{
+		{
+			name:     "complex_interval",
+			input:    "2 mon 15 day 7200.000 sec",
+			expected: []byte{2, 0, 0, 0, 15, 0, 0, 0, 0, 221, 109, 0},
+		},
+		{
+			name:     "months_only",
+			input:    "3 mon",
+			expected: []byte{3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:     "days_only",
+			input:    "7 day",
+			expected: []byte{0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name:     "seconds_only",
+			input:    "1.500 sec",
+			expected: []byte{0, 0, 0, 0, 0, 0, 0, 0, 220, 5, 0, 0},
+		},
+		{
+			name:     "empty_string",
+			input:    "",
+			expected: make([]byte, 12),
+		},
+		{
+			name:     "invalid_unit",
+			input:    "5 weeks",
+			hasError: true,
+		},
+		{
+			name:     "invalid_months_value",
+			input:    "abc mon",
+			hasError: true,
+		},
+		{
+			name:     "invalid_days_value",
+			input:    "xyz day",
+			hasError: true,
+		},
+		{
+			name:     "invalid_seconds_value",
+			input:    "bad sec",
+			hasError: true,
+		},
+		{
+			name:     "incomplete_pair",
+			input:    "5",
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ParseIntervalString(tt.input)
+			if tt.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, []byte(result))
+			}
+		})
+	}
+}
+
+func TestParseFloat16String(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		hasError bool
+	}{
+		{
+			name:  "positive_float",
+			input: "1.5",
+		},
+		{
+			name:  "negative_float",
+			input: "-2.25",
+		},
+		{
+			name:  "zero",
+			input: "0",
+		},
+		{
+			name:  "small_number",
+			input: "0.0001",
+		},
+		{
+			name:  "very_small_subnormal",
+			input: "0.00001",
+		},
+		{
+			name:  "very_large_overflow",
+			input: "100000",
+		},
+		{
+			name:  "infinity",
+			input: "Inf",
+		},
+		{
+			name:  "negative_infinity",
+			input: "-Inf",
+		},
+		{
+			name:  "nan",
+			input: "NaN",
+		},
+		{
+			name:     "invalid",
+			input:    "abc",
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ParseFloat16String(tt.input)
+			if tt.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Len(t, result, 2)
+			}
+		})
+	}
+}
+
+func TestParseINT96String(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		hasError bool
+	}{
+		{
+			name:  "valid_timestamp",
+			input: "2024-01-15T14:30:45.123Z",
+		},
+		{
+			name:  "epoch",
+			input: "1970-01-01T00:00:00Z",
+		},
+		{
+			name:     "invalid_format",
+			input:    "not a timestamp",
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ParseINT96String(tt.input)
+			if tt.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Len(t, result, 12)
+			}
+		})
+	}
+}
+
 func TestIntervalToString(t *testing.T) {
 	tests := []struct {
 		name     string

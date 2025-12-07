@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 
 	"github.com/hangxie/parquet-go/v2/common"
@@ -83,6 +84,9 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 			_, err := fmt.Sscanf(s, "%d", &v)
 			return v, err
 		case parquet.Type_INT96:
+			if res, err := ParseINT96String(s); err == nil {
+				return res, nil
+			}
 			res := StrIntToBinary(s, "LittleEndian", 12, true)
 			return res, nil
 		case parquet.Type_FLOAT:
@@ -129,7 +133,17 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		var v uint32
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
-	case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS:
+	case parquet.ConvertedType_DATE:
+		if v, err := ParseDateString(s); err == nil {
+			return v, nil
+		}
+		var v int32
+		_, err := fmt.Sscanf(s, "%d", &v)
+		return int32(v), err
+	case parquet.ConvertedType_TIME_MILLIS:
+		if nanos, err := ParseTimeString(s); err == nil {
+			return int32(nanos / int64(time.Millisecond)), nil
+		}
 		var v int32
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), err
@@ -137,14 +151,35 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		var vt uint64
 		_, err := fmt.Sscanf(s, "%d", &vt)
 		return int64(vt), err
-	case parquet.ConvertedType_INT_64,
-		parquet.ConvertedType_TIME_MICROS,
-		parquet.ConvertedType_TIMESTAMP_MICROS,
-		parquet.ConvertedType_TIMESTAMP_MILLIS:
+	case parquet.ConvertedType_INT_64:
+		var v int64
+		_, err := fmt.Sscanf(s, "%d", &v)
+		return v, err
+	case parquet.ConvertedType_TIME_MICROS:
+		if nanos, err := ParseTimeString(s); err == nil {
+			return nanos / int64(time.Microsecond), nil
+		}
+		var v int64
+		_, err := fmt.Sscanf(s, "%d", &v)
+		return v, err
+	case parquet.ConvertedType_TIMESTAMP_MILLIS:
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			return t.UnixNano() / int64(time.Millisecond), nil
+		}
+		var v int64
+		_, err := fmt.Sscanf(s, "%d", &v)
+		return v, err
+	case parquet.ConvertedType_TIMESTAMP_MICROS:
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			return t.UnixNano() / int64(time.Microsecond), nil
+		}
 		var v int64
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return v, err
 	case parquet.ConvertedType_INTERVAL:
+		if res, err := ParseIntervalString(s); err == nil {
+			return res, nil
+		}
 		res := StrIntToBinary(s, "LittleEndian", 12, false)
 		return res, nil
 	case parquet.ConvertedType_DECIMAL:
@@ -178,6 +213,124 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 	default:
 		return nil, nil
 	}
+}
+
+// StrToParquetTypeWithLogical converts a string to a parquet value using LogicalType for newer types
+// This function extends StrToParquetType to handle FLOAT16, UUID, GEOMETRY, GEOGRAPHY, and TIME/TIMESTAMP with nanos
+func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
+	// Check LogicalType first (newer standard)
+	if lT != nil {
+		// FLOAT16 (half-precision float)
+		if lT.IsSetFLOAT16() {
+			return ParseFloat16String(s)
+		}
+
+		// UUID
+		if lT.IsSetUUID() {
+			if u, err := uuid.Parse(s); err == nil {
+				return string(u[:]), nil
+			}
+			// Otherwise return as-is (assume it's already 16-byte binary)
+			return s, nil
+		}
+
+		// TIMESTAMP with LogicalType
+		if lT.IsSetTIMESTAMP() {
+			ts := lT.GetTIMESTAMP()
+			if ts.Unit != nil {
+				if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+					switch {
+					case ts.Unit.IsSetNANOS():
+						return t.UnixNano(), nil
+					case ts.Unit.IsSetMICROS():
+						return t.UnixNano() / int64(time.Microsecond), nil
+					case ts.Unit.IsSetMILLIS():
+						return t.UnixNano() / int64(time.Millisecond), nil
+					}
+				}
+				var v int64
+				_, err := fmt.Sscanf(s, "%d", &v)
+				return v, err
+			}
+		}
+
+		// TIME with LogicalType
+		if lT.IsSetTIME() {
+			t := lT.GetTIME()
+			if t.Unit != nil {
+				if nanos, err := ParseTimeString(s); err == nil {
+					switch {
+					case t.Unit.IsSetNANOS():
+						return nanos, nil
+					case t.Unit.IsSetMICROS():
+						return nanos / int64(time.Microsecond), nil
+					case t.Unit.IsSetMILLIS():
+						return int32(nanos / int64(time.Millisecond)), nil
+					}
+				}
+				if t.Unit.IsSetMILLIS() {
+					var v int32
+					_, err := fmt.Sscanf(s, "%d", &v)
+					return v, err
+				}
+				var v int64
+				_, err := fmt.Sscanf(s, "%d", &v)
+				return v, err
+			}
+		}
+
+		// DATE
+		if lT.IsSetDATE() {
+			if v, err := ParseDateString(s); err == nil {
+				return v, nil
+			}
+			var v int32
+			_, err := fmt.Sscanf(s, "%d", &v)
+			return int32(v), err
+		}
+
+		// DECIMAL with LogicalType
+		if lT.IsSetDECIMAL() {
+			dec := lT.GetDECIMAL()
+			decScale := int(dec.GetScale())
+			numSca := big.NewFloat(1.0)
+			for range decScale {
+				numSca.Mul(numSca, big.NewFloat(10))
+			}
+			num := new(big.Float)
+			num.SetString(s)
+			num.Mul(num, numSca)
+
+			switch *pT {
+			case parquet.Type_INT32:
+				tmp, _ := num.Float64()
+				return int32(tmp), nil
+			case parquet.Type_INT64:
+				tmp, _ := num.Float64()
+				return int64(tmp), nil
+			case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+				s = num.Text('f', 0)
+				res := StrIntToBinary(s, "BigEndian", length, true)
+				return res, nil
+			default:
+				s = num.Text('f', 0)
+				res := StrIntToBinary(s, "BigEndian", 0, true)
+				return res, nil
+			}
+		}
+
+		// GEOMETRY - not yet supported for human-readable import
+		// if lT.IsSetGEOMETRY() { ... }
+
+		// GEOGRAPHY - not yet supported for human-readable import
+		// if lT.IsSetGEOGRAPHY() { ... }
+
+		// BSON - not yet supported for human-readable import (JSON string to BSON)
+		// if lT.IsSetBSON() { ... }
+	}
+
+	// Fall back to legacy ConvertedType handling
+	return StrToParquetType(s, pT, cT, length, scale)
 }
 
 func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
