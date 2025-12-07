@@ -364,9 +364,8 @@ func ParseFloat16String(s string) (string, error) {
 		}
 	}
 
-	// Return as big-endian 2-byte string (consistent with Parquet FIXED_LEN_BYTE_ARRAY)
+	// Return as little-endian 2-byte string (Parquet uses little-endian for FLOAT16)
 	result := make([]byte, 2)
-	result[0] = byte(f16 >> 8)
-	result[1] = byte(f16)
+	binary.LittleEndian.PutUint16(result, f16)
 	return string(result), nil
 }

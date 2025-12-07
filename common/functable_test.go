@@ -90,19 +90,19 @@ func TestFindFuncTable(t *testing.T) {
 }
 
 func TestFloat16FuncTable(t *testing.T) {
-	// 0x3C00 -> 1.0; 0x3800 -> 0.5; 0xC000 -> -2.0 (big-endian)
-	be := func(u16 uint16) string { return string([]byte{byte(u16 >> 8), byte(u16)}) }
+	// 0x3C00 -> 1.0; 0x3800 -> 0.5; 0xC000 -> -2.0 (little-endian)
+	le := func(u16 uint16) string { return string([]byte{byte(u16), byte(u16 >> 8)}) }
 
 	ftab := float16FuncTable{}
-	require.True(t, ftab.LessThan(be(0x3800), be(0x3C00)))  // 0.5 < 1.0
-	require.False(t, ftab.LessThan(be(0x3C00), be(0x3800))) // 1.0 < 0.5 is false
-	require.True(t, ftab.LessThan(be(0xC000), be(0x3800)))  // -2.0 < 0.5
+	require.True(t, ftab.LessThan(le(0x3800), le(0x3C00)))  // 0.5 < 1.0
+	require.False(t, ftab.LessThan(le(0x3C00), le(0x3800))) // 1.0 < 0.5 is false
+	require.True(t, ftab.LessThan(le(0xC000), le(0x3800)))  // -2.0 < 0.5
 
 	// MinMaxSize should propagate min/max and size=2
-	min, max, sz := ftab.MinMaxSize(be(0x3C00), be(0x3800), be(0xC000))
+	min, max, sz := ftab.MinMaxSize(le(0x3C00), le(0x3800), le(0xC000))
 	// min(1.0, -2.0) => -2.0; max(0.5, -2.0) => 0.5
-	require.Equal(t, be(0xC000), min)
-	require.Equal(t, be(0x3800), max)
+	require.Equal(t, le(0xC000), min)
+	require.Equal(t, le(0x3800), max)
 	require.Equal(t, int32(2), sz)
 }
 
@@ -120,7 +120,7 @@ func TestFloat16FuncTable_FallbackLexicographic(t *testing.T) {
 }
 
 func TestHalfToFloat32(t *testing.T) {
-	be := func(u16 uint16) string { return string([]byte{byte(u16 >> 8), byte(u16)}) }
+	le := func(u16 uint16) string { return string([]byte{byte(u16), byte(u16 >> 8)}) }
 
 	// expected for smallest positive subnormal: (1/1024) * 2^-14
 	subnorm := float32(1.0/1024.0) / float32(1<<14)
@@ -133,14 +133,14 @@ func TestHalfToFloat32(t *testing.T) {
 		approx  bool     // compare with epsilon when true
 		infSign int      // 0 none, +1 +Inf, -1 -Inf
 	}{
-		"one":        {in: be(0x3C00), ok: true, expect: f32(1.0)},
-		"neg-two":    {in: be(0xC000), ok: true, expect: f32(-2.0)},
-		"subnormal+": {in: be(0x0001), ok: true, expect: &subnorm, approx: true},
-		"subnormal-": {in: be(0x8001), ok: true, expect: f32(-subnorm), approx: true},
-		"zero":       {in: be(0x0000), ok: true, expect: f32(0.0)},
-		"+inf":       {in: be(0x7C00), ok: true, infSign: +1},
-		"-inf":       {in: be(0xFC00), ok: true, infSign: -1},
-		"nan":        {in: be(0x7E00), ok: false},
+		"one":        {in: le(0x3C00), ok: true, expect: f32(1.0)},
+		"neg-two":    {in: le(0xC000), ok: true, expect: f32(-2.0)},
+		"subnormal+": {in: le(0x0001), ok: true, expect: &subnorm, approx: true},
+		"subnormal-": {in: le(0x8001), ok: true, expect: f32(-subnorm), approx: true},
+		"zero":       {in: le(0x0000), ok: true, expect: f32(0.0)},
+		"+inf":       {in: le(0x7C00), ok: true, infSign: +1},
+		"-inf":       {in: le(0xFC00), ok: true, infSign: -1},
+		"nan":        {in: le(0x7E00), ok: false},
 		"wrong-len":  {in: string([]byte{0x00}), ok: false},
 	}
 
@@ -363,8 +363,8 @@ func TestMinMaxSize(t *testing.T) {
 		"decimal-1": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x01", "\x00\x01", "\x04", 2},
 		"decimal-2": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x03", "\x02", "\x04", 2},
 		"decimal-3": {decimalStringFuncTable{}, "\x02", "\x04", "\x00\x05", "\x02", "\x00\x05", 2},
-		"float16-1": {float16FuncTable{}, "\x3c\x00", "\x40\x00", "\x38\x00", "\x38\x00", "\x40\x00", 2}, // 1.0,2.0,0.5
-		"float16-2": {float16FuncTable{}, "\xc0\x00", "\x3c\x00", "\x40\x00", "\xc0\x00", "\x40\x00", 2}, // -2.0,1.0,2.0
+		"float16-1": {float16FuncTable{}, "\x00\x3c", "\x00\x40", "\x00\x38", "\x00\x38", "\x00\x40", 2}, // 1.0,2.0,0.5 (little-endian)
+		"float16-2": {float16FuncTable{}, "\x00\xc0", "\x00\x3c", "\x00\x40", "\x00\xc0", "\x00\x40", 2}, // -2.0,1.0,2.0 (little-endian)
 	}
 
 	for name, tc := range testCases {

@@ -119,17 +119,17 @@ func uuidStringToBytes(uuidStr string) string {
 	return string(bytes)
 }
 
-// float32ToFloat16 converts a float32 into IEEE 754 binary16 (big-endian 2 bytes)
+// float32ToFloat16 converts a float32 into IEEE 754 binary16 (little-endian 2 bytes)
 func float32ToFloat16(f float32) string {
 	// Handle NaN/Inf explicitly
 	if f != f { // NaN
-		return string([]byte{0x7e, 0x00})
+		return string([]byte{0x00, 0x7e})
 	}
 	if f > 65504 { // max half
-		return string([]byte{0x7c, 0x00})
+		return string([]byte{0x00, 0x7c})
 	}
 	if f < -65504 {
-		return string([]byte{0xfc, 0x00})
+		return string([]byte{0x00, 0xfc})
 	}
 	bits := math.Float32bits(f)
 	sign := uint16((bits >> 31) & 0x1)
@@ -161,12 +161,12 @@ func float32ToFloat16(f float32) string {
 			exp++
 			if exp >= 31 {
 				half = (sign << 15) | (0x1f << 10)
-				return string([]byte{byte(half >> 8), byte(half)})
+				return string([]byte{byte(half), byte(half >> 8)})
 			}
 		}
 		half = (sign << 15) | (uint16(exp) << 10) | uint16(mant>>13)
 	}
-	return string([]byte{byte(half >> 8), byte(half)})
+	return string([]byte{byte(half), byte(half >> 8)})
 }
 
 func main() {
