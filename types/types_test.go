@@ -727,9 +727,21 @@ func TestStrToParquetType(t *testing.T) {
 			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
 		},
 		{
+			name:           "byte-array-base64",
+			inputStr:       "SGVsbG8gV29ybGQ=", // "Hello World" in base64
+			expectedGoData: string("Hello World"),
+			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+		},
+		{
 			name:           "fixed-len-byte-array-string",
 			inputStr:       "abc bcd",
 			expectedGoData: string("abc bcd"),
+			parquetType:    parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+		},
+		{
+			name:           "fixed-len-byte-array-base64",
+			inputStr:       "SGVsbG8gV29ybGQ=", // "Hello World" in base64
+			expectedGoData: string("Hello World"),
 			parquetType:    parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 		},
 

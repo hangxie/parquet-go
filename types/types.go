@@ -99,8 +99,14 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 			_, err := fmt.Sscanf(s, "%f", &v)
 			return v, err
 		case parquet.Type_BYTE_ARRAY:
+			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
+				return string(decoded), nil
+			}
 			return s, nil
 		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
+				return string(decoded), nil
+			}
 			return s, nil
 		default:
 			return nil, nil
