@@ -481,33 +481,42 @@ func StrIntToBinary(num, order string, length int, signed bool) string {
 }
 
 func JSONTypeToParquetType(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
+	return JSONTypeToParquetTypeWithLogical(val, pT, cT, nil, length, scale)
+}
+
+func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
 	if val.Type().Kind() == reflect.Interface && val.IsNil() {
 		return nil, nil
 	}
 
 	// Handle decimal types specially to preserve precision from JSON numbers
-	if cT != nil && *cT == parquet.ConvertedType_DECIMAL {
+	isDecimal := (cT != nil && *cT == parquet.ConvertedType_DECIMAL) || (lT != nil && lT.IsSetDECIMAL())
+	if isDecimal {
+		// Get scale from LogicalType if available
+		if lT != nil && lT.IsSetDECIMAL() {
+			scale = int(lT.GetDECIMAL().GetScale())
+		}
 		switch val.Kind() {
 		case reflect.Float32, reflect.Float64:
 			// For JSON numbers coming as floats, format with appropriate precision
 			s := fmt.Sprintf("%."+fmt.Sprintf("%d", scale)+"f", val.Float())
-			return StrToParquetType(s, pT, cT, length, scale)
+			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale)
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			// For JSON numbers coming as integers
 			s := fmt.Sprintf("%d", val.Int())
-			return StrToParquetType(s, pT, cT, length, scale)
+			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale)
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			// For JSON numbers coming as unsigned integers
 			s := fmt.Sprintf("%d", val.Uint())
-			return StrToParquetType(s, pT, cT, length, scale)
+			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale)
 		case reflect.String:
 			// For JSON numbers coming as strings (from json.Number when UseNumber is used)
-			return StrToParquetType(val.String(), pT, cT, length, scale)
+			return StrToParquetTypeWithLogical(val.String(), pT, cT, lT, length, scale)
 		}
 	}
 
 	s := fmt.Sprintf("%v", val)
-	return StrToParquetType(s, pT, cT, length, scale)
+	return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale)
 }
 
 // ParquetTypeToJSONType converts a parquet physical value back to its logical JSON representation

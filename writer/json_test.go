@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/reader"
 	"github.com/hangxie/parquet-go/v2/source/buffer"
 	"github.com/hangxie/parquet-go/v2/source/writerfile"
@@ -307,5 +308,113 @@ func TestJSONWriter(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	t.Run("write_string", func(t *testing.T) {
+		testCases := map[string]struct {
+			data   []*string
+			errMsg string
+		}{
+			"empty": {[]*string{nil, nil}, ""},
+			"good":  {[]*string{common.ToPtr("Alice"), common.ToPtr("25")}, ""},
+			"bad":   {[]*string{common.ToPtr("Bob"), common.ToPtr("not_a_number")}, "expected integer"},
+		}
+
+		jsonSchema := `{
+			"Tag": "name=parquet-go-root",
+			"Fields": [
+				{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"},
+				{"Tag": "name=age, type=INT32"}
+			]
+		}`
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		jw, err := NewJSONWriter(jsonSchema, fw, 4)
+		require.NoError(t, err)
+
+		for name, tc := range testCases {
+			t.Run(name, func(t *testing.T) {
+				err := jw.WriteString(tc.data)
+				if tc.errMsg == "" {
+					require.NoError(t, err)
+				} else {
+					require.Error(t, err)
+					require.Contains(t, err.Error(), tc.errMsg)
+				}
+			})
+		}
+	})
+
+	t.Run("write_string_all_types", func(t *testing.T) {
+		jsonSchema := `{
+			"Tag": "name=parquet-go-root",
+			"Fields": [
+				{"Tag": "name=bool_val, type=BOOLEAN"},
+				{"Tag": "name=int32_val, type=INT32"},
+				{"Tag": "name=int64_val, type=INT64"},
+				{"Tag": "name=float_val, type=FLOAT"},
+				{"Tag": "name=double_val, type=DOUBLE"},
+				{"Tag": "name=string_val, type=BYTE_ARRAY, convertedtype=UTF8"},
+				{"Tag": "name=date_val, type=INT32, convertedtype=DATE"},
+				{"Tag": "name=timestamp_val, type=INT64, convertedtype=TIMESTAMP_MILLIS"}
+			]
+		}`
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		require.NoError(t, err)
+
+		data := []*string{
+			common.ToPtr("true"),
+			common.ToPtr("42"),
+			common.ToPtr("1234567890"),
+			common.ToPtr("3.14"),
+			common.ToPtr("2.718281828"),
+			common.ToPtr("hello world"),
+			common.ToPtr("2024-01-15"),
+			common.ToPtr("2024-01-15T10:30:00Z"),
+		}
+
+		err = jw.WriteString(data)
+		require.NoError(t, err)
+
+		err = jw.WriteStop()
+		require.NoError(t, err)
+
+		// Verify the written data can be read back
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := reader.NewParquetReader(pf, nil, 1)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), pr.GetNumRows())
+
+		_ = pr.ReadStopWithError()
+		_ = pf.Close()
+	})
+
+	t.Run("write_string_base64", func(t *testing.T) {
+		jsonSchema := `{
+			"Tag": "name=parquet-go-root",
+			"Fields": [
+				{"Tag": "name=binary_data, type=BYTE_ARRAY"}
+			]
+		}`
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		require.NoError(t, err)
+
+		// "Hello World" encoded in base64
+		data := []*string{common.ToPtr("SGVsbG8gV29ybGQ=")}
+
+		err = jw.WriteString(data)
+		require.NoError(t, err)
+
+		err = jw.WriteStop()
+		require.NoError(t, err)
+
+		require.Greater(t, buf.Len(), 4)
 	})
 }
