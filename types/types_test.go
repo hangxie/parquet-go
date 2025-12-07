@@ -43,6 +43,12 @@ func TestInterfaceToParquetType(t *testing.T) {
 			expected: int64(42),
 		},
 		{
+			name:        "float32_to_int64",
+			value:       float32(42),
+			pT:          parquet.TypePtr(parquet.Type_INT64),
+			expectError: true,
+		},
+		{
 			name:     "float32_direct",
 			value:    float32(3.14),
 			pT:       parquet.TypePtr(parquet.Type_FLOAT),
@@ -103,6 +109,12 @@ func TestInterfaceToParquetType(t *testing.T) {
 			value:    float32(3.14),
 			pT:       parquet.TypePtr(parquet.Type_DOUBLE),
 			expected: float64(float32(3.14)), // Note: precision conversion
+		},
+		{
+			name:        "string_to_float64",
+			value:       string("foobar"),
+			pT:          parquet.TypePtr(parquet.Type_DOUBLE),
+			expectError: true,
 		},
 		{
 			name:     "reflect_bool_to_bool",
@@ -1360,6 +1372,16 @@ func TestParquetTypeToJSONType(t *testing.T) {
 }
 
 func TestParquetTypeToJSONTypeWithLogical(t *testing.T) {
+	// Save and restore global geospatial settings to ensure test isolation
+	origGeometryMode := geometryJSONMode
+	origGeographyMode := geographyJSONMode
+	defer func() {
+		geometryJSONMode = origGeometryMode
+		geographyJSONMode = origGeographyMode
+	}()
+	SetGeometryJSONMode(GeospatialModeHex)
+	SetGeographyJSONMode(GeospatialModeHex)
+
 	tests := []struct {
 		name      string
 		value     any
@@ -1636,6 +1658,211 @@ func TestParquetTypeToJSONTypeWithLogical(t *testing.T) {
 			scale:     0,
 			expected:  nil,
 		},
+		// FLOAT16 tests
+		{
+			name:      "float16_positive",
+			value:     []byte{0xC0, 0x48}, // 9.5 in half-precision (little-endian: 0x48C0)
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			precision: 0,
+			scale:     0,
+			expected:  float32(9.5),
+		},
+		{
+			name:      "float16_negative",
+			value:     string([]byte{0xC0, 0xC8}), // -9.5 in half-precision (little-endian: 0xC8C0)
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			precision: 0,
+			scale:     0,
+			expected:  float32(-9.5),
+		},
+		{
+			name:      "float16_zero",
+			value:     []byte{0x00, 0x00},
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			precision: 0,
+			scale:     0,
+			expected:  float32(0),
+		},
+		{
+			name:      "float16_nil",
+			value:     nil,
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:        nil,
+			lT:        &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			precision: 0,
+			scale:     0,
+			expected:  nil,
+		},
+		// DATE tests
+		{
+			name:      "date_positive_days",
+			value:     int32(9000), // 1994-08-23
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        &parquet.LogicalType{DATE: &parquet.DateType{}},
+			precision: 0,
+			scale:     0,
+			expected:  "1994-08-23",
+		},
+		{
+			name:      "date_zero",
+			value:     int32(0), // 1970-01-01
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        &parquet.LogicalType{DATE: &parquet.DateType{}},
+			precision: 0,
+			scale:     0,
+			expected:  "1970-01-01",
+		},
+		{
+			name:      "date_negative_days",
+			value:     int32(-365), // 1969-01-01
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        &parquet.LogicalType{DATE: &parquet.DateType{}},
+			precision: 0,
+			scale:     0,
+			expected:  "1969-01-01",
+		},
+		{
+			name:      "date_nil",
+			value:     nil,
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        &parquet.LogicalType{DATE: &parquet.DateType{}},
+			precision: 0,
+			scale:     0,
+			expected:  nil,
+		},
+		// INTEGER tests
+		{
+			name:      "integer_int8_signed",
+			value:     int32(-42),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createIntegerLogicalType(8, true),
+			precision: 0,
+			scale:     0,
+			expected:  int8(-42),
+		},
+		{
+			name:      "integer_int16_signed",
+			value:     int32(-1000),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createIntegerLogicalType(16, true),
+			precision: 0,
+			scale:     0,
+			expected:  int16(-1000),
+		},
+		{
+			name:      "integer_int32_signed",
+			value:     int32(-100000),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createIntegerLogicalType(32, true),
+			precision: 0,
+			scale:     0,
+			expected:  int32(-100000),
+		},
+		{
+			name:      "integer_int64_signed",
+			value:     int64(-1000000000),
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createIntegerLogicalType(64, true),
+			precision: 0,
+			scale:     0,
+			expected:  int64(-1000000000),
+		},
+		{
+			name:      "integer_uint8_unsigned",
+			value:     int32(200),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createIntegerLogicalType(8, false),
+			precision: 0,
+			scale:     0,
+			expected:  uint8(200),
+		},
+		{
+			name:      "integer_uint16_unsigned",
+			value:     int32(50000),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createIntegerLogicalType(16, false),
+			precision: 0,
+			scale:     0,
+			expected:  uint16(50000),
+		},
+		{
+			name:      "integer_uint32_unsigned",
+			value:     int32(100000),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createIntegerLogicalType(32, false),
+			precision: 0,
+			scale:     0,
+			expected:  uint32(100000),
+		},
+		{
+			name:      "integer_uint64_unsigned",
+			value:     int64(1000000000),
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			cT:        nil,
+			lT:        createIntegerLogicalType(64, false),
+			precision: 0,
+			scale:     0,
+			expected:  uint64(1000000000),
+		},
+		{
+			name:      "integer_nil",
+			value:     nil,
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			cT:        nil,
+			lT:        createIntegerLogicalType(32, true),
+			precision: 0,
+			scale:     0,
+			expected:  nil,
+		},
+		// GEOMETRY tests
+		{
+			name:      "geometry_wkb_point",
+			value:     []byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x59, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x49, 0x40}, // POINT(100 50) in WKB
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        createGeometryLogicalType("OGC:CRS84"),
+			precision: 0,
+			scale:     0,
+			expected:  map[string]any{"wkb_hex": "010100000000000000000059400000000000004940", "crs": "OGC:CRS84"},
+		},
+		{
+			name:      "geometry_nil",
+			value:     nil,
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        createGeometryLogicalType("OGC:CRS84"),
+			precision: 0,
+			scale:     0,
+			expected:  nil,
+		},
+		// GEOGRAPHY tests
+		{
+			name:      "geography_nil",
+			value:     nil,
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:        nil,
+			lT:        createGeographyLogicalType("OGC:CRS84", parquet.EdgeInterpolationAlgorithm_SPHERICAL),
+			precision: 0,
+			scale:     0,
+			expected:  nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1707,6 +1934,32 @@ func createTimeLogicalType(millis, micros, nanos bool) *parquet.LogicalType {
 	// For TIME, the isAdjustedToUTC is not relevant (it's always local time)
 	lt.TIME.IsAdjustedToUTC = false
 
+	return lt
+}
+
+// Helper function to create an integer logical type for testing
+func createIntegerLogicalType(bitWidth int8, isSigned bool) *parquet.LogicalType {
+	lt := parquet.NewLogicalType()
+	lt.INTEGER = parquet.NewIntType()
+	lt.INTEGER.BitWidth = bitWidth
+	lt.INTEGER.IsSigned = isSigned
+	return lt
+}
+
+// Helper function to create a geometry logical type for testing
+func createGeometryLogicalType(crs string) *parquet.LogicalType {
+	lt := parquet.NewLogicalType()
+	lt.GEOMETRY = parquet.NewGeometryType()
+	lt.GEOMETRY.CRS = &crs
+	return lt
+}
+
+// Helper function to create a geography logical type for testing
+func createGeographyLogicalType(crs string, algo parquet.EdgeInterpolationAlgorithm) *parquet.LogicalType {
+	lt := parquet.NewLogicalType()
+	lt.GEOGRAPHY = parquet.NewGeographyType()
+	lt.GEOGRAPHY.CRS = &crs
+	lt.GEOGRAPHY.Algorithm = &algo
 	return lt
 }
 
