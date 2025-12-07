@@ -83,13 +83,13 @@ func toBytes(v any) []byte {
 	}
 }
 
-// halfToFloat32 decodes big-endian IEEE 754 binary16 to float32
+// halfToFloat32 decodes little-endian IEEE 754 binary16 to float32
 func halfToFloat32(v any) (float32, bool) {
 	b := toBytes(v)
 	if b == nil || len(b) != 2 {
 		return 0, false
 	}
-	u := uint16(b[0])<<8 | uint16(b[1])
+	u := uint16(b[0]) | uint16(b[1])<<8
 	sign := (u>>15)&0x1 != 0
 	exp := (u >> 10) & 0x1F
 	frac := u & 0x03FF

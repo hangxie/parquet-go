@@ -2175,20 +2175,24 @@ func TestConvertDateLogicalValue(t *testing.T) {
 // moved to geospatial_test.go: Test_GeometryAndGeography_MoreModes and helpers
 
 func TestConvertFloat16LogicalValue(t *testing.T) {
+	// Note: Float16 values in Parquet are stored in little-endian format
+	// float16 1.0 = 0x3c00, little-endian bytes: [0x00, 0x3c]
+	// float16 0.5 = 0x3800, little-endian bytes: [0x00, 0x38]
+	// float16 -2.0 = 0xc000, little-endian bytes: [0x00, 0xc0]
 	tests := []struct {
 		name string
 		in   any
 		want any
 	}{
-		{"one", string([]byte{0x3c, 0x00}), float32(1.0)},
-		{"half", string([]byte{0x38, 0x00}), float32(0.5)},
-		{"neg_two", string([]byte{0xc0, 0x00}), float32(-2.0)},
+		{"one", string([]byte{0x00, 0x3c}), float32(1.0)},
+		{"half", string([]byte{0x00, 0x38}), float32(0.5)},
+		{"neg_two", string([]byte{0x00, 0xc0}), float32(-2.0)},
 		{"wrong_len", string([]byte{0x00}), string([]byte{0x00})},
 		{"nil", nil, nil},
-		// NaN should return the raw input unchanged
-		{"nan_raw_return", string([]byte{0x7e, 0x00}), string([]byte{0x7e, 0x00})},
+		// NaN should return the raw input unchanged (little-endian: 0x7e00 -> [0x00, 0x7e])
+		{"nan_raw_return", string([]byte{0x00, 0x7e}), string([]byte{0x00, 0x7e})},
 		// []byte input path
-		{"bytes_input", []byte{0x3c, 0x00}, float32(1.0)},
+		{"bytes_input", []byte{0x00, 0x3c}, float32(1.0)},
 		// unsupported type returns unchanged
 		{"unsupported_type", 123, 123},
 	}
@@ -2200,22 +2204,26 @@ func TestConvertFloat16LogicalValue(t *testing.T) {
 	}
 
 	// Additional epsilon checks for subnormals and infinities
+	// subnormal 0x0001, little-endian: [0x01, 0x00]
 	t.Run("subnormal_pos", func(t *testing.T) {
-		got := ConvertFloat16LogicalValue(string([]byte{0x00, 0x01})).(float32)
+		got := ConvertFloat16LogicalValue(string([]byte{0x01, 0x00})).(float32)
 		expected := float32(1.0/1024.0) / float32(1<<14)
 		require.InEpsilon(t, expected, got, 1e-6)
 	})
+	// subnormal negative 0x8001, little-endian: [0x01, 0x80]
 	t.Run("subnormal_neg", func(t *testing.T) {
-		got := ConvertFloat16LogicalValue(string([]byte{0x80, 0x01})).(float32)
+		got := ConvertFloat16LogicalValue(string([]byte{0x01, 0x80})).(float32)
 		expected := -float32(1.0/1024.0) / float32(1<<14)
 		require.InEpsilon(t, expected, got, 1e-6)
 	})
+	// +inf 0x7c00, little-endian: [0x00, 0x7c]
 	t.Run("pos_inf", func(t *testing.T) {
-		got := ConvertFloat16LogicalValue(string([]byte{0x7c, 0x00})).(float32)
+		got := ConvertFloat16LogicalValue(string([]byte{0x00, 0x7c})).(float32)
 		require.True(t, math.IsInf(float64(got), 1))
 	})
+	// -inf 0xfc00, little-endian: [0x00, 0xfc]
 	t.Run("neg_inf", func(t *testing.T) {
-		got := ConvertFloat16LogicalValue(string([]byte{0xfc, 0x00})).(float32)
+		got := ConvertFloat16LogicalValue(string([]byte{0x00, 0xfc})).(float32)
 		require.True(t, math.IsInf(float64(got), -1))
 	})
 	t.Run("zero", func(t *testing.T) {
@@ -2227,8 +2235,9 @@ func TestConvertFloat16LogicalValue(t *testing.T) {
 		got := ConvertFloat16LogicalValue(in)
 		require.Equal(t, in, got)
 	})
+	// NaN as []byte, 0x7e00 little-endian: [0x00, 0x7e]
 	t.Run("nan_bytes_raw", func(t *testing.T) {
-		in := []byte{0x7e, 0x00}
+		in := []byte{0x00, 0x7e}
 		got := ConvertFloat16LogicalValue(in)
 		require.Equal(t, in, got)
 	})

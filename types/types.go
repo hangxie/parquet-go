@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -935,8 +936,8 @@ func ConvertFloat16LogicalValue(val any) any {
 		return val
 	}
 
-	// Assume big-endian order as commonly used in Parquet fixed byte arrays
-	u := uint16(b[0])<<8 | uint16(b[1])
+	// Parquet uses little-endian for FLOAT16
+	u := binary.LittleEndian.Uint16(b)
 	sign := ((u >> 15) & 0x1) != 0
 	exp := (u >> 10) & 0x1F
 	frac := u & 0x3FF
