@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/big"
 	"strconv"
 	"strings"
@@ -220,4 +221,152 @@ func TIME_MICROSToTimeFormat(micros int64) string {
 	nanos := totalNanos
 
 	return fmt.Sprintf("%02d:%02d:%02d.%06d", hours, minutes, seconds, nanos/int64(time.Microsecond))
+}
+
+// ParseDateString parses a date string in format "2006-01-02" and returns days since Unix epoch
+func ParseDateString(s string) (int32, error) {
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return 0, err
+	}
+	epochDate := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	days := int32(t.Sub(epochDate).Hours() / 24)
+	return days, nil
+}
+
+// ParseTimeString parses a time string in format "HH:MM:SS" or "HH:MM:SS.sssssssss"
+// and returns the value in nanoseconds
+func ParseTimeString(s string) (int64, error) {
+	t, err := time.Parse("15:04:05.000000000", s)
+	if err != nil {
+		t, err = time.Parse("15:04:05", s)
+		if err != nil {
+			return 0, fmt.Errorf("cannot parse time string: %s", s)
+		}
+	}
+	h, m, sec := int64(t.Hour()), int64(t.Minute()), int64(t.Second())
+	ns := int64(t.Nanosecond())
+	return h*int64(time.Hour) + m*int64(time.Minute) + sec*int64(time.Second) + ns, nil
+}
+
+// ParseINT96String parses an ISO8601 timestamp string and returns INT96 binary representation
+func ParseINT96String(s string) (string, error) {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return "", err
+	}
+	return TimeToINT96(t.UTC()), nil
+}
+
+// ParseIntervalString parses an interval string like "2 mon 3 day 4.500 sec" and returns 12-byte binary
+func ParseIntervalString(s string) (string, error) {
+	var months, days uint32
+	var seconds float64
+
+	s = strings.TrimSpace(s)
+	if s == "" {
+		// Return zero interval
+		result := make([]byte, 12)
+		return string(result), nil
+	}
+
+	parts := strings.Fields(s)
+	for i := 0; i < len(parts); i += 2 {
+		if i+1 >= len(parts) {
+			return "", fmt.Errorf("invalid interval format: %s", s)
+		}
+
+		value := parts[i]
+		unit := strings.ToLower(parts[i+1])
+
+		switch {
+		case strings.HasPrefix(unit, "mon"):
+			var v uint32
+			if _, err := fmt.Sscanf(value, "%d", &v); err != nil {
+				return "", fmt.Errorf("invalid months value: %s", value)
+			}
+			months = v
+		case strings.HasPrefix(unit, "day"):
+			var v uint32
+			if _, err := fmt.Sscanf(value, "%d", &v); err != nil {
+				return "", fmt.Errorf("invalid days value: %s", value)
+			}
+			days = v
+		case strings.HasPrefix(unit, "sec"):
+			var v float64
+			if _, err := fmt.Sscanf(value, "%f", &v); err != nil {
+				return "", fmt.Errorf("invalid seconds value: %s", value)
+			}
+			seconds = v
+		default:
+			return "", fmt.Errorf("unknown interval unit: %s", unit)
+		}
+	}
+
+	// Convert to binary: months (4 bytes) + days (4 bytes) + milliseconds (4 bytes)
+	result := make([]byte, 12)
+	binary.LittleEndian.PutUint32(result[0:4], months)
+	binary.LittleEndian.PutUint32(result[4:8], days)
+	binary.LittleEndian.PutUint32(result[8:12], uint32(seconds*1000))
+
+	return string(result), nil
+}
+
+// ParseFloat16String parses a float string and returns 2-byte IEEE 754 half-precision binary
+func ParseFloat16String(s string) (string, error) {
+	var f float64
+	if _, err := fmt.Sscanf(s, "%f", &f); err != nil {
+		return "", fmt.Errorf("invalid float16 value: %s", s)
+	}
+
+	// Convert float64 to float16 (IEEE 754 half-precision)
+	f32 := float32(f)
+	bits := math.Float32bits(f32)
+
+	// Extract components from float32
+	sign := (bits >> 31) & 1
+	exp := int((bits >> 23) & 0xFF)
+	frac := bits & 0x7FFFFF
+
+	var f16 uint16
+
+	if exp == 0xFF {
+		// Inf or NaN
+		if frac != 0 {
+			// NaN
+			f16 = uint16((sign << 15) | 0x7C00 | (frac >> 13))
+		} else {
+			// Inf
+			f16 = uint16((sign << 15) | 0x7C00)
+		}
+	} else if exp == 0 {
+		// Zero or subnormal
+		f16 = uint16(sign << 15)
+	} else {
+		// Normalized number
+		newExp := exp - 127 + 15 // Rebias from float32 to float16
+
+		if newExp >= 31 {
+			// Overflow to infinity
+			f16 = uint16((sign << 15) | 0x7C00)
+		} else if newExp <= 0 {
+			// Underflow to zero or subnormal
+			if newExp < -10 {
+				f16 = uint16(sign << 15)
+			} else {
+				// Subnormal
+				frac = (frac | 0x800000) >> uint(1-newExp)
+				f16 = uint16((sign << 15) | (frac >> 13))
+			}
+		} else {
+			// Normal number
+			f16 = uint16((sign << 15) | (uint32(newExp) << 10) | (frac >> 13))
+		}
+	}
+
+	// Return as big-endian 2-byte string (consistent with Parquet FIXED_LEN_BYTE_ARRAY)
+	result := make([]byte, 2)
+	result[0] = byte(f16 >> 8)
+	result[1] = byte(f16)
+	return string(result), nil
 }

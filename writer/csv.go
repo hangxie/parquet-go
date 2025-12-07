@@ -58,9 +58,10 @@ func (w *CSVWriter) WriteString(recsi any) error {
 	for i := range lr {
 		rec[i] = nil
 		if recs[i] != nil {
-			rec[i], err = types.StrToParquetType(*recs[i],
+			rec[i], err = types.StrToParquetTypeWithLogical(*recs[i],
 				w.SchemaHandler.SchemaElements[i+1].Type,
 				w.SchemaHandler.SchemaElements[i+1].ConvertedType,
+				w.SchemaHandler.SchemaElements[i+1].LogicalType,
 				int(w.SchemaHandler.SchemaElements[i+1].GetTypeLength()),
 				int(w.SchemaHandler.SchemaElements[i+1].GetScale()),
 			)

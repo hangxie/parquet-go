@@ -15,6 +15,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.92.1
 	github.com/bobg/gcsobj v0.3.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
+	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.18.1
 	github.com/ncw/swift v1.0.53
 	github.com/pierrec/lz4/v4 v4.1.22
@@ -66,7 +67,6 @@ require (
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/flatbuffers v25.9.23+incompatible // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.7 // indirect
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
