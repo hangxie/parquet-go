@@ -1,6 +1,8 @@
 package marshal
 
 import (
+	"fmt"
+
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/layout"
 	"github.com/hangxie/parquet-go/v2/parquet"
@@ -14,7 +16,9 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 		return &res, nil
 	}
 
-	for i := range len(records[0].([]any)) {
+	// Infos contains root node
+	fieldCount := len(schemaHandler.Infos) - 1
+	for i := range fieldCount {
 		pathStr := schemaHandler.GetRootInName() + common.PAR_GO_PATH_DELIMITER + schemaHandler.Infos[i+1].InName
 		table := layout.NewEmptyTable()
 		res[pathStr] = table
@@ -42,7 +46,11 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 		table.DefinitionLevels = make([]int32, 0, len(records))
 
 		for j := range records {
-			rec := records[j].([]any)[i]
+			row := records[j].([]any)
+			if len(row) < fieldCount {
+				return nil, fmt.Errorf("row %d has less than %d fields", j, fieldCount)
+			}
+			rec := row[i]
 			table.Values = append(table.Values, rec)
 
 			table.RepetitionLevels = append(table.RepetitionLevels, 0)
