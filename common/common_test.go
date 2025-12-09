@@ -278,6 +278,7 @@ func TestNewSchemaElementFromTagMap(t *testing.T) {
 				Scale:          ToPtr(int32(2)),
 				Precision:      ToPtr(int32(9)),
 				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_DECIMAL),
 				LogicalType:    ToPtr(parquet.LogicalType{DECIMAL: &parquet.DecimalType{Scale: 2, Precision: 9}}),
 			},
 			"",
@@ -300,6 +301,195 @@ func TestNewSchemaElementFromTagMap(t *testing.T) {
 				FieldID:        ToPtr(int32(0)),
 				ConvertedType:  ToPtr(parquet.ConvertedType_DECIMAL),
 				LogicalType:    ToPtr(parquet.LogicalType{DECIMAL: &parquet.DecimalType{Scale: 4, Precision: 18}}),
+			},
+			"",
+		},
+		"string-logicaltype-sets-convertedtype": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:              "BYTE_ARRAY",
+					logicalTypeFields: map[string]string{"logicaltype": "STRING"},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_BYTE_ARRAY),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_UTF8),
+				LogicalType:    ToPtr(parquet.LogicalType{STRING: &parquet.StringType{}}),
+			},
+			"",
+		},
+		"date-logicaltype-sets-convertedtype": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:              "INT32",
+					logicalTypeFields: map[string]string{"logicaltype": "DATE"},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT32),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_DATE),
+				LogicalType:    ToPtr(parquet.LogicalType{DATE: &parquet.DateType{}}),
+			},
+			"",
+		},
+		"time-millis-logicaltype-sets-convertedtype": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type: "INT32",
+					logicalTypeFields: map[string]string{
+						"logicaltype":                 "TIME",
+						"logicaltype.isadjustedtoutc": "true",
+						"logicaltype.unit":            "MILLIS",
+					},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT32),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_TIME_MILLIS),
+				LogicalType:    ToPtr(parquet.LogicalType{TIME: &parquet.TimeType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}}}),
+			},
+			"",
+		},
+		"timestamp-micros-logicaltype-sets-convertedtype": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type: "INT64",
+					logicalTypeFields: map[string]string{
+						"logicaltype":                 "TIMESTAMP",
+						"logicaltype.isadjustedtoutc": "false",
+						"logicaltype.unit":            "MICROS",
+					},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT64),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_TIMESTAMP_MICROS),
+				LogicalType:    ToPtr(parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{IsAdjustedToUTC: false, Unit: &parquet.TimeUnit{MICROS: parquet.NewMicroSeconds()}}}),
+			},
+			"",
+		},
+		"integer-logicaltype-sets-convertedtype": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type: "INT32",
+					logicalTypeFields: map[string]string{
+						"logicaltype":          "INTEGER",
+						"logicaltype.bitwidth": "16",
+						"logicaltype.issigned": "false",
+					},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT32),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_UINT_16),
+				LogicalType:    ToPtr(parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 16, IsSigned: false}}),
+			},
+			"",
+		},
+		"json-logicaltype-sets-convertedtype": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:              "BYTE_ARRAY",
+					logicalTypeFields: map[string]string{"logicaltype": "JSON"},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_BYTE_ARRAY),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_JSON),
+				LogicalType:    ToPtr(parquet.LogicalType{JSON: &parquet.JsonType{}}),
+			},
+			"",
+		},
+		"uuid-logicaltype-no-convertedtype": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:              "FIXED_LEN_BYTE_ARRAY",
+					Length:            16,
+					logicalTypeFields: map[string]string{"logicaltype": "UUID"},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				TypeLength:     ToPtr(int32(16)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  nil,
+				LogicalType:    ToPtr(parquet.LogicalType{UUID: &parquet.UUIDType{}}),
+			},
+			"",
+		},
+		"timestamp-nanos-logicaltype-no-convertedtype": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type: "INT64",
+					logicalTypeFields: map[string]string{
+						"logicaltype":                 "TIMESTAMP",
+						"logicaltype.isadjustedtoutc": "true",
+						"logicaltype.unit":            "NANOS",
+					},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT64),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  nil,
+				LogicalType:    ToPtr(parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{NANOS: parquet.NewNanoSeconds()}}}),
+			},
+			"",
+		},
+		"explicit-convertedtype-preserved": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:              "BYTE_ARRAY",
+					convertedType:     "UTF8",
+					logicalTypeFields: map[string]string{"logicaltype": "JSON"},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_BYTE_ARRAY),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(0)),
+				Precision:      ToPtr(int32(0)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_UTF8), // User's explicit value preserved
+				LogicalType:    ToPtr(parquet.LogicalType{JSON: &parquet.JsonType{}}),
 			},
 			"",
 		},
@@ -606,6 +796,142 @@ func TestNewLogicalTypeFromConvertedType(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			actual := newLogicalTypeFromConvertedType(&tc.schema, &tc.tag)
+			require.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestConvertedTypeFromLogicalType(t *testing.T) {
+	testCases := map[string]struct {
+		logicalType *parquet.LogicalType
+		expected    *parquet.ConvertedType
+	}{
+		"nil": {nil, nil},
+		"string": {
+			&parquet.LogicalType{STRING: &parquet.StringType{}},
+			ToPtr(parquet.ConvertedType_UTF8),
+		},
+		"map": {
+			&parquet.LogicalType{MAP: &parquet.MapType{}},
+			ToPtr(parquet.ConvertedType_MAP),
+		},
+		"list": {
+			&parquet.LogicalType{LIST: &parquet.ListType{}},
+			ToPtr(parquet.ConvertedType_LIST),
+		},
+		"enum": {
+			&parquet.LogicalType{ENUM: &parquet.EnumType{}},
+			ToPtr(parquet.ConvertedType_ENUM),
+		},
+		"decimal": {
+			&parquet.LogicalType{DECIMAL: &parquet.DecimalType{Precision: 10, Scale: 2}},
+			ToPtr(parquet.ConvertedType_DECIMAL),
+		},
+		"date": {
+			&parquet.LogicalType{DATE: &parquet.DateType{}},
+			ToPtr(parquet.ConvertedType_DATE),
+		},
+		"time-millis": {
+			&parquet.LogicalType{TIME: &parquet.TimeType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}}},
+			ToPtr(parquet.ConvertedType_TIME_MILLIS),
+		},
+		"time-micros": {
+			&parquet.LogicalType{TIME: &parquet.TimeType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MICROS: parquet.NewMicroSeconds()}}},
+			ToPtr(parquet.ConvertedType_TIME_MICROS),
+		},
+		"time-nanos": {
+			&parquet.LogicalType{TIME: &parquet.TimeType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{NANOS: parquet.NewNanoSeconds()}}},
+			nil, // NANOS has no corresponding ConvertedType
+		},
+		"time-nil-unit": {
+			&parquet.LogicalType{TIME: &parquet.TimeType{IsAdjustedToUTC: true}},
+			nil,
+		},
+		"timestamp-millis": {
+			&parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MILLIS: parquet.NewMilliSeconds()}}},
+			ToPtr(parquet.ConvertedType_TIMESTAMP_MILLIS),
+		},
+		"timestamp-micros": {
+			&parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{MICROS: parquet.NewMicroSeconds()}}},
+			ToPtr(parquet.ConvertedType_TIMESTAMP_MICROS),
+		},
+		"timestamp-nanos": {
+			&parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{IsAdjustedToUTC: true, Unit: &parquet.TimeUnit{NANOS: parquet.NewNanoSeconds()}}},
+			nil, // NANOS has no corresponding ConvertedType
+		},
+		"timestamp-nil-unit": {
+			&parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{IsAdjustedToUTC: true}},
+			nil,
+		},
+		"int8": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 8, IsSigned: true}},
+			ToPtr(parquet.ConvertedType_INT_8),
+		},
+		"int16": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 16, IsSigned: true}},
+			ToPtr(parquet.ConvertedType_INT_16),
+		},
+		"int32": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 32, IsSigned: true}},
+			ToPtr(parquet.ConvertedType_INT_32),
+		},
+		"int64": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 64, IsSigned: true}},
+			ToPtr(parquet.ConvertedType_INT_64),
+		},
+		"uint8": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 8, IsSigned: false}},
+			ToPtr(parquet.ConvertedType_UINT_8),
+		},
+		"uint16": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 16, IsSigned: false}},
+			ToPtr(parquet.ConvertedType_UINT_16),
+		},
+		"uint32": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 32, IsSigned: false}},
+			ToPtr(parquet.ConvertedType_UINT_32),
+		},
+		"uint64": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 64, IsSigned: false}},
+			ToPtr(parquet.ConvertedType_UINT_64),
+		},
+		"integer-invalid-bitwidth": {
+			&parquet.LogicalType{INTEGER: &parquet.IntType{BitWidth: 4, IsSigned: true}},
+			nil,
+		},
+		"json": {
+			&parquet.LogicalType{JSON: &parquet.JsonType{}},
+			ToPtr(parquet.ConvertedType_JSON),
+		},
+		"bson": {
+			&parquet.LogicalType{BSON: &parquet.BsonType{}},
+			ToPtr(parquet.ConvertedType_BSON),
+		},
+		"uuid": {
+			&parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			nil, // UUID has no corresponding ConvertedType
+		},
+		"float16": {
+			&parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			nil, // FLOAT16 has no corresponding ConvertedType
+		},
+		"variant": {
+			&parquet.LogicalType{VARIANT: &parquet.VariantType{}},
+			nil, // VARIANT has no corresponding ConvertedType
+		},
+		"geometry": {
+			&parquet.LogicalType{GEOMETRY: &parquet.GeometryType{}},
+			nil, // GEOMETRY has no corresponding ConvertedType
+		},
+		"geography": {
+			&parquet.LogicalType{GEOGRAPHY: &parquet.GeographyType{}},
+			nil, // GEOGRAPHY has no corresponding ConvertedType
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			actual := convertedTypeFromLogicalType(tc.logicalType)
 			require.Equal(t, tc.expected, actual)
 		})
 	}

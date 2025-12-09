@@ -211,14 +211,101 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 
 	schema.LogicalType = logicalType
 
-	// For DECIMAL logical type, ensure schema's Scale and Precision match the logical type's values.
-	// This is required by the Parquet spec: "Decimal scale should match with the scale of the logical type"
-	if logicalType != nil && logicalType.DECIMAL != nil {
-		schema.Scale = &logicalType.DECIMAL.Scale
-		schema.Precision = &logicalType.DECIMAL.Precision
+	// Set ConvertedType for backward compatibility with older Parquet readers.
+	// Per Parquet spec, logical types should have corresponding converted types when applicable.
+	// Only set if not already provided by the user.
+	if logicalType != nil {
+		if schema.ConvertedType == nil {
+			schema.ConvertedType = convertedTypeFromLogicalType(logicalType)
+		}
+		// For DECIMAL, also sync schema's Scale and Precision with the logical type's values.
+		if logicalType.DECIMAL != nil {
+			schema.Scale = &logicalType.DECIMAL.Scale
+			schema.Precision = &logicalType.DECIMAL.Precision
+		}
 	}
 
 	return schema, nil
+}
+
+// convertedTypeFromLogicalType returns the corresponding ConvertedType for a LogicalType.
+// This is used for backward compatibility with older Parquet readers.
+func convertedTypeFromLogicalType(lt *parquet.LogicalType) *parquet.ConvertedType {
+	if lt == nil {
+		return nil
+	}
+
+	var ct parquet.ConvertedType
+	switch {
+	case lt.STRING != nil:
+		ct = parquet.ConvertedType_UTF8
+	case lt.MAP != nil:
+		ct = parquet.ConvertedType_MAP
+	case lt.LIST != nil:
+		ct = parquet.ConvertedType_LIST
+	case lt.ENUM != nil:
+		ct = parquet.ConvertedType_ENUM
+	case lt.DECIMAL != nil:
+		ct = parquet.ConvertedType_DECIMAL
+	case lt.DATE != nil:
+		ct = parquet.ConvertedType_DATE
+	case lt.TIME != nil:
+		if lt.TIME.Unit != nil {
+			if lt.TIME.Unit.MILLIS != nil {
+				ct = parquet.ConvertedType_TIME_MILLIS
+			} else if lt.TIME.Unit.MICROS != nil {
+				ct = parquet.ConvertedType_TIME_MICROS
+			} else {
+				// NANOS has no corresponding ConvertedType
+				return nil
+			}
+		} else {
+			return nil
+		}
+	case lt.TIMESTAMP != nil:
+		if lt.TIMESTAMP.Unit != nil {
+			if lt.TIMESTAMP.Unit.MILLIS != nil {
+				ct = parquet.ConvertedType_TIMESTAMP_MILLIS
+			} else if lt.TIMESTAMP.Unit.MICROS != nil {
+				ct = parquet.ConvertedType_TIMESTAMP_MICROS
+			} else {
+				// NANOS has no corresponding ConvertedType
+				return nil
+			}
+		} else {
+			return nil
+		}
+	case lt.INTEGER != nil:
+		switch {
+		case lt.INTEGER.BitWidth == 8 && lt.INTEGER.IsSigned:
+			ct = parquet.ConvertedType_INT_8
+		case lt.INTEGER.BitWidth == 8 && !lt.INTEGER.IsSigned:
+			ct = parquet.ConvertedType_UINT_8
+		case lt.INTEGER.BitWidth == 16 && lt.INTEGER.IsSigned:
+			ct = parquet.ConvertedType_INT_16
+		case lt.INTEGER.BitWidth == 16 && !lt.INTEGER.IsSigned:
+			ct = parquet.ConvertedType_UINT_16
+		case lt.INTEGER.BitWidth == 32 && lt.INTEGER.IsSigned:
+			ct = parquet.ConvertedType_INT_32
+		case lt.INTEGER.BitWidth == 32 && !lt.INTEGER.IsSigned:
+			ct = parquet.ConvertedType_UINT_32
+		case lt.INTEGER.BitWidth == 64 && lt.INTEGER.IsSigned:
+			ct = parquet.ConvertedType_INT_64
+		case lt.INTEGER.BitWidth == 64 && !lt.INTEGER.IsSigned:
+			ct = parquet.ConvertedType_UINT_64
+		default:
+			return nil
+		}
+	case lt.JSON != nil:
+		ct = parquet.ConvertedType_JSON
+	case lt.BSON != nil:
+		ct = parquet.ConvertedType_BSON
+	default:
+		// UUID, FLOAT16, VARIANT, GEOMETRY, GEOGRAPHY have no corresponding ConvertedType
+		return nil
+	}
+
+	return &ct
 }
 
 func newTimeUnitFromString(unitStr string) (*parquet.TimeUnit, error) {
