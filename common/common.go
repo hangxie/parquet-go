@@ -211,6 +211,13 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 
 	schema.LogicalType = logicalType
 
+	// For DECIMAL logical type, ensure schema's Scale and Precision match the logical type's values.
+	// This is required by the Parquet spec: "Decimal scale should match with the scale of the logical type"
+	if logicalType != nil && logicalType.DECIMAL != nil {
+		schema.Scale = &logicalType.DECIMAL.Scale
+		schema.Precision = &logicalType.DECIMAL.Precision
+	}
+
 	return schema, nil
 }
 
