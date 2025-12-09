@@ -260,6 +260,49 @@ func TestNewSchemaElementFromTagMap(t *testing.T) {
 			},
 			"",
 		},
+		"decimal-logicaltype-sets-schema-scale-precision": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type: "INT32",
+					logicalTypeFields: map[string]string{
+						"logicaltype":           "DECIMAL",
+						"logicaltype.precision": "9",
+						"logicaltype.scale":     "2",
+					},
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT32),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(2)),
+				Precision:      ToPtr(int32(9)),
+				FieldID:        ToPtr(int32(0)),
+				LogicalType:    ToPtr(parquet.LogicalType{DECIMAL: &parquet.DecimalType{Scale: 2, Precision: 9}}),
+			},
+			"",
+		},
+		"decimal-convertedtype-sets-schema-scale-precision": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:          "INT64",
+					convertedType: "DECIMAL",
+					Scale:         4,
+					Precision:     18,
+				},
+			},
+			parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT64),
+				TypeLength:     ToPtr(int32(0)),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Scale:          ToPtr(int32(4)),
+				Precision:      ToPtr(int32(18)),
+				FieldID:        ToPtr(int32(0)),
+				ConvertedType:  ToPtr(parquet.ConvertedType_DECIMAL),
+				LogicalType:    ToPtr(parquet.LogicalType{DECIMAL: &parquet.DecimalType{Scale: 4, Precision: 18}}),
+			},
+			"",
+		},
 	}
 
 	for name, tc := range testCases {
