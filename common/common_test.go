@@ -62,26 +62,32 @@ func TestFieldAttr_Update(t *testing.T) {
 		expected fieldAttr
 		errMsg   string
 	}{
-		"type":                 {"type", "BOOLEAN", fieldAttr{Type: "BOOLEAN"}, ""},
-		"convertedtype":        {"convertedtype", "UTF8", fieldAttr{convertedType: "UTF8"}, ""},
-		"length-good":          {"length", "123", fieldAttr{Length: 123}, ""},
-		"length-bad":           {"length", "abc", fieldAttr{}, "parse length value"},
-		"scale-good":           {"scale", "123", fieldAttr{Scale: 123}, ""},
-		"scale-bad":            {"scale", "abc", fieldAttr{}, "parse scale value"},
-		"precision-good":       {"precision", "123", fieldAttr{Precision: 123}, ""},
-		"precision-bad":        {"precision", "abc", fieldAttr{}, "parse precision value"},
-		"fieldid-good":         {"fieldid", "123", fieldAttr{fieldID: 123}, ""},
-		"fieldid-bad":          {"fieldid", "abc", fieldAttr{}, "parse fieldid value"},
-		"isadjustedtoutc-good": {"isadjustedtoutc", "true", fieldAttr{isAdjustedToUTC: true}, ""},
-		"isadjustedtoutc-bad":  {"isadjustedtoutc", "abc", fieldAttr{}, "parse isadjustedtoutc value"},
-		"omitstats-good":       {"omitstats", "true", fieldAttr{OmitStats: true}, ""},
-		"omitstats-bad":        {"omitstats", "abc", fieldAttr{}, "parse omitstats value"},
-		"repetitiontype-good":  {"repetitiontype", "repeated", fieldAttr{RepetitionType: parquet.FieldRepetitionType_REPEATED}, ""},
-		"repetitiontype-bad":   {"repetitiontype", "foobar", fieldAttr{}, "parse repetitiontype:"},
-		"encoding-good":        {"encoding", "plain", fieldAttr{Encoding: parquet.Encoding_PLAIN}, ""},
-		"encoding-bad":         {"encoding", "foobar", fieldAttr{}, "parse encoding:"},
-		"logicaltype":          {"logicaltype.foo", "bar", fieldAttr{logicalTypeFields: map[string]string{"logicaltype.foo": "bar"}}, ""},
-		"unknown-tag":          {"unknown-tag.foo", "foobar", fieldAttr{}, "unrecognized tag"},
+		"type":                     {"type", "BOOLEAN", fieldAttr{Type: "BOOLEAN"}, ""},
+		"convertedtype":            {"convertedtype", "UTF8", fieldAttr{convertedType: "UTF8"}, ""},
+		"length-good":              {"length", "123", fieldAttr{Length: 123}, ""},
+		"length-bad":               {"length", "abc", fieldAttr{}, "parse length value"},
+		"scale-good":               {"scale", "123", fieldAttr{Scale: 123}, ""},
+		"scale-bad":                {"scale", "abc", fieldAttr{}, "parse scale value"},
+		"precision-good":           {"precision", "123", fieldAttr{Precision: 123}, ""},
+		"precision-bad":            {"precision", "abc", fieldAttr{}, "parse precision value"},
+		"fieldid-good":             {"fieldid", "123", fieldAttr{fieldID: 123}, ""},
+		"fieldid-bad":              {"fieldid", "abc", fieldAttr{}, "parse fieldid value"},
+		"isadjustedtoutc-good":     {"isadjustedtoutc", "true", fieldAttr{isAdjustedToUTC: true}, ""},
+		"isadjustedtoutc-bad":      {"isadjustedtoutc", "abc", fieldAttr{}, "parse isadjustedtoutc value"},
+		"omitstats-good":           {"omitstats", "true", fieldAttr{OmitStats: true}, ""},
+		"omitstats-bad":            {"omitstats", "abc", fieldAttr{}, "parse omitstats value"},
+		"repetitiontype-good":      {"repetitiontype", "repeated", fieldAttr{RepetitionType: parquet.FieldRepetitionType_REPEATED}, ""},
+		"repetitiontype-bad":       {"repetitiontype", "foobar", fieldAttr{}, "parse repetitiontype:"},
+		"encoding-good":            {"encoding", "plain", fieldAttr{Encoding: parquet.Encoding_PLAIN}, ""},
+		"encoding-bad":             {"encoding", "foobar", fieldAttr{}, "parse encoding:"},
+		"compression-snappy":       {"compression", "snappy", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_SNAPPY)}, ""},
+		"compression-gzip":         {"compression", "GZIP", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_GZIP)}, ""},
+		"compression-zstd":         {"compression", "zstd", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_ZSTD)}, ""},
+		"compression-lz4":          {"compression", "LZ4_RAW", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_LZ4_RAW)}, ""},
+		"compression-uncompressed": {"compression", "UNCOMPRESSED", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_UNCOMPRESSED)}, ""},
+		"compression-bad":          {"compression", "foobar", fieldAttr{}, "parse compression:"},
+		"logicaltype":              {"logicaltype.foo", "bar", fieldAttr{logicalTypeFields: map[string]string{"logicaltype.foo": "bar"}}, ""},
+		"unknown-tag":              {"unknown-tag.foo", "foobar", fieldAttr{}, "unrecognized tag"},
 	}
 
 	for name, tc := range testCases {
@@ -595,6 +601,8 @@ func TestStringToTag(t *testing.T) {
 		"key-bad":          {"keyfoo=bar", Tag{}, "parse tag"},
 		"value-good":       {"valuetype=INT32, valuerepetitiontype=REPEATED", Tag{Value: fieldAttr{Type: "INT32", RepetitionType: parquet.FieldRepetitionType_REPEATED}}, ""},
 		"value-bad":        {"valuefoo=bar", Tag{}, "parse tag"},
+		"compression-nil":  {"type=INT32", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionType: nil}}, ""}, // CompressionType is nil when not specified
+		"compression-set":  {"type=INT32,compression=GZIP", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionType: ToPtr(parquet.CompressionCodec_GZIP)}}, ""},
 	}
 
 	for name, tc := range testCases {

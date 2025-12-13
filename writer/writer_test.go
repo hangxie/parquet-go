@@ -324,6 +324,294 @@ func TestNewParquetWriterFromWriter(t *testing.T) {
 	})
 }
 
+func TestPerColumnCompression(t *testing.T) {
+	t.Run("per_column_compression_basic", func(t *testing.T) {
+		// Test struct with per-column compression specified
+		type TestStruct struct {
+			Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, compression=GZIP"`
+			Age   int32  `parquet:"name=age, type=INT32, compression=SNAPPY"`
+			Score int64  `parquet:"name=score, type=INT64"` // No compression specified - should use file default
+		}
+
+		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		require.NoError(t, err)
+
+		// Set file-level compression to ZSTD
+		pw.CompressionType = parquet.CompressionCodec_ZSTD
+
+		testData := []TestStruct{
+			{Name: "Alice", Age: 25, Score: 100},
+			{Name: "Bob", Age: 30, Score: 200},
+			{Name: "Charlie", Age: 35, Score: 300},
+		}
+
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		// Read back and verify
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		require.Equal(t, int64(3), pr.GetNumRows())
+
+		results := make([]TestStruct, 3)
+		require.NoError(t, pr.Read(&results))
+
+		for i := range testData {
+			require.Equal(t, testData[i].Name, results[i].Name)
+			require.Equal(t, testData[i].Age, results[i].Age)
+			require.Equal(t, testData[i].Score, results[i].Score)
+		}
+
+		// Verify compression codecs in metadata
+		require.NotNil(t, pr.Footer)
+		require.Equal(t, 1, len(pr.Footer.RowGroups))
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, 3, len(columns))
+
+		// Name should use GZIP
+		require.Equal(t, parquet.CompressionCodec_GZIP, columns[0].MetaData.GetCodec())
+		// Age should use SNAPPY
+		require.Equal(t, parquet.CompressionCodec_SNAPPY, columns[1].MetaData.GetCodec())
+		// Score should use file default (ZSTD)
+		require.Equal(t, parquet.CompressionCodec_ZSTD, columns[2].MetaData.GetCodec())
+	})
+
+	t.Run("per_column_compression_with_dictionary", func(t *testing.T) {
+		type DictStruct struct {
+			Category string `parquet:"name=category, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY, compression=GZIP"`
+			Value    int32  `parquet:"name=value, type=INT32, compression=SNAPPY"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(DictStruct), 1)
+		require.NoError(t, err)
+
+		// Set file-level compression to ZSTD
+		pw.CompressionType = parquet.CompressionCodec_ZSTD
+
+		testData := []DictStruct{
+			{Category: "A", Value: 1},
+			{Category: "B", Value: 2},
+			{Category: "A", Value: 3},
+			{Category: "C", Value: 4},
+		}
+
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		require.Equal(t, int64(4), pr.GetNumRows())
+
+		results := make([]DictStruct, 4)
+		require.NoError(t, pr.Read(&results))
+
+		for i := range testData {
+			require.Equal(t, testData[i].Category, results[i].Category)
+			require.Equal(t, testData[i].Value, results[i].Value)
+		}
+
+		// Verify compression codecs
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, parquet.CompressionCodec_GZIP, columns[0].MetaData.GetCodec())
+		require.Equal(t, parquet.CompressionCodec_SNAPPY, columns[1].MetaData.GetCodec())
+	})
+
+	t.Run("per_column_compression_uncompressed", func(t *testing.T) {
+		type TestStruct struct {
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, compression=UNCOMPRESSED"`
+			Age  int32  `parquet:"name=age, type=INT32"` // Should use file default
+		}
+
+		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		require.NoError(t, err)
+
+		pw.CompressionType = parquet.CompressionCodec_SNAPPY
+
+		testData := []TestStruct{
+			{Name: "Alice", Age: 25},
+			{Name: "Bob", Age: 30},
+		}
+
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, parquet.CompressionCodec_UNCOMPRESSED, columns[0].MetaData.GetCodec())
+		require.Equal(t, parquet.CompressionCodec_SNAPPY, columns[1].MetaData.GetCodec())
+	})
+
+	t.Run("compression_nil_fallback_to_file_default", func(t *testing.T) {
+		// When compression tag is not specified (nil), should use file-level compression
+		type TestStruct struct {
+			ColA string `parquet:"name=col_a, type=BYTE_ARRAY, convertedtype=UTF8"` // No compression tag
+			ColB int32  `parquet:"name=col_b, type=INT32"`                          // No compression tag
+			ColC int64  `parquet:"name=col_c, type=INT64"`                          // No compression tag
+		}
+
+		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		require.NoError(t, err)
+
+		// Set file-level compression to GZIP
+		pw.CompressionType = parquet.CompressionCodec_GZIP
+
+		testData := []TestStruct{
+			{ColA: "test1", ColB: 1, ColC: 100},
+			{ColA: "test2", ColB: 2, ColC: 200},
+		}
+
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		// All columns should use file-level compression (GZIP)
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, 3, len(columns))
+		require.Equal(t, parquet.CompressionCodec_GZIP, columns[0].MetaData.GetCodec(), "ColA should use file default GZIP")
+		require.Equal(t, parquet.CompressionCodec_GZIP, columns[1].MetaData.GetCodec(), "ColB should use file default GZIP")
+		require.Equal(t, parquet.CompressionCodec_GZIP, columns[2].MetaData.GetCodec(), "ColC should use file default GZIP")
+
+		// Verify data integrity
+		results := make([]TestStruct, 2)
+		require.NoError(t, pr.Read(&results))
+		for i := range testData {
+			require.Equal(t, testData[i], results[i])
+		}
+	})
+
+	t.Run("map_key_value_compression", func(t *testing.T) {
+		// Test keycompression and valuecompression for map types
+		type TestStruct struct {
+			Data map[string]int32 `parquet:"name=data, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, keycompression=GZIP, valuetype=INT32, valuecompression=ZSTD"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		require.NoError(t, err)
+
+		// Set file-level compression to SNAPPY
+		pw.CompressionType = parquet.CompressionCodec_SNAPPY
+
+		testData := []TestStruct{
+			{Data: map[string]int32{"a": 1, "b": 2}},
+			{Data: map[string]int32{"c": 3}},
+		}
+
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		// Verify compression codecs - map has key and value columns
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, 2, len(columns))
+		// Key should use GZIP
+		require.Equal(t, parquet.CompressionCodec_GZIP, columns[0].MetaData.GetCodec(), "map key should use GZIP")
+		// Value should use ZSTD
+		require.Equal(t, parquet.CompressionCodec_ZSTD, columns[1].MetaData.GetCodec(), "map value should use ZSTD")
+	})
+
+	t.Run("list_value_compression", func(t *testing.T) {
+		// Test valuecompression for list types
+		type TestStruct struct {
+			Items []string `parquet:"name=items, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8, valuecompression=GZIP"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		require.NoError(t, err)
+
+		// Set file-level compression to SNAPPY
+		pw.CompressionType = parquet.CompressionCodec_SNAPPY
+
+		testData := []TestStruct{
+			{Items: []string{"a", "b", "c"}},
+			{Items: []string{"d", "e"}},
+		}
+
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		// Verify compression codec - list has one element column
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, 1, len(columns))
+		// Element should use GZIP
+		require.Equal(t, parquet.CompressionCodec_GZIP, columns[0].MetaData.GetCodec(), "list element should use GZIP")
+	})
+
+	t.Run("per_column_compression_all_codecs", func(t *testing.T) {
+		type TestStruct struct {
+			ColA string `parquet:"name=col_a, type=BYTE_ARRAY, convertedtype=UTF8, compression=GZIP"`
+			ColB string `parquet:"name=col_b, type=BYTE_ARRAY, convertedtype=UTF8, compression=SNAPPY"`
+			ColC string `parquet:"name=col_c, type=BYTE_ARRAY, convertedtype=UTF8, compression=ZSTD"`
+			ColD string `parquet:"name=col_d, type=BYTE_ARRAY, convertedtype=UTF8, compression=LZ4_RAW"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		require.NoError(t, err)
+
+		testData := []TestStruct{
+			{ColA: "a1", ColB: "b1", ColC: "c1", ColD: "d1"},
+			{ColA: "a2", ColB: "b2", ColC: "c2", ColD: "d2"},
+		}
+
+		for _, entry := range testData {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, parquet.CompressionCodec_GZIP, columns[0].MetaData.GetCodec())
+		require.Equal(t, parquet.CompressionCodec_SNAPPY, columns[1].MetaData.GetCodec())
+		require.Equal(t, parquet.CompressionCodec_ZSTD, columns[2].MetaData.GetCodec())
+		require.Equal(t, parquet.CompressionCodec_LZ4_RAW, columns[3].MetaData.GetCodec())
+
+		// Verify data is read correctly
+		results := make([]TestStruct, 2)
+		require.NoError(t, pr.Read(&results))
+		for i := range testData {
+			require.Equal(t, testData[i], results[i])
+		}
+	})
+}
+
 func TestDataPageVersion(t *testing.T) {
 	type TestStruct struct {
 		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
