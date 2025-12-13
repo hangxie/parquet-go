@@ -15,13 +15,14 @@ const (
 )
 
 type fieldAttr struct {
-	Type           string
-	Length         int32
-	Scale          int32
-	Precision      int32
-	Encoding       parquet.Encoding
-	OmitStats      bool
-	RepetitionType parquet.FieldRepetitionType
+	Type            string
+	Length          int32
+	Scale           int32
+	Precision       int32
+	Encoding        parquet.Encoding
+	OmitStats       bool
+	RepetitionType  parquet.FieldRepetitionType
+	CompressionType *parquet.CompressionCodec // nil means use file-level compression
 
 	convertedType     string
 	isAdjustedToUTC   bool
@@ -78,6 +79,12 @@ func (mp *fieldAttr) update(key, val string) error {
 		if err != nil {
 			return fmt.Errorf("parse encoding: %w", err)
 		}
+	case "compression":
+		codec, err := parquet.CompressionCodecFromString(strings.ToUpper(val))
+		if err != nil {
+			return fmt.Errorf("parse compression: %w", err)
+		}
+		mp.CompressionType = &codec
 	default:
 		if strings.HasPrefix(key, "logicaltype") {
 			if mp.logicalTypeFields == nil {

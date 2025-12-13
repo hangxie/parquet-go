@@ -305,6 +305,12 @@ func (pw *ParquetWriter) flushObjs() error {
 
 			if err2 == nil {
 				for name, table := range *tableMap {
+					// Use per-column compression if specified, otherwise fall back to file-level compression
+					compressionType := pw.CompressionType
+					if table.Info != nil && table.Info.CompressionType != nil {
+						compressionType = *table.Info.CompressionType
+					}
+
 					if table.Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY ||
 						table.Info.Encoding == parquet.Encoding_RLE_DICTIONARY {
 						// Load or create the dictionary recorder atomically
@@ -317,8 +323,9 @@ func (pw *ParquetWriter) flushObjs() error {
 							dictRec = actual.(*layout.DictRecType)
 						}
 
+						// mutiple goroutines may write to same dict page
 						convMu.Lock()
-						pages, _, localErr := layout.TableToDictDataPages(dictRec, table, int32(pw.PageSize), 32, pw.CompressionType)
+						pages, _, localErr := layout.TableToDictDataPages(dictRec, table, int32(pw.PageSize), 32, compressionType)
 						convMu.Unlock()
 						if localErr != nil {
 							errs[index] = localErr
@@ -326,9 +333,7 @@ func (pw *ParquetWriter) flushObjs() error {
 							pagesMapList[index][name] = pages
 						}
 					} else {
-						convMu.Lock()
-						pages, _, localErr := layout.TableToDataPagesWithVersion(table, int32(pw.PageSize), pw.CompressionType, pw.DataPageVersion)
-						convMu.Unlock()
+						pages, _, localErr := layout.TableToDataPagesWithVersion(table, int32(pw.PageSize), compressionType, pw.DataPageVersion)
 						if localErr != nil {
 							errs[index] = localErr
 						} else {
@@ -383,13 +388,21 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 		// pages -> chunk
 		chunkMap := make(map[string]*layout.Chunk)
 		for name, pages := range pw.PagesMapBuf {
+			// Determine compression type for this column
+			compressionType := pw.CompressionType
+			if idx, ok := pw.SchemaHandler.MapIndex[name]; ok {
+				if info := pw.SchemaHandler.Infos[idx]; info != nil && info.CompressionType != nil {
+					compressionType = *info.CompressionType
+				}
+			}
+
 			if len(pages) > 0 && (pages[0].Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY || pages[0].Info.Encoding == parquet.Encoding_RLE_DICTIONARY) {
 				v, ok := pw.DictRecs.Load(name)
 				if !ok {
 					return fmt.Errorf("missing dictionary recorder for column %s", name)
 				}
 				dictRec := v.(*layout.DictRecType)
-				dictPage, _, err := layout.DictRecToDictPage(dictRec, int32(pw.PageSize), pw.CompressionType)
+				dictPage, _, err := layout.DictRecToDictPage(dictRec, int32(pw.PageSize), compressionType)
 				if err != nil {
 					return fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)
 				}
