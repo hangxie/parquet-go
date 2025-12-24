@@ -915,6 +915,33 @@ func createConversionContext() *conversionContext {
 	}
 }
 
+func TestUnmarshal_MapPathMissingKeyValueComponent(t *testing.T) {
+	// Test that a malformed path missing key/value component after map returns an error
+	// instead of panicking with index out of bounds
+	type MapStruct struct {
+		M map[string]int32 `parquet:"name=m, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+	}
+
+	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(MapStruct))
+	require.NoError(t, err)
+
+	// Create a table with a malformed path that ends at the map without key/value
+	// This simulates corrupted data where the path is truncated
+	tableMap := &map[string]*layout.Table{
+		"Parquet_go_root.M.Key_value": {
+			Path:             []string{"Parquet_go_root", "M", "Key_value"}, // Missing "Key" or "Value" after Key_value
+			Values:           []any{"test_key"},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{3},
+		},
+	}
+
+	dst := make([]MapStruct, 0)
+	err = Unmarshal(tableMap, 0, 1, &dst, schemaHandler, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing key/value component after map")
+}
+
 // Test_OldStyleList targets test old style list
 func TestOldStyleList(t *testing.T) {
 	t.Run("unmarshal_old_list_multi_inner_segments", func(t *testing.T) {

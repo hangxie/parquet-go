@@ -256,6 +256,9 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 							})
 					}
 
+					if index+1 >= len(path) {
+						return fmt.Errorf("invalid path: missing key/value component after map")
+					}
 					if strings.ToLower(path[index+1]) == "key" {
 						po = mapRec.KeyValues[mapRec.Index].Key
 					} else {
