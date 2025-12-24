@@ -102,6 +102,41 @@ func TestErrorHandling(t *testing.T) {
 	require.Nil(t, result)
 }
 
+func TestCompressWithError(t *testing.T) {
+	testData := []byte{1, 2, 3, 4, 5}
+
+	t.Run("supported codec", func(t *testing.T) {
+		compressed, err := CompressWithError(testData, parquet.CompressionCodec_SNAPPY)
+		require.NoError(t, err)
+		require.NotNil(t, compressed)
+
+		// Verify round-trip
+		decompressed, err := Uncompress(compressed, parquet.CompressionCodec_SNAPPY)
+		require.NoError(t, err)
+		require.Equal(t, testData, decompressed)
+	})
+
+	t.Run("uncompressed codec", func(t *testing.T) {
+		compressed, err := CompressWithError(testData, parquet.CompressionCodec_UNCOMPRESSED)
+		require.NoError(t, err)
+		require.Equal(t, testData, compressed)
+	})
+
+	t.Run("unsupported codec returns error", func(t *testing.T) {
+		result, err := CompressWithError(testData, parquet.CompressionCodec(999))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported compress method")
+		require.Nil(t, result)
+	})
+
+	t.Run("negative codec value", func(t *testing.T) {
+		result, err := CompressWithError(testData, parquet.CompressionCodec(-1))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported compress method")
+		require.Nil(t, result)
+	})
+}
+
 func TestUncompress(t *testing.T) {
 	testCases := []struct {
 		name             string

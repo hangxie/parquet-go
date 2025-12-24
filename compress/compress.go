@@ -124,10 +124,20 @@ func UncompressWithExpectedSize(buf []byte, compressMethod parquet.CompressionCo
 	return result, nil
 }
 
-func Compress(buf []byte, compressMethod parquet.CompressionCodec) []byte {
+// CompressWithError compresses data using the specified compression method.
+// Returns an error if the compression codec is not supported.
+func CompressWithError(buf []byte, compressMethod parquet.CompressionCodec) ([]byte, error) {
 	c, ok := compressors[compressMethod]
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("unsupported compress method: %v", compressMethod)
 	}
-	return c.Compress(buf)
+	return c.Compress(buf), nil
+}
+
+// Compress compresses data using the specified compression method.
+// Deprecated: Use CompressWithError instead for proper error handling.
+// This function returns nil if the compression codec is not supported.
+func Compress(buf []byte, compressMethod parquet.CompressionCodec) []byte {
+	result, _ := CompressWithError(buf, compressMethod)
+	return result
 }
