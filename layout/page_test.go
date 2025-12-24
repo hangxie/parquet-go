@@ -3427,3 +3427,60 @@ func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePageSize(t *testing.T) {
+	// Save original setting and restore after test
+	originalMaxSize := GetMaxPageSize()
+	defer SetMaxPageSize(originalMaxSize)
+
+	t.Run("valid sizes", func(t *testing.T) {
+		SetMaxPageSize(DefaultMaxPageSize)
+
+		err := validatePageSize(0, "test")
+		require.NoError(t, err)
+
+		err = validatePageSize(1024, "test")
+		require.NoError(t, err)
+
+		err = validatePageSize(1024*1024, "test")
+		require.NoError(t, err)
+	})
+
+	t.Run("negative size", func(t *testing.T) {
+		SetMaxPageSize(DefaultMaxPageSize)
+
+		err := validatePageSize(-1, "test")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid negative page size")
+	})
+
+	t.Run("exceeds maximum", func(t *testing.T) {
+		SetMaxPageSize(1000) // Set small limit
+
+		err := validatePageSize(1001, "test")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "exceeds maximum allowed size")
+	})
+
+	t.Run("zero limit disables check", func(t *testing.T) {
+		SetMaxPageSize(0) // Disable limit
+
+		err := validatePageSize(1<<30, "test") // 1 GB
+		require.NoError(t, err)
+	})
+}
+
+func TestSetGetMaxPageSize(t *testing.T) {
+	// Save original setting and restore after test
+	originalMaxSize := GetMaxPageSize()
+	defer SetMaxPageSize(originalMaxSize)
+
+	SetMaxPageSize(12345678)
+	require.Equal(t, int64(12345678), GetMaxPageSize())
+
+	SetMaxPageSize(0)
+	require.Equal(t, int64(0), GetMaxPageSize())
+
+	SetMaxPageSize(DefaultMaxPageSize)
+	require.Equal(t, int64(DefaultMaxPageSize), GetMaxPageSize())
+}
