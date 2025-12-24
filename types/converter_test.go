@@ -669,3 +669,26 @@ func TestIntervalToString(t *testing.T) {
 		})
 	}
 }
+
+func TestDECIMAL_BYTE_ARRAY_ToString_DoesNotMutateInput(t *testing.T) {
+	// Test that DECIMAL_BYTE_ARRAY_ToString does not mutate the input slice
+	// This is important because callers may reuse the slice
+
+	// Create a negative decimal value that will trigger the XOR operation
+	// -123.456 in decimal with scale 3
+	original, _ := StrToParquetType("-123.456", parquet.TypePtr(parquet.Type_BYTE_ARRAY), parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), 9, 3)
+	input := []byte(original.(string))
+
+	// Make a copy to compare against later
+	inputCopy := make([]byte, len(input))
+	copy(inputCopy, input)
+
+	// Call the function
+	result := DECIMAL_BYTE_ARRAY_ToString(input, 9, 3)
+
+	// Verify the result is correct
+	require.Equal(t, "-123.456", result)
+
+	// Verify the input slice was NOT mutated
+	require.Equal(t, inputCopy, input, "DECIMAL_BYTE_ARRAY_ToString should not mutate input slice")
+}
