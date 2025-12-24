@@ -3228,3 +3228,307 @@ func TestStrToParquetType_INT96(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result2)
 }
+
+func TestJSONValueToParquetDirect(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      any
+		pT         *parquet.Type
+		cT         *parquet.ConvertedType
+		expected   any
+		usesDirect bool // whether direct conversion should be used
+	}{
+		// Boolean
+		{
+			name:       "bool_true",
+			value:      true,
+			pT:         parquet.TypePtr(parquet.Type_BOOLEAN),
+			expected:   true,
+			usesDirect: true,
+		},
+		{
+			name:       "bool_false",
+			value:      false,
+			pT:         parquet.TypePtr(parquet.Type_BOOLEAN),
+			expected:   false,
+			usesDirect: true,
+		},
+		// INT32
+		{
+			name:       "int32_from_float64",
+			value:      float64(42),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			expected:   int32(42),
+			usesDirect: true,
+		},
+		{
+			name:       "int32_from_int",
+			value:      int(100),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			expected:   int32(100),
+			usesDirect: true,
+		},
+		// INT64
+		{
+			name:       "int64_from_float64",
+			value:      float64(9999999999),
+			pT:         parquet.TypePtr(parquet.Type_INT64),
+			expected:   int64(9999999999),
+			usesDirect: true,
+		},
+		// FLOAT
+		{
+			name:       "float_from_float64",
+			value:      float64(3.14),
+			pT:         parquet.TypePtr(parquet.Type_FLOAT),
+			expected:   float32(3.14),
+			usesDirect: true,
+		},
+		// DOUBLE
+		{
+			name:       "double_from_float64",
+			value:      float64(3.14159265359),
+			pT:         parquet.TypePtr(parquet.Type_DOUBLE),
+			expected:   float64(3.14159265359),
+			usesDirect: true,
+		},
+		// BYTE_ARRAY (string)
+		{
+			name:       "string_direct",
+			value:      "hello world",
+			pT:         parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expected:   "hello world",
+			usesDirect: true,
+		},
+		// UTF8 converted type
+		{
+			name:       "utf8_string",
+			value:      "unicode: 你好",
+			pT:         parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8),
+			expected:   "unicode: 你好",
+			usesDirect: true,
+		},
+		// INT_8 converted type
+		{
+			name:       "int8_converted",
+			value:      float64(127),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_INT_8),
+			expected:   int32(127),
+			usesDirect: true,
+		},
+		// UINT_32 converted type
+		{
+			name:       "uint32_converted",
+			value:      float64(4294967295),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_32),
+			expected:   int32(-1), // uint32 max wraps to -1 in int32
+			usesDirect: true,
+		},
+		// INT_16 converted type
+		{
+			name:       "int16_converted",
+			value:      float64(32767),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_INT_16),
+			expected:   int32(32767),
+			usesDirect: true,
+		},
+		// INT_32 converted type
+		{
+			name:       "int32_converted_type",
+			value:      float64(2147483647),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_INT_32),
+			expected:   int32(2147483647),
+			usesDirect: true,
+		},
+		// INT_64 converted type
+		{
+			name:       "int64_converted_type",
+			value:      float64(999999999999),
+			pT:         parquet.TypePtr(parquet.Type_INT64),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_INT_64),
+			expected:   int64(999999999999),
+			usesDirect: true,
+		},
+		// UINT_8 converted type
+		{
+			name:       "uint8_converted",
+			value:      float64(255),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_8),
+			expected:   int32(255),
+			usesDirect: true,
+		},
+		// UINT_16 converted type
+		{
+			name:       "uint16_converted",
+			value:      float64(65535),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_16),
+			expected:   int32(65535),
+			usesDirect: true,
+		},
+		// UINT_64 converted type
+		{
+			name:       "uint64_converted",
+			value:      uint64(18446744073709551615),
+			pT:         parquet.TypePtr(parquet.Type_INT64),
+			cT:         parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_64),
+			expected:   int64(-1), // uint64 max wraps to -1 in int64
+			usesDirect: true,
+		},
+		// Test with uint input for int target
+		{
+			name:       "int32_from_uint",
+			value:      uint(200),
+			pT:         parquet.TypePtr(parquet.Type_INT32),
+			expected:   int32(200),
+			usesDirect: true,
+		},
+		// Test float from int
+		{
+			name:       "float_from_int",
+			value:      int(42),
+			pT:         parquet.TypePtr(parquet.Type_FLOAT),
+			expected:   float32(42),
+			usesDirect: true,
+		},
+		// Test double from uint
+		{
+			name:       "double_from_uint",
+			value:      uint64(12345),
+			pT:         parquet.TypePtr(parquet.Type_DOUBLE),
+			expected:   float64(12345),
+			usesDirect: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val := reflect.ValueOf(tt.value)
+			result, err := JSONTypeToParquetType(val, tt.pT, tt.cT, 0, 0)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func BenchmarkJSONTypeToParquetType_DirectConversion(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_INT32)
+	val := reflect.ValueOf(float64(42))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+	}
+}
+
+func BenchmarkJSONTypeToParquetType_Boolean(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_BOOLEAN)
+	val := reflect.ValueOf(true)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+	}
+}
+
+func BenchmarkJSONTypeToParquetType_String(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+	val := reflect.ValueOf("hello world")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+	}
+}
+
+// stringBasedConversion simulates the old string-based approach for benchmarking
+func stringBasedConversion(val reflect.Value, pT *parquet.Type) (any, error) {
+	s := fmt.Sprintf("%v", val)
+	return StrToParquetType(s, pT, nil, 0, 0)
+}
+
+func BenchmarkComparison_Int32_Direct(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_INT32)
+	val := reflect.ValueOf(float64(42))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+	}
+}
+
+func BenchmarkComparison_Int32_StringBased(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_INT32)
+	val := reflect.ValueOf(float64(42))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = stringBasedConversion(val, pT)
+	}
+}
+
+func BenchmarkComparison_Bool_Direct(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_BOOLEAN)
+	val := reflect.ValueOf(true)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+	}
+}
+
+func BenchmarkComparison_Bool_StringBased(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_BOOLEAN)
+	val := reflect.ValueOf(true)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = stringBasedConversion(val, pT)
+	}
+}
+
+func BenchmarkComparison_Double_Direct(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_DOUBLE)
+	val := reflect.ValueOf(float64(3.14159265359))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+	}
+}
+
+func BenchmarkComparison_Double_StringBased(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_DOUBLE)
+	val := reflect.ValueOf(float64(3.14159265359))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = stringBasedConversion(val, pT)
+	}
+}
+
+func BenchmarkComparison_String_Direct(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+	val := reflect.ValueOf("hello world")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+	}
+}
+
+func BenchmarkComparison_String_StringBased(b *testing.B) {
+	pT := parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+	val := reflect.ValueOf("hello world")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = stringBasedConversion(val, pT)
+	}
+}
