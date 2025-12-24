@@ -38,26 +38,26 @@ func (mp *fieldAttr) update(key, val string) error {
 	case "convertedtype":
 		mp.convertedType = val
 	case "length":
-		var valInt int
-		if valInt, err = strconv.Atoi(val); err != nil {
+		valInt, err := strconv.ParseInt(val, 10, 32)
+		if err != nil {
 			return fmt.Errorf("parse length value '%s': %w", val, err)
 		}
 		mp.Length = int32(valInt)
 	case "scale":
-		var valInt int
-		if valInt, err = strconv.Atoi(val); err != nil {
+		valInt, err := strconv.ParseInt(val, 10, 32)
+		if err != nil {
 			return fmt.Errorf("parse scale value '%s': %w", val, err)
 		}
 		mp.Scale = int32(valInt)
 	case "precision":
-		var valInt int
-		if valInt, err = strconv.Atoi(val); err != nil {
+		valInt, err := strconv.ParseInt(val, 10, 32)
+		if err != nil {
 			return fmt.Errorf("parse precision value '%s': %w", val, err)
 		}
 		mp.Precision = int32(valInt)
 	case "fieldid":
-		var valInt int
-		if valInt, err = strconv.Atoi(val); err != nil {
+		valInt, err := strconv.ParseInt(val, 10, 32)
+		if err != nil {
 			return fmt.Errorf("parse fieldid value '%s': %w", val, err)
 		}
 		mp.fieldID = int32(valInt)
@@ -374,14 +374,16 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		logicalType.ENUM = parquet.NewEnumType()
 	case "DECIMAL":
 		logicalType.DECIMAL = parquet.NewDecimalType()
-		var valInt int
 		precisionVal := mp["logicaltype.precision"]
-		if valInt, err = strconv.Atoi(precisionVal); err != nil {
+		valInt, err := strconv.ParseInt(precisionVal, 10, 32)
+		if err != nil {
 			return nil, fmt.Errorf("parse logicaltype.precision value '%s' as int32: %w", precisionVal, err)
 		}
 		logicalType.DECIMAL.Precision = int32(valInt)
+
 		scaleVal := mp["logicaltype.scale"]
-		if valInt, err = strconv.Atoi(scaleVal); err != nil {
+		valInt, err = strconv.ParseInt(scaleVal, 10, 32)
+		if err != nil {
 			return nil, fmt.Errorf("parse logicaltype.scale value '%s' as int32: %w", scaleVal, err)
 		}
 		logicalType.DECIMAL.Scale = int32(valInt)
@@ -405,7 +407,7 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		}
 	case "INTEGER":
 		logicalType.INTEGER = parquet.NewIntType()
-		valInt, err := strconv.Atoi(mp["logicaltype.bitwidth"])
+		valInt, err := strconv.ParseInt(mp["logicaltype.bitwidth"], 10, 8)
 		if err != nil {
 			return nil, fmt.Errorf("parse logicaltype.bitwidth as int32: %w", err)
 		}
@@ -424,7 +426,7 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 	case "VARIANT":
 		logicalType.VARIANT = parquet.NewVariantType()
 		if vStr, ok := mp["logicaltype.specification_version"]; ok && vStr != "" {
-			valInt, err := strconv.Atoi(vStr)
+			valInt, err := strconv.ParseInt(vStr, 10, 32)
 			if err != nil {
 				return nil, fmt.Errorf("parse logicaltype.specification_version as int32: %w", err)
 			}
