@@ -103,8 +103,44 @@ func TestINT96(t *testing.T) {
 	t1 := time.Now().Truncate(time.Microsecond).UTC()
 	s := TimeToINT96(t1)
 	t2 := INT96ToTime(s)
-
 	require.True(t, t1.Equal(t2), "INT96 error: expected %v, got %v", t1, t2)
+}
+
+func TestINT96ToTime_InvalidInput(t *testing.T) {
+	// Test deprecated function returns zero time for invalid input
+	result := INT96ToTime("")
+	require.True(t, result.IsZero())
+
+	result = INT96ToTime("short")
+	require.True(t, result.IsZero())
+}
+
+func TestINT96ToTimeWithError(t *testing.T) {
+	// Test valid input
+	t1 := time.Now().Truncate(time.Microsecond).UTC()
+	s := TimeToINT96(t1)
+	t2, err := INT96ToTimeWithError(s)
+	require.NoError(t, err)
+	require.True(t, t1.Equal(t2), "INT96 error: expected %v, got %v", t1, t2)
+
+	// Test with empty string
+	_, err = INT96ToTimeWithError("")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "too short")
+
+	// Test with string too short
+	_, err = INT96ToTimeWithError("short")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "too short")
+
+	// Test with exactly 11 bytes (one byte short)
+	_, err = INT96ToTimeWithError("12345678901")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "got 11 bytes")
+
+	// Test with exactly 12 bytes (valid)
+	_, err = INT96ToTimeWithError("123456789012")
+	require.NoError(t, err)
 }
 
 func TestTIMESTAMP_MICROSToTime(t *testing.T) {

@@ -105,11 +105,27 @@ func TimeToINT96(t time.Time) string {
 	return string(bs)
 }
 
-func INT96ToTime(int96 string) time.Time {
-	nanos := binary.LittleEndian.Uint64([]byte(int96[:8]))
-	days := binary.LittleEndian.Uint32([]byte(int96[8:]))
+// int96ByteLength is the required length for INT96 binary data
+const int96ByteLength = 12
 
-	return fromJulianDay(int32(days), int64(nanos))
+// INT96ToTime converts INT96 binary data to time.Time.
+// Deprecated: Use INT96ToTimeWithError instead for proper error handling.
+// This function returns zero time if input is invalid.
+func INT96ToTime(int96 string) time.Time {
+	t, _ := INT96ToTimeWithError(int96)
+	return t
+}
+
+// INT96ToTimeWithError converts INT96 binary data to time.Time with error handling.
+// Returns an error if the input is shorter than 12 bytes.
+func INT96ToTimeWithError(int96 string) (time.Time, error) {
+	if len(int96) < int96ByteLength {
+		return time.Time{}, fmt.Errorf("INT96 data too short: got %d bytes, need %d", len(int96), int96ByteLength)
+	}
+	nanos := binary.LittleEndian.Uint64([]byte(int96[:8]))
+	days := binary.LittleEndian.Uint32([]byte(int96[8:12]))
+
+	return fromJulianDay(int32(days), int64(nanos)), nil
 }
 
 func DECIMAL_INT_ToString(dec int64, precision, scale int) string {
