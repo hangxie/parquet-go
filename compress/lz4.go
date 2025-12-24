@@ -5,7 +5,6 @@ package compress
 
 import (
 	"bytes"
-	"io"
 	"sync"
 
 	"github.com/pierrec/lz4/v4"
@@ -32,11 +31,10 @@ func init() {
 			lz4WriterPool.Put(lz4Writer)
 			return res.Bytes()
 		},
-		Uncompress: func(buf []byte) (i []byte, err error) {
+		Uncompress: func(buf []byte) ([]byte, error) {
 			rbuf := bytes.NewReader(buf)
 			lz4Reader := lz4.NewReader(rbuf)
-			res, err := io.ReadAll(lz4Reader)
-			return res, err
+			return LimitedReadAll(lz4Reader, GetMaxDecompressedSize())
 		},
 	}
 }

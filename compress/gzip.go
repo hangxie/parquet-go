@@ -5,7 +5,6 @@ package compress
 
 import (
 	"bytes"
-	"io"
 	"sync"
 
 	"github.com/klauspost/compress/gzip"
@@ -35,11 +34,16 @@ func init() {
 			gzipWriterPool.Put(gzipWriter)
 			return res.Bytes()
 		},
-		Uncompress: func(buf []byte) (i []byte, err error) {
+		Uncompress: func(buf []byte) ([]byte, error) {
 			rbuf := bytes.NewReader(buf)
-			gzipReader, _ := gzip.NewReader(rbuf)
-			res, err := io.ReadAll(gzipReader)
-			return res, err
+			gzipReader, err := gzip.NewReader(rbuf)
+			if err != nil {
+				return nil, err
+			}
+			defer func() {
+				_ = gzipReader.Close()
+			}()
+			return LimitedReadAll(gzipReader, GetMaxDecompressedSize())
 		},
 	}
 }
