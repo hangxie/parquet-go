@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -149,6 +150,8 @@ func DECIMAL_BYTE_ARRAY_ToString(dec []byte, precision, scale int) string {
 	sign := ""
 	if dec[0] > 0x7f {
 		sign = "-"
+		// Clone the slice to avoid mutating the caller's data
+		dec = slices.Clone(dec)
 		for i := range dec {
 			dec[i] = dec[i] ^ 0xff
 		}
