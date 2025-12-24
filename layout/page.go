@@ -117,6 +117,9 @@ func TableToDataPages(table *Table, pageSize int32, compressType parquet.Compres
 func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parquet.CompressionCodec, pageVersion int32) ([]*Page, int64, error) {
 	var totSize int64 = 0
 	totalLn := len(table.Values)
+	if totalLn == 0 {
+		return []*Page{}, 0, nil
+	}
 	res := make([]*Page, 0)
 	i := 0
 	pT, cT, logT, omitStats := table.Schema.Type, table.Schema.ConvertedType, table.Schema.LogicalType, table.Info.OmitStats
