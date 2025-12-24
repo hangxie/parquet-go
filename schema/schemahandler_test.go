@@ -658,3 +658,48 @@ func TestSchemaHandler_BoundsEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestGetRepetitionType(t *testing.T) {
+	t.Run("valid path", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			Field1 int32   `parquet:"name=field1, type=INT32"`
+			Field2 *string `parquet:"name=field2, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+		}))
+		require.NoError(t, err)
+
+		rt, err := sh.GetRepetitionType([]string{"Parquet_go_root", "Field1"})
+		require.NoError(t, err)
+		require.Equal(t, parquet.FieldRepetitionType_REQUIRED, rt)
+
+		rt, err = sh.GetRepetitionType([]string{"Parquet_go_root", "Field2"})
+		require.NoError(t, err)
+		require.Equal(t, parquet.FieldRepetitionType_OPTIONAL, rt)
+	})
+
+	t.Run("invalid path", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			Field1 int32 `parquet:"name=field1, type=INT32"`
+		}))
+		require.NoError(t, err)
+
+		_, err = sh.GetRepetitionType([]string{"Parquet_go_root", "NonExistent"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "name not in schema")
+	})
+
+	t.Run("nil schema element", func(t *testing.T) {
+		// Create a schema handler with a nil element in SchemaElements
+		// Use the correct path delimiter (common.PAR_GO_PATH_DELIMITER = "\x01")
+		pathKey := common.PathToStr([]string{"test", "path"})
+		sh := &SchemaHandler{
+			SchemaElements: []*parquet.SchemaElement{nil},
+			MapIndex: map[string]int32{
+				pathKey: 0,
+			},
+		}
+
+		_, err := sh.GetRepetitionType([]string{"test", "path"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "schema element at index 0 is nil")
+	})
+}

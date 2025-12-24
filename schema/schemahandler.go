@@ -97,6 +97,9 @@ func (sh *SchemaHandler) setPathMap() {
 func (sh *SchemaHandler) GetRepetitionType(path []string) (parquet.FieldRepetitionType, error) {
 	pathStr := common.PathToStr(path)
 	if index, ok := sh.MapIndex[pathStr]; ok {
+		if sh.SchemaElements[index] == nil {
+			return 0, fmt.Errorf("schema element at index %d is nil", index)
+		}
 		return sh.SchemaElements[index].GetRepetitionType(), nil
 	}
 	return 0, fmt.Errorf("name not in schema")
