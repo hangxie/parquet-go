@@ -3484,3 +3484,30 @@ func TestSetGetMaxPageSize(t *testing.T) {
 	SetMaxPageSize(DefaultMaxPageSize)
 	require.Equal(t, int64(DefaultMaxPageSize), GetMaxPageSize())
 }
+
+func TestTableToDataPagesWithVersion_EmptyTable(t *testing.T) {
+	// Test that empty tables are handled gracefully without panic
+	table := &Table{
+		Values:             []any{},
+		DefinitionLevels:   []int32{},
+		RepetitionLevels:   []int32{},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 0,
+		Schema: &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_INT32),
+			Name: "test_col",
+		},
+		Info: &common.Tag{},
+	}
+
+	pages, size, err := TableToDataPagesWithVersion(table, 1024, parquet.CompressionCodec_UNCOMPRESSED, 1)
+	require.NoError(t, err)
+	require.Empty(t, pages)
+	require.Equal(t, int64(0), size)
+
+	// Also test with v2 pages
+	pages, size, err = TableToDataPagesWithVersion(table, 1024, parquet.CompressionCodec_UNCOMPRESSED, 2)
+	require.NoError(t, err)
+	require.Empty(t, pages)
+	require.Equal(t, int64(0), size)
+}

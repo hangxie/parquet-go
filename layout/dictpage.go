@@ -83,6 +83,9 @@ func (page *Page) DictPageCompress(compressType parquet.CompressionCodec, pT par
 func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth int32, compressType parquet.CompressionCodec) ([]*Page, int64, error) {
 	var totSize int64 = 0
 	totalLn := len(table.Values)
+	if totalLn == 0 {
+		return []*Page{}, 0, nil
+	}
 	res := make([]*Page, 0)
 	i := 0
 
