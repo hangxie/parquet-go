@@ -1,6 +1,7 @@
 package compress
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -147,4 +148,140 @@ func TestUncompress(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecompressionSizeLimit(t *testing.T) {
+	// Save original setting and restore after test
+	originalMaxSize := GetMaxDecompressedSize()
+	defer SetMaxDecompressedSize(originalMaxSize)
+
+	// Create test data that will exceed a small limit
+	testData := make([]byte, 1000)
+	for i := range testData {
+		testData[i] = byte(i % 256)
+	}
+
+	// Compress with snappy
+	compressed := Compress(testData, parquet.CompressionCodec_SNAPPY)
+	require.NotNil(t, compressed)
+
+	// Set a very small limit
+	SetMaxDecompressedSize(100)
+
+	// Decompression should fail due to size limit
+	_, err := Uncompress(compressed, parquet.CompressionCodec_SNAPPY)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds maximum")
+
+	// Reset to a larger limit
+	SetMaxDecompressedSize(10000)
+
+	// Decompression should succeed now
+	decompressed, err := Uncompress(compressed, parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
+	require.Equal(t, testData, decompressed)
+}
+
+func TestDecompressionRatioLimit(t *testing.T) {
+	// Save original setting and restore after test
+	originalMaxSize := GetMaxDecompressedSize()
+	defer SetMaxDecompressedSize(originalMaxSize)
+
+	// Disable size limit to test ratio limit
+	SetMaxDecompressedSize(0)
+
+	// Create highly compressible data (all zeros)
+	// This creates a high compression ratio
+	testData := make([]byte, 100000) // 100KB of zeros
+
+	compressed := Compress(testData, parquet.CompressionCodec_SNAPPY)
+	require.NotNil(t, compressed)
+
+	// The ratio check in Uncompress should catch this if ratio > 1000:1
+	// For realistic data, this should still pass
+	decompressed, err := Uncompress(compressed, parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
+	require.Equal(t, testData, decompressed)
+}
+
+func TestUncompressWithExpectedSize(t *testing.T) {
+	// Save original setting and restore after test
+	originalMaxSize := GetMaxDecompressedSize()
+	defer SetMaxDecompressedSize(originalMaxSize)
+	SetMaxDecompressedSize(DefaultMaxDecompressedSize)
+
+	testData := []byte("Hello, World! This is test data for compression.")
+	compressed := Compress(testData, parquet.CompressionCodec_SNAPPY)
+	require.NotNil(t, compressed)
+
+	// Test with correct expected size
+	decompressed, err := UncompressWithExpectedSize(compressed, parquet.CompressionCodec_SNAPPY, int64(len(testData)))
+	require.NoError(t, err)
+	require.Equal(t, testData, decompressed)
+
+	// Test with wrong expected size
+	_, err = UncompressWithExpectedSize(compressed, parquet.CompressionCodec_SNAPPY, int64(len(testData)+10))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match expected size")
+
+	// Test with expected size exceeding max
+	SetMaxDecompressedSize(10)
+	_, err = UncompressWithExpectedSize(compressed, parquet.CompressionCodec_SNAPPY, int64(len(testData)))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds maximum")
+
+	// Test with unsupported codec
+	SetMaxDecompressedSize(DefaultMaxDecompressedSize)
+	_, err = UncompressWithExpectedSize(compressed, parquet.CompressionCodec(-1), int64(len(testData)))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported compress method")
+
+	// Test with expected ratio exceeding maximum
+	SetMaxDecompressedSize(DefaultMaxDecompressedSize)
+	smallData := []byte{1}
+	_, err = UncompressWithExpectedSize(smallData, parquet.CompressionCodec_SNAPPY, int64(len(smallData))*MaxDecompressionRatio+1)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds maximum allowed ratio")
+}
+
+func TestSetGetMaxDecompressedSize(t *testing.T) {
+	// Save original setting and restore after test
+	originalMaxSize := GetMaxDecompressedSize()
+	defer SetMaxDecompressedSize(originalMaxSize)
+
+	// Test setting and getting
+	SetMaxDecompressedSize(12345678)
+	require.Equal(t, int64(12345678), GetMaxDecompressedSize())
+
+	SetMaxDecompressedSize(0)
+	require.Equal(t, int64(0), GetMaxDecompressedSize())
+
+	SetMaxDecompressedSize(DefaultMaxDecompressedSize)
+	require.Equal(t, int64(DefaultMaxDecompressedSize), GetMaxDecompressedSize())
+}
+
+func TestLimitedReadAll(t *testing.T) {
+	t.Run("within limit", func(t *testing.T) {
+		data := []byte("hello world")
+		reader := bytes.NewReader(data)
+		result, err := LimitedReadAll(reader, 100)
+		require.NoError(t, err)
+		require.Equal(t, data, result)
+	})
+
+	t.Run("exceeds limit", func(t *testing.T) {
+		data := []byte("hello world")
+		reader := bytes.NewReader(data)
+		_, err := LimitedReadAll(reader, 5)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "exceeds maximum size")
+	})
+
+	t.Run("zero limit means unlimited", func(t *testing.T) {
+		data := []byte("hello world")
+		reader := bytes.NewReader(data)
+		result, err := LimitedReadAll(reader, 0)
+		require.NoError(t, err)
+		require.Equal(t, data, result)
+	})
 }

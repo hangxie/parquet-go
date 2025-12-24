@@ -5,7 +5,6 @@ package compress
 
 import (
 	"bytes"
-	"io"
 	"sync"
 
 	"github.com/andybalholm/brotli"
@@ -34,11 +33,10 @@ func init() {
 			brotliWriterPool.Put(brotliWriter)
 			return res.Bytes()
 		},
-		Uncompress: func(buf []byte) (i []byte, err error) {
+		Uncompress: func(buf []byte) ([]byte, error) {
 			rbuf := bytes.NewReader(buf)
 			brotliReader := brotli.NewReader(rbuf)
-			res, err := io.ReadAll(brotliReader)
-			return res, err
+			return LimitedReadAll(brotliReader, GetMaxDecompressedSize())
 		},
 	}
 }
