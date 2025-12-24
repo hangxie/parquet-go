@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/bits"
 	"slices"
+	"sync/atomic"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -17,6 +18,39 @@ import (
 	"github.com/hangxie/parquet-go/v2/schema"
 	"github.com/hangxie/parquet-go/v2/types"
 )
+
+// DefaultMaxPageSize is the default maximum size for page data (256 MB).
+// This helps prevent memory exhaustion from maliciously crafted files with
+// extremely large page sizes specified in headers.
+const DefaultMaxPageSize = 256 * 1024 * 1024
+
+// maxPageSize is the configurable maximum page size.
+// Use SetMaxPageSize to change this value.
+var maxPageSize int64 = DefaultMaxPageSize
+
+// SetMaxPageSize sets the maximum allowed page size for reading.
+// Set to 0 to disable the limit (not recommended for untrusted input).
+func SetMaxPageSize(size int64) {
+	atomic.StoreInt64(&maxPageSize, size)
+}
+
+// GetMaxPageSize returns the current maximum page size limit.
+func GetMaxPageSize() int64 {
+	return atomic.LoadInt64(&maxPageSize)
+}
+
+// validatePageSize checks if the page size is within acceptable limits.
+// Returns an error if the size is negative or exceeds the configured maximum.
+func validatePageSize(size int32, context string) error {
+	if size < 0 {
+		return fmt.Errorf("%s: invalid negative page size %d", context, size)
+	}
+	maxSize := GetMaxPageSize()
+	if maxSize > 0 && int64(size) > maxSize {
+		return fmt.Errorf("%s: page size %d exceeds maximum allowed size %d", context, size, maxSize)
+	}
+	return nil
+}
 
 // Page is used to store the page data
 type Page struct {
@@ -520,6 +554,9 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	}
 
 	compressedPageSize := pageHeader.GetCompressedPageSize()
+	if err := validatePageSize(compressedPageSize, "ReadPageRawData"); err != nil {
+		return nil, err
+	}
 	buf := make([]byte, compressedPageSize)
 	if _, err := io.ReadFull(thriftReader, buf); err != nil {
 		return nil, err
@@ -546,6 +583,16 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 	if p.Header.GetType() == parquet.PageType_DATA_PAGE_V2 {
 		dll := p.Header.DataPageHeaderV2.GetDefinitionLevelsByteLength()
 		rll := p.Header.DataPageHeaderV2.GetRepetitionLevelsByteLength()
+
+		// Validate level byte lengths
+		if dll < 0 || rll < 0 {
+			return 0, 0, fmt.Errorf("GetRLDLFromRawData: invalid level byte lengths (dll=%d, rll=%d)", dll, rll)
+		}
+		rawDataLen := int32(len(p.RawData))
+		if dll+rll > rawDataLen {
+			return 0, 0, fmt.Errorf("GetRLDLFromRawData: level byte lengths exceed raw data size (dll=%d + rll=%d > %d)", dll, rll, rawDataLen)
+		}
+
 		repetitionLevelsBuf, definitionLevelsBuf := make([]byte, rll), make([]byte, dll)
 		dataBuf := make([]byte, len(p.RawData)-int(rll)-int(dll))
 		if _, err := bytesReader.Read(repetitionLevelsBuf); err != nil {
@@ -914,9 +961,23 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 	var page *Page
 	compressedPageSize := pageHeader.GetCompressedPageSize()
 
+	// Validate page size before allocation
+	if err := validatePageSize(compressedPageSize, "ReadPage"); err != nil {
+		return nil, 0, 0, err
+	}
+
 	if pageHeader.GetType() == parquet.PageType_DATA_PAGE_V2 {
 		dll := pageHeader.DataPageHeaderV2.GetDefinitionLevelsByteLength()
 		rll := pageHeader.DataPageHeaderV2.GetRepetitionLevelsByteLength()
+
+		// Validate level byte lengths
+		if dll < 0 || rll < 0 {
+			return nil, 0, 0, fmt.Errorf("ReadPage: invalid level byte lengths (dll=%d, rll=%d)", dll, rll)
+		}
+		if dll+rll > compressedPageSize {
+			return nil, 0, 0, fmt.Errorf("ReadPage: level byte lengths exceed page size (dll=%d + rll=%d > %d)", dll, rll, compressedPageSize)
+		}
+
 		repetitionLevelsBuf := make([]byte, rll)
 		definitionLevelsBuf := make([]byte, dll)
 		dataBuf := make([]byte, compressedPageSize-rll-dll)
