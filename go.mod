@@ -22,7 +22,7 @@ require (
 	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.11.1
 	go.mongodb.org/mongo-driver v1.17.6
-	gocloud.dev v0.43.0
+	gocloud.dev v0.44.0
 	golang.org/x/sync v0.18.0
 	google.golang.org/api v0.256.0
 )
