@@ -172,13 +172,12 @@ func ReadPlainFIXED_LEN_BYTE_ARRAY(bytesReader *bytes.Reader, cnt, fixedLength u
 }
 
 func ReadUnsignedVarInt(bytesReader *bytes.Reader) (uint64, error) {
-	var err error
 	var res uint64 = 0
 	var shift uint64 = 0
 	for {
 		b, err := bytesReader.ReadByte()
 		if err != nil {
-			break
+			return res, err
 		}
 		res |= ((uint64(b) & uint64(0x7F)) << uint64(shift))
 		if (b & 0x80) == 0 {
@@ -186,7 +185,7 @@ func ReadUnsignedVarInt(bytesReader *bytes.Reader) (uint64, error) {
 		}
 		shift += 7
 	}
-	return res, err
+	return res, nil
 }
 
 // RLE return res is []INT64
@@ -488,6 +487,9 @@ func ReadDeltaByteArray(bytesReader *bytes.Reader) ([]any, error) {
 	suffixes, err := ReadDeltaLengthByteArray(bytesReader)
 	if err != nil {
 		return res, err
+	}
+	if len(prefixLengths) == 0 {
+		return []any{}, nil
 	}
 	res = make([]any, len(prefixLengths))
 

@@ -318,6 +318,9 @@ func WriteDelta(nums []any) []byte {
 }
 
 func WriteDeltaINT32(nums []any) []byte {
+	if len(nums) == 0 {
+		return []byte{}
+	}
 	res := make([]byte, 0)
 	var blockSize uint64 = 128
 	var numMiniBlocksInBlock uint64 = 4
@@ -376,6 +379,9 @@ func WriteDeltaINT32(nums []any) []byte {
 }
 
 func WriteDeltaINT64(nums []any) []byte {
+	if len(nums) == 0 {
+		return []byte{}
+	}
 	res := make([]byte, 0)
 	var blockSize uint64 = 128
 	var numMiniBlocksInBlock uint64 = 4
@@ -435,6 +441,9 @@ func WriteDeltaINT64(nums []any) []byte {
 
 func WriteDeltaLengthByteArray(arrays []any) []byte {
 	ln := len(arrays)
+	if ln <= 0 {
+		return []byte{}
+	}
 	lengthArray := make([]any, ln)
 	for i := range ln {
 		array := reflect.ValueOf(arrays[i]).String()
