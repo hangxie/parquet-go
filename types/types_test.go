@@ -2454,8 +2454,6 @@ func TestConvertFloat16LogicalValue(t *testing.T) {
 		{"neg_two", string([]byte{0x00, 0xc0}), float32(-2.0)},
 		{"wrong_len", string([]byte{0x00}), string([]byte{0x00})},
 		{"nil", nil, nil},
-		// NaN should return the raw input unchanged (little-endian: 0x7e00 -> [0x00, 0x7e])
-		{"nan_raw_return", string([]byte{0x00, 0x7e}), string([]byte{0x00, 0x7e})},
 		// []byte input path
 		{"bytes_input", []byte{0x00, 0x3c}, float32(1.0)},
 		// unsupported type returns unchanged
@@ -2500,11 +2498,15 @@ func TestConvertFloat16LogicalValue(t *testing.T) {
 		got := ConvertFloat16LogicalValue(in)
 		require.Equal(t, in, got)
 	})
+	// NaN as string, 0x7e00 little-endian: [0x00, 0x7e]
+	t.Run("nan_string", func(t *testing.T) {
+		got := ConvertFloat16LogicalValue(string([]byte{0x00, 0x7e})).(float32)
+		require.True(t, math.IsNaN(float64(got)))
+	})
 	// NaN as []byte, 0x7e00 little-endian: [0x00, 0x7e]
-	t.Run("nan_bytes_raw", func(t *testing.T) {
-		in := []byte{0x00, 0x7e}
-		got := ConvertFloat16LogicalValue(in)
-		require.Equal(t, in, got)
+	t.Run("nan_bytes", func(t *testing.T) {
+		got := ConvertFloat16LogicalValue([]byte{0x00, 0x7e}).(float32)
+		require.True(t, math.IsNaN(float64(got)))
 	})
 }
 

@@ -1077,10 +1077,8 @@ func ConvertFloat16LogicalValue(val any) any {
 	switch exp {
 	case 0x1F: // Inf/NaN
 		if frac != 0 {
-			// NaN: keep raw
-			return val
-		}
-		if sign {
+			f = float32(math.NaN())
+		} else if sign {
 			f = float32(math.Inf(-1))
 		} else {
 			f = float32(math.Inf(1))
