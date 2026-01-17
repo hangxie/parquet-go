@@ -198,8 +198,12 @@ func TestWriteDelta(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				result := WriteDelta(tc.src)
-				if tc.name == "unsupported_type" || tc.name == "empty_input" {
+				if tc.name == "unsupported_type" {
 					require.Len(t, result, 0)
+					return
+				}
+				if tc.name == "empty_input" {
+					require.Equal(t, []byte{128, 1, 4, 0, 0}, result)
 					return
 				}
 				require.NotZero(t, len(result))
@@ -804,21 +808,24 @@ func TestWriteUnsignedVarInt(t *testing.T) {
 func TestWriteDeltaEmpty(t *testing.T) {
 	t.Run("WriteDeltaINT32", func(t *testing.T) {
 		res := WriteDeltaINT32([]any{})
-		require.Empty(t, res)
+		require.Equal(t, []byte{128, 1, 4, 0, 0}, res)
 	})
 
 	t.Run("WriteDeltaINT64", func(t *testing.T) {
 		res := WriteDeltaINT64([]any{})
-		require.Empty(t, res)
+		require.Equal(t, []byte{128, 1, 4, 0, 0}, res)
 	})
 
 	t.Run("WriteDeltaLengthByteArray", func(t *testing.T) {
 		res := WriteDeltaLengthByteArray([]any{})
-		require.Empty(t, res)
+		// Expect header for lengths (INT32)
+		require.Equal(t, []byte{128, 1, 4, 0, 0}, res)
 	})
 
 	t.Run("WriteDeltaByteArray", func(t *testing.T) {
 		res := WriteDeltaByteArray([]any{})
-		require.Empty(t, res)
+		// Expect header for prefixes (INT32) + header for suffixes (LengthByteArray -> INT32)
+		expected := []byte{128, 1, 4, 0, 0, 128, 1, 4, 0, 0}
+		require.Equal(t, expected, res)
 	})
 }

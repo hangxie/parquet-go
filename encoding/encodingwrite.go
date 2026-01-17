@@ -305,7 +305,9 @@ func WriteBitPacked(vals []any, bitWidth int64, ifHeader bool) []byte {
 func WriteDelta(nums []any) []byte {
 	ln := len(nums)
 	if ln <= 0 {
-		return []byte{}
+		// If empty, we default to treating it as INT32 for the sake of writing an empty header.
+		// The type doesn't matter much for an empty block as long as the header is valid.
+		return WriteDeltaINT32(nums)
 	}
 
 	if _, ok := nums[0].(int32); ok {
@@ -318,14 +320,21 @@ func WriteDelta(nums []any) []byte {
 }
 
 func WriteDeltaINT32(nums []any) []byte {
-	if len(nums) == 0 {
-		return []byte{}
+	var totalNumValues uint64 = uint64(len(nums))
+	if totalNumValues == 0 {
+		var blockSize uint64 = 128
+		var numMiniBlocksInBlock uint64 = 4
+		res := make([]byte, 0)
+		res = append(res, WriteUnsignedVarInt(blockSize)...)
+		res = append(res, WriteUnsignedVarInt(numMiniBlocksInBlock)...)
+		res = append(res, WriteUnsignedVarInt(totalNumValues)...)
+		res = append(res, WriteUnsignedVarInt(0)...) // firstValue
+		return res
 	}
 	res := make([]byte, 0)
 	var blockSize uint64 = 128
 	var numMiniBlocksInBlock uint64 = 4
 	var numValuesInMiniBlock uint64 = 32
-	var totalNumValues uint64 = uint64(len(nums))
 
 	num := nums[0].(int32)
 	var firstValue uint64 = uint64((num >> 31) ^ (num << 1))
@@ -379,14 +388,21 @@ func WriteDeltaINT32(nums []any) []byte {
 }
 
 func WriteDeltaINT64(nums []any) []byte {
-	if len(nums) == 0 {
-		return []byte{}
+	var totalNumValues uint64 = uint64(len(nums))
+	if totalNumValues == 0 {
+		var blockSize uint64 = 128
+		var numMiniBlocksInBlock uint64 = 4
+		res := make([]byte, 0)
+		res = append(res, WriteUnsignedVarInt(blockSize)...)
+		res = append(res, WriteUnsignedVarInt(numMiniBlocksInBlock)...)
+		res = append(res, WriteUnsignedVarInt(totalNumValues)...)
+		res = append(res, WriteUnsignedVarInt(0)...) // firstValue
+		return res
 	}
 	res := make([]byte, 0)
 	var blockSize uint64 = 128
 	var numMiniBlocksInBlock uint64 = 4
 	var numValuesInMiniBlock uint64 = 32
-	var totalNumValues uint64 = uint64(len(nums))
 
 	num := nums[0].(int64)
 	var firstValue uint64 = uint64((num >> 63) ^ (num << 1))
@@ -442,7 +458,7 @@ func WriteDeltaINT64(nums []any) []byte {
 func WriteDeltaLengthByteArray(arrays []any) []byte {
 	ln := len(arrays)
 	if ln <= 0 {
-		return []byte{}
+		return WriteDeltaINT32([]any{})
 	}
 	lengthArray := make([]any, ln)
 	for i := range ln {
@@ -495,7 +511,13 @@ func WriteBitPackedDeprecated(vals []any, bitWidth int64) []byte {
 func WriteDeltaByteArray(arrays []any) []byte {
 	ln := len(arrays)
 	if ln <= 0 {
-		return []byte{}
+		// Prepare empty inputs for prefix lengths and suffixes to generate valid headers
+		prefixBuf := WriteDeltaINT32([]any{})
+		suffixBuf := WriteDeltaLengthByteArray([]any{})
+		res := make([]byte, 0)
+		res = append(res, prefixBuf...)
+		res = append(res, suffixBuf...)
+		return res
 	}
 
 	prefixLengths := make([]any, ln)
