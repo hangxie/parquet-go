@@ -1,4 +1,6 @@
 name: Release Build
+permissions:
+  contents: read
 
 on:
   push:
@@ -8,6 +10,8 @@ on:
 jobs:
   github-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
