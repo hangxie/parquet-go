@@ -1024,3 +1024,776 @@ func TestOldStyleList(t *testing.T) {
 		require.NotContains(t, resultMap, "unexportedField")
 	})
 }
+
+// Tests for shredded variant reconstruction functions
+
+func TestIsVariantChildPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		path        string
+		variantPath string
+		expected    bool
+	}{
+		{
+			name:        "direct_child",
+			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata",
+			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			expected:    true,
+		},
+		{
+			name:        "nested_child",
+			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value" + common.PAR_GO_PATH_DELIMITER + "List",
+			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			expected:    true,
+		},
+		{
+			name:        "not_child",
+			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Other",
+			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			expected:    false,
+		},
+		{
+			name:        "same_path",
+			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			expected:    false,
+		},
+		{
+			name:        "partial_match",
+			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Variable",
+			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			expected:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isVariantChildPath(tt.path, tt.variantPath)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestNewShreddedVariantReconstructor(t *testing.T) {
+	// Create schema with variant
+	variantInfo := &schema.VariantSchemaInfo{
+		MetadataIdx:    2,
+		ValueIdx:       3,
+		TypedValueIdxs: []int32{4},
+		IsShredded:     true,
+	}
+
+	sh := &schema.SchemaHandler{
+		IndexMap: map[int32]string{
+			2: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata",
+			3: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value",
+			4: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value",
+		},
+	}
+
+	metadataTable := &layout.Table{
+		Path:             []string{"Root", "Var", "Metadata"},
+		Values:           []any{[]byte{0x01, 0x00, 0x00}},
+		RepetitionLevels: []int32{0},
+		DefinitionLevels: []int32{1},
+	}
+	valueTable := &layout.Table{
+		Path:             []string{"Root", "Var", "Value"},
+		Values:           []any{[]byte{0x00}},
+		RepetitionLevels: []int32{0},
+		DefinitionLevels: []int32{2},
+	}
+	typedValueTable := &layout.Table{
+		Path:             []string{"Root", "Var", "Typed_value"},
+		Values:           []any{int32(42)},
+		RepetitionLevels: []int32{0},
+		DefinitionLevels: []int32{2},
+	}
+
+	tableMap := &map[string]*layout.Table{
+		"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    metadataTable,
+		"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":       valueTable,
+		"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": typedValueTable,
+	}
+
+	t.Run("all_tables_present", func(t *testing.T) {
+		r := NewShreddedVariantReconstructor(
+			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			variantInfo,
+			tableMap,
+			sh,
+		)
+
+		require.NotNil(t, r)
+		require.Equal(t, "Root"+common.PAR_GO_PATH_DELIMITER+"Var", r.Path)
+		require.NotNil(t, r.MetadataTable)
+		require.NotNil(t, r.ValueTable)
+		require.Len(t, r.TypedValueTables, 1)
+	})
+
+	t.Run("no_value_table", func(t *testing.T) {
+		infoNoValue := &schema.VariantSchemaInfo{
+			MetadataIdx:    2,
+			ValueIdx:       -1, // No value column
+			TypedValueIdxs: []int32{4},
+			IsShredded:     true,
+		}
+
+		r := NewShreddedVariantReconstructor(
+			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			infoNoValue,
+			tableMap,
+			sh,
+		)
+
+		require.NotNil(t, r)
+		require.NotNil(t, r.MetadataTable)
+		require.Nil(t, r.ValueTable)
+		require.Len(t, r.TypedValueTables, 1)
+	})
+
+	t.Run("missing_tables_in_map", func(t *testing.T) {
+		emptyTableMap := &map[string]*layout.Table{}
+
+		r := NewShreddedVariantReconstructor(
+			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			variantInfo,
+			emptyTableMap,
+			sh,
+		)
+
+		require.NotNil(t, r)
+		require.Nil(t, r.MetadataTable)
+		require.Nil(t, r.ValueTable)
+		require.Empty(t, r.TypedValueTables)
+	})
+}
+
+func TestShreddedVariantReconstructor_GetValueAtRow(t *testing.T) {
+	sh := &schema.SchemaHandler{
+		MapIndex: map[string]int32{
+			"Root": 0,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var":                                             1,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 2,
+		},
+		SchemaElements: []*parquet.SchemaElement{
+			{Name: "Root"},
+			{Name: "Var", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
+			{Name: "Metadata", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+		},
+	}
+
+	r := &ShreddedVariantReconstructor{
+		SchemaHandler: sh,
+	}
+
+	t.Run("nil_table", func(t *testing.T) {
+		result := r.getValueAtRow(nil, 0, nil, nil)
+		require.Nil(t, result)
+	})
+
+	t.Run("missing_table_in_maps", func(t *testing.T) {
+		table := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{[]byte{0x01}},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+		tableBgn := map[string]int{}
+		tableEnd := map[string]int{}
+
+		result := r.getValueAtRow(table, 0, tableBgn, tableEnd)
+		require.Nil(t, result)
+	})
+
+	t.Run("negative_bgn", func(t *testing.T) {
+		table := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{[]byte{0x01}},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+		tablePath := common.PathToStr(table.Path)
+		tableBgn := map[string]int{tablePath: -1}
+		tableEnd := map[string]int{tablePath: 1}
+
+		result := r.getValueAtRow(table, 0, tableBgn, tableEnd)
+		require.Nil(t, result)
+	})
+
+	t.Run("valid_row_retrieval", func(t *testing.T) {
+		table := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{[]byte{0x01, 0x00, 0x00}, []byte{0x02, 0x00, 0x00}},
+			RepetitionLevels: []int32{0, 0},
+			DefinitionLevels: []int32{1, 1},
+		}
+		tablePath := common.PathToStr(table.Path)
+		tableBgn := map[string]int{tablePath: 0}
+		tableEnd := map[string]int{tablePath: 2}
+
+		result := r.getValueAtRow(table, 0, tableBgn, tableEnd)
+		require.Equal(t, []byte{0x01, 0x00, 0x00}, result)
+
+		result = r.getValueAtRow(table, 1, tableBgn, tableEnd)
+		require.Equal(t, []byte{0x02, 0x00, 0x00}, result)
+	})
+
+	t.Run("row_not_found", func(t *testing.T) {
+		table := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{[]byte{0x01, 0x00, 0x00}},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+		tablePath := common.PathToStr(table.Path)
+		tableBgn := map[string]int{tablePath: 0}
+		tableEnd := map[string]int{tablePath: 1}
+
+		result := r.getValueAtRow(table, 5, tableBgn, tableEnd)
+		require.Nil(t, result)
+	})
+
+	t.Run("null_value_low_definition_level", func(t *testing.T) {
+		// When definition level is less than max, value is null
+		table := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{nil},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{0}, // Lower than max
+		}
+		tablePath := common.PathToStr(table.Path)
+		tableBgn := map[string]int{tablePath: 0}
+		tableEnd := map[string]int{tablePath: 1}
+
+		result := r.getValueAtRow(table, 0, tableBgn, tableEnd)
+		require.Nil(t, result)
+	})
+}
+
+func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
+	sh := &schema.SchemaHandler{
+		MapIndex: map[string]int32{
+			"Root": 0,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var":                                                1,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    2,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":       3,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": 4,
+		},
+		IndexMap: map[int32]string{
+			0: "Root",
+			1: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			2: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata",
+			3: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value",
+			4: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value",
+		},
+		SchemaElements: []*parquet.SchemaElement{
+			{Name: "Root"},
+			{Name: "Var", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
+			{Name: "Metadata", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+			{Name: "Value", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
+			{Name: "Typed_value", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
+		},
+	}
+
+	t.Run("metadata_as_bytes", func(t *testing.T) {
+		metadataTable := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{[]byte{0x01, 0x00, 0x00}},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+		valueTable := &layout.Table{
+			Path:             []string{"Root", "Var", "Value"},
+			Values:           []any{[]byte{0x00}}, // null variant value
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{2},
+		}
+
+		tableMap := &map[string]*layout.Table{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    valueTable,
+		}
+
+		r := NewShreddedVariantReconstructor(
+			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			&schema.VariantSchemaInfo{
+				MetadataIdx:    2,
+				ValueIdx:       3,
+				TypedValueIdxs: nil,
+				IsShredded:     false,
+			},
+			tableMap,
+			sh,
+		)
+
+		tableBgn := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 0,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    0,
+		}
+		tableEnd := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 1,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    1,
+		}
+
+		variant, err := r.Reconstruct(0, tableBgn, tableEnd)
+		require.NoError(t, err)
+		require.NotNil(t, variant.Metadata)
+		require.Equal(t, []byte{0x01, 0x00, 0x00}, variant.Metadata)
+	})
+
+	t.Run("metadata_as_string", func(t *testing.T) {
+		metadataTable := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{string([]byte{0x01, 0x00, 0x00})},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+
+		tableMap := &map[string]*layout.Table{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
+		}
+
+		r := NewShreddedVariantReconstructor(
+			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			&schema.VariantSchemaInfo{
+				MetadataIdx:    2,
+				ValueIdx:       -1,
+				TypedValueIdxs: nil,
+				IsShredded:     false,
+			},
+			tableMap,
+			sh,
+		)
+
+		tableBgn := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 0,
+		}
+		tableEnd := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 1,
+		}
+
+		variant, err := r.Reconstruct(0, tableBgn, tableEnd)
+		require.NoError(t, err)
+		require.NotNil(t, variant.Metadata)
+	})
+
+	t.Run("metadata_unexpected_type", func(t *testing.T) {
+		metadataTable := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{int32(123)}, // Unexpected type
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+
+		tableMap := &map[string]*layout.Table{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
+		}
+
+		r := NewShreddedVariantReconstructor(
+			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			&schema.VariantSchemaInfo{
+				MetadataIdx:    2,
+				ValueIdx:       -1,
+				TypedValueIdxs: nil,
+				IsShredded:     false,
+			},
+			tableMap,
+			sh,
+		)
+
+		tableBgn := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 0,
+		}
+		tableEnd := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 1,
+		}
+
+		_, err := r.Reconstruct(0, tableBgn, tableEnd)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected metadata type")
+	})
+
+	t.Run("value_as_string", func(t *testing.T) {
+		metadataTable := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{[]byte{0x01, 0x00, 0x00}},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+		valueTable := &layout.Table{
+			Path:             []string{"Root", "Var", "Value"},
+			Values:           []any{string([]byte{0x00})},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{2},
+		}
+
+		tableMap := &map[string]*layout.Table{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    valueTable,
+		}
+
+		r := NewShreddedVariantReconstructor(
+			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			&schema.VariantSchemaInfo{
+				MetadataIdx:    2,
+				ValueIdx:       3,
+				TypedValueIdxs: nil,
+				IsShredded:     false,
+			},
+			tableMap,
+			sh,
+		)
+
+		tableBgn := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 0,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    0,
+		}
+		tableEnd := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 1,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    1,
+		}
+
+		variant, err := r.Reconstruct(0, tableBgn, tableEnd)
+		require.NoError(t, err)
+		require.NotNil(t, variant.Value)
+	})
+
+	t.Run("with_typed_value", func(t *testing.T) {
+		metadataTable := &layout.Table{
+			Path:             []string{"Root", "Var", "Metadata"},
+			Values:           []any{[]byte{0x01, 0x00, 0x00}},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+		typedValueTable := &layout.Table{
+			Path:             []string{"Root", "Var", "Typed_value"},
+			Values:           []any{int32(12345)},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{2},
+		}
+
+		tableMap := &map[string]*layout.Table{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    metadataTable,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": typedValueTable,
+		}
+
+		r := NewShreddedVariantReconstructor(
+			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			&schema.VariantSchemaInfo{
+				MetadataIdx:    2,
+				ValueIdx:       -1,
+				TypedValueIdxs: []int32{4},
+				IsShredded:     true,
+			},
+			tableMap,
+			sh,
+		)
+
+		tableBgn := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    0,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": 0,
+		}
+		tableEnd := map[string]int{
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    1,
+			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": 1,
+		}
+
+		variant, err := r.Reconstruct(0, tableBgn, tableEnd)
+		require.NoError(t, err)
+		require.NotNil(t, variant.Value)
+	})
+}
+
+func TestSetVariantValue(t *testing.T) {
+	t.Run("simple_struct_with_variant", func(t *testing.T) {
+		type SimpleStruct struct {
+			Name string
+			Var  types.Variant
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testStruct := SimpleStruct{Name: "test"}
+		root := reflect.ValueOf(&testStruct).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		require.NoError(t, err)
+		require.Equal(t, variant, testStruct.Var)
+	})
+
+	t.Run("struct_with_pointer_variant", func(t *testing.T) {
+		type StructWithPtrVariant struct {
+			Name string
+			Var  *types.Variant
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testStruct := StructWithPtrVariant{Name: "test"}
+		root := reflect.ValueOf(&testStruct).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		require.NoError(t, err)
+		require.NotNil(t, testStruct.Var)
+		require.Equal(t, variant, *testStruct.Var)
+	})
+
+	t.Run("nested_struct_with_variant", func(t *testing.T) {
+		type Inner struct {
+			Var types.Variant
+		}
+		type Outer struct {
+			Inner Inner
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testStruct := Outer{}
+		root := reflect.ValueOf(&testStruct).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Inner"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		require.NoError(t, err)
+		require.Equal(t, variant, testStruct.Inner.Var)
+	})
+
+	t.Run("slice_of_structs_with_variant", func(t *testing.T) {
+		type ItemWithVariant struct {
+			Var types.Variant
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testSlice := []ItemWithVariant{{}, {}}
+		root := reflect.ValueOf(&testSlice).Elem()
+
+		// Create slice record to track slice values
+		sliceRecords[root] = &SliceRecord{
+			Values: []reflect.Value{
+				reflect.ValueOf(&testSlice[0]).Elem(),
+				reflect.ValueOf(&testSlice[1]).Elem(),
+			},
+			Index: 0,
+		}
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 1, sliceRecords)
+		require.NoError(t, err)
+		require.Equal(t, variant, testSlice[1].Var)
+	})
+
+	t.Run("field_not_found", func(t *testing.T) {
+		type SimpleStruct struct {
+			Name string
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testStruct := SimpleStruct{Name: "test"}
+		root := reflect.ValueOf(&testStruct).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"NonExistent", "", sh, variant, 0, sliceRecords)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("pointer_initialization", func(t *testing.T) {
+		type StructWithPtrNested struct {
+			Inner *struct {
+				Var types.Variant
+			}
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testStruct := StructWithPtrNested{}
+		root := reflect.ValueOf(&testStruct).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Inner"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		require.NoError(t, err)
+		require.NotNil(t, testStruct.Inner)
+		require.Equal(t, variant, testStruct.Inner.Var)
+	})
+
+	t.Run("slice_index_out_of_bounds", func(t *testing.T) {
+		type ItemWithVariant struct {
+			Var types.Variant
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testSlice := []ItemWithVariant{{}}
+		root := reflect.ValueOf(&testSlice).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		// rowIdx 5 is out of bounds for a slice with 1 element
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 5, sliceRecords)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "out of bounds")
+	})
+
+	t.Run("byte_slice_error", func(t *testing.T) {
+		type StructWithBytes struct {
+			Data []byte
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testStruct := StructWithBytes{Data: []byte{1, 2, 3}}
+		root := reflect.ValueOf(&testStruct).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Data"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "[]byte")
+	})
+
+	t.Run("unexpected_kind", func(t *testing.T) {
+		type StructWithInt struct {
+			Value int
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testStruct := StructWithInt{Value: 42}
+		root := reflect.ValueOf(&testStruct).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Value"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected kind")
+	})
+
+	t.Run("path_end_not_variant_type", func(t *testing.T) {
+		type StructWithString struct {
+			Name string
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		testStruct := StructWithString{Name: "test"}
+		root := reflect.ValueOf(&testStruct).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Name", "", sh, variant, 0, sliceRecords)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "could not set variant value at path end")
+	})
+
+	t.Run("slice_direct_access_without_sliceRecords", func(t *testing.T) {
+		type ItemWithVariant struct {
+			Var types.Variant
+		}
+
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord) // Empty - no SliceRecord for this slice
+
+		testSlice := []ItemWithVariant{{}, {}, {}}
+		root := reflect.ValueOf(&testSlice).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		// Access row 1 without SliceRecord - should use direct po.Index(rowIdx)
+		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 1, sliceRecords)
+		require.NoError(t, err)
+		require.Equal(t, variant, testSlice[1].Var)
+	})
+
+	t.Run("path_ends_at_variant_type_directly", func(t *testing.T) {
+		// Test case where the path ends right at a types.Variant field
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		// Create a Variant directly
+		testVariant := types.Variant{}
+		root := reflect.ValueOf(&testVariant).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		// Path is just the root (empty path after prefix)
+		err := setVariantValue(root, "Parquet_go_root", "", sh, variant, 0, sliceRecords)
+		require.NoError(t, err)
+		require.Equal(t, variant, testVariant)
+	})
+
+	t.Run("path_ends_at_pointer_to_variant_directly", func(t *testing.T) {
+		// Test case where the path ends at a *types.Variant field
+		sh := &schema.SchemaHandler{}
+		sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+		var testVariant *types.Variant
+		root := reflect.ValueOf(&testVariant).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x00},
+		}
+
+		// Path is just the root (empty path after prefix)
+		err := setVariantValue(root, "Parquet_go_root", "", sh, variant, 0, sliceRecords)
+		require.NoError(t, err)
+		require.NotNil(t, testVariant)
+		require.Equal(t, variant, *testVariant)
+	})
+}

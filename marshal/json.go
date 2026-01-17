@@ -58,6 +58,13 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 
 			schema := schemaHandler.SchemaElements[schemaIndex]
 
+			if newStack, handled, err := HandleVariant(node, schema, res, schemaHandler, nodeBuf, stack); err != nil {
+				return nil, err
+			} else if handled {
+				stack = newStack
+				continue
+			}
+
 			switch node.Val.Type().Kind() {
 			case reflect.Map:
 				keys := node.Val.MapKeys()

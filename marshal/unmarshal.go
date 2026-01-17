@@ -13,6 +13,169 @@ import (
 	"github.com/hangxie/parquet-go/v2/types"
 )
 
+// ShreddedVariantReconstructor handles the reconstruction of shredded VARIANT columns.
+// It collects related tables (metadata, value, typed_value) and reconstructs full
+// Variant values row by row.
+type ShreddedVariantReconstructor struct {
+	Path             string                    // Path of the variant group
+	Info             *schema.VariantSchemaInfo // Schema info for this variant
+	MetadataTable    *layout.Table             // metadata column (always present)
+	ValueTable       *layout.Table             // value column (may be nil if fully shredded)
+	TypedValueTables []*layout.Table           // typed_value columns (may be empty if not shredded)
+	SchemaHandler    *schema.SchemaHandler     // Schema handler for path resolution
+}
+
+// NewShreddedVariantReconstructor creates a reconstructor for a shredded variant column.
+func NewShreddedVariantReconstructor(
+	path string,
+	info *schema.VariantSchemaInfo,
+	tableMap *map[string]*layout.Table,
+	sh *schema.SchemaHandler,
+) *ShreddedVariantReconstructor {
+	r := &ShreddedVariantReconstructor{
+		Path:          path,
+		Info:          info,
+		SchemaHandler: sh,
+	}
+
+	// Find metadata table
+	metadataPath := sh.IndexMap[info.MetadataIdx]
+	if table, ok := (*tableMap)[metadataPath]; ok {
+		r.MetadataTable = table
+	}
+
+	// Find value table (may not exist in fully shredded variant)
+	var valuePath string
+	if info.ValueIdx >= 0 {
+		valuePath = sh.IndexMap[info.ValueIdx]
+		if table, ok := (*tableMap)[valuePath]; ok {
+			r.ValueTable = table
+		}
+	}
+
+	// Find all typed_value leaf tables
+	// A shredded field can be a primitive named "Typed_value" OR any field under a "Typed_value" group
+	// OR (per spec) any other field under the variant group that isn't metadata/value.
+	for tableName, table := range *tableMap {
+		if !strings.HasPrefix(tableName, path+common.PAR_GO_PATH_DELIMITER) {
+			continue
+		}
+		if tableName == metadataPath || (valuePath != "" && tableName == valuePath) {
+			continue
+		}
+
+		// Also skip if it looks like metadata or value by name (safety/robustness)
+		relPath := strings.TrimPrefix(tableName, path+common.PAR_GO_PATH_DELIMITER)
+		if strings.EqualFold(relPath, "Metadata") || strings.EqualFold(relPath, "Value") {
+			continue
+		}
+
+		r.TypedValueTables = append(r.TypedValueTables, table)
+	}
+
+	return r
+}
+
+// getValueAtRow returns the value from a table at the given row index.
+// It handles definition levels to return nil for missing values.
+func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx int, tableBgn, tableEnd map[string]int) any {
+	if table == nil {
+		return nil
+	}
+
+	tableName := common.PathToStr(table.Path)
+	bgn, ok1 := tableBgn[tableName]
+	end, ok2 := tableEnd[tableName]
+	if !ok1 || !ok2 || bgn < 0 {
+		return nil
+	}
+
+	// Find the value for this row by scanning repetition levels
+	currentRow := -1
+	for i := bgn; i < end; i++ {
+		if table.RepetitionLevels[i] == 0 {
+			currentRow++
+		}
+		if currentRow == rowIdx {
+			// Check definition level to see if value is present
+			maxDL, _ := r.SchemaHandler.MaxDefinitionLevel(table.Path)
+			if table.DefinitionLevels[i] >= maxDL {
+				return table.Values[i]
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+// Reconstruct reconstructs a Variant value for the given row index.
+func (r *ShreddedVariantReconstructor) Reconstruct(rowIdx int, tableBgn, tableEnd map[string]int) (types.Variant, error) {
+	// Get metadata (always required)
+	metadataVal := r.getValueAtRow(r.MetadataTable, rowIdx, tableBgn, tableEnd)
+	var metadata []byte
+	if metadataVal != nil {
+		switch v := metadataVal.(type) {
+		case []byte:
+			metadata = v
+		case string:
+			metadata = []byte(v)
+		default:
+			return types.Variant{}, fmt.Errorf("unexpected metadata type: %T", metadataVal)
+		}
+	}
+
+	// Get value (may be nil if shredded)
+	var value []byte
+	if r.ValueTable != nil {
+		valueVal := r.getValueAtRow(r.ValueTable, rowIdx, tableBgn, tableEnd)
+		if valueVal != nil {
+			switch v := valueVal.(type) {
+			case []byte:
+				value = v
+			case string:
+				value = []byte(v)
+			}
+		}
+	}
+
+	// Get typed_value (may be multiple shredded columns)
+	var typedValue any
+	if len(r.TypedValueTables) == 1 {
+		typedValue = r.getValueAtRow(r.TypedValueTables[0], rowIdx, tableBgn, tableEnd)
+	} else if len(r.TypedValueTables) > 1 {
+		obj := make(map[string]any)
+		for _, table := range r.TypedValueTables {
+			val := r.getValueAtRow(table, rowIdx, tableBgn, tableEnd)
+			if val != nil {
+				// Get the field name relative to the variant path
+				fullPath := common.PathToStr(table.Path)
+				relPath := strings.TrimPrefix(fullPath, r.Path+common.PAR_GO_PATH_DELIMITER)
+
+				// Strip "Typed_value" prefix if present (standard shredding layout)
+				if strings.HasPrefix(relPath, "Typed_value"+common.PAR_GO_PATH_DELIMITER) {
+					relPath = strings.TrimPrefix(relPath, "Typed_value"+common.PAR_GO_PATH_DELIMITER)
+				}
+
+				// For now, support single-level shredding by taking the last part of the path as key
+				parts := strings.Split(relPath, common.PAR_GO_PATH_DELIMITER)
+				fieldName := parts[len(parts)-1]
+				obj[fieldName] = val
+			}
+		}
+		if len(obj) > 0 {
+			typedValue = obj
+		}
+	}
+
+	// Reconstruct the variant
+	return types.ReconstructVariant(metadata, value, typedValue)
+}
+
+// isVariantChildPath checks if a path is a child of a variant group path
+func isVariantChildPath(path, variantPath string) bool {
+	return strings.HasPrefix(path, variantPath+common.PAR_GO_PATH_DELIMITER)
+}
+
 // Record Map KeyValue pair
 type KeyValue struct {
 	Key   reflect.Value
@@ -87,7 +250,34 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 	root := rootValue.Elem()
 	prefixIndex := common.PathStrIndex(prefixPath) - 1
 
+	// Identify shredded variant groups and their reconstructors
+	variantReconstructors := make(map[string]*ShreddedVariantReconstructor)
+	variantChildPaths := make(map[string]string) // maps child path to variant path
+
+	if schemaHandler.VariantSchemas != nil {
+		for variantPath, info := range schemaHandler.VariantSchemas {
+			if !strings.HasPrefix(variantPath, prefixPath) {
+				continue
+			}
+
+			// Create reconstructor for this variant
+			reconstructor := NewShreddedVariantReconstructor(variantPath, info, tableMap, schemaHandler)
+			variantReconstructors[variantPath] = reconstructor
+
+			// Mark all child paths as belonging to this variant
+			for childPath := range tableNeeds {
+				if isVariantChildPath(childPath, variantPath) {
+					variantChildPaths[childPath] = variantPath
+				}
+			}
+		}
+	}
+
 	for name, table := range tableNeeds {
+		// Skip tables that are children of shredded variants - they're handled separately
+		if _, isVariantChild := variantChildPaths[name]; isVariantChild {
+			continue
+		}
 		path := table.Path
 		bgn := tableBgn[name]
 		end := tableEnd[name]
@@ -132,6 +322,27 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 				poType := po.Type()
 				switch poType.Kind() {
 				case reflect.Slice:
+					// []byte should be treated as primitive BYTE_ARRAY, not as a slice/list
+					if poType.Elem().Kind() == reflect.Uint8 {
+						// Handle nil values gracefully
+						if val == nil {
+							break OuterLoop
+						}
+						value := reflect.ValueOf(val)
+						if !value.IsValid() {
+							break OuterLoop
+						}
+						// Convert string to []byte if needed
+						if value.Kind() == reflect.String {
+							po.Set(reflect.ValueOf([]byte(value.String())))
+						} else if value.Kind() == reflect.Slice && value.Type().Elem().Kind() == reflect.Uint8 {
+							po.Set(value)
+						} else {
+							return fmt.Errorf("cannot assign %v to []byte field", value.Type())
+						}
+						break OuterLoop
+					}
+
 					cTIsList := cT != nil && *cT == parquet.ConvertedType_LIST
 
 					if po.IsNil() {
@@ -358,17 +569,23 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 					}
 
 					if poTypeForConvert != valueType {
-						var convertErr error
-						func() {
-							defer func() {
-								if r := recover(); r != nil {
-									convertErr = fmt.Errorf("convert type: %v", r)
-								}
+						// Special handling for string -> []byte conversion (BYTE_ARRAY to []byte)
+						if valueType.Kind() == reflect.String && poTypeForConvert.Kind() == reflect.Slice && poTypeForConvert.Elem().Kind() == reflect.Uint8 {
+							strVal := value.String()
+							value = reflect.ValueOf([]byte(strVal))
+						} else {
+							var convertErr error
+							func() {
+								defer func() {
+									if r := recover(); r != nil {
+										convertErr = fmt.Errorf("convert type: %v", r)
+									}
+								}()
+								value = value.Convert(poTypeForConvert)
 							}()
-							value = value.Convert(poTypeForConvert)
-						}()
-						if convertErr != nil {
-							return convertErr
+							if convertErr != nil {
+								return convertErr
+							}
 						}
 					}
 					var setErr error
@@ -389,6 +606,45 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 		}
 	}
 
+	// Process shredded variants
+	for variantPath, reconstructor := range variantReconstructors {
+		// Calculate actual number of rows in this batch from the metadata table
+		// We can't use end - bgn because that's the requested batch size, which may
+		// exceed the actual rows in the file.
+		numRows := 0
+		if reconstructor.MetadataTable != nil {
+			metaPath := common.PathToStr(reconstructor.MetadataTable.Path)
+			metaBgn, metaEnd := tableBgn[metaPath], tableEnd[metaPath]
+			if metaBgn >= 0 && metaEnd > metaBgn {
+				for i := metaBgn; i < metaEnd; i++ {
+					if reconstructor.MetadataTable.RepetitionLevels[i] == 0 {
+						numRows++
+					}
+				}
+			}
+		}
+
+		// Navigate to the variant field location and set each row's variant value
+		// Ensure root slice is large enough if we're unmarshaling into a slice
+		if root.Kind() == reflect.Slice && root.Len() < numRows {
+			newSlice := reflect.MakeSlice(root.Type(), numRows, numRows)
+			reflect.Copy(newSlice, root)
+			root.Set(newSlice)
+		}
+
+		for rowIdx := range numRows {
+			variant, err := reconstructor.Reconstruct(rowIdx, tableBgn, tableEnd)
+			if err != nil {
+				return fmt.Errorf("reconstruct variant at %s row %d: %w", variantPath, rowIdx, err)
+			}
+
+			// Set the variant value at the appropriate location in the struct
+			if err := setVariantValue(root, variantPath, prefixPath, schemaHandler, variant, rowIdx, sliceRecords); err != nil {
+				return fmt.Errorf("set variant at %s row %d: %w", variantPath, rowIdx, err)
+			}
+		}
+	}
+
 	for i := len(sliceRecordsStack) - 1; i >= 0; i-- {
 		po := sliceRecordsStack[i]
 		vs := sliceRecords[po]
@@ -404,6 +660,99 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 	}
 
 	return nil
+}
+
+// setVariantValue navigates the struct path and sets a variant value at the specified location.
+func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *schema.SchemaHandler, variant types.Variant, rowIdx int, sliceRecords map[reflect.Value]*SliceRecord) error {
+	path := common.StrToPath(variantPath)
+	prefixIndex := common.PathStrIndex(prefixPath)
+
+	po := root
+
+	for i := prefixIndex; i < len(path); i++ {
+		if !po.IsValid() {
+			return fmt.Errorf("invalid reflect value at path index %d", i)
+		}
+
+		switch po.Kind() {
+		case reflect.Ptr:
+			if po.IsNil() {
+				po.Set(reflect.New(po.Type().Elem()))
+			}
+			po = po.Elem()
+			i-- // Stay at the same path element
+			continue
+
+		case reflect.Slice:
+			// Handle slice navigation
+			if po.Type().Elem().Kind() == reflect.Uint8 {
+				// []byte - not navigable
+				return fmt.Errorf("unexpected []byte at path index %d", i)
+			}
+
+			// Ensure slice has enough elements
+			sliceRec, ok := sliceRecords[po]
+			if ok && rowIdx < len(sliceRec.Values) {
+				po = sliceRec.Values[rowIdx]
+			} else if rowIdx < po.Len() {
+				po = po.Index(rowIdx)
+			} else {
+				return fmt.Errorf("row index %d out of bounds for slice at path index %d", rowIdx, i)
+			}
+			i-- // Stay at the same path element
+			continue
+
+		case reflect.Struct:
+			// Navigate to the next field
+			fieldName := path[i]
+			field := po.FieldByName(fieldName)
+			if !field.IsValid() {
+				return fmt.Errorf("field %q not found at path index %d", fieldName, i)
+			}
+			po = field
+
+		case reflect.Interface:
+			if po.IsNil() {
+				// If we're at the end of the path, we can set the variant directly
+				if i == len(path)-1 {
+					po.Set(reflect.ValueOf(variant))
+					return nil
+				}
+				return fmt.Errorf("cannot navigate through nil interface at path index %d", i)
+			}
+			po = po.Elem()
+			i-- // Stay at the same path element
+			continue
+
+		default:
+			return fmt.Errorf("unexpected kind %v at path index %d", po.Kind(), i)
+		}
+	}
+
+	// Final assignment if we reached the end of path
+	isNull := len(variant.Value) == 0 || (len(variant.Value) == 1 && variant.Value[0] == 0 && len(variant.Metadata) == 0)
+
+	if po.Type() == reflect.TypeOf(types.Variant{}) || po.Kind() == reflect.Interface {
+		if isNull && po.Kind() == reflect.Interface {
+			po.Set(reflect.Zero(po.Type()))
+			return nil
+		}
+		po.Set(reflect.ValueOf(variant))
+		return nil
+	}
+	if po.Kind() == reflect.Ptr && (po.Type().Elem() == reflect.TypeOf(types.Variant{}) || po.Type().Elem().Kind() == reflect.Interface) {
+		if isNull {
+			po.Set(reflect.Zero(po.Type()))
+			return nil
+		}
+		if po.IsNil() {
+			po.Set(reflect.New(po.Type().Elem()))
+		}
+		po.Elem().Set(reflect.ValueOf(variant))
+		return nil
+	}
+
+	return fmt.Errorf("could not set variant value at path end")
 }
 
 // ConvertToJSONFriendly converts parquet data to JSON-friendly format by applying logical type conversions
@@ -526,6 +875,17 @@ func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHan
 // convertStructToJSONFriendly optimized struct conversion with field caching
 func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
 	valType := val.Type()
+
+	// Special handling for types.Variant: decode the variant binary data
+	if valType == reflect.TypeOf(types.Variant{}) {
+		variant := val.Interface().(types.Variant)
+		decoded, err := types.ConvertVariantValue(variant)
+		if err != nil {
+			// On error, still return the decoded value (which will be base64 fallback)
+			return decoded, nil
+		}
+		return decoded, nil
+	}
 
 	// Special handling for old list format: if struct has single "array" field with slice data,
 	// return the slice directly instead of wrapping in map

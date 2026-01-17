@@ -95,8 +95,8 @@ type AllTypes struct {
 	GeometryMultiPolygon       string `parquet:"name=GeometryMultiPolygon, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
 	GeometryGeometryCollection string `parquet:"name=GeometryGeometryCollection, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
 
-	// Note: VARIANT is not widely supported by Apache tooling; use JSON for compatibility
-	Variant string `parquet:"name=Variant, type=BYTE_ARRAY, logicaltype=VARIANT, logicaltype.specification_version=1"`
+	// Note: VARIANT is a GROUP type with metadata and value binary fields per Parquet spec
+	Variant types.Variant `parquet:"name=Variant, type=VARIANT, logicaltype=VARIANT, logicaltype.specification_version=1"`
 }
 
 // uuidStringToBytes converts a UUID string to 16-byte binary representation
@@ -286,7 +286,7 @@ func main() {
 				wkbPoint(float64(i), float64(i)+0.25),
 				wkbLineString([][2]float64{{0, 0}, {1, 1}}),
 			}),
-			Variant: `{"type":"Example","value":` + strI + `}`,
+			Variant: createSampleVariant(i),
 		}
 		if i%2 == 0 {
 			value.DecimalPointer = nil
@@ -507,6 +507,28 @@ func sampleGeometry(i int) string {
 			wkbPoint(float64(i), float64(i)+0.5),
 			wkbLineString([][2]float64{{0, 0}, {1, 1}}),
 		})
+	}
+}
+
+// createSampleVariant creates a properly encoded Variant value
+// representing a JSON object: {"kind": "Example", "number": i}
+func createSampleVariant(i int) types.Variant {
+	// Create metadata with sorted dictionary for optimal lookup performance
+	// EncodeVariantMetadataSorted returns the metadata and a map of field name -> field ID
+	metadata, fieldIDs := types.EncodeVariantMetadataSorted([]string{"kind", "number"})
+
+	// Create object value with two fields using the field ID map
+	value := types.EncodeVariantObject(
+		[]int{fieldIDs["kind"], fieldIDs["number"]},
+		[][]byte{
+			types.EncodeVariantString("Example"),
+			types.EncodeVariantInt32(int32(i)),
+		},
+	)
+
+	return types.Variant{
+		Metadata: metadata,
+		Value:    value,
 	}
 }
 

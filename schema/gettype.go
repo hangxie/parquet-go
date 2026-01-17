@@ -3,10 +3,134 @@ package schema
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/types"
 )
+
+// VariantSchemaInfo contains information about a VARIANT schema, including
+// whether it's shredded and the indices of its component columns.
+type VariantSchemaInfo struct {
+	MetadataIdx    int32   // Index of the metadata column (always present, required)
+	ValueIdx       int32   // Index of the value column (-1 if absent in shredded variant)
+	TypedValueIdxs []int32 // Indices of typed_value columns (empty if not shredded)
+	IsShredded     bool    // True if the variant has typed_value columns
+}
+
+// isValidVariantSchema checks if a schema element at idx represents a valid VARIANT type
+// per the Parquet spec. Supports both unshredded (2 children: metadata + value) and
+// shredded variants (2+ children: metadata + optional value + typed_value columns).
+//
+// Unshredded format:
+//
+//	GROUP Variant (VARIANT)
+//	├── metadata (BYTE_ARRAY, REQUIRED)
+//	└── value (BYTE_ARRAY, REQUIRED)
+//
+// Shredded format:
+//
+//	GROUP Variant (VARIANT)
+//	├── metadata (BYTE_ARRAY, REQUIRED)
+//	├── value (BYTE_ARRAY, OPTIONAL)        ← OPTIONAL when shredded
+//	└── typed_value (various types, OPTIONAL)
+func (sh *SchemaHandler) isValidVariantSchema(idx int32, children []int32) bool {
+	elem := sh.SchemaElements[idx]
+
+	// Must have VARIANT LogicalType
+	if elem.LogicalType == nil || elem.LogicalType.VARIANT == nil {
+		return false
+	}
+
+	// Must have at least 2 children (metadata + value or metadata + typed_value)
+	if len(children) < 2 {
+		return false
+	}
+
+	// Look for metadata, value and typed_value columns in children
+	hasMetadata := false
+	hasValueOrTyped := false
+
+	for _, childIdx := range children {
+		if int(childIdx) >= len(sh.SchemaElements) {
+			continue
+		}
+		child := sh.SchemaElements[childIdx]
+		childName := sh.GetInName(int(childIdx))
+
+		if strings.EqualFold(childName, "Metadata") {
+			// Metadata column: required BYTE_ARRAY
+			if child.Type != nil && *child.Type == parquet.Type_BYTE_ARRAY &&
+				child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_REQUIRED {
+				hasMetadata = true
+			}
+		} else if strings.EqualFold(childName, "Value") {
+			// Value column: BYTE_ARRAY, REQUIRED or OPTIONAL
+			if child.Type != nil && *child.Type == parquet.Type_BYTE_ARRAY {
+				if child.RepetitionType != nil {
+					rt := *child.RepetitionType
+					if rt == parquet.FieldRepetitionType_REQUIRED || rt == parquet.FieldRepetitionType_OPTIONAL {
+						hasValueOrTyped = true
+					}
+				}
+			}
+		} else if strings.EqualFold(childName, "Typed_value") {
+			// typed_value column: should be OPTIONAL for valid shredding
+			if child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_OPTIONAL {
+				hasValueOrTyped = true
+			}
+		} else {
+			// Any other optional field is a shredded field
+			if child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_OPTIONAL {
+				hasValueOrTyped = true
+			}
+		}
+	}
+
+	return hasMetadata && hasValueOrTyped
+}
+
+// getVariantSchemaInfo extracts detailed information about a variant schema.
+// Returns nil if the schema at idx is not a valid variant schema.
+func (sh *SchemaHandler) getVariantSchemaInfo(idx int32, children []int32) *VariantSchemaInfo {
+	if !sh.isValidVariantSchema(idx, children) {
+		return nil
+	}
+
+	info := &VariantSchemaInfo{
+		MetadataIdx:    -1,
+		ValueIdx:       -1,
+		TypedValueIdxs: []int32{},
+		IsShredded:     false,
+	}
+
+	for _, childIdx := range children {
+		child := sh.SchemaElements[childIdx]
+		childName := sh.GetInName(int(childIdx))
+
+		if strings.EqualFold(childName, "Metadata") {
+			info.MetadataIdx = childIdx
+		} else if strings.EqualFold(childName, "Value") {
+			info.ValueIdx = childIdx
+			if child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_OPTIONAL {
+				info.IsShredded = true
+			}
+		} else if strings.EqualFold(childName, "Typed_value") {
+			if child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_OPTIONAL {
+				info.TypedValueIdxs = append(info.TypedValueIdxs, childIdx)
+				info.IsShredded = true
+			}
+		} else {
+			// Any other optional field is a shredded field
+			if child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_OPTIONAL {
+				info.TypedValueIdxs = append(info.TypedValueIdxs, childIdx)
+				info.IsShredded = true
+			}
+		}
+	}
+
+	return info
+}
 
 // buildChildrenMap builds the parent-child relationship map for all schema elements
 // This is cached in SchemaHandler to avoid rebuilding on every GetType() call
@@ -136,6 +260,14 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 						elementTypes[idx] = reflect.PointerTo(reflect.MapOf(kT, vT))
 					} else {
 						elementTypes[idx] = reflect.MapOf(kT, vT)
+					}
+				} else if sh.isValidVariantSchema(idx, elements[idx]) {
+					// VARIANT type - return types.Variant struct
+					variantType := reflect.TypeOf(types.Variant{})
+					if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
+						elementTypes[idx] = reflect.PointerTo(variantType)
+					} else {
+						elementTypes[idx] = variantType
 					}
 				} else {
 					fields := []reflect.StructField{}

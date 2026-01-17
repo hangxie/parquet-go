@@ -122,6 +122,51 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			}
 			stack = append(stack, item.Fields[1]) // put value
 			stack = append(stack, item.Fields[0]) // put key
+		case "VARIANT": // variant type - GROUP with metadata and value children
+			schema := parquet.NewSchemaElement()
+			schema.Name = info.InName
+			rt := info.RepetitionType
+			schema.RepetitionType = &rt
+			var numChildren int32 = 2
+			schema.NumChildren = &numChildren
+			// Set LogicalType for VARIANT
+			logicalType := common.GetLogicalTypeFromTag(info)
+			if logicalType == nil {
+				logicalType = parquet.NewLogicalType()
+				logicalType.VARIANT = parquet.NewVariantType()
+			}
+			schema.LogicalType = logicalType
+			schemaElements = append(schemaElements, schema)
+
+			newInfo = &common.Tag{}
+			common.DeepCopy(info, newInfo)
+			infos = append(infos, newInfo)
+
+			// Add metadata child (required binary)
+			metadataSchema := parquet.NewSchemaElement()
+			metadataSchema.Name = "Metadata"
+			metadataType := parquet.Type_BYTE_ARRAY
+			metadataSchema.Type = &metadataType
+			metadataRt := parquet.FieldRepetitionType_REQUIRED
+			metadataSchema.RepetitionType = &metadataRt
+			schemaElements = append(schemaElements, metadataSchema)
+			metadataInfo := &common.Tag{InName: "Metadata", ExName: "metadata"}
+			metadataInfo.Type = "BYTE_ARRAY"
+			metadataInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
+			infos = append(infos, metadataInfo)
+
+			// Add value child (required binary)
+			valueSchema := parquet.NewSchemaElement()
+			valueSchema.Name = "Value"
+			valueType := parquet.Type_BYTE_ARRAY
+			valueSchema.Type = &valueType
+			valueRt := parquet.FieldRepetitionType_REQUIRED
+			valueSchema.RepetitionType = &valueRt
+			schemaElements = append(schemaElements, valueSchema)
+			valueInfo := &common.Tag{InName: "Value", ExName: "value"}
+			valueInfo.Type = "BYTE_ARRAY"
+			valueInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
+			infos = append(infos, valueInfo)
 		default: // normal variable
 			schema, err := common.NewSchemaElementFromTagMap(info)
 			if err != nil {

@@ -58,6 +58,10 @@ type SchemaHandler struct {
 	// Cached data for performance
 	childrenMap  [][]int32      // childrenMap[i] contains child indices of element i
 	elementTypes []reflect.Type // cached types from GetTypes()
+
+	// VariantSchemas maps variant group paths to their schema info.
+	// Populated during schema initialization for efficient lookup during unmarshaling.
+	VariantSchemas map[string]*VariantSchemaInfo
 }
 
 // setValueColumns collects leaf nodes' full path in SchemaHandler.ValueColumns
@@ -91,6 +95,36 @@ func (sh *SchemaHandler) setPathMap() {
 			sh.PathMap.Add(common.StrToPath(pathStr))
 		}
 	}
+}
+
+// setVariantSchemas identifies and indexes all VARIANT schema groups.
+// This enables efficient lookup during unmarshaling for shredded variant reconstruction.
+func (sh *SchemaHandler) setVariantSchemas() {
+	sh.VariantSchemas = make(map[string]*VariantSchemaInfo)
+
+	// Build children map if not already done
+	if sh.childrenMap == nil {
+		sh.childrenMap = sh.buildChildrenMap()
+	}
+
+	// Scan for variant groups
+	for i, elem := range sh.SchemaElements {
+		if elem.LogicalType != nil && elem.LogicalType.VARIANT != nil {
+			children := sh.childrenMap[i]
+			if info := sh.getVariantSchemaInfo(int32(i), children); info != nil {
+				path := sh.IndexMap[int32(i)]
+				sh.VariantSchemas[path] = info
+			}
+		}
+	}
+}
+
+// GetVariantSchemaInfo returns the VariantSchemaInfo for a given path, or nil if not a variant.
+func (sh *SchemaHandler) GetVariantSchemaInfo(path string) *VariantSchemaInfo {
+	if sh.VariantSchemas == nil {
+		return nil
+	}
+	return sh.VariantSchemas[path]
 }
 
 // GetRepetitionType returns the repetition type of a column by it's schema path
@@ -254,7 +288,54 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 		stack = stack[:ln-1]
 		var newInfo *common.Tag
 
-		if item.GoType.Kind() == reflect.Struct {
+		if item.Info.Type == "VARIANT" {
+			// VARIANT is a GROUP with two required BYTE_ARRAY children: Metadata and Value
+			schema := parquet.NewSchemaElement()
+			schema.Name = item.Info.InName
+			rt := item.Info.RepetitionType
+			schema.RepetitionType = &rt
+			var numChildren int32 = 2
+			schema.NumChildren = &numChildren
+			// Get the LogicalType from the Tag (handles specification_version)
+			// Always ensure VARIANT LogicalType is set
+			logicalType := common.GetLogicalTypeFromTag(item.Info)
+			if logicalType == nil || logicalType.VARIANT == nil {
+				logicalType = parquet.NewLogicalType()
+				logicalType.VARIANT = parquet.NewVariantType()
+			}
+			schema.LogicalType = logicalType
+			schemaElements = append(schemaElements, schema)
+			newInfo = &common.Tag{}
+			common.DeepCopy(item.Info, newInfo)
+			infos = append(infos, newInfo)
+
+			// Add Metadata child (required binary)
+			metadataSchema := parquet.NewSchemaElement()
+			metadataSchema.Name = "Metadata"
+			metadataType := parquet.Type_BYTE_ARRAY
+			metadataSchema.Type = &metadataType
+			metadataRt := parquet.FieldRepetitionType_REQUIRED
+			metadataSchema.RepetitionType = &metadataRt
+			schemaElements = append(schemaElements, metadataSchema)
+			metadataInfo := &common.Tag{InName: "Metadata", ExName: "metadata"}
+			metadataInfo.Type = "BYTE_ARRAY"
+			metadataInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
+			infos = append(infos, metadataInfo)
+
+			// Add Value child (required binary)
+			valueSchema := parquet.NewSchemaElement()
+			valueSchema.Name = "Value"
+			valueType := parquet.Type_BYTE_ARRAY
+			valueSchema.Type = &valueType
+			valueRt := parquet.FieldRepetitionType_REQUIRED
+			valueSchema.RepetitionType = &valueRt
+			schemaElements = append(schemaElements, valueSchema)
+			valueInfo := &common.Tag{InName: "Value", ExName: "value"}
+			valueInfo.Type = "BYTE_ARRAY"
+			valueInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
+			infos = append(infos, valueInfo)
+
+		} else if item.GoType.Kind() == reflect.Struct {
 			schema := parquet.NewSchemaElement()
 			schema.Name = item.Info.InName
 			schema.RepetitionType = &item.Info.RepetitionType
@@ -442,6 +523,7 @@ func NewSchemaHandlerFromSchemaHandler(sh *SchemaHandler) *SchemaHandler {
 	}
 	schemaHandler.setPathMap()
 	schemaHandler.setValueColumns()
+	schemaHandler.setVariantSchemas()
 
 	return schemaHandler
 }
@@ -492,6 +574,7 @@ func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHan
 	}
 	schemaHandler.setPathMap()
 	schemaHandler.setValueColumns()
+	schemaHandler.setVariantSchemas()
 
 	return schemaHandler
 }
