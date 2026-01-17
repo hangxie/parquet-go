@@ -404,6 +404,10 @@ func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
 		if _, ok := src.(string); ok {
 			return src, nil
 		}
+		// Also accept []byte and convert to string
+		if b, ok := src.([]byte); ok {
+			return string(b), nil
+		}
 		rv := reflect.ValueOf(src)
 		if !rv.IsValid() || rv.Kind() != reflect.String {
 			return nil, fmt.Errorf("convert %T to string", src)

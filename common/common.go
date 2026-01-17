@@ -235,8 +235,33 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 	return schema, nil
 }
 
+// GetLogicalTypeFromTag returns the LogicalType from a Tag.
+// This is used when creating GROUP elements that need LogicalType annotation (e.g., VARIANT).
+func GetLogicalTypeFromTag(info *Tag) *parquet.LogicalType {
+	if len(info.logicalTypeFields) > 0 {
+		logicalType, _ := newLogicalTypeFromFieldsMap(info.logicalTypeFields)
+		return logicalType
+	}
+	return nil
+}
+
+var logicalIntToConvertedTypeMap = map[struct {
+	bitWidth int8
+	isSigned bool
+}]parquet.ConvertedType{
+	{8, true}:   parquet.ConvertedType_INT_8,
+	{8, false}:  parquet.ConvertedType_UINT_8,
+	{16, true}:  parquet.ConvertedType_INT_16,
+	{16, false}: parquet.ConvertedType_UINT_16,
+	{32, true}:  parquet.ConvertedType_INT_32,
+	{32, false}: parquet.ConvertedType_UINT_32,
+	{64, true}:  parquet.ConvertedType_INT_64,
+	{64, false}: parquet.ConvertedType_UINT_64,
+}
+
 // convertedTypeFromLogicalType returns the corresponding ConvertedType for a LogicalType.
 // This is used for backward compatibility with older Parquet readers.
+// Note: newer logical types like VARIANT, GEOMETRY, UUID, FLOAT16 do not have corresponding ConvertedTypes.
 func convertedTypeFromLogicalType(lt *parquet.LogicalType) *parquet.ConvertedType {
 	if lt == nil {
 		return nil
@@ -283,24 +308,13 @@ func convertedTypeFromLogicalType(lt *parquet.LogicalType) *parquet.ConvertedTyp
 			return nil
 		}
 	case lt.INTEGER != nil:
-		switch {
-		case lt.INTEGER.BitWidth == 8 && lt.INTEGER.IsSigned:
-			ct = parquet.ConvertedType_INT_8
-		case lt.INTEGER.BitWidth == 8 && !lt.INTEGER.IsSigned:
-			ct = parquet.ConvertedType_UINT_8
-		case lt.INTEGER.BitWidth == 16 && lt.INTEGER.IsSigned:
-			ct = parquet.ConvertedType_INT_16
-		case lt.INTEGER.BitWidth == 16 && !lt.INTEGER.IsSigned:
-			ct = parquet.ConvertedType_UINT_16
-		case lt.INTEGER.BitWidth == 32 && lt.INTEGER.IsSigned:
-			ct = parquet.ConvertedType_INT_32
-		case lt.INTEGER.BitWidth == 32 && !lt.INTEGER.IsSigned:
-			ct = parquet.ConvertedType_UINT_32
-		case lt.INTEGER.BitWidth == 64 && lt.INTEGER.IsSigned:
-			ct = parquet.ConvertedType_INT_64
-		case lt.INTEGER.BitWidth == 64 && !lt.INTEGER.IsSigned:
-			ct = parquet.ConvertedType_UINT_64
-		default:
+		key := struct {
+			bitWidth int8
+			isSigned bool
+		}{lt.INTEGER.BitWidth, lt.INTEGER.IsSigned}
+		if val, ok := logicalIntToConvertedTypeMap[key]; ok {
+			ct = val
+		} else {
 			return nil
 		}
 	case lt.JSON != nil:
@@ -308,7 +322,6 @@ func convertedTypeFromLogicalType(lt *parquet.LogicalType) *parquet.ConvertedTyp
 	case lt.BSON != nil:
 		ct = parquet.ConvertedType_BSON
 	default:
-		// UUID, FLOAT16, VARIANT, GEOMETRY, GEOGRAPHY have no corresponding ConvertedType
 		return nil
 	}
 

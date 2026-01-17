@@ -7,6 +7,7 @@ import (
 
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v2/types"
 )
 
 // Tests for schema handler functionality
@@ -274,6 +275,35 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 				require.Equal(t, "REPEATED", schema.SchemaElements[1].RepetitionType.String())
 				require.Equal(t, "INT32", schema.SchemaElements[1].Type.String())
 				require.Nil(t, schema.SchemaElements[1].ConvertedType)
+			},
+		},
+		{
+			name: "variant_type",
+			structDef: new(struct {
+				VariantField types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+			}),
+			expectError: false,
+			validateSchema: func(t *testing.T, schema *SchemaHandler) {
+				// VARIANT should create a GROUP with 2 children: Metadata and Value
+				require.Equal(t, 4, len(schema.SchemaElements))
+				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, "VariantField", schema.SchemaElements[1].Name)
+				require.Equal(t, "Metadata", schema.SchemaElements[2].Name)
+				require.Equal(t, "Value", schema.SchemaElements[3].Name)
+
+				// Verify VARIANT group structure
+				require.Equal(t, "REQUIRED", schema.SchemaElements[1].RepetitionType.String())
+				require.Equal(t, int32(2), schema.SchemaElements[1].GetNumChildren())
+				require.Nil(t, schema.SchemaElements[1].Type) // GROUP has no type
+				require.True(t, schema.SchemaElements[1].LogicalType.IsSetVARIANT())
+
+				// Verify Metadata child
+				require.Equal(t, "REQUIRED", schema.SchemaElements[2].RepetitionType.String())
+				require.Equal(t, "BYTE_ARRAY", schema.SchemaElements[2].Type.String())
+
+				// Verify Value child
+				require.Equal(t, "REQUIRED", schema.SchemaElements[3].RepetitionType.String())
+				require.Equal(t, "BYTE_ARRAY", schema.SchemaElements[3].Type.String())
 			},
 		},
 		{
@@ -701,5 +731,359 @@ func TestGetRepetitionType(t *testing.T) {
 		_, err := sh.GetRepetitionType([]string{"test", "path"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "schema element at index 0 is nil")
+	})
+}
+
+func TestIsValidVariantSchema(t *testing.T) {
+	// Helper to create a valid VARIANT schema handler
+	createVariantSchema := func() (*SchemaHandler, int32, []int32) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			VariantField types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+		}))
+		if err != nil {
+			t.Fatalf("failed to create variant schema: %v", err)
+		}
+		// Build children map
+		sh.childrenMap = sh.buildChildrenMap()
+		// VariantField is at index 1, children are Metadata (2) and Value (3)
+		return sh, 1, sh.childrenMap[1]
+	}
+
+	t.Run("valid variant schema", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		require.True(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("missing VARIANT LogicalType", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Remove the VARIANT LogicalType
+		sh.SchemaElements[idx].LogicalType = nil
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("wrong LogicalType (not VARIANT)", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Set a different LogicalType
+		sh.SchemaElements[idx].LogicalType = parquet.NewLogicalType()
+		sh.SchemaElements[idx].LogicalType.STRING = parquet.NewStringType()
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("wrong number of children (too few)", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Pass only one child
+		require.False(t, sh.isValidVariantSchema(idx, children[:1]))
+	})
+
+	t.Run("extra children are allowed (for shredding)", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Pass three children (add a fake one that exists in schema list if possible, or just one that is skipped)
+		require.True(t, sh.isValidVariantSchema(idx, append(children, 0)))
+	})
+
+	t.Run("wrong Metadata child name", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Change the Metadata child name
+		sh.Infos[children[0]].InName = "WrongName"
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("wrong Value child name", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Change the Value child name
+		sh.Infos[children[1]].InName = "WrongName"
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("wrong Metadata child type", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Change Metadata type from BYTE_ARRAY to INT32
+		int32Type := parquet.Type_INT32
+		sh.SchemaElements[children[0]].Type = &int32Type
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("wrong Value child type", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Change Value type from BYTE_ARRAY to INT64
+		int64Type := parquet.Type_INT64
+		sh.SchemaElements[children[1]].Type = &int64Type
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("optional Metadata child (should be required)", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Change Metadata repetition type to OPTIONAL
+		optionalRep := parquet.FieldRepetitionType_OPTIONAL
+		sh.SchemaElements[children[0]].RepetitionType = &optionalRep
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("optional Value child (valid for shredded variants)", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		// Change Value repetition type to OPTIONAL - this is valid for shredded variants
+		optionalRep := parquet.FieldRepetitionType_OPTIONAL
+		sh.SchemaElements[children[1]].RepetitionType = &optionalRep
+		require.True(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("nil Metadata type", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		sh.SchemaElements[children[0]].Type = nil
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("nil Value type", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		sh.SchemaElements[children[1]].Type = nil
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("nil Metadata repetition type", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		sh.SchemaElements[children[0]].RepetitionType = nil
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("nil Value repetition type", func(t *testing.T) {
+		sh, idx, children := createVariantSchema()
+		sh.SchemaElements[children[1]].RepetitionType = nil
+		require.False(t, sh.isValidVariantSchema(idx, children))
+	})
+
+	t.Run("child index out of bounds", func(t *testing.T) {
+		sh, idx, _ := createVariantSchema()
+		// Pass children indices that are out of bounds
+		outOfBoundsChildren := []int32{100, 101}
+		require.False(t, sh.isValidVariantSchema(idx, outOfBoundsChildren))
+	})
+}
+
+func TestShreddedVariantSchema(t *testing.T) {
+	// Test that shredded variant schemas (with typed_value) are recognized
+
+	t.Run("valid shredded variant schema with typed_value", func(t *testing.T) {
+		// Create a manual schema with metadata + value (optional) + typed_value
+		requiredRep := parquet.FieldRepetitionType_REQUIRED
+		optionalRep := parquet.FieldRepetitionType_OPTIONAL
+		byteArrayType := parquet.Type_BYTE_ARRAY
+		int32Type := parquet.Type_INT32
+		variantLogicalType := parquet.NewLogicalType()
+		variantLogicalType.VARIANT = parquet.NewVariantType()
+
+		schemas := []*parquet.SchemaElement{
+			{Name: "Root", NumChildren: ptr(int32(1))},
+			{Name: "V", NumChildren: ptr(int32(3)), RepetitionType: &requiredRep, LogicalType: variantLogicalType},
+			{Name: "Metadata", Type: &byteArrayType, RepetitionType: &requiredRep},
+			{Name: "Value", Type: &byteArrayType, RepetitionType: &optionalRep},
+			{Name: "Typed_value", Type: &int32Type, RepetitionType: &optionalRep},
+		}
+
+		sh := NewSchemaHandlerFromSchemaList(schemas)
+		sh.childrenMap = sh.buildChildrenMap()
+
+		// Variant is at index 1
+		idx := int32(1)
+		children := sh.childrenMap[1] // Get children from map
+
+		// Should be valid
+		require.True(t, sh.isValidVariantSchema(idx, children), "Shredded variant schema should be valid")
+
+		// Get schema info
+		info := sh.getVariantSchemaInfo(idx, children)
+		require.NotNil(t, info, "Should get variant schema info")
+		require.True(t, info.IsShredded, "Should be marked as shredded")
+		require.Equal(t, int32(2), info.MetadataIdx, "Metadata index should be 2")
+		require.Equal(t, int32(3), info.ValueIdx, "Value index should be 3")
+		require.Len(t, info.TypedValueIdxs, 1, "Should have one typed_value")
+		require.Equal(t, int32(4), info.TypedValueIdxs[0], "Typed value index should be 4")
+	})
+
+	t.Run("valid shredded variant without value column", func(t *testing.T) {
+		// Create a schema with only metadata + typed_value (no value column)
+		requiredRep := parquet.FieldRepetitionType_REQUIRED
+		optionalRep := parquet.FieldRepetitionType_OPTIONAL
+		byteArrayType := parquet.Type_BYTE_ARRAY
+		int32Type := parquet.Type_INT32
+		variantLogicalType := parquet.NewLogicalType()
+		variantLogicalType.VARIANT = parquet.NewVariantType()
+
+		schemas := []*parquet.SchemaElement{
+			{Name: "Root", NumChildren: ptr(int32(1))},
+			{Name: "V", NumChildren: ptr(int32(2)), RepetitionType: &requiredRep, LogicalType: variantLogicalType},
+			{Name: "Metadata", Type: &byteArrayType, RepetitionType: &requiredRep},
+			{Name: "Typed_value", Type: &int32Type, RepetitionType: &optionalRep},
+		}
+
+		sh := NewSchemaHandlerFromSchemaList(schemas)
+		sh.childrenMap = sh.buildChildrenMap()
+
+		idx := int32(1)
+		children := sh.childrenMap[1]
+
+		require.True(t, sh.isValidVariantSchema(idx, children), "Variant with only metadata+typed_value should be valid")
+
+		info := sh.getVariantSchemaInfo(idx, children)
+		require.NotNil(t, info, "Should get variant schema info")
+		require.True(t, info.IsShredded, "Should be marked as shredded")
+		require.Equal(t, int32(-1), info.ValueIdx, "Value index should be -1 when absent")
+		require.Len(t, info.TypedValueIdxs, 1, "Should have one typed_value")
+	})
+
+	t.Run("typed_value must be OPTIONAL", func(t *testing.T) {
+		// typed_value with REQUIRED repetition should be invalid
+		requiredRep := parquet.FieldRepetitionType_REQUIRED
+		optionalRep := parquet.FieldRepetitionType_OPTIONAL
+		byteArrayType := parquet.Type_BYTE_ARRAY
+		int32Type := parquet.Type_INT32
+		variantLogicalType := parquet.NewLogicalType()
+		variantLogicalType.VARIANT = parquet.NewVariantType()
+
+		schemas := []*parquet.SchemaElement{
+			{Name: "Root", NumChildren: ptr(int32(1))},
+			{Name: "V", NumChildren: ptr(int32(3)), RepetitionType: &requiredRep, LogicalType: variantLogicalType},
+			{Name: "Metadata", Type: &byteArrayType, RepetitionType: &requiredRep},
+			{Name: "Value", Type: &byteArrayType, RepetitionType: &optionalRep},
+			{Name: "Typed_value", Type: &int32Type, RepetitionType: &requiredRep}, // REQUIRED - invalid
+		}
+
+		sh := NewSchemaHandlerFromSchemaList(schemas)
+		sh.childrenMap = sh.buildChildrenMap()
+
+		idx := int32(1)
+		children := sh.childrenMap[1]
+
+		// Still valid because it has value column (typed_value with wrong repetition is just ignored)
+		require.True(t, sh.isValidVariantSchema(idx, children))
+
+		// But typed_value should not be in the info
+		info := sh.getVariantSchemaInfo(idx, children)
+		require.NotNil(t, info)
+		require.Len(t, info.TypedValueIdxs, 0, "REQUIRED typed_value should not be included")
+	})
+}
+
+func TestGetVariantSchemaInfo(t *testing.T) {
+	t.Run("unshredded variant info via index", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			V types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+		}))
+		require.NoError(t, err)
+
+		// Build children map
+		sh.childrenMap = sh.buildChildrenMap()
+
+		// Get info for the variant at index 1
+		idx := int32(1)
+		children := sh.childrenMap[1]
+		info := sh.getVariantSchemaInfo(idx, children)
+
+		require.NotNil(t, info, "Should find variant schema info")
+		require.False(t, info.IsShredded, "Unshredded variant should not be marked as shredded")
+		require.Empty(t, info.TypedValueIdxs, "Should have no typed_value columns")
+		require.True(t, info.ValueIdx >= 0, "Should have a value index")
+	})
+
+	t.Run("invalid schema returns nil", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}))
+		require.NoError(t, err)
+		sh.childrenMap = sh.buildChildrenMap()
+
+		// Index 1 is Name, not a variant
+		info := sh.getVariantSchemaInfo(1, sh.childrenMap[1])
+		require.Nil(t, info, "Should return nil for non-variant")
+	})
+}
+
+func TestVariantSchemasMap(t *testing.T) {
+	t.Run("VariantSchemas map is populated", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			V types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+		}))
+		require.NoError(t, err)
+
+		require.NotNil(t, sh.VariantSchemas, "VariantSchemas map should be initialized")
+		require.Len(t, sh.VariantSchemas, 1, "Should have one variant")
+
+		// Get the first key in the map
+		var found bool
+		for path := range sh.VariantSchemas {
+			t.Logf("Found variant at path: %s", path)
+			found = true
+		}
+		require.True(t, found, "Variant should be in the map")
+	})
+
+	t.Run("multiple variants are all indexed", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			V1 types.Variant `parquet:"name=variant1, type=VARIANT, logicaltype=VARIANT"`
+			V2 types.Variant `parquet:"name=variant2, type=VARIANT, logicaltype=VARIANT"`
+		}))
+		require.NoError(t, err)
+
+		require.Len(t, sh.VariantSchemas, 2, "Should have two variants")
+	})
+}
+
+// Helper function to get pointer to int32
+func ptr(v int32) *int32 {
+	return &v
+}
+
+func TestSchemaHandler_GetVariantSchemaInfo(t *testing.T) {
+	t.Run("returns nil when VariantSchemas is nil", func(t *testing.T) {
+		sh := &SchemaHandler{
+			VariantSchemas: nil,
+		}
+
+		info := sh.GetVariantSchemaInfo("some.path")
+		require.Nil(t, info)
+	})
+
+	t.Run("returns nil for non-existent path", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			V types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+		}))
+		require.NoError(t, err)
+
+		info := sh.GetVariantSchemaInfo("NonExistent" + common.PAR_GO_PATH_DELIMITER + "Path")
+		require.Nil(t, info)
+	})
+
+	t.Run("returns info for existing variant path", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			V types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+		}))
+		require.NoError(t, err)
+
+		// Find the actual path from the map
+		var actualPath string
+		for path := range sh.VariantSchemas {
+			actualPath = path
+			break
+		}
+		require.NotEmpty(t, actualPath)
+
+		info := sh.GetVariantSchemaInfo(actualPath)
+		require.NotNil(t, info)
+		require.True(t, info.MetadataIdx >= 0)
+		require.True(t, info.ValueIdx >= 0)
+	})
+
+	t.Run("returns correct info for multiple variants", func(t *testing.T) {
+		sh, err := NewSchemaHandlerFromStruct(new(struct {
+			V1 types.Variant `parquet:"name=variant1, type=VARIANT, logicaltype=VARIANT"`
+			V2 types.Variant `parquet:"name=variant2, type=VARIANT, logicaltype=VARIANT"`
+		}))
+		require.NoError(t, err)
+
+		// Both variants should be accessible
+		for path, expectedInfo := range sh.VariantSchemas {
+			actualInfo := sh.GetVariantSchemaInfo(path)
+			require.NotNil(t, actualInfo)
+			require.Equal(t, expectedInfo, actualInfo)
+		}
 	})
 }

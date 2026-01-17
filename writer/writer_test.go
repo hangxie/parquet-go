@@ -16,6 +16,7 @@ import (
 	"github.com/hangxie/parquet-go/v2/source"
 	"github.com/hangxie/parquet-go/v2/source/buffer"
 	"github.com/hangxie/parquet-go/v2/source/writerfile"
+	"github.com/hangxie/parquet-go/v2/types"
 )
 
 func readColumnIndex(pf source.ParquetFileReader, offset int64) (*parquet.ColumnIndex, error) {
@@ -799,6 +800,99 @@ func TestDataPageVersion(t *testing.T) {
 
 		for i := range results {
 			require.Equal(t, int32(i), results[i].Value)
+		}
+	})
+
+	t.Run("variant_support", func(t *testing.T) {
+		type Nested struct {
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+			Age  int32  `parquet:"name=age, type=INT32"`
+		}
+		type MyStruct struct {
+			Val any `parquet:"name=val, type=VARIANT, repetitiontype=OPTIONAL"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(MyStruct), 1)
+		require.NoError(t, err)
+
+		records := []MyStruct{
+			{Val: Nested{Name: "Alice", Age: 30}},
+			{Val: map[string]any{"city": "New York"}},
+			{Val: int64(123)},
+			{Val: nil},
+		}
+
+		for _, rec := range records {
+			require.NoError(t, pw.Write(rec))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		res := make([]MyStruct, len(records))
+		require.NoError(t, pr.Read(&res))
+
+		for i, rec := range res {
+			if i == 3 {
+				require.Nil(t, rec.Val)
+				continue
+			}
+
+			v, ok := rec.Val.(types.Variant)
+			require.True(t, ok)
+
+			decoded, err := types.ConvertVariantValue(v)
+			require.NoError(t, err)
+			require.NotNil(t, decoded)
+
+			if i == 0 {
+				obj := decoded.(map[string]any)
+				require.Equal(t, "Alice", obj["Name"])
+			}
+		}
+	})
+
+	t.Run("json_writer_variant", func(t *testing.T) {
+		jsonSchema := `{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=val, type=VARIANT, repetitiontype=OPTIONAL"}]}`
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		require.NoError(t, err)
+
+		records := []string{
+			`{"val": {"name": "Alice", "age": 30}}`,
+			`{"val": null}`,
+		}
+
+		for _, rec := range records {
+			require.NoError(t, jw.Write(rec))
+		}
+		require.NoError(t, jw.WriteStop())
+
+		type MyStruct struct {
+			Val any `parquet:"name=val, type=VARIANT, repetitiontype=OPTIONAL"`
+		}
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), 1)
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		res := make([]MyStruct, 2)
+		require.NoError(t, pr.Read(&res))
+
+		require.NotNil(t, res[0].Val)
+		v := res[0].Val.(types.Variant)
+		decoded, _ := types.ConvertVariantValue(v)
+		obj := decoded.(map[string]any)
+		require.Equal(t, "Alice", obj["name"])
+
+		if res[1].Val != nil {
+			v := res[1].Val.(types.Variant)
+			decoded, _ := types.ConvertVariantValue(v)
+			require.Nil(t, decoded)
 		}
 	})
 }

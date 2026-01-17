@@ -1157,3 +1157,85 @@ func TestNewEdgeInterpolationAlgorithmFromString(t *testing.T) {
 		}
 	}
 }
+
+func TestGetLogicalTypeFromTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		tag      *Tag
+		hasType  bool
+		validate func(t *testing.T, lt *parquet.LogicalType)
+	}{
+		{
+			name:    "nil_logicaltype_fields",
+			tag:     &Tag{},
+			hasType: false,
+		},
+		{
+			name: "empty_logicaltype_fields",
+			tag: &Tag{
+				fieldAttr: fieldAttr{
+					logicalTypeFields: map[string]string{},
+				},
+			},
+			hasType: false,
+		},
+		{
+			name: "variant_logicaltype",
+			tag: &Tag{
+				fieldAttr: fieldAttr{
+					logicalTypeFields: map[string]string{
+						"logicaltype": "VARIANT",
+					},
+				},
+			},
+			hasType: true,
+			validate: func(t *testing.T, lt *parquet.LogicalType) {
+				require.True(t, lt.IsSetVARIANT())
+			},
+		},
+		{
+			name: "variant_with_specification_version",
+			tag: &Tag{
+				fieldAttr: fieldAttr{
+					logicalTypeFields: map[string]string{
+						"logicaltype":                       "VARIANT",
+						"logicaltype.specification_version": "1",
+					},
+				},
+			},
+			hasType: true,
+			validate: func(t *testing.T, lt *parquet.LogicalType) {
+				require.True(t, lt.IsSetVARIANT())
+				require.Equal(t, int8(1), lt.GetVARIANT().GetSpecificationVersion())
+			},
+		},
+		{
+			name: "string_logicaltype",
+			tag: &Tag{
+				fieldAttr: fieldAttr{
+					logicalTypeFields: map[string]string{
+						"logicaltype": "STRING",
+					},
+				},
+			},
+			hasType: true,
+			validate: func(t *testing.T, lt *parquet.LogicalType) {
+				require.True(t, lt.IsSetSTRING())
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GetLogicalTypeFromTag(tc.tag)
+			if tc.hasType {
+				require.NotNil(t, result)
+				if tc.validate != nil {
+					tc.validate(t, result)
+				}
+			} else {
+				require.Nil(t, result)
+			}
+		})
+	}
+}

@@ -74,6 +74,32 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			expectError:   true,
 			errorContains: "MAP needs exactly 2 fields",
 		},
+		{
+			name: "variant_type",
+			jsonSchema: `
+			{
+			  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
+			  "Fields": [
+				{"Tag": "name=data, inname=Data, type=VARIANT, logicaltype=VARIANT, repetitiontype=REQUIRED"}
+			  ]
+			}
+			`,
+			expectError:   false,
+			expectedElems: func() *int { e := 4; return &e }(), // root + variant group + metadata + value
+		},
+		{
+			name: "variant_with_specification_version",
+			jsonSchema: `
+			{
+			  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
+			  "Fields": [
+				{"Tag": "name=data, inname=Data, type=VARIANT, logicaltype=VARIANT, logicaltype.specification_version=1, repetitiontype=OPTIONAL"}
+			  ]
+			}
+			`,
+			expectError:   false,
+			expectedElems: func() *int { e := 4; return &e }(),
+		},
 	}
 
 	for _, tt := range tests {

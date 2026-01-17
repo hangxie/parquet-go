@@ -1,6 +1,7 @@
 package marshal
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/hangxie/parquet-go/v2/common"
@@ -271,8 +272,18 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 
 		for len(stack) > 0 {
 			ln := len(stack)
-			node := stack[ln-1]
+			node = stack[ln-1]
 			stack = stack[:ln-1]
+
+			schemaIndex := schemaHandler.MapIndex[node.PathMap.Path]
+			schema := schemaHandler.SchemaElements[schemaIndex]
+
+			if newStack, handled, err := HandleVariant(node, schema, res, schemaHandler, nodeBuf, stack); err != nil {
+				return nil, err
+			} else if handled {
+				stack = newStack
+				continue
+			}
 
 			tk := reflect.Interface
 			if node.Val.IsValid() {
@@ -286,6 +297,24 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 			case reflect.Struct:
 				m = &ParquetStruct{}
 			case reflect.Slice:
+				// []byte should be treated as primitive BYTE_ARRAY, not as a LIST
+				if node.Val.Type().Elem().Kind() == reflect.Uint8 {
+					table := res[node.PathMap.Path]
+					schemaIndex := schemaHandler.MapIndex[node.PathMap.Path]
+					schema := schemaHandler.SchemaElements[schemaIndex]
+					var v any
+					if node.Val.IsValid() {
+						v = node.Val.Interface()
+					}
+					val, err := types.InterfaceToParquetType(v, schema.Type)
+					if err != nil {
+						return nil, err
+					}
+					table.Values = append(table.Values, val)
+					table.DefinitionLevels = append(table.DefinitionLevels, node.DL)
+					table.RepetitionLevels = append(table.RepetitionLevels, node.RL)
+					continue
+				}
 				m = &ParquetSlice{schemaHandler: schemaHandler}
 			case reflect.Map:
 				schemaIndex := schemaHandler.MapIndex[node.PathMap.Path]
@@ -362,4 +391,65 @@ func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) map[str
 		}
 	}
 	return tableMap
+}
+
+func HandleVariant(
+	node *Node,
+	schema *parquet.SchemaElement,
+	res map[string]*layout.Table,
+	schemaHandler *schema.SchemaHandler,
+	nodeBuf *NodeBufType,
+	stack []*Node,
+) ([]*Node, bool, error) {
+	if schema.LogicalType == nil || schema.LogicalType.VARIANT == nil {
+		return stack, false, nil
+	}
+
+	isNil := !node.Val.IsValid()
+	if !isNil {
+		switch node.Val.Kind() {
+		case reflect.Interface, reflect.Ptr, reflect.Slice, reflect.Map:
+			isNil = node.Val.IsNil()
+		}
+	}
+
+	if isNil {
+		for key := range node.PathMap.Children {
+			newPathStr := node.PathMap.Children[key].Path
+			for path, table := range res {
+				if common.IsChildPath(newPathStr, path) {
+					table.Values = append(table.Values, nil)
+					table.DefinitionLevels = append(table.DefinitionLevels, node.DL)
+					table.RepetitionLevels = append(table.RepetitionLevels, node.RL)
+				}
+			}
+		}
+		return stack, true, nil
+	}
+
+	v, err := types.AnyToVariant(node.Val.Interface())
+	if err != nil {
+		return nil, true, fmt.Errorf("convert to variant: %w", err)
+	}
+
+	// If the variant group is present, its definition level should be at its max
+	childDL, _ := schemaHandler.MaxDefinitionLevel(common.StrToPath(node.PathMap.Path))
+
+	// Push Value
+	valueNode := nodeBuf.GetNode()
+	valueNode.PathMap = node.PathMap.Children["Value"]
+	valueNode.Val = reflect.ValueOf(string(v.Value))
+	valueNode.DL = childDL
+	valueNode.RL = node.RL
+	stack = append(stack, valueNode)
+
+	// Push Metadata
+	metaNode := nodeBuf.GetNode()
+	metaNode.PathMap = node.PathMap.Children["Metadata"]
+	metaNode.Val = reflect.ValueOf(string(v.Metadata))
+	metaNode.DL = childDL
+	metaNode.RL = node.RL
+	stack = append(stack, metaNode)
+
+	return stack, true, nil
 }
