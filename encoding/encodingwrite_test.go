@@ -800,3 +800,25 @@ func TestWriteUnsignedVarInt(t *testing.T) {
 
 	require.Equal(t, string(resBuf), string(testRes))
 }
+
+func TestWriteDeltaEmpty(t *testing.T) {
+	t.Run("WriteDeltaINT32", func(t *testing.T) {
+		res := WriteDeltaINT32([]any{})
+		require.Empty(t, res)
+	})
+
+	t.Run("WriteDeltaINT64", func(t *testing.T) {
+		res := WriteDeltaINT64([]any{})
+		require.Empty(t, res)
+	})
+
+	t.Run("WriteDeltaLengthByteArray", func(t *testing.T) {
+		res := WriteDeltaLengthByteArray([]any{})
+		require.Empty(t, res)
+	})
+
+	t.Run("WriteDeltaByteArray", func(t *testing.T) {
+		res := WriteDeltaByteArray([]any{})
+		require.Empty(t, res)
+	})
+}

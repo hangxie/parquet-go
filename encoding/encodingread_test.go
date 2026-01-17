@@ -1132,3 +1132,39 @@ func TestValidateCount(t *testing.T) {
 		})
 	}
 }
+
+func TestReadDeltaEmpty(t *testing.T) {
+	t.Run("ReadDeltaBinaryPackedINT32", func(t *testing.T) {
+		_, err := ReadDeltaBinaryPackedINT32(bytes.NewReader([]byte{}))
+		require.Error(t, err)
+	})
+
+	t.Run("ReadDeltaBinaryPackedINT64", func(t *testing.T) {
+		_, err := ReadDeltaBinaryPackedINT64(bytes.NewReader([]byte{}))
+		require.Error(t, err)
+	})
+
+	t.Run("ReadDeltaLengthByteArray", func(t *testing.T) {
+		_, err := ReadDeltaLengthByteArray(bytes.NewReader([]byte{}))
+		require.Error(t, err)
+	})
+
+	t.Run("ReadDeltaByteArray", func(t *testing.T) {
+		_, err := ReadDeltaByteArray(bytes.NewReader([]byte{}))
+		require.Error(t, err)
+	})
+}
+
+func TestReadDeltaByteArrayWithEmptyPrefixLengths(t *testing.T) {
+	var buf []byte
+	buf = append(buf, WriteUnsignedVarInt(128)...)
+	buf = append(buf, WriteUnsignedVarInt(4)...)
+	buf = append(buf, WriteUnsignedVarInt(0)...) // numValues = 0
+	buf = append(buf, WriteUnsignedVarInt(0)...) // firstValue = 0
+
+	fullBuf := append(buf, buf...) // Two such streams
+
+	res, err := ReadDeltaByteArray(bytes.NewReader(fullBuf))
+	require.NoError(t, err)
+	require.Empty(t, res)
+}
