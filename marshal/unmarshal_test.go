@@ -1027,53 +1027,6 @@ func TestOldStyleList(t *testing.T) {
 
 // Tests for shredded variant reconstruction functions
 
-func TestIsVariantChildPath(t *testing.T) {
-	tests := []struct {
-		name        string
-		path        string
-		variantPath string
-		expected    bool
-	}{
-		{
-			name:        "direct_child",
-			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata",
-			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
-			expected:    true,
-		},
-		{
-			name:        "nested_child",
-			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value" + common.PAR_GO_PATH_DELIMITER + "List",
-			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
-			expected:    true,
-		},
-		{
-			name:        "not_child",
-			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Other",
-			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
-			expected:    false,
-		},
-		{
-			name:        "same_path",
-			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
-			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
-			expected:    false,
-		},
-		{
-			name:        "partial_match",
-			path:        "Root" + common.PAR_GO_PATH_DELIMITER + "Variable",
-			variantPath: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
-			expected:    false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isVariantChildPath(tt.path, tt.variantPath)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestNewShreddedVariantReconstructor(t *testing.T) {
 	// Create schema with variant
 	variantInfo := &schema.VariantSchemaInfo{

@@ -2,6 +2,7 @@ package reader
 
 import (
 	"bytes"
+	"context"
 	"runtime"
 	"strconv"
 	"sync"
@@ -1091,4 +1092,70 @@ func TestParquetReader_Reset_AfterReadAll(t *testing.T) {
 
 	// Verify we got the same data
 	require.Equal(t, allRecords, allRecords2)
+}
+
+// Tests for positionTracker (internal type used for Thrift protocol reading)
+
+func TestPositionTracker_Read(t *testing.T) {
+	data := []byte("hello world")
+	pt := &positionTracker{r: bytes.NewReader(data), pos: 0}
+
+	buf := make([]byte, 5)
+	n, err := pt.Read(buf)
+
+	require.NoError(t, err)
+	require.Equal(t, 5, n)
+	require.Equal(t, "hello", string(buf))
+	require.Equal(t, int64(5), pt.pos)
+}
+
+func TestPositionTracker_Write(t *testing.T) {
+	pt := &positionTracker{}
+
+	n, err := pt.Write([]byte("test"))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "write not supported")
+	require.Equal(t, 0, n)
+}
+
+func TestPositionTracker_Close(t *testing.T) {
+	pt := &positionTracker{}
+
+	err := pt.Close()
+
+	require.NoError(t, err)
+}
+
+func TestPositionTracker_Flush(t *testing.T) {
+	pt := &positionTracker{}
+
+	err := pt.Flush(context.Background())
+
+	require.NoError(t, err)
+}
+
+func TestPositionTracker_RemainingBytes(t *testing.T) {
+	pt := &positionTracker{}
+
+	remaining := pt.RemainingBytes()
+
+	// Should return max uint64 (unknown)
+	require.Equal(t, ^uint64(0), remaining)
+}
+
+func TestPositionTracker_IsOpen(t *testing.T) {
+	pt := &positionTracker{}
+
+	isOpen := pt.IsOpen()
+
+	require.True(t, isOpen)
+}
+
+func TestPositionTracker_Open(t *testing.T) {
+	pt := &positionTracker{}
+
+	err := pt.Open()
+
+	require.NoError(t, err)
 }

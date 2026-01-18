@@ -171,11 +171,6 @@ func (r *ShreddedVariantReconstructor) Reconstruct(rowIdx int, tableBgn, tableEn
 	return types.ReconstructVariant(metadata, value, typedValue)
 }
 
-// isVariantChildPath checks if a path is a child of a variant group path
-func isVariantChildPath(path, variantPath string) bool {
-	return strings.HasPrefix(path, variantPath+common.PAR_GO_PATH_DELIMITER)
-}
-
 // Record Map KeyValue pair
 type KeyValue struct {
 	Key   reflect.Value
@@ -266,7 +261,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 			// Mark all child paths as belonging to this variant
 			for childPath := range tableNeeds {
-				if isVariantChildPath(childPath, variantPath) {
+				if strings.HasPrefix(childPath, variantPath+common.PAR_GO_PATH_DELIMITER) {
 					variantChildPaths[childPath] = variantPath
 				}
 			}
