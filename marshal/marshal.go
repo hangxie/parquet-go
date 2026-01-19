@@ -160,8 +160,12 @@ func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) 
 	if p.schemaHandler != nil && p.schemaHandler.SchemaElements != nil && p.schemaHandler.MapIndex != nil {
 		if index, exists := p.schemaHandler.MapIndex[node.PathMap.Path]; exists && int(index) < len(p.schemaHandler.SchemaElements) {
 			if elem := p.schemaHandler.SchemaElements[index]; elem != nil && elem.RepetitionType != nil && *elem.RepetitionType != parquet.FieldRepetitionType_REPEATED {
-				pathMap = pathMap.Children["List"].Children["Element"]
-				path = path + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element"
+				if listChild := pathMap.Children["List"]; listChild != nil {
+					if elemChild := listChild.Children["Element"]; elemChild != nil {
+						pathMap = elemChild
+						path = path + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element"
+					}
+				}
 			}
 		}
 	}
@@ -274,6 +278,10 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 			ln := len(stack)
 			node = stack[ln-1]
 			stack = stack[:ln-1]
+
+			if node.PathMap == nil {
+				return nil, fmt.Errorf("internal error: node has nil PathMap")
+			}
 
 			schemaIndex := schemaHandler.MapIndex[node.PathMap.Path]
 			schema := schemaHandler.SchemaElements[schemaIndex]
@@ -432,12 +440,19 @@ func HandleVariant(
 		return nil, true, fmt.Errorf("convert to variant: %w", err)
 	}
 
+	// Validate that PathMap has the expected VARIANT children
+	valuePathMap := node.PathMap.Children["Value"]
+	metadataPathMap := node.PathMap.Children["Metadata"]
+	if valuePathMap == nil || metadataPathMap == nil {
+		return nil, true, fmt.Errorf("VARIANT schema missing required children (Value and/or Metadata) in PathMap")
+	}
+
 	// If the variant group is present, its definition level should be at its max
 	childDL, _ := schemaHandler.MaxDefinitionLevel(common.StrToPath(node.PathMap.Path))
 
 	// Push Value
 	valueNode := nodeBuf.GetNode()
-	valueNode.PathMap = node.PathMap.Children["Value"]
+	valueNode.PathMap = valuePathMap
 	valueNode.Val = reflect.ValueOf(string(v.Value))
 	valueNode.DL = childDL
 	valueNode.RL = node.RL
@@ -445,7 +460,7 @@ func HandleVariant(
 
 	// Push Metadata
 	metaNode := nodeBuf.GetNode()
-	metaNode.PathMap = node.PathMap.Children["Metadata"]
+	metaNode.PathMap = metadataPathMap
 	metaNode.Val = reflect.ValueOf(string(v.Metadata))
 	metaNode.DL = childDL
 	metaNode.RL = node.RL

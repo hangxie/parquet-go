@@ -621,7 +621,12 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 		// Navigate to the variant field location and set each row's variant value
 		// Ensure root slice is large enough if we're unmarshaling into a slice
-		if root.Kind() == reflect.Slice && root.Len() < numRows {
+		shouldExpand := true
+		if sliceRec, ok := sliceRecords[root]; ok && len(sliceRec.Values) >= numRows {
+			shouldExpand = false
+		}
+
+		if shouldExpand && root.Kind() == reflect.Slice && root.Len() < numRows {
 			newSlice := reflect.MakeSlice(root.Type(), numRows, numRows)
 			reflect.Copy(newSlice, root)
 			root.Set(newSlice)

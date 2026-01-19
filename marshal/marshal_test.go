@@ -62,6 +62,35 @@ func TestParquetMapStructMarshal(t *testing.T) {
 	require.Empty(t, emptyResult)
 }
 
+func TestMarshalNilPathMapReturnsError(t *testing.T) {
+	// Create a simple schema
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	require.NoError(t, err)
+
+	// Manually create a SchemaHandler with nil PathMap to simulate the bug condition
+	// This tests the defensive nil check added to Marshal
+	schNilPathMap := &schema.SchemaHandler{
+		SchemaElements: sch.SchemaElements,
+		MapIndex:       sch.MapIndex,
+		IndexMap:       sch.IndexMap,
+		Infos:          sch.Infos,
+		PathMap:        nil, // Intentionally nil to test the defensive check
+	}
+
+	// Try to marshal with nil PathMap - should return error, not panic
+	data := []any{map[string]any{"name": "test"}}
+	_, err = Marshal(data, schNilPathMap)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil PathMap")
+}
+
 func TestParquetPtrMarshal(t *testing.T) {
 	var integer int = 10
 	testData := &marshalCases{
