@@ -160,11 +160,15 @@ func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) 
 	if p.schemaHandler != nil && p.schemaHandler.SchemaElements != nil && p.schemaHandler.MapIndex != nil {
 		if index, exists := p.schemaHandler.MapIndex[node.PathMap.Path]; exists && int(index) < len(p.schemaHandler.SchemaElements) {
 			if elem := p.schemaHandler.SchemaElements[index]; elem != nil && elem.RepetitionType != nil && *elem.RepetitionType != parquet.FieldRepetitionType_REPEATED {
-				if listChild := pathMap.Children["List"]; listChild != nil {
-					if elemChild := listChild.Children["Element"]; elemChild != nil {
-						pathMap = elemChild
+				if pmList, ok := pathMap.Children["List"]; ok {
+					if pmElement, ok := pmList.Children["Element"]; ok {
+						pathMap = pmElement
 						path = path + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element"
+					} else {
+						return stack
 					}
+				} else {
+					return stack
 				}
 			}
 		}
