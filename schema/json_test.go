@@ -100,6 +100,19 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			expectError:   false,
 			expectedElems: func() *int { e := 4; return &e }(),
 		},
+		{
+			name: "variant_with_encoding_and_compression",
+			jsonSchema: `
+			{
+			  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
+			  "Fields": [
+				{"Tag": "name=data, type=VARIANT, encoding=PLAIN, compression=GZIP, repetitiontype=REQUIRED"}
+			  ]
+			}
+			`,
+			expectError:   false,
+			expectedElems: func() *int { e := 4; return &e }(),
+		},
 	}
 
 	for _, tt := range tests {
@@ -118,6 +131,21 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 
 			if tt.expectedElems != nil {
 				require.Equal(t, *tt.expectedElems, len(handler.SchemaElements))
+			}
+
+			if tt.name == "variant_with_encoding_and_compression" {
+				require.Equal(t, 4, len(handler.SchemaElements))
+				// Metadata child
+				require.Equal(t, "Metadata", handler.SchemaElements[2].Name)
+				require.Equal(t, "PLAIN", handler.Infos[2].Encoding.String())
+				require.NotNil(t, handler.Infos[2].CompressionType)
+				require.Equal(t, "GZIP", handler.Infos[2].CompressionType.String())
+
+				// Value child
+				require.Equal(t, "Value", handler.SchemaElements[3].Name)
+				require.Equal(t, "PLAIN", handler.Infos[3].Encoding.String())
+				require.NotNil(t, handler.Infos[3].CompressionType)
+				require.Equal(t, "GZIP", handler.Infos[3].CompressionType.String())
 			}
 		})
 	}

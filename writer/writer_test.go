@@ -837,7 +837,10 @@ func TestDataPageVersion(t *testing.T) {
 
 		for i, rec := range res {
 			if i == 3 {
-				require.Nil(t, rec.Val)
+				// With current reconstruction, NULL variant is returned as Variant{Value: [0]}
+				v, ok := rec.Val.(types.Variant)
+				require.True(t, ok)
+				require.Equal(t, byte(0), v.Value[0])
 				continue
 			}
 

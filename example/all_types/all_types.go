@@ -26,6 +26,11 @@ type InnerMap struct {
 	List []string         `parquet:"name=List, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=DECIMAL, valuescale=2, valueprecision=10"`
 }
 
+type VariantType struct {
+	Metadata []byte `parquet:"name=metadata, type=BYTE_ARRAY, encoding=DELTA_LENGTH_BYTE_ARRAY, compression=ZSTD"`
+	Value    []byte `parquet:"name=value, type=BYTE_ARRAY, encoding=DELTA_LENGTH_BYTE_ARRAY, compression=SNAPPY"`
+}
+
 // there is no TIME_NANOS or TIMESTAMP_NANOS
 // https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#deprecated-time-convertedtype
 // https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#deprecated-timestamp-convertedtype
@@ -96,7 +101,7 @@ type AllTypes struct {
 	GeometryGeometryCollection string `parquet:"name=GeometryGeometryCollection, type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84"`
 
 	// Note: VARIANT is a GROUP type with metadata and value binary fields per Parquet spec
-	Variant types.Variant `parquet:"name=Variant, type=VARIANT, logicaltype=VARIANT, logicaltype.specification_version=1"`
+	Variant VariantType `parquet:"name=Variant, type=VARIANT, logicaltype=VARIANT, logicaltype.specification_version=1"`
 }
 
 // uuidStringToBytes converts a UUID string to 16-byte binary representation
@@ -512,7 +517,7 @@ func sampleGeometry(i int) string {
 
 // createSampleVariant creates a properly encoded Variant value
 // representing a JSON object: {"kind": "Example", "number": i}
-func createSampleVariant(i int) types.Variant {
+func createSampleVariant(i int) VariantType {
 	// Create metadata with sorted dictionary for optimal lookup performance
 	// EncodeVariantMetadataSorted returns the metadata and a map of field name -> field ID
 	metadata, fieldIDs := types.EncodeVariantMetadataSorted([]string{"kind", "number"})
@@ -526,7 +531,7 @@ func createSampleVariant(i int) types.Variant {
 		},
 	)
 
-	return types.Variant{
+	return VariantType{
 		Metadata: metadata,
 		Value:    value,
 	}

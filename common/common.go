@@ -533,9 +533,24 @@ func newLogicalTypeFromConvertedType(schemaElement *parquet.SchemaElement, info 
 
 func DeepCopy(src, dst *Tag) {
 	*dst = *src
-	dst.logicalTypeFields = nil
-	dst.Key.logicalTypeFields = nil
-	dst.Value.logicalTypeFields = nil
+	if src.logicalTypeFields != nil {
+		dst.logicalTypeFields = make(map[string]string)
+		for k, v := range src.logicalTypeFields {
+			dst.logicalTypeFields[k] = v
+		}
+	}
+	if src.Key.logicalTypeFields != nil {
+		dst.Key.logicalTypeFields = make(map[string]string)
+		for k, v := range src.Key.logicalTypeFields {
+			dst.Key.logicalTypeFields[k] = v
+		}
+	}
+	if src.Value.logicalTypeFields != nil {
+		dst.Value.logicalTypeFields = make(map[string]string)
+		for k, v := range src.Value.logicalTypeFields {
+			dst.Value.logicalTypeFields[k] = v
+		}
+	}
 }
 
 // Get key tag map for map
@@ -544,7 +559,12 @@ func GetKeyTagMap(src *Tag) *Tag {
 	res.InName = "Key"
 	res.ExName = "key"
 	res.fieldAttr = src.Key
-	res.logicalTypeFields = nil
+	if src.Key.logicalTypeFields != nil {
+		res.logicalTypeFields = make(map[string]string)
+		for k, v := range src.Key.logicalTypeFields {
+			res.logicalTypeFields[k] = v
+		}
+	}
 	return res
 }
 
@@ -554,7 +574,12 @@ func GetValueTagMap(src *Tag) *Tag {
 	res.InName = "Value"
 	res.ExName = "value"
 	res.fieldAttr = src.Value
-	res.logicalTypeFields = nil
+	if src.Value.logicalTypeFields != nil {
+		res.logicalTypeFields = make(map[string]string)
+		for k, v := range src.Value.logicalTypeFields {
+			res.logicalTypeFields[k] = v
+		}
+	}
 	return res
 }
 
