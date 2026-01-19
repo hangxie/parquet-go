@@ -454,14 +454,6 @@ func HandleVariant(
 	// If the variant group is present, its definition level should be at its max
 	childDL, _ := schemaHandler.MaxDefinitionLevel(common.StrToPath(node.PathMap.Path))
 
-	// Push Value
-	valueNode := nodeBuf.GetNode()
-	valueNode.PathMap = valuePathMap
-	valueNode.Val = reflect.ValueOf(string(v.Value))
-	valueNode.DL = childDL
-	valueNode.RL = node.RL
-	stack = append(stack, valueNode)
-
 	// Push Metadata
 	metaNode := nodeBuf.GetNode()
 	metaNode.PathMap = metadataPathMap
@@ -469,6 +461,14 @@ func HandleVariant(
 	metaNode.DL = childDL
 	metaNode.RL = node.RL
 	stack = append(stack, metaNode)
+
+	// Push Value
+	valueNode := nodeBuf.GetNode()
+	valueNode.PathMap = valuePathMap
+	valueNode.Val = reflect.ValueOf(string(v.Value))
+	valueNode.DL = childDL
+	valueNode.RL = node.RL
+	stack = append(stack, valueNode)
 
 	return stack, true, nil
 }

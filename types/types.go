@@ -858,6 +858,9 @@ func ConvertDecimalValue(val any, pT *parquet.Type, precision, scale int) any {
 		if v, ok := val.(string); ok {
 			return decimalByteArrayToFloat([]byte(v), precision, scale)
 		}
+		if v, ok := val.([]byte); ok {
+			return decimalByteArrayToFloat(v, precision, scale)
+		}
 	}
 	return val
 }
