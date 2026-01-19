@@ -1837,3 +1837,40 @@ func TestUnmarshal_ShreddedVariant_NoDuplicateRows(t *testing.T) {
 		require.Equal(t, valBytes, dst[i].Variant.Value)
 	}
 }
+
+func TestUnmarshal_ErrorHandling_TypeConversion(t *testing.T) {
+	// This test simulates a case where type conversion might fail.
+	// We want to ensure that Unmarshal handles this gracefully by returning an error,
+	// instead of panicking.
+
+	type DestStruct struct {
+		Field int `parquet:"name=field, type=INT64"`
+	}
+
+	// Create a schema handler for the destination struct
+	sh, err := schema.NewSchemaHandlerFromStruct(new(DestStruct))
+	require.NoError(t, err)
+
+	// Create a table map that mimics a valid parquet structure
+	// but provides a value that cannot be converted to the destination type
+	// in a way that might trigger a panic if not checked.
+	type IncompatibleType struct {
+		Something string
+	}
+
+	tableMap := map[string]*layout.Table{
+		"Parquet_go_root.Field": {
+			Path:             []string{"Parquet_go_root", "Field"},
+			Values:           []interface{}{IncompatibleType{Something: "bad"}},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		},
+	}
+
+	dst := make([]DestStruct, 0)
+	err = Unmarshal(&tableMap, 0, 1, &dst, sh, "")
+
+	// We expect an error here, not a panic.
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot convert value of type")
+}
