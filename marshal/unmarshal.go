@@ -532,36 +532,8 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 						return fmt.Errorf("reflect value became invalid before type comparison")
 					}
 
-					// Use defer/recover to safely get the type
-					var poTypeForConvert reflect.Type
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								poTypeForConvert = nil
-							}
-						}()
-						poTypeForConvert = po.Type()
-					}()
-
-					if poTypeForConvert == nil {
-						return fmt.Errorf("get type from reflect value, possibly corrupted")
-					}
-
-					// Safely get value type
-					var valueType reflect.Type
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								valueType = nil
-							}
-						}()
-						valueType = value.Type()
-					}()
-
-					if valueType == nil {
-						// This should not happen since we checked value.IsValid() above
-						return fmt.Errorf("get type from valid value, this is unexpected")
-					}
+					poTypeForConvert := po.Type()
+					valueType := value.Type()
 
 					if poTypeForConvert != valueType {
 						// Special handling for string -> []byte conversion (BYTE_ARRAY to []byte)
@@ -569,32 +541,22 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 							strVal := value.String()
 							value = reflect.ValueOf([]byte(strVal))
 						} else {
-							var convertErr error
-							func() {
-								defer func() {
-									if r := recover(); r != nil {
-										convertErr = fmt.Errorf("convert type: %v", r)
-									}
-								}()
-								value = value.Convert(poTypeForConvert)
-							}()
-							if convertErr != nil {
-								return convertErr
+							if !valueType.ConvertibleTo(poTypeForConvert) {
+								return fmt.Errorf("cannot convert value of type %v to type %v", valueType, poTypeForConvert)
 							}
+							value = value.Convert(poTypeForConvert)
 						}
 					}
-					var setErr error
-					func() {
-						defer func() {
-							if r := recover(); r != nil {
-								setErr = fmt.Errorf("set value: %v", r)
-							}
-						}()
-						po.Set(value)
-					}()
-					if setErr != nil {
-						return setErr
+
+					if !po.CanSet() {
+						return fmt.Errorf("cannot set value for field (unaddressable or unexported)")
 					}
+					// Ensure value is assignable to po
+					if !value.Type().AssignableTo(po.Type()) {
+						return fmt.Errorf("cannot assign value of type %v to field of type %v", value.Type(), po.Type())
+					}
+
+					po.Set(value)
 					break OuterLoop
 				}
 			}
