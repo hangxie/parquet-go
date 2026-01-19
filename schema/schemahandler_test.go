@@ -338,6 +338,28 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 				require.Equal(t, "MAP", schema.SchemaElements[5].ConvertedType.String())
 			},
 		},
+		{
+			name: "variant_with_encoding_and_compression",
+			structDef: new(struct {
+				VariantField types.Variant `parquet:"name=variant, type=VARIANT, encoding=PLAIN, compression=GZIP"`
+			}),
+			expectError: false,
+			validateSchema: func(t *testing.T, schema *SchemaHandler) {
+				require.Equal(t, 4, len(schema.SchemaElements))
+
+				// Verify Metadata child has encoding and compression
+				require.Equal(t, "Metadata", schema.SchemaElements[2].Name)
+				require.Equal(t, parquet.Encoding_PLAIN, schema.Infos[2].Encoding)
+				require.NotNil(t, schema.Infos[2].CompressionType)
+				require.Equal(t, parquet.CompressionCodec_GZIP, *schema.Infos[2].CompressionType)
+
+				// Verify Value child has encoding and compression
+				require.Equal(t, "Value", schema.SchemaElements[3].Name)
+				require.Equal(t, parquet.Encoding_PLAIN, schema.Infos[3].Encoding)
+				require.NotNil(t, schema.Infos[3].CompressionType)
+				require.Equal(t, parquet.CompressionCodec_GZIP, *schema.Infos[3].CompressionType)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1086,4 +1108,56 @@ func TestSchemaHandler_GetVariantSchemaInfo(t *testing.T) {
 			require.Equal(t, expectedInfo, actualInfo)
 		}
 	})
+}
+
+func TestNewSchemaHandlerFromStruct_VariantInfo(t *testing.T) {
+	type VariantType struct {
+		Metadata []byte `parquet:"name=metadata, type=BYTE_ARRAY, encoding=DELTA_LENGTH_BYTE_ARRAY, compression=ZSTD"`
+		Value    []byte `parquet:"name=value, type=BYTE_ARRAY, encoding=DELTA_LENGTH_BYTE_ARRAY, compression=SNAPPY"`
+	}
+
+	type AllTypes struct {
+		Variant VariantType `parquet:"name=Variant, type=VARIANT, logicaltype=VARIANT, logicaltype.specification_version=1"`
+	}
+
+	sh, err := NewSchemaHandlerFromStruct(new(AllTypes))
+	require.NoError(t, err)
+
+	// Parquet_go_root (0)
+	//   Variant (1)
+	//     metadata (2)
+	//     value (3)
+
+	require.Equal(t, int32(2), sh.SchemaElements[1].GetNumChildren())
+	require.NotNil(t, sh.SchemaElements[1].LogicalType)
+	require.NotNil(t, sh.SchemaElements[1].LogicalType.VARIANT)
+
+	// Check metadata field (index 2)
+	require.Equal(t, "Metadata", sh.SchemaElements[2].GetName())
+	require.Equal(t, "metadata", sh.Infos[2].ExName)
+	require.Equal(t, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY, sh.Infos[2].Encoding)
+	require.NotNil(t, sh.Infos[2].CompressionType)
+	require.Equal(t, parquet.CompressionCodec_ZSTD, *sh.Infos[2].CompressionType)
+
+	// Check value field (index 3)
+	require.Equal(t, "Value", sh.SchemaElements[3].GetName())
+	require.Equal(t, "value", sh.Infos[3].ExName)
+	require.Equal(t, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY, sh.Infos[3].Encoding)
+	require.NotNil(t, sh.Infos[3].CompressionType)
+	require.Equal(t, parquet.CompressionCodec_SNAPPY, *sh.Infos[3].CompressionType)
+}
+
+func TestNewSchemaHandlerFromStruct_ByteArraySlice(t *testing.T) {
+	type MyStruct struct {
+		Data []byte `parquet:"name=data, type=BYTE_ARRAY"`
+	}
+
+	sh, err := NewSchemaHandlerFromStruct(new(MyStruct))
+	require.NoError(t, err)
+
+	// Root (0)
+	//   Data (1)
+	require.Equal(t, 2, len(sh.SchemaElements))
+	require.Equal(t, int32(0), sh.SchemaElements[1].GetNumChildren())
+	require.Equal(t, parquet.Type_BYTE_ARRAY, *sh.SchemaElements[1].Type)
 }

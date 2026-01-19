@@ -21,7 +21,8 @@ type ShreddedVariantReconstructor struct {
 	Info             *schema.VariantSchemaInfo // Schema info for this variant
 	MetadataTable    *layout.Table             // metadata column (always present)
 	ValueTable       *layout.Table             // value column (may be nil if fully shredded)
-	TypedValueTables []*layout.Table           // typed_value columns (may be empty if not shredded)
+	TypedValueTables []*layout.Table           // typed_value columns (legacy, kept for tests)
+	tableMap         *map[string]*layout.Table // map of all tables for recursive lookup
 	SchemaHandler    *schema.SchemaHandler     // Schema handler for path resolution
 }
 
@@ -36,6 +37,7 @@ func NewShreddedVariantReconstructor(
 		Path:          path,
 		Info:          info,
 		SchemaHandler: sh,
+		tableMap:      tableMap,
 	}
 
 	// Find metadata table
@@ -53,9 +55,7 @@ func NewShreddedVariantReconstructor(
 		}
 	}
 
-	// Find all typed_value leaf tables
-	// A shredded field can be a primitive named "Typed_value" OR any field under a "Typed_value" group
-	// OR (per spec) any other field under the variant group that isn't metadata/value.
+	// Find all typed_value leaf tables (kept for test compatibility)
 	for tableName, table := range *tableMap {
 		if !strings.HasPrefix(tableName, path+common.PAR_GO_PATH_DELIMITER) {
 			continue
@@ -78,6 +78,8 @@ func NewShreddedVariantReconstructor(
 
 // getValueAtRow returns the value from a table at the given row index.
 // It handles definition levels to return nil for missing values.
+// getValueAtRow returns the value from a table at the given row index.
+// It handles repeated fields by returning a slice of values.
 func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx int, tableBgn, tableEnd map[string]int) any {
 	if table == nil {
 		return nil
@@ -90,8 +92,9 @@ func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx
 		return nil
 	}
 
-	// Find the value for this row by scanning repetition levels
+	// Find the values for this row by scanning repetition levels
 	currentRow := -1
+	var values []any
 	for i := bgn; i < end; i++ {
 		if table.RepetitionLevels[i] == 0 {
 			currentRow++
@@ -100,75 +103,429 @@ func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx
 			// Check definition level to see if value is present
 			maxDL, _ := r.SchemaHandler.MaxDefinitionLevel(table.Path)
 			if table.DefinitionLevels[i] >= maxDL {
-				return table.Values[i]
+				values = append(values, table.Values[i])
+			} else {
+				values = append(values, nil)
 			}
-			return nil
+		} else if currentRow > rowIdx {
+			break
 		}
 	}
-	return nil
+
+	if len(values) == 0 {
+		return nil
+	}
+
+	// Check if the field is repeated in the schema
+	isRepeated := false
+	maxRL, _ := r.SchemaHandler.MaxRepetitionLevel(table.Path)
+	if maxRL > 0 {
+		isRepeated = true
+	}
+
+	if isRepeated {
+		return values
+	}
+	return values[0]
+}
+
+// reconstructValue recursively builds a Go value from shredded columns.
+func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte) (any, error) {
+	// 1. Check if this is a leaf column
+	if table, ok := (*r.tableMap)[pathPrefix]; ok {
+		val := r.getValueAtRow(table, rowIdx, tableBgn, tableEnd)
+		return val, nil
+	}
+
+	// 2. Not a leaf, check for children
+	childTables := make(map[string][]*layout.Table)
+	for tableName, table := range *r.tableMap {
+		if strings.HasPrefix(tableName, pathPrefix+common.PAR_GO_PATH_DELIMITER) {
+			relPath := strings.TrimPrefix(tableName, pathPrefix+common.PAR_GO_PATH_DELIMITER)
+			parts := strings.Split(relPath, common.PAR_GO_PATH_DELIMITER)
+			childName := parts[0]
+			childTables[childName] = append(childTables[childName], table)
+		}
+	}
+
+	if len(childTables) == 0 {
+		return nil, nil
+	}
+
+	// Special case: if we have Metadata/Value/Typed_value, it's a variant
+	_, hasMetadata := childTables["Metadata"]
+	_, hasValue := childTables["Value"]
+	_, hasTypedValue := childTables["Typed_value"]
+
+	// Also consider it a variant if it has NO Metadata but has only one child which is one of Value or Typed_value?
+	// Actually, the Apache testing files often have a layout like:
+	// Var.Typed_value (GROUP)
+	//   A.Value (BYTE_ARRAY)
+	//   B.Value (BYTE_ARRAY)
+	// Here A and B are fields of an object. A has only one child "Value".
+
+	if hasMetadata || hasValue || hasTypedValue {
+		metadataValues := make([]any, 0)
+		metadataSet := false
+		if hasMetadata {
+			mVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Metadata", rowIdx, tableBgn, tableEnd, nil)
+			if err != nil {
+				return nil, err
+			}
+			if slice, ok := mVal.([]any); ok {
+				metadataValues = slice
+				metadataSet = true
+			} else if mVal != nil {
+				metadataValues = []any{mVal}
+				metadataSet = true
+			}
+		}
+
+		valueValues := make([]any, 0)
+		valueSet := false
+		if hasValue {
+			vVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Value", rowIdx, tableBgn, tableEnd, nil)
+			if err != nil {
+				return nil, err
+			}
+			if slice, ok := vVal.([]any); ok {
+				valueValues = slice
+				valueSet = true
+			} else if vVal != nil {
+				valueValues = []any{vVal}
+				valueSet = true
+			}
+		}
+
+		typedValueValues := make([]any, 0)
+		typedValueSet := false
+		if hasTypedValue {
+			var err error
+			// Pass metadata down if set, otherwise use current metadata
+			effectiveMetadata := metadata
+			if metadataSet && len(metadataValues) > 0 {
+				if m, ok := metadataValues[0].([]byte); ok {
+					effectiveMetadata = m
+				} else if s, ok := metadataValues[0].(string); ok {
+					effectiveMetadata = []byte(s)
+				}
+			}
+			tVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Typed_value", rowIdx, tableBgn, tableEnd, effectiveMetadata)
+			if err != nil {
+				return nil, err
+			}
+			if slice, ok := tVal.([]any); ok {
+				typedValueValues = slice
+				typedValueSet = true
+			} else if tVal != nil {
+				typedValueValues = []any{tVal}
+				typedValueSet = true
+			}
+		}
+
+		if !metadataSet && !valueSet && !typedValueSet {
+			return nil, nil
+		}
+
+		// Calculate max length for zipping
+		maxLen := 0
+		if len(metadataValues) > maxLen {
+			maxLen = len(metadataValues)
+		}
+		if len(valueValues) > maxLen {
+			maxLen = len(valueValues)
+		}
+		if len(typedValueValues) > maxLen {
+			maxLen = len(typedValueValues)
+		}
+
+		if maxLen == 0 {
+			return nil, nil
+		}
+
+		// Determine if we should return a slice or a single value
+		isRepeated := false
+		if (metadataSet && len(metadataValues) > 1) || (valueSet && len(valueValues) > 1) || (typedValueSet && len(typedValueValues) > 1) {
+			isRepeated = true
+		} else {
+			// Check if any of the underlying leaf columns are repeated
+			for _, tables := range childTables {
+				for _, table := range tables {
+					maxRL, _ := r.SchemaHandler.MaxRepetitionLevel(table.Path)
+					if maxRL > 0 {
+						isRepeated = true
+						break
+					}
+				}
+				if isRepeated {
+					break
+				}
+			}
+		}
+
+		results := make([]types.Variant, maxLen)
+		for i := range maxLen {
+			var elMetadata []byte
+			if i < len(metadataValues) && metadataValues[i] != nil {
+				switch v := metadataValues[i].(type) {
+				case []byte:
+					elMetadata = v
+				case string:
+					elMetadata = []byte(v)
+				default:
+					return nil, fmt.Errorf("unexpected metadata type: %T", v)
+				}
+			}
+			if len(elMetadata) == 0 {
+				if len(metadata) > 0 {
+					elMetadata = metadata
+				} else {
+					elMetadata = []byte{0x01, 0x00, 0x00}
+				}
+			}
+
+			var elValue []byte
+			if i < len(valueValues) && valueValues[i] != nil {
+				switch v := valueValues[i].(type) {
+				case []byte:
+					elValue = v
+				case string:
+					elValue = []byte(v)
+				default:
+					return nil, fmt.Errorf("unexpected value type: %T", v)
+				}
+			}
+
+			var elTypedValue any
+			if i < len(typedValueValues) {
+				elTypedValue = typedValueValues[i]
+			}
+
+			v, err := types.ReconstructVariant(elMetadata, elValue, elTypedValue)
+			if err != nil {
+				// Fallback
+				results[i] = types.Variant{Metadata: elMetadata, Value: types.EncodeVariantNull()}
+			} else {
+				results[i] = v
+			}
+		}
+
+		if isRepeated {
+			// Convert []types.Variant to []any
+			anyResults := make([]any, len(results))
+			for i, v := range results {
+				if len(v.Value) == 0 || (len(v.Value) == 1 && v.Value[0] == 0) {
+					anyResults[i] = nil
+				} else {
+					anyResults[i] = v
+				}
+			}
+			return anyResults, nil
+		}
+
+		v := results[0]
+		if len(v.Value) == 0 || (len(v.Value) == 1 && v.Value[0] == 0) {
+			return nil, nil
+		}
+		return v, nil
+	}
+
+	// Not a variant itself. Could be an object, a list, or just a wrapper for a leaf value (e.g. A.Value).
+	if len(childTables) == 1 {
+		// If it's a single child named "Value" or "Typed_value", return its reconstruction directly
+		// This handles the A.Value or B.Value case where A is a group with one child.
+		for name := range childTables {
+			if name == "Value" || name == "Typed_value" {
+				return r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+name, rowIdx, tableBgn, tableEnd, metadata)
+			}
+		}
+	}
+
+	// Check if the current path is a LIST in the schema
+	idx, ok := r.SchemaHandler.MapIndex[pathPrefix]
+	isList := ok && r.SchemaHandler.SchemaElements[idx].ConvertedType != nil &&
+		*r.SchemaHandler.SchemaElements[idx].ConvertedType == parquet.ConvertedType_LIST
+
+	if isList {
+		return r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"List", rowIdx, tableBgn, tableEnd, metadata)
+	}
+
+	// Handle 3-level list "List" group
+	if strings.HasSuffix(pathPrefix, common.PAR_GO_PATH_DELIMITER+"List") {
+		return r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Element", rowIdx, tableBgn, tableEnd, metadata)
+	}
+
+	// Handle "Element" group (repeated)
+	if strings.HasSuffix(pathPrefix, common.PAR_GO_PATH_DELIMITER+"Element") {
+		// ... existing repeated element logic ...
+		tableValues := make(map[string][]any)
+		maxLen := 0
+		for childName := range childTables {
+			val, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+childName, rowIdx, tableBgn, tableEnd, metadata)
+			if err != nil {
+				return nil, err
+			}
+			if slice, ok := val.([]any); ok {
+				tableValues[childName] = slice
+				if len(slice) > maxLen {
+					maxLen = len(slice)
+				}
+			} else if val != nil {
+				tableValues[childName] = []any{val}
+				if maxLen == 0 {
+					maxLen = 1
+				}
+			}
+		}
+
+		if maxLen == 0 {
+			return nil, nil
+		}
+
+		elements := make([]any, maxLen)
+		for i := range maxLen {
+			elementMap := make(map[string]any)
+			for childName, slice := range tableValues {
+				if i < len(slice) {
+					elementMap[childName] = slice[i]
+				}
+			}
+
+			_, hasMetadata := elementMap["Metadata"]
+			_, hasValue := elementMap["Value"]
+			_, hasTypedValue := elementMap["Typed_value"]
+			if hasMetadata || hasValue || hasTypedValue {
+				var elMetadata []byte
+				metadataSet := false
+				if hasMetadata {
+					switch v := elementMap["Metadata"].(type) {
+					case []byte:
+						elMetadata = v
+						metadataSet = true
+					case string:
+						elMetadata = []byte(v)
+						metadataSet = true
+					}
+				}
+				if !metadataSet {
+					if len(metadata) > 0 {
+						elMetadata = metadata
+					} else {
+						elMetadata = []byte{0x01, 0x00, 0x00}
+					}
+				}
+				elValue, _ := elementMap["Value"].([]byte)
+				elTypedValue := elementMap["Typed_value"]
+				v, _ := types.ReconstructVariant(elMetadata, elValue, elTypedValue)
+				elements[i] = v
+			} else {
+				if len(elementMap) == 1 {
+					for name, v := range elementMap {
+						if name == "Value" || name == "Typed_value" {
+							elements[i] = v
+						} else {
+							elements[i] = elementMap
+						}
+					}
+				} else {
+					elements[i] = elementMap
+				}
+			}
+		}
+		return elements, nil
+	}
+
+	// General case: map (OBJECT variant fields)
+	tableValues := make(map[string][]any)
+	maxLen := -1
+	isRepeated := false
+
+	for childName := range childTables {
+		childPath := pathPrefix + common.PAR_GO_PATH_DELIMITER + childName
+		val, err := r.reconstructValue(childPath, rowIdx, tableBgn, tableEnd, metadata)
+		if err != nil {
+			return nil, err
+		}
+		if val != nil {
+			if slice, ok := val.([]any); ok {
+				isRepeated = true
+				tableValues[childName] = slice
+				if maxLen == -1 || len(slice) > maxLen {
+					maxLen = len(slice)
+				}
+			} else {
+				tableValues[childName] = []any{val}
+				if maxLen == -1 {
+					maxLen = 1
+				}
+			}
+		}
+	}
+
+	if maxLen == -1 {
+		return nil, nil
+	}
+
+	if isRepeated {
+		// Zip slices into a slice of maps
+		results := make([]any, maxLen)
+		for i := range maxLen {
+			obj := make(map[string]any)
+			for childName, slice := range tableValues {
+				if i < len(slice) {
+					val := slice[i]
+					if val != nil {
+						// Use ExName for the field name
+						actualFieldName := childName
+						childPath := pathPrefix + common.PAR_GO_PATH_DELIMITER + childName
+						if idx, ok := r.SchemaHandler.MapIndex[childPath]; ok {
+							actualFieldName = r.SchemaHandler.Infos[idx].ExName
+						}
+						obj[actualFieldName] = val
+					}
+				}
+			}
+			results[i] = obj
+		}
+		return results, nil
+	}
+
+	// Not repeated, return a single map
+	obj := make(map[string]any)
+	for childName, slice := range tableValues {
+		val := slice[0]
+		// Use ExName for the field name
+		actualFieldName := childName
+		childPath := pathPrefix + common.PAR_GO_PATH_DELIMITER + childName
+		if idx, ok := r.SchemaHandler.MapIndex[childPath]; ok {
+			actualFieldName = r.SchemaHandler.Infos[idx].ExName
+		}
+		obj[actualFieldName] = val
+	}
+	return obj, nil
 }
 
 // Reconstruct reconstructs a Variant value for the given row index.
 func (r *ShreddedVariantReconstructor) Reconstruct(rowIdx int, tableBgn, tableEnd map[string]int) (types.Variant, error) {
-	// Get metadata (always required)
-	metadataVal := r.getValueAtRow(r.MetadataTable, rowIdx, tableBgn, tableEnd)
-	var metadata []byte
-	if metadataVal != nil {
-		switch v := metadataVal.(type) {
-		case []byte:
-			metadata = v
-		case string:
-			metadata = []byte(v)
-		default:
-			return types.Variant{}, fmt.Errorf("unexpected metadata type: %T", metadataVal)
-		}
+	val, err := r.reconstructValue(r.Path, rowIdx, tableBgn, tableEnd, nil)
+	if err != nil {
+		return types.Variant{}, err
 	}
-
-	// Get value (may be nil if shredded)
-	var value []byte
-	if r.ValueTable != nil {
-		valueVal := r.getValueAtRow(r.ValueTable, rowIdx, tableBgn, tableEnd)
-		if valueVal != nil {
-			switch v := valueVal.(type) {
-			case []byte:
-				value = v
-			case string:
-				value = []byte(v)
-			}
-		}
+	if val == nil {
+		// Return a NULL variant
+		return types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    types.EncodeVariantNull(),
+		}, nil
 	}
-
-	// Get typed_value (may be multiple shredded columns)
-	var typedValue any
-	if len(r.TypedValueTables) == 1 {
-		typedValue = r.getValueAtRow(r.TypedValueTables[0], rowIdx, tableBgn, tableEnd)
-	} else if len(r.TypedValueTables) > 1 {
-		obj := make(map[string]any)
-		for _, table := range r.TypedValueTables {
-			val := r.getValueAtRow(table, rowIdx, tableBgn, tableEnd)
-			if val != nil {
-				// Get the field name relative to the variant path
-				fullPath := common.PathToStr(table.Path)
-				relPath := strings.TrimPrefix(fullPath, r.Path+common.PAR_GO_PATH_DELIMITER)
-
-				// Strip "Typed_value" prefix if present (standard shredding layout)
-				if strings.HasPrefix(relPath, "Typed_value"+common.PAR_GO_PATH_DELIMITER) {
-					relPath = strings.TrimPrefix(relPath, "Typed_value"+common.PAR_GO_PATH_DELIMITER)
-				}
-
-				// For now, support single-level shredding by taking the last part of the path as key
-				parts := strings.Split(relPath, common.PAR_GO_PATH_DELIMITER)
-				fieldName := parts[len(parts)-1]
-				obj[fieldName] = val
-			}
-		}
-		if len(obj) > 0 {
-			typedValue = obj
-		}
+	if v, ok := val.(types.Variant); ok {
+		return v, nil
 	}
-
-	// Reconstruct the variant
-	return types.ReconstructVariant(metadata, value, typedValue)
+	v, err := types.AnyToVariant(val)
+	if err != nil {
+		return types.Variant{}, fmt.Errorf("failed to encode reconstructed value at %s: %w", r.Path, err)
+	}
+	return v, nil
 }
 
 // Record Map KeyValue pair

@@ -25,8 +25,8 @@ func TestMarshalPanicListMissingElement(t *testing.T) {
 
 	listField := root.Children["list"]
 	if listField == nil {
-        // Fallback for case sensitivity or tagging issues
-        listField = root.Children["List"]
+		// Fallback for case sensitivity or tagging issues
+		listField = root.Children["List"]
 	}
 	if listField == nil {
 		t.Fatal("list field not found in PathMap")
@@ -38,25 +38,25 @@ func TestMarshalPanicListMissingElement(t *testing.T) {
 			l.Children["Item"] = e
 			delete(l.Children, "Element")
 		} else {
-            t.Log("Element child not found under List, cannot simulate issue")
-        }
+			t.Log("Element child not found under List, cannot simulate issue")
+		}
 	} else {
-        t.Log("List child not found under list, cannot simulate issue")
-    }
+		t.Log("List child not found under list, cannot simulate issue")
+	}
 
 	data := []TestListStructIssue{
 		{List: []int32{1, 2, 3}},
 	}
 
-    iface := make([]any, len(data))
-    for i := range data {
-        iface[i] = data[i]
-    }
+	iface := make([]any, len(data))
+	for i := range data {
+		iface[i] = data[i]
+	}
 
 	// This should not panic
 	_, err = Marshal(iface, sh)
 	if err != nil {
-        // Error is acceptable, panic is not.
+		// Error is acceptable, panic is not.
 		t.Logf("Marshal error (expected behavior for mismatched schema): %v", err)
 	}
 }

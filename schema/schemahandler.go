@@ -294,8 +294,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 			schema.Name = item.Info.InName
 			rt := item.Info.RepetitionType
 			schema.RepetitionType = &rt
-			var numChildren int32 = 2
-			schema.NumChildren = &numChildren
+
 			// Get the LogicalType from the Tag (handles specification_version)
 			// Always ensure VARIANT LogicalType is set
 			logicalType := common.GetLogicalTypeFromTag(item.Info)
@@ -309,31 +308,66 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 			common.DeepCopy(item.Info, newInfo)
 			infos = append(infos, newInfo)
 
-			// Add Metadata child (required binary)
-			metadataSchema := parquet.NewSchemaElement()
-			metadataSchema.Name = "Metadata"
-			metadataType := parquet.Type_BYTE_ARRAY
-			metadataSchema.Type = &metadataType
-			metadataRt := parquet.FieldRepetitionType_REQUIRED
-			metadataSchema.RepetitionType = &metadataRt
-			schemaElements = append(schemaElements, metadataSchema)
-			metadataInfo := &common.Tag{InName: "Metadata", ExName: "metadata"}
-			metadataInfo.Type = "BYTE_ARRAY"
-			metadataInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
-			infos = append(infos, metadataInfo)
+			useStruct := false
+			if item.GoType.Kind() == reflect.Struct {
+				for i := 0; i < item.GoType.NumField(); i++ {
+					if item.GoType.Field(i).Tag.Get("parquet") != "" {
+						useStruct = true
+						break
+					}
+				}
+			}
 
-			// Add Value child (required binary)
-			valueSchema := parquet.NewSchemaElement()
-			valueSchema.Name = "Value"
-			valueType := parquet.Type_BYTE_ARRAY
-			valueSchema.Type = &valueType
-			valueRt := parquet.FieldRepetitionType_REQUIRED
-			valueSchema.RepetitionType = &valueRt
-			schemaElements = append(schemaElements, valueSchema)
-			valueInfo := &common.Tag{InName: "Value", ExName: "value"}
-			valueInfo.Type = "BYTE_ARRAY"
-			valueInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
-			infos = append(infos, valueInfo)
+			if useStruct {
+				numField := int32(item.GoType.NumField())
+				schema.NumChildren = &numField
+				for i := int(numField - 1); i >= 0; i-- {
+					f := item.GoType.Field(i)
+					tagStr := f.Tag.Get("parquet")
+
+					// ignore item without parquet tag
+					if len(tagStr) <= 0 {
+						(*schema.NumChildren)--
+						continue
+					}
+
+					newItem := NewItem()
+					newItem.Info, err = common.StringToTag(tagStr)
+					if err != nil {
+						return nil, fmt.Errorf("parse tag: %w", err)
+					}
+					newItem.Info.InName = f.Name
+					newItem.GoType = f.Type
+					if f.Type.Kind() == reflect.Ptr {
+						newItem.GoType = f.Type.Elem()
+						newItem.Info.RepetitionType = parquet.FieldRepetitionType_OPTIONAL
+					}
+					stack = append(stack, newItem)
+				}
+			} else {
+				var numChildren int32 = 2
+				schema.NumChildren = &numChildren
+
+				// Add Value child (required binary)
+				valueItem := NewItem()
+				valueItem.Info = &common.Tag{InName: "Value", ExName: "value"}
+				valueItem.Info.Type = "BYTE_ARRAY"
+				valueItem.Info.RepetitionType = parquet.FieldRepetitionType_REQUIRED
+				valueItem.Info.Encoding = item.Info.Encoding
+				valueItem.Info.CompressionType = item.Info.CompressionType
+				valueItem.GoType = reflect.TypeOf("")
+				stack = append(stack, valueItem)
+
+				// Add Metadata child (required binary)
+				metadataItem := NewItem()
+				metadataItem.Info = &common.Tag{InName: "Metadata", ExName: "metadata"}
+				metadataItem.Info.Type = "BYTE_ARRAY"
+				metadataItem.Info.RepetitionType = parquet.FieldRepetitionType_REQUIRED
+				metadataItem.Info.Encoding = item.Info.Encoding
+				metadataItem.Info.CompressionType = item.Info.CompressionType
+				metadataItem.GoType = reflect.TypeOf("")
+				stack = append(stack, metadataItem)
+			}
 
 		} else if item.GoType.Kind() == reflect.Struct {
 			schema := parquet.NewSchemaElement()
@@ -371,6 +405,7 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 				stack = append(stack, newItem)
 			}
 		} else if item.GoType.Kind() == reflect.Slice &&
+			item.Info.Type != "BYTE_ARRAY" && item.Info.Type != "FIXED_LEN_BYTE_ARRAY" &&
 			item.Info.RepetitionType != parquet.FieldRepetitionType_REPEATED {
 			schema := parquet.NewSchemaElement()
 			schema.Name = item.Info.InName
@@ -473,8 +508,43 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 		}
 	}
 
-	res := NewSchemaHandlerFromSchemaList(schemaElements)
-	res.Infos = infos
+	res := &SchemaHandler{
+		SchemaElements: schemaElements,
+		Infos:          infos,
+		MapIndex:       make(map[string]int32),
+		IndexMap:       make(map[int32]string),
+		InPathToExPath: make(map[string]string),
+		ExPathToInPath: make(map[string]string),
+	}
+
+	// use DFS get path of schema
+	ln := int32(len(schemaElements))
+	var pos int32 = 0
+	stack2 := make([][2]int32, 0) // stack item[0]: index of schemas; item[1]: numChildren
+	for pos < ln || len(stack2) > 0 {
+		if len(stack2) == 0 || stack2[len(stack2)-1][1] > 0 {
+			if len(stack2) > 0 {
+				stack2[len(stack2)-1][1]--
+			}
+			item := [2]int32{pos, schemaElements[pos].GetNumChildren()}
+			stack2 = append(stack2, item)
+			pos++
+		} else {
+			path := make([]string, 0)
+			for i := range len(stack2) {
+				inname := res.Infos[stack2[i][0]].InName
+				path = append(path, inname)
+			}
+			topPos := stack2[len(stack2)-1][0]
+			res.MapIndex[common.PathToStr(path)] = topPos
+			res.IndexMap[topPos] = common.PathToStr(path)
+			stack2 = stack2[:len(stack2)-1]
+		}
+	}
+	res.setPathMap()
+	res.setValueColumns()
+	res.setVariantSchemas()
+
 	res.CreateInExMap()
 	return res, nil
 }

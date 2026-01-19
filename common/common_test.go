@@ -35,13 +35,16 @@ func TestDeepCopy(t *testing.T) {
 				InName: "inname",
 				ExName: "exname",
 				fieldAttr: fieldAttr{
-					Type: "BOOLEAN",
+					Type:              "BOOLEAN",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
 				},
 				Key: fieldAttr{
-					Type: "BYTE_ARRAY",
+					Type:              "BYTE_ARRAY",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
 				},
 				Value: fieldAttr{
-					Type: "INT32",
+					Type:              "INT32",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
 				},
 			},
 		},
@@ -122,7 +125,8 @@ func TestGetKeyTagMap(t *testing.T) {
 				InName: "Key",
 				ExName: "key",
 				fieldAttr: fieldAttr{
-					Type: "UNT32",
+					Type:              "UNT32",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
 				},
 			},
 		},
@@ -153,7 +157,8 @@ func TestGetValueTagMap(t *testing.T) {
 				InName: "Value",
 				ExName: "value",
 				fieldAttr: fieldAttr{
-					Type: "UNT32",
+					Type:              "UNT32",
+					logicalTypeFields: map[string]string{"logicaltype.foo": "bar"},
 				},
 			},
 		},

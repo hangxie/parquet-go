@@ -962,6 +962,17 @@ func EncodeGoValueAsVariantWithMetadata(v any, metadata []byte) ([]byte, error) 
 		return EncodeVariantNull(), nil
 	}
 
+	// If already a Variant, return its encoded value directly
+	if variant, ok := v.(Variant); ok {
+		return variant.Value, nil
+	}
+	if ptr, ok := v.(*Variant); ok {
+		if ptr == nil {
+			return EncodeVariantNull(), nil
+		}
+		return ptr.Value, nil
+	}
+
 	// Use reflection to handle arbitrary structs and slice/maps generically
 	val := reflect.ValueOf(v)
 
@@ -1185,7 +1196,10 @@ func MergeVariantWithTypedValue(value []byte, typedValue any, metadata []byte) (
 	baseObj, baseIsObj := baseValue.(map[string]any)
 	typedObj, typedIsObj := typedValue.(map[string]any)
 
-	if baseIsObj && typedIsObj {
+	if typedIsObj {
+		if !baseIsObj {
+			baseObj = make(map[string]any)
+		}
 		// Merge: typed_value fields override base fields
 		for k, v := range typedObj {
 			baseObj[k] = v
