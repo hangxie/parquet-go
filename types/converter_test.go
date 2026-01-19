@@ -670,6 +670,15 @@ func TestIntervalToString(t *testing.T) {
 	}
 }
 
+func TestDECIMAL_BYTE_ARRAY_ToString_EmptyInput(t *testing.T) {
+	// Test that DECIMAL_BYTE_ARRAY_ToString handles empty input without panicking
+	result := DECIMAL_BYTE_ARRAY_ToString([]byte{}, 9, 3)
+	require.Equal(t, "0.000", result)
+
+	result = DECIMAL_BYTE_ARRAY_ToString(nil, 9, 3)
+	require.Equal(t, "0.000", result)
+}
+
 func TestDECIMAL_BYTE_ARRAY_ToString_DoesNotMutateInput(t *testing.T) {
 	// Test that DECIMAL_BYTE_ARRAY_ToString does not mutate the input slice
 	// This is important because callers may reuse the slice

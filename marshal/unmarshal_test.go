@@ -1750,3 +1750,90 @@ func TestSetVariantValue(t *testing.T) {
 		require.Equal(t, variant, *testVariant)
 	})
 }
+
+func TestUnmarshal_ShreddedVariant_NoDuplicateRows(t *testing.T) {
+	type VariantRow struct {
+		ID      int32         `parquet:"name=id, type=INT32"`
+		Variant types.Variant `parquet:"name=variant, type=VARIANT"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(VariantRow))
+	require.NoError(t, err)
+
+	// Manually inject VariantSchemas info to simulate a shredded variant.
+	// NewSchemaHandlerFromStruct creates "Parquet_go_root", "ID", "Variant", "Variant.Metadata", "Variant.Value"
+	variantPath := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Variant"
+
+	// We verify indices
+	var metadataIdx, valueIdx int32
+	if idx, ok := sh.MapIndex[variantPath+common.PAR_GO_PATH_DELIMITER+"Metadata"]; ok {
+		metadataIdx = idx
+	} else {
+		t.Fatal("Metadata index not found")
+	}
+	if idx, ok := sh.MapIndex[variantPath+common.PAR_GO_PATH_DELIMITER+"Value"]; ok {
+		valueIdx = idx
+	} else {
+		t.Fatal("Value index not found")
+	}
+
+	sh.VariantSchemas = map[string]*schema.VariantSchemaInfo{
+		variantPath: {
+			MetadataIdx: metadataIdx,
+			ValueIdx:    valueIdx,
+			IsShredded:  true, // Mark as shredded to trigger the reconstruction path
+		},
+	}
+
+	numRows := 10
+	idValues := make([]any, numRows)
+	// Metadata: version 1, empty dict -> 0x01 0x00 0x00
+	metaBytes := []byte{0x01, 0x00, 0x00}
+	metaValues := make([]any, numRows)
+	// Value: null -> 0x00
+	valBytes := []byte{0x00}
+	valValues := make([]any, numRows)
+
+	rLs := make([]int32, numRows) // all 0
+	dLs := make([]int32, numRows) // all 0 (REQUIRED fields)
+
+	for i := 0; i < numRows; i++ {
+		idValues[i] = int32(i)
+		metaValues[i] = metaBytes
+		valValues[i] = valBytes
+		rLs[i] = 0
+		dLs[i] = 0
+	}
+
+	tableMap := map[string]*layout.Table{
+		"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "ID": {
+			Path:             []string{"Parquet_go_root", "ID"},
+			Values:           idValues,
+			RepetitionLevels: rLs,
+			DefinitionLevels: dLs,
+		},
+		"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Variant" + common.PAR_GO_PATH_DELIMITER + "Metadata": {
+			Path:             []string{"Parquet_go_root", "Variant", "Metadata"},
+			Values:           metaValues,
+			RepetitionLevels: rLs,
+			DefinitionLevels: dLs,
+		},
+		"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Variant" + common.PAR_GO_PATH_DELIMITER + "Value": {
+			Path:             []string{"Parquet_go_root", "Variant", "Value"},
+			Values:           valValues,
+			RepetitionLevels: rLs,
+			DefinitionLevels: dLs,
+		},
+	}
+
+	dst := make([]VariantRow, 0)
+	err = Unmarshal(&tableMap, 0, numRows, &dst, sh, "")
+	require.NoError(t, err)
+	require.Len(t, dst, numRows, "Row count should match input rows without duplication")
+
+	for i := 0; i < numRows; i++ {
+		require.Equal(t, int32(i), dst[i].ID)
+		require.Equal(t, metaBytes, dst[i].Variant.Metadata)
+		require.Equal(t, valBytes, dst[i].Variant.Value)
+	}
+}

@@ -130,12 +130,12 @@ func INT96ToTimeWithError(int96 string) (time.Time, error) {
 }
 
 func DECIMAL_INT_ToString(dec int64, precision, scale int) string {
+	ans := strconv.FormatInt(dec, 10)
 	sign := ""
 	if dec < 0 {
 		sign = "-"
-		dec = -dec
+		ans = ans[1:]
 	}
-	ans := strconv.FormatInt(dec, 10)
 	if scale > 0 {
 		if scale > len(ans) {
 			ans = strings.Repeat("0", scale-(len(ans))+1) + ans
@@ -147,6 +147,9 @@ func DECIMAL_INT_ToString(dec int64, precision, scale int) string {
 }
 
 func DECIMAL_BYTE_ARRAY_ToString(dec []byte, precision, scale int) string {
+	if len(dec) == 0 {
+		dec = []byte{0}
+	}
 	sign := ""
 	if dec[0] > 0x7f {
 		sign = "-"
