@@ -1056,6 +1056,19 @@ func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *sche
 			po.Set(reflect.Zero(po.Type()))
 			return nil
 		}
+		if po.Kind() == reflect.Interface && po.Type() != reflect.TypeOf(types.Variant{}) {
+			decoded, err := types.ConvertVariantValue(variant)
+			if err != nil {
+				// Fallback to variant struct if decode fails
+				po.Set(reflect.ValueOf(variant))
+			} else if decoded != nil {
+				po.Set(reflect.ValueOf(decoded))
+			} else {
+				// Decoded is nil (should be handled by isNull above, but just in case)
+				po.Set(reflect.Zero(po.Type()))
+			}
+			return nil
+		}
 		po.Set(reflect.ValueOf(variant))
 		return nil
 	}
@@ -1066,6 +1079,17 @@ func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *sche
 		}
 		if po.IsNil() {
 			po.Set(reflect.New(po.Type().Elem()))
+		}
+		if po.Type().Elem().Kind() == reflect.Interface && po.Type().Elem() != reflect.TypeOf(types.Variant{}) {
+			decoded, err := types.ConvertVariantValue(variant)
+			if err != nil {
+				po.Elem().Set(reflect.ValueOf(variant))
+			} else if decoded != nil {
+				po.Elem().Set(reflect.ValueOf(decoded))
+			} else {
+				po.Elem().Set(reflect.Zero(po.Type().Elem()))
+			}
+			return nil
 		}
 		po.Elem().Set(reflect.ValueOf(variant))
 		return nil
