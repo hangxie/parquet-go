@@ -7,7 +7,101 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v2/schema"
+	"github.com/hangxie/parquet-go/v2/types"
 )
+
+func TestMarshalVariant(t *testing.T) {
+	type MyStruct struct {
+		Var any `parquet:"name=var, type=VARIANT, repetitiontype=OPTIONAL"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(MyStruct))
+	require.NoError(t, err)
+
+	data := []any{
+		MyStruct{
+			Var: &types.Variant{
+				Metadata: types.EncodeVariantMetadata([]string{"a"}),
+				Value:    types.EncodeVariantInt8(123),
+			},
+		},
+		MyStruct{
+			Var: &types.Variant{
+				Metadata: types.EncodeVariantMetadata([]string{"b"}),
+				Value:    types.EncodeVariantString("hello"),
+			},
+		},
+		MyStruct{Var: nil}, // nil variant
+	}
+
+	res, err := Marshal(data, sh)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	// Check if all tables are present
+	require.Contains(t, *res, "Parquet_go_root\x01Var\x01Metadata")
+	require.Contains(t, *res, "Parquet_go_root\x01Var\x01Value")
+
+	metadataTable := (*res)["Parquet_go_root\x01Var\x01Metadata"]
+	valueTable := (*res)["Parquet_go_root\x01Var\x01Value"]
+
+	require.Equal(t, 3, len(metadataTable.Values))
+	require.Equal(t, 3, len(valueTable.Values))
+
+	// Third row should be nil
+	require.Nil(t, metadataTable.Values[2])
+	require.Nil(t, valueTable.Values[2])
+}
+
+func TestMarshalVariant_Error(t *testing.T) {
+	t.Run("unsupported_type", func(t *testing.T) {
+		type MyStruct struct {
+			Var any `parquet:"name=var, type=VARIANT"`
+		}
+
+		sh, err := schema.NewSchemaHandlerFromStruct(new(MyStruct))
+		require.NoError(t, err)
+
+		// complex128 is not supported by AnyToVariant
+		data := []any{MyStruct{Var: complex(1, 2)}}
+		_, err = Marshal(data, sh)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "convert to variant")
+	})
+
+	t.Run("missing_pathmap_children", func(t *testing.T) {
+		type MyStruct struct {
+			Var any `parquet:"name=var, type=VARIANT"`
+		}
+
+		sh, err := schema.NewSchemaHandlerFromStruct(new(MyStruct))
+		require.NoError(t, err)
+
+		// Manually break PathMap for the variant field
+		pathMap := sh.PathMap.Children["Var"]
+		require.NotNil(t, pathMap)
+
+		// Save original children and delete one
+		origChildren := pathMap.Children
+		pathMap.Children = make(map[string]*schema.PathMapType)
+		for k, v := range origChildren {
+			if k != "Value" { // missing "Value"
+				pathMap.Children[k] = v
+			}
+		}
+
+		data := []any{MyStruct{Var: types.Variant{
+			Metadata: types.EncodeVariantMetadata([]string{"a"}),
+			Value:    types.EncodeVariantInt8(123),
+		}}}
+
+		// Since we want to test HandleVariant directly or through Marshal
+		// Marshal uses mapStruct.Marshal internally
+		_, err = Marshal(data, sh)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing required children")
+	})
+}
 
 type marshalCases struct {
 	nullPtr    *int //lint:ignore U1000 this is a placeholder for testing

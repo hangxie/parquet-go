@@ -7,7 +7,6 @@ import (
 
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/types"
 )
 
 // Tests for schema handler functionality
@@ -280,7 +279,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 		{
 			name: "variant_type",
 			structDef: new(struct {
-				VariantField types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+				VariantField any `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
 			}),
 			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
@@ -341,7 +340,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 		{
 			name: "variant_with_encoding_and_compression",
 			structDef: new(struct {
-				VariantField types.Variant `parquet:"name=variant, type=VARIANT, encoding=PLAIN, compression=GZIP"`
+				VariantField any `parquet:"name=variant, type=VARIANT, encoding=PLAIN, compression=GZIP"`
 			}),
 			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
@@ -760,7 +759,7 @@ func TestIsValidVariantSchema(t *testing.T) {
 	// Helper to create a valid VARIANT schema handler
 	createVariantSchema := func() (*SchemaHandler, int32, []int32) {
 		sh, err := NewSchemaHandlerFromStruct(new(struct {
-			VariantField types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+			VariantField any `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
 		}))
 		if err != nil {
 			t.Fatalf("failed to create variant schema: %v", err)
@@ -988,7 +987,7 @@ func TestShreddedVariantSchema(t *testing.T) {
 func TestGetVariantSchemaInfo(t *testing.T) {
 	t.Run("unshredded variant info via index", func(t *testing.T) {
 		sh, err := NewSchemaHandlerFromStruct(new(struct {
-			V types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+			V any `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
 		}))
 		require.NoError(t, err)
 
@@ -1022,7 +1021,7 @@ func TestGetVariantSchemaInfo(t *testing.T) {
 func TestVariantSchemasMap(t *testing.T) {
 	t.Run("VariantSchemas map is populated", func(t *testing.T) {
 		sh, err := NewSchemaHandlerFromStruct(new(struct {
-			V types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+			V any `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
 		}))
 		require.NoError(t, err)
 
@@ -1040,8 +1039,8 @@ func TestVariantSchemasMap(t *testing.T) {
 
 	t.Run("multiple variants are all indexed", func(t *testing.T) {
 		sh, err := NewSchemaHandlerFromStruct(new(struct {
-			V1 types.Variant `parquet:"name=variant1, type=VARIANT, logicaltype=VARIANT"`
-			V2 types.Variant `parquet:"name=variant2, type=VARIANT, logicaltype=VARIANT"`
+			V1 any `parquet:"name=variant1, type=VARIANT, logicaltype=VARIANT"`
+			V2 any `parquet:"name=variant2, type=VARIANT, logicaltype=VARIANT"`
 		}))
 		require.NoError(t, err)
 
@@ -1066,7 +1065,7 @@ func TestSchemaHandler_GetVariantSchemaInfo(t *testing.T) {
 
 	t.Run("returns nil for non-existent path", func(t *testing.T) {
 		sh, err := NewSchemaHandlerFromStruct(new(struct {
-			V types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+			V any `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
 		}))
 		require.NoError(t, err)
 
@@ -1076,7 +1075,7 @@ func TestSchemaHandler_GetVariantSchemaInfo(t *testing.T) {
 
 	t.Run("returns info for existing variant path", func(t *testing.T) {
 		sh, err := NewSchemaHandlerFromStruct(new(struct {
-			V types.Variant `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
+			V any `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
 		}))
 		require.NoError(t, err)
 
@@ -1096,8 +1095,8 @@ func TestSchemaHandler_GetVariantSchemaInfo(t *testing.T) {
 
 	t.Run("returns correct info for multiple variants", func(t *testing.T) {
 		sh, err := NewSchemaHandlerFromStruct(new(struct {
-			V1 types.Variant `parquet:"name=variant1, type=VARIANT, logicaltype=VARIANT"`
-			V2 types.Variant `parquet:"name=variant2, type=VARIANT, logicaltype=VARIANT"`
+			V1 any `parquet:"name=variant1, type=VARIANT, logicaltype=VARIANT"`
+			V2 any `parquet:"name=variant2, type=VARIANT, logicaltype=VARIANT"`
 		}))
 		require.NoError(t, err)
 

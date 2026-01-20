@@ -262,8 +262,9 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 						elementTypes[idx] = reflect.MapOf(kT, vT)
 					}
 				} else if sh.isValidVariantSchema(idx, elements[idx]) {
-					// VARIANT type - return types.Variant struct
-					variantType := reflect.TypeOf(types.Variant{})
+					// VARIANT type - return interface{} so it can hold decoded value
+					// (aligned with JSON schema behavior)
+					variantType := reflect.TypeOf((*any)(nil)).Elem()
 					if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
 						elementTypes[idx] = reflect.PointerTo(variantType)
 					} else {

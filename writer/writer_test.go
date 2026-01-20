@@ -16,7 +16,6 @@ import (
 	"github.com/hangxie/parquet-go/v2/source"
 	"github.com/hangxie/parquet-go/v2/source/buffer"
 	"github.com/hangxie/parquet-go/v2/source/writerfile"
-	"github.com/hangxie/parquet-go/v2/types"
 )
 
 func readColumnIndex(pf source.ParquetFileReader, offset int64) (*parquet.ColumnIndex, error) {
@@ -837,23 +836,25 @@ func TestDataPageVersion(t *testing.T) {
 
 		for i, rec := range res {
 			if i == 3 {
-				// With current reconstruction, NULL variant is returned as Variant{Value: [0]}
-				v, ok := rec.Val.(types.Variant)
-				require.True(t, ok)
-				require.Equal(t, byte(0), v.Value[0])
+				require.Nil(t, rec.Val)
 				continue
 			}
 
-			v, ok := rec.Val.(types.Variant)
-			require.True(t, ok)
-
-			decoded, err := types.ConvertVariantValue(v)
-			require.NoError(t, err)
-			require.NotNil(t, decoded)
+			// Value is already decoded to interface{} (map, int64, etc)
+			require.NotNil(t, rec.Val)
 
 			if i == 0 {
-				obj := decoded.(map[string]any)
+				obj, ok := rec.Val.(map[string]any)
+				require.True(t, ok, "Expected map[string]any for row 0")
 				require.Equal(t, "Alice", obj["Name"])
+			} else if i == 1 {
+				obj, ok := rec.Val.(map[string]any)
+				require.True(t, ok, "Expected map[string]any for row 1")
+				require.Equal(t, "New York", obj["city"])
+			} else if i == 2 {
+				val, ok := rec.Val.(int64)
+				require.True(t, ok, "Expected int64 for row 2")
+				require.Equal(t, int64(123), val)
 			}
 		}
 	})
@@ -887,15 +888,11 @@ func TestDataPageVersion(t *testing.T) {
 		require.NoError(t, pr.Read(&res))
 
 		require.NotNil(t, res[0].Val)
-		v := res[0].Val.(types.Variant)
-		decoded, _ := types.ConvertVariantValue(v)
-		obj := decoded.(map[string]any)
+		// Value is already decoded
+		obj, ok := res[0].Val.(map[string]any)
+		require.True(t, ok, "Expected map[string]any")
 		require.Equal(t, "Alice", obj["name"])
 
-		if res[1].Val != nil {
-			v := res[1].Val.(types.Variant)
-			decoded, _ := types.ConvertVariantValue(v)
-			require.Nil(t, decoded)
-		}
+		require.Nil(t, res[1].Val)
 	})
 }

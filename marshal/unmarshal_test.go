@@ -1753,8 +1753,8 @@ func TestSetVariantValue(t *testing.T) {
 
 func TestUnmarshal_ShreddedVariant_NoDuplicateRows(t *testing.T) {
 	type VariantRow struct {
-		ID      int32         `parquet:"name=id, type=INT32"`
-		Variant types.Variant `parquet:"name=variant, type=VARIANT"`
+		ID      int32 `parquet:"name=id, type=INT32"`
+		Variant any   `parquet:"name=variant, type=VARIANT"`
 	}
 
 	sh, err := schema.NewSchemaHandlerFromStruct(new(VariantRow))
@@ -1833,8 +1833,9 @@ func TestUnmarshal_ShreddedVariant_NoDuplicateRows(t *testing.T) {
 
 	for i := 0; i < numRows; i++ {
 		require.Equal(t, int32(i), dst[i].ID)
-		require.Equal(t, metaBytes, dst[i].Variant.Metadata)
-		require.Equal(t, valBytes, dst[i].Variant.Value)
+		// With Variant as any, it should be decoded.
+		// A Variant with empty metadata and NULL value decodes to nil.
+		require.Nil(t, dst[i].Variant)
 	}
 }
 
@@ -1873,4 +1874,492 @@ func TestUnmarshal_ErrorHandling_TypeConversion(t *testing.T) {
 	// We expect an error here, not a panic.
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot convert value of type")
+}
+
+func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
+	// Root.Var (VARIANT) shredded into:
+	// Root.Var.Metadata
+	// Root.Var.Typed_value.a.Metadata
+	// Root.Var.Typed_value.a.Value
+
+	// metadata: dict={0=>a}
+	metadata := types.EncodeVariantMetadata([]string{"a"})
+
+	// Inner variant for "a": value=123 (INT8)
+	innerVariant := types.Variant{
+		Metadata: metadata,
+		Value:    types.EncodeVariantInt8(123),
+	}
+
+	metadataTable := &layout.Table{
+		Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+		Values:           []any{metadata},
+		RepetitionLevels: []int32{0},
+		DefinitionLevels: []int32{1},
+	}
+
+	innerMetadataTable := &layout.Table{
+		Path:             []string{"Parquet_go_root", "Var", "Typed_value", "a", "Metadata"},
+		Values:           []any{metadata},
+		RepetitionLevels: []int32{0},
+		DefinitionLevels: []int32{1},
+	}
+
+	innerValueTable := &layout.Table{
+		Path:             []string{"Parquet_go_root", "Var", "Typed_value", "a", "Value"},
+		Values:           []any{innerVariant.Value},
+		RepetitionLevels: []int32{0},
+		DefinitionLevels: []int32{1},
+	}
+
+	mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+	imKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value" + common.PAR_GO_PATH_DELIMITER + "a" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+	ivKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value" + common.PAR_GO_PATH_DELIMITER + "a" + common.PAR_GO_PATH_DELIMITER + "Value"
+
+	tableMap := map[string]*layout.Table{
+		mKey:  metadataTable,
+		imKey: innerMetadataTable,
+		ivKey: innerValueTable,
+	}
+
+	sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+		Var any `parquet:"name=Var, type=VARIANT"`
+	}))
+
+	var info *schema.VariantSchemaInfo
+	var path string
+	for p, i := range sh.VariantSchemas {
+		path = p
+		info = i
+		break
+	}
+
+	r := NewShreddedVariantReconstructor(path, info, &tableMap, sh)
+
+	tableBgn := map[string]int{mKey: 0, imKey: 0, ivKey: 0}
+	tableEnd := map[string]int{mKey: 1, imKey: 1, ivKey: 1}
+
+	v, err := r.Reconstruct(0, tableBgn, tableEnd)
+	require.NoError(t, err)
+
+	decoded, err := types.ConvertVariantValue(v)
+	require.NoError(t, err)
+
+	expected := map[string]any{"a": int8(123)}
+	require.Equal(t, expected, decoded)
+}
+
+func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
+	t.Run("reconstruct_value_error_propagation", func(t *testing.T) {
+		metadata := types.EncodeVariantMetadata([]string{"a"})
+		metadataTable := &layout.Table{
+			Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+			Values:           []any{metadata},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+
+		// Incompatible value to trigger error in reconstructValue or getValueAtRow
+		valueTable := &layout.Table{
+			Path:             []string{"Parquet_go_root", "Var", "Value"},
+			Values:           []any{struct{ Bad bool }{Bad: true}},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+
+		tableMap := map[string]*layout.Table{
+			"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
+			"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    valueTable,
+		}
+
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var any `parquet:"name=Var, type=VARIANT"`
+		}))
+
+		var info *schema.VariantSchemaInfo
+		var path string
+		for p, i := range sh.VariantSchemas {
+			path = p
+			info = i
+			break
+		}
+
+		r := NewShreddedVariantReconstructor(path, info, &tableMap, sh)
+
+		mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+		vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+
+		tableBgn := map[string]int{mKey: 0, vKey: 0}
+		tableEnd := map[string]int{mKey: 1, vKey: 1}
+
+		_, err := r.Reconstruct(0, tableBgn, tableEnd)
+		// Should error because we passed a struct as BYTE_ARRAY value
+		require.Error(t, err)
+	})
+
+	t.Run("reconstruct_returns_existing_variant", func(t *testing.T) {
+		metadata := types.EncodeVariantMetadata([]string{"a"})
+		expectedVariant := types.Variant{
+			Metadata: metadata,
+			Value:    types.EncodeVariantInt8(123),
+		}
+
+		// tableMap containing a Variant struct directly (if that's possible in some paths)
+		// Actually reconstructValue returns Variant if it finds Metadata/Value children
+		metadataTable := &layout.Table{
+			Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+			Values:           []any{metadata},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+		valueTable := &layout.Table{
+			Path:             []string{"Parquet_go_root", "Var", "Value"},
+			Values:           []any{expectedVariant.Value},
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+
+		tableMap := map[string]*layout.Table{
+			"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
+			"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    valueTable,
+		}
+
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var any `parquet:"name=Var, type=VARIANT"`
+		}))
+
+		var info *schema.VariantSchemaInfo
+		var path string
+		for p, i := range sh.VariantSchemas {
+			path = p
+			info = i
+			break
+		}
+
+		r := NewShreddedVariantReconstructor(path, info, &tableMap, sh)
+
+		mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+		vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+
+		tableBgn := map[string]int{mKey: 0, vKey: 0}
+		tableEnd := map[string]int{mKey: 1, vKey: 1}
+
+		v, err := r.Reconstruct(0, tableBgn, tableEnd)
+		require.NoError(t, err)
+		require.Equal(t, expectedVariant, v)
+	})
+}
+
+func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
+	t.Run("nested_list_reconstruction", func(t *testing.T) {
+		// Mock a LIST of Variants
+		// Root.Var (LIST)
+		//   List
+		//     Element (VARIANT)
+		//       Metadata
+		//       Value
+
+		metadata := types.EncodeVariantMetadata([]string{})
+		val1 := types.EncodeVariantInt8(1)
+		val2 := types.EncodeVariantInt8(2)
+
+		mKeyInt := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+		vKeyInt := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element" + common.PAR_GO_PATH_DELIMITER + "Value"
+
+		metadataTable := &layout.Table{
+			Path:             []string{"Parquet_go_root", "Var", "List", "Element", "Metadata"},
+			Values:           []any{metadata, metadata},
+			RepetitionLevels: []int32{0, 1},
+			DefinitionLevels: []int32{1, 1},
+		}
+		valueTable := &layout.Table{
+			Path:             []string{"Parquet_go_root", "Var", "List", "Element", "Value"},
+			Values:           []any{val1, val2},
+			RepetitionLevels: []int32{0, 1},
+			DefinitionLevels: []int32{1, 1},
+		}
+
+		tableMap := map[string]*layout.Table{
+			mKeyInt: metadataTable,
+			vKeyInt: valueTable,
+		}
+
+		type ListElement struct {
+			Element any `parquet:"name=element, type=VARIANT"`
+		}
+		type ListType struct {
+			List []ListElement `parquet:"name=list, repetitiontype=REPEATED"`
+		}
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var ListType `parquet:"name=Var, type=LIST"`
+		}))
+
+		// For LIST, we need to make sure MaxRepetitionLevel > 0 for children
+		// But here we are calling reconstructValue on the LIST group itself.
+		// reconstructValue handles LIST by going to List/Element.
+
+		// Manually create reconstructor since it's not a top-level Variant group
+		r := &ShreddedVariantReconstructor{
+			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			tableMap:      &tableMap,
+			SchemaHandler: sh,
+		}
+
+		tableBgn := map[string]int{mKeyInt: 0, vKeyInt: 0}
+		tableEnd := map[string]int{mKeyInt: 2, vKeyInt: 2}
+
+		res, err := r.reconstructValue(r.Path, 0, tableBgn, tableEnd, nil)
+		require.NoError(t, err)
+
+		// For LIST, reconstructValue should return a slice
+		slice, ok := res.([]any)
+		require.True(t, ok, "Expected slice, got %T", res)
+		require.Len(t, slice, 2)
+	})
+
+	t.Run("map_reconstruction_zip_slices", func(t *testing.T) {
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Obj []struct {
+				A int32  `parquet:"name=a, type=INT32"`
+				B string `parquet:"name=b, type=BYTE_ARRAY, convertedtype=UTF8"`
+			} `parquet:"name=Obj, repetitiontype=REPEATED"`
+		}))
+
+		// Internal paths for repeated struct fields
+		aPath := []string{"Parquet_go_root", "Obj", "A"}
+		bPath := []string{"Parquet_go_root", "Obj", "B"}
+		aKey := common.PathToStr(aPath)
+		bKey := common.PathToStr(bPath)
+
+		tableMap := map[string]*layout.Table{
+			aKey: {
+				Path:             aPath,
+				Values:           []any{int32(1), int32(2)},
+				RepetitionLevels: []int32{0, 1},
+				DefinitionLevels: []int32{1, 1},
+			},
+			bKey: {
+				Path:             bPath,
+				Values:           []any{"x", "y"},
+				RepetitionLevels: []int32{0, 1},
+				DefinitionLevels: []int32{1, 1},
+			},
+		}
+
+		r := &ShreddedVariantReconstructor{
+			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Obj",
+			tableMap:      &tableMap,
+			SchemaHandler: sh,
+		}
+
+		tableBgn := map[string]int{aKey: 0, bKey: 0}
+		tableEnd := map[string]int{aKey: 2, bKey: 2}
+
+		res, err := r.reconstructValue(r.Path, 0, tableBgn, tableEnd, nil)
+		require.NoError(t, err)
+
+		slice, ok := res.([]any)
+		require.True(t, ok, "Expected slice, got %T", res)
+		require.Len(t, slice, 2)
+
+		m1 := slice[0].(map[string]any)
+		require.Equal(t, int32(1), m1["a"])
+		require.Equal(t, "x", m1["b"])
+
+		m2 := slice[1].(map[string]any)
+		require.Equal(t, int32(2), m2["a"])
+		require.Equal(t, "y", m2["b"])
+	})
+
+	t.Run("metadata_as_string_and_variant_reconstruction", func(t *testing.T) {
+		// 1. Test regular object reconstruction (non-variant, non-list)
+		sh1, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var struct {
+				A int32 `parquet:"name=a, type=INT32"`
+			} `parquet:"name=Var"`
+		}))
+
+		aKey1 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "a"
+		tableMap1 := map[string]*layout.Table{
+			aKey1: {
+				Path:             []string{"Parquet_go_root", "Var", "a"},
+				Values:           []any{int32(42)},
+				RepetitionLevels: []int32{0},
+				DefinitionLevels: []int32{1},
+			},
+		}
+
+		r1 := &ShreddedVariantReconstructor{
+			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			tableMap:      &tableMap1,
+			SchemaHandler: sh1,
+		}
+
+		tableBgn1 := map[string]int{aKey1: 0}
+		tableEnd1 := map[string]int{aKey1: 1}
+
+		res1, err := r1.reconstructValue(r1.Path, 0, tableBgn1, tableEnd1, nil)
+		require.NoError(t, err)
+		m1 := res1.(map[string]any)
+		require.Equal(t, int32(42), m1["a"])
+
+		// 2. Test metadata as string in a VARIANT group
+		sh2, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var int32 `parquet:"name=Var, type=VARIANT"`
+		}))
+		mKey2 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+		vKey2 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+		tableMap2 := map[string]*layout.Table{
+			mKey2: {
+				Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+				Values:           []any{string([]byte{0x01, 0x00, 0x00})},
+				RepetitionLevels: []int32{0},
+				DefinitionLevels: []int32{1},
+			},
+			vKey2: {
+				Path:             []string{"Parquet_go_root", "Var", "Value"},
+				Values:           []any{types.EncodeVariantInt32(123)},
+				RepetitionLevels: []int32{0},
+				DefinitionLevels: []int32{1},
+			},
+		}
+		r2 := &ShreddedVariantReconstructor{
+			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			tableMap:      &tableMap2,
+			SchemaHandler: sh2,
+		}
+		tableBgn2 := map[string]int{mKey2: 0, vKey2: 0}
+		tableEnd2 := map[string]int{mKey2: 1, vKey2: 1}
+
+		res2, err := r2.reconstructValue(r2.Path, 0, tableBgn2, tableEnd2, nil)
+		require.NoError(t, err)
+		v2, ok := res2.(types.Variant)
+		require.True(t, ok, "Expected types.Variant, got %T", res2)
+		require.Equal(t, []byte{0x01, 0x00, 0x00}, v2.Metadata)
+
+		// 3. Trigger ReconstructVariant error fallback
+		tKey3 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value"
+		tableMap2[tKey3] = &layout.Table{
+			Path:             []string{"Parquet_go_root", "Var", "Typed_value"},
+			Values:           []any{func() {}}, // Incompatible type for variant encoding
+			RepetitionLevels: []int32{0},
+			DefinitionLevels: []int32{1},
+		}
+		tableBgn2[tKey3], tableEnd2[tKey3] = 0, 1
+
+		res3, err := r2.reconstructValue(r2.Path, 0, tableBgn2, tableEnd2, nil)
+		require.NoError(t, err)
+		require.Nil(t, res3)
+	})
+
+	t.Run("reconstruct_null_and_variant_direct", func(t *testing.T) {
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var int32 `parquet:"name=Var, type=VARIANT"`
+		}))
+		r := &ShreddedVariantReconstructor{
+			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			tableMap:      &map[string]*layout.Table{},
+			SchemaHandler: sh,
+		}
+		// Null case
+		v, err := r.Reconstruct(0, map[string]int{}, map[string]int{})
+		require.NoError(t, err)
+		valNull, _ := types.ConvertVariantValue(v)
+		require.Nil(t, valNull)
+
+		// Variant direct case
+		mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+		vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+		tableMap := map[string]*layout.Table{
+			mKey: {
+				Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+				Values:           []any{[]byte{0x01, 0x00, 0x00}},
+				RepetitionLevels: []int32{0},
+				DefinitionLevels: []int32{1},
+			},
+			vKey: {
+				Path:             []string{"Parquet_go_root", "Var", "Value"},
+				Values:           []any{types.EncodeVariantInt32(123)},
+				RepetitionLevels: []int32{0},
+				DefinitionLevels: []int32{1},
+			},
+		}
+		r.tableMap = &tableMap
+		v, err = r.Reconstruct(0, map[string]int{mKey: 0, vKey: 0}, map[string]int{mKey: 1, vKey: 1})
+		require.NoError(t, err)
+		valDirect, _ := types.ConvertVariantValue(v)
+		require.Equal(t, int32(123), valDirect)
+	})
+
+	t.Run("reconstruct_any_to_variant", func(t *testing.T) {
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var int32 `parquet:"name=Var, type=INT32"`
+		}))
+		tKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var"
+		tableMap := map[string]*layout.Table{
+			tKey: {
+				Path:             []string{"Parquet_go_root", "Var"},
+				Values:           []any{int32(123)},
+				RepetitionLevels: []int32{0},
+				DefinitionLevels: []int32{1},
+			},
+		}
+		r := &ShreddedVariantReconstructor{
+			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			tableMap:      &tableMap,
+			SchemaHandler: sh,
+		}
+		v, err := r.Reconstruct(0, map[string]int{tKey: 0}, map[string]int{tKey: 1})
+		require.NoError(t, err)
+		valAny, _ := types.ConvertVariantValue(v)
+		require.Equal(t, int32(123), valAny)
+	})
+
+	t.Run("value_as_string_and_is_repeated_from_children", func(t *testing.T) {
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var []int32 `parquet:"name=Var, type=VARIANT, repetitiontype=REPEATED"`
+		}))
+		mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+		vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+
+		// Metadata and Value as strings, and repeated
+		tableMap := map[string]*layout.Table{
+			mKey: {
+				Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+				Values:           []any{string([]byte{0x01, 0x00, 0x00}), string([]byte{0x01, 0x00, 0x00})},
+				RepetitionLevels: []int32{0, 1},
+				DefinitionLevels: []int32{1, 1},
+			},
+			vKey: {
+				Path:             []string{"Parquet_go_root", "Var", "Value"},
+				Values:           []any{string(types.EncodeVariantInt32(111)), string(types.EncodeVariantInt32(222))},
+				RepetitionLevels: []int32{0, 1},
+				DefinitionLevels: []int32{1, 1},
+			},
+		}
+
+		r := &ShreddedVariantReconstructor{
+			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			tableMap:      &tableMap,
+			SchemaHandler: sh,
+		}
+
+		tableBgn := map[string]int{mKey: 0, vKey: 0}
+		tableEnd := map[string]int{mKey: 2, vKey: 2}
+
+		res, err := r.reconstructValue(r.Path, 0, tableBgn, tableEnd, nil)
+		require.NoError(t, err)
+
+		slice, ok := res.([]any)
+		require.True(t, ok, "Expected slice due to repeated children, got %T", res)
+		require.Len(t, slice, 2)
+
+		v1 := slice[0].(types.Variant)
+		val1, _ := types.ConvertVariantValue(v1)
+		require.Equal(t, int32(111), val1)
+
+		v2 := slice[1].(types.Variant)
+		val2, _ := types.ConvertVariantValue(v2)
+		require.Equal(t, int32(222), val2)
+	})
 }
