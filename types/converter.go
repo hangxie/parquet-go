@@ -336,13 +336,15 @@ func ParseIntervalString(s string) (string, error) {
 
 // ParseFloat16String parses a float string and returns 2-byte IEEE 754 half-precision binary
 func ParseFloat16String(s string) (string, error) {
-	var f float64
-	if _, err := fmt.Sscanf(s, "%f", &f); err != nil {
+	var f32 float32
+	if _, err := fmt.Sscanf(s, "%f", &f32); err != nil {
 		return "", fmt.Errorf("invalid float16 value: %s", s)
 	}
+	return Float32ToFloat16(f32), nil
+}
 
-	// Convert float64 to float16 (IEEE 754 half-precision)
-	f32 := float32(f)
+func Float32ToFloat16(f32 float32) string {
+	// Convert float32 to float16 (IEEE 754 half-precision)
 	bits := math.Float32bits(f32)
 
 	// Extract components from float32
@@ -389,5 +391,5 @@ func ParseFloat16String(s string) (string, error) {
 	// Return as little-endian 2-byte string (Parquet uses little-endian for FLOAT16)
 	result := make([]byte, 2)
 	binary.LittleEndian.PutUint16(result, f16)
-	return string(result), nil
+	return string(result)
 }
