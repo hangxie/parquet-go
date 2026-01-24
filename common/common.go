@@ -167,16 +167,16 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 	// Validate encoding compatibility with type per Parquet spec
 	switch info.Encoding {
 	case parquet.Encoding_RLE:
-		// RLE: BOOLEAN, INT32, INT64 only
-		switch *schema.Type {
-		case parquet.Type_BOOLEAN, parquet.Type_INT32, parquet.Type_INT64:
-			// valid
-		case parquet.Type_BYTE_ARRAY:
-			return nil, fmt.Errorf("field [%s]: RLE encoding is not supported for BYTE_ARRAY, use PLAIN, DELTA_BYTE_ARRAY, or DELTA_LENGTH_BYTE_ARRAY", info.InName)
-		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
-			return nil, fmt.Errorf("field [%s]: RLE encoding is not supported for FIXED_LEN_BYTE_ARRAY, use PLAIN", info.InName)
-		default:
-			return nil, fmt.Errorf("field [%s]: RLE encoding is not supported for %v", info.InName, *schema.Type)
+		// RLE: BOOLEAN only for data pages (per Parquet spec)
+		// For INT32/INT64, RLE is only valid for repetition/definition levels (handled internally)
+		// Using RLE for INT data pages is non-compliant and crashes readers like DuckDB
+		if *schema.Type != parquet.Type_BOOLEAN {
+			return nil, fmt.Errorf("field [%s]: RLE encoding is only supported for BOOLEAN, not %v", info.InName, *schema.Type)
+		}
+	case parquet.Encoding_BIT_PACKED:
+		// BIT_PACKED: deprecated, BOOLEAN only (INT32/INT64 use RLE instead)
+		if *schema.Type != parquet.Type_BOOLEAN {
+			return nil, fmt.Errorf("field [%s]: BIT_PACKED encoding is deprecated and only supported for BOOLEAN, not %v", info.InName, *schema.Type)
 		}
 	case parquet.Encoding_DELTA_BINARY_PACKED:
 		// DELTA_BINARY_PACKED: INT32, INT64 only
@@ -186,10 +186,18 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 		default:
 			return nil, fmt.Errorf("field [%s]: DELTA_BINARY_PACKED encoding is only supported for INT32 and INT64, not %v", info.InName, *schema.Type)
 		}
-	case parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
-		// DELTA_BYTE_ARRAY, DELTA_LENGTH_BYTE_ARRAY: BYTE_ARRAY only
+	case parquet.Encoding_DELTA_BYTE_ARRAY:
+		// DELTA_BYTE_ARRAY: BYTE_ARRAY or FIXED_LEN_BYTE_ARRAY
+		switch *schema.Type {
+		case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			// valid
+		default:
+			return nil, fmt.Errorf("field [%s]: DELTA_BYTE_ARRAY encoding is only supported for BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY, not %v", info.InName, *schema.Type)
+		}
+	case parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
+		// DELTA_LENGTH_BYTE_ARRAY: BYTE_ARRAY only (per Parquet spec)
 		if *schema.Type != parquet.Type_BYTE_ARRAY {
-			return nil, fmt.Errorf("field [%s]: %v encoding is only supported for BYTE_ARRAY, not %v", info.InName, info.Encoding, *schema.Type)
+			return nil, fmt.Errorf("field [%s]: DELTA_LENGTH_BYTE_ARRAY encoding is only supported for BYTE_ARRAY, not %v", info.InName, *schema.Type)
 		}
 	case parquet.Encoding_BYTE_STREAM_SPLIT:
 		// BYTE_STREAM_SPLIT: FLOAT, DOUBLE, INT32, INT64, FIXED_LEN_BYTE_ARRAY
@@ -232,7 +240,94 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 		}
 	}
 
+	if err := ValidateSchemaElement(schema); err != nil {
+		return nil, err
+	}
+
 	return schema, nil
+}
+
+// ValidateSchemaElement checks if the ConvertedType and LogicalType are compatible with the physical Type.
+func ValidateSchemaElement(schema *parquet.SchemaElement) error {
+	if schema.Type == nil {
+		return nil
+	}
+
+	// LogicalType validation
+	if schema.LogicalType != nil {
+		if schema.LogicalType.STRING != nil || schema.LogicalType.JSON != nil || schema.LogicalType.BSON != nil || schema.LogicalType.ENUM != nil {
+			if *schema.Type != parquet.Type_BYTE_ARRAY {
+				return fmt.Errorf("LogicalType STRING/JSON/BSON/ENUM can only be used with BYTE_ARRAY")
+			}
+		}
+		if schema.LogicalType.UUID != nil {
+			if *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+				return fmt.Errorf("LogicalType UUID can only be used with FIXED_LEN_BYTE_ARRAY")
+			}
+		}
+		if schema.LogicalType.DATE != nil {
+			if *schema.Type != parquet.Type_INT32 {
+				return fmt.Errorf("LogicalType DATE can only be used with INT32")
+			}
+		}
+		if schema.LogicalType.TIME != nil {
+			if schema.LogicalType.TIME.Unit.MILLIS != nil {
+				if *schema.Type != parquet.Type_INT32 {
+					return fmt.Errorf("LogicalType TIME(MILLIS) can only be used with INT32")
+				}
+			} else {
+				if *schema.Type != parquet.Type_INT64 {
+					return fmt.Errorf("LogicalType TIME(MICROS/NANOS) can only be used with INT64")
+				}
+			}
+		}
+		if schema.LogicalType.TIMESTAMP != nil {
+			if *schema.Type != parquet.Type_INT64 {
+				return fmt.Errorf("LogicalType TIMESTAMP can only be used with INT64")
+			}
+		}
+		if schema.LogicalType.INTEGER != nil {
+			if schema.LogicalType.INTEGER.BitWidth <= 32 {
+				if *schema.Type != parquet.Type_INT32 {
+					return fmt.Errorf("LogicalType INTEGER(bitwidth<=32) can only be used with INT32")
+				}
+			} else {
+				if *schema.Type != parquet.Type_INT64 {
+					return fmt.Errorf("LogicalType INTEGER(bitwidth=64) can only be used with INT64")
+				}
+			}
+		}
+	}
+
+	// ConvertedType validation
+	if schema.ConvertedType != nil {
+		switch *schema.ConvertedType {
+		case parquet.ConvertedType_UTF8, parquet.ConvertedType_JSON, parquet.ConvertedType_BSON, parquet.ConvertedType_ENUM:
+			if *schema.Type != parquet.Type_BYTE_ARRAY {
+				return fmt.Errorf("ConvertedType %s can only be used with BYTE_ARRAY", schema.ConvertedType)
+			}
+		case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS,
+			parquet.ConvertedType_INT_8, parquet.ConvertedType_INT_16, parquet.ConvertedType_INT_32,
+			parquet.ConvertedType_UINT_8, parquet.ConvertedType_UINT_16, parquet.ConvertedType_UINT_32:
+			if *schema.Type != parquet.Type_INT32 {
+				return fmt.Errorf("ConvertedType %s can only be used with INT32", schema.ConvertedType)
+			}
+		case parquet.ConvertedType_INT_64, parquet.ConvertedType_UINT_64,
+			parquet.ConvertedType_TIME_MICROS, parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS:
+			if *schema.Type != parquet.Type_INT64 {
+				return fmt.Errorf("ConvertedType %s can only be used with INT64", schema.ConvertedType)
+			}
+		case parquet.ConvertedType_INTERVAL:
+			if *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+				return fmt.Errorf("ConvertedType %s can only be used with FIXED_LEN_BYTE_ARRAY", schema.ConvertedType)
+			}
+			if schema.TypeLength == nil || *schema.TypeLength != 12 {
+				return fmt.Errorf("ConvertedType %s requires FIXED_LEN_BYTE_ARRAY with length 12", schema.ConvertedType)
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetLogicalTypeFromTag returns the LogicalType from a Tag.
