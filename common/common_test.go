@@ -1765,6 +1765,100 @@ func TestValidateSchemaElement(t *testing.T) {
 	}
 }
 
+func TestValidateEncodingForDataPageVersion(t *testing.T) {
+	testCases := map[string]struct {
+		encoding parquet.Encoding
+		version  int32
+		errMsg   string
+	}{
+		// PLAIN_DICTIONARY is v1 only
+		"plain-dictionary-v1-valid": {
+			parquet.Encoding_PLAIN_DICTIONARY,
+			1,
+			"",
+		},
+		"plain-dictionary-v2-invalid": {
+			parquet.Encoding_PLAIN_DICTIONARY,
+			2,
+			"PLAIN_DICTIONARY encoding is deprecated and only valid for data page v1",
+		},
+		// Delta encodings are v2 only
+		"delta-binary-packed-v2-valid": {
+			parquet.Encoding_DELTA_BINARY_PACKED,
+			2,
+			"",
+		},
+		"delta-binary-packed-v1-invalid": {
+			parquet.Encoding_DELTA_BINARY_PACKED,
+			1,
+			"DELTA_BINARY_PACKED encoding is only supported for data page v2",
+		},
+		"delta-byte-array-v2-valid": {
+			parquet.Encoding_DELTA_BYTE_ARRAY,
+			2,
+			"",
+		},
+		"delta-byte-array-v1-invalid": {
+			parquet.Encoding_DELTA_BYTE_ARRAY,
+			1,
+			"DELTA_BYTE_ARRAY encoding is only supported for data page v2",
+		},
+		"delta-length-byte-array-v2-valid": {
+			parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY,
+			2,
+			"",
+		},
+		"delta-length-byte-array-v1-invalid": {
+			parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY,
+			1,
+			"DELTA_LENGTH_BYTE_ARRAY encoding is only supported for data page v2",
+		},
+		// Other encodings work with both versions
+		"plain-v1-valid": {
+			parquet.Encoding_PLAIN,
+			1,
+			"",
+		},
+		"plain-v2-valid": {
+			parquet.Encoding_PLAIN,
+			2,
+			"",
+		},
+		"rle-dictionary-v1-valid": {
+			parquet.Encoding_RLE_DICTIONARY,
+			1,
+			"",
+		},
+		"rle-dictionary-v2-valid": {
+			parquet.Encoding_RLE_DICTIONARY,
+			2,
+			"",
+		},
+		"rle-v1-valid": {
+			parquet.Encoding_RLE,
+			1,
+			"",
+		},
+		"rle-v2-valid": {
+			parquet.Encoding_RLE,
+			2,
+			"",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateEncodingForDataPageVersion("TestField", tc.encoding, tc.version)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+			}
+		})
+	}
+}
+
 func TestGetLogicalTypeFromTag(t *testing.T) {
 	tests := []struct {
 		name     string
