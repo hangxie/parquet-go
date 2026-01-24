@@ -330,6 +330,24 @@ func ValidateSchemaElement(schema *parquet.SchemaElement) error {
 	return nil
 }
 
+// ValidateEncodingForDataPageVersion checks if an encoding is valid for a given data page version.
+// Returns an error if the encoding is not compatible with the version.
+func ValidateEncodingForDataPageVersion(fieldName string, encoding parquet.Encoding, version int32) error {
+	switch encoding {
+	case parquet.Encoding_PLAIN_DICTIONARY:
+		// PLAIN_DICTIONARY is deprecated in Parquet 2.0+, only valid for v1 data pages
+		if version != 1 {
+			return fmt.Errorf("field [%s]: PLAIN_DICTIONARY encoding is deprecated and only valid for data page v1, use RLE_DICTIONARY for v2", fieldName)
+		}
+	case parquet.Encoding_DELTA_BINARY_PACKED, parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
+		// Delta encodings are for v2 data pages only
+		if version == 1 {
+			return fmt.Errorf("field [%s]: %v encoding is only supported for data page v2, not v1", fieldName, encoding)
+		}
+	}
+	return nil
+}
+
 // GetLogicalTypeFromTag returns the LogicalType from a Tag.
 // This is used when creating GROUP elements that need LogicalType annotation (e.g., VARIANT).
 func GetLogicalTypeFromTag(info *Tag) *parquet.LogicalType {

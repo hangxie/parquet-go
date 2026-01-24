@@ -50,7 +50,8 @@ type ParquetWriter struct {
 
 	MarshalFunc func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error)
 
-	stopped bool
+	stopped            bool
+	encodingsValidated bool // tracks if encoding/version validation has been done
 }
 
 func NewParquetWriterFromWriter(w io.Writer, obj any, np int64) (*ParquetWriter, error) {
@@ -234,6 +235,14 @@ func (pw *ParquetWriter) WriteStop() error {
 func (pw *ParquetWriter) Write(src any) error {
 	if pw.stopped {
 		return fmt.Errorf("writer stopped")
+	}
+
+	// Validate encodings are compatible with data page version (once per writer)
+	if !pw.encodingsValidated {
+		if err := pw.SchemaHandler.ValidateEncodingsForDataPageVersion(pw.DataPageVersion); err != nil {
+			return fmt.Errorf("encoding validation: %w", err)
+		}
+		pw.encodingsValidated = true
 	}
 
 	var err error

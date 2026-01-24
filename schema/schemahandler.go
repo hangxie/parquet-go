@@ -84,6 +84,24 @@ func (sh *SchemaHandler) GetColumnNum() int64 {
 	return int64(len(sh.ValueColumns))
 }
 
+// ValidateEncodingsForDataPageVersion checks that all field encodings are compatible
+// with the specified data page version. Returns an error if any encoding is incompatible.
+func (sh *SchemaHandler) ValidateEncodingsForDataPageVersion(version int32) error {
+	for i, info := range sh.Infos {
+		if info == nil {
+			continue
+		}
+		// Skip non-leaf elements (groups don't have encodings)
+		if sh.SchemaElements[i].GetNumChildren() > 0 {
+			continue
+		}
+		if err := common.ValidateEncodingForDataPageVersion(info.InName, info.Encoding, version); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // setPathMap builds the PathMap from leaf SchemaElement
 func (sh *SchemaHandler) setPathMap() {
 	sh.PathMap = NewPathMap(sh.GetRootInName())
