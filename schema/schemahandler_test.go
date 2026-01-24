@@ -1160,3 +1160,80 @@ func TestNewSchemaHandlerFromStruct_ByteArraySlice(t *testing.T) {
 	require.Equal(t, int32(0), sh.SchemaElements[1].GetNumChildren())
 	require.Equal(t, parquet.Type_BYTE_ARRAY, *sh.SchemaElements[1].Type)
 }
+
+func TestSchemaHandler_ValidateEncodingsForDataPageVersion(t *testing.T) {
+	t.Run("plain_dictionary_v1_valid", func(t *testing.T) {
+		type PlainDictStruct struct {
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=PLAIN_DICTIONARY"`
+		}
+		sh, err := NewSchemaHandlerFromStruct(new(PlainDictStruct))
+		require.NoError(t, err)
+		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(1))
+	})
+
+	t.Run("plain_dictionary_v2_invalid", func(t *testing.T) {
+		type PlainDictStruct struct {
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=PLAIN_DICTIONARY"`
+		}
+		sh, err := NewSchemaHandlerFromStruct(new(PlainDictStruct))
+		require.NoError(t, err)
+		err = sh.ValidateEncodingsForDataPageVersion(2)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "PLAIN_DICTIONARY encoding is deprecated")
+	})
+
+	t.Run("delta_encoding_v2_valid", func(t *testing.T) {
+		type DeltaStruct struct {
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
+		}
+		sh, err := NewSchemaHandlerFromStruct(new(DeltaStruct))
+		require.NoError(t, err)
+		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(2))
+	})
+
+	t.Run("delta_encoding_v1_invalid", func(t *testing.T) {
+		type DeltaStruct struct {
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
+		}
+		sh, err := NewSchemaHandlerFromStruct(new(DeltaStruct))
+		require.NoError(t, err)
+		err = sh.ValidateEncodingsForDataPageVersion(1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "only supported for data page v2")
+	})
+
+	t.Run("rle_dictionary_both_versions_valid", func(t *testing.T) {
+		type RleDictStruct struct {
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=RLE_DICTIONARY"`
+		}
+		sh, err := NewSchemaHandlerFromStruct(new(RleDictStruct))
+		require.NoError(t, err)
+		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(1))
+		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(2))
+	})
+
+	t.Run("plain_both_versions_valid", func(t *testing.T) {
+		type PlainStruct struct {
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=PLAIN"`
+		}
+		sh, err := NewSchemaHandlerFromStruct(new(PlainStruct))
+		require.NoError(t, err)
+		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(1))
+		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(2))
+	})
+
+	t.Run("multiple_fields_one_invalid", func(t *testing.T) {
+		type MixedStruct struct {
+			Field1 string `parquet:"name=field1, type=BYTE_ARRAY, encoding=PLAIN"`
+			Field2 string `parquet:"name=field2, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
+		}
+		sh, err := NewSchemaHandlerFromStruct(new(MixedStruct))
+		require.NoError(t, err)
+		// v2 should be fine
+		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(2))
+		// v1 should fail due to DELTA_BYTE_ARRAY
+		err = sh.ValidateEncodingsForDataPageVersion(1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Field2")
+	})
+}

@@ -895,4 +895,64 @@ func TestDataPageVersion(t *testing.T) {
 
 		require.Nil(t, res[1].Val)
 	})
+
+	t.Run("plain_dictionary_v2_rejected", func(t *testing.T) {
+		type PlainDictStruct struct {
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=PLAIN_DICTIONARY"`
+		}
+		pw, _, err := createTestParquetWriter(new(PlainDictStruct), 1)
+		require.NoError(t, err)
+
+		pw.DataPageVersion = 2
+
+		err = pw.Write(PlainDictStruct{Field: "test"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "PLAIN_DICTIONARY")
+		require.Contains(t, err.Error(), "v1")
+	})
+
+	t.Run("delta_encoding_v1_rejected", func(t *testing.T) {
+		type DeltaStruct struct {
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
+		}
+		pw, _, err := createTestParquetWriter(new(DeltaStruct), 1)
+		require.NoError(t, err)
+
+		// Default is v1
+		require.Equal(t, int32(1), pw.DataPageVersion)
+
+		err = pw.Write(DeltaStruct{Field: "test"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "DELTA_BYTE_ARRAY")
+		require.Contains(t, err.Error(), "v2")
+	})
+
+	t.Run("delta_binary_packed_v1_rejected", func(t *testing.T) {
+		type DeltaIntStruct struct {
+			Value int32 `parquet:"name=value, type=INT32, encoding=DELTA_BINARY_PACKED"`
+		}
+		pw, _, err := createTestParquetWriter(new(DeltaIntStruct), 1)
+		require.NoError(t, err)
+
+		// Default is v1
+		err = pw.Write(DeltaIntStruct{Value: 123})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "DELTA_BINARY_PACKED")
+		require.Contains(t, err.Error(), "v2")
+	})
+
+	t.Run("validation_only_happens_once", func(t *testing.T) {
+		type SimpleStruct struct {
+			Value int32 `parquet:"name=value, type=INT32"`
+		}
+		pw, buf, err := createTestParquetWriter(new(SimpleStruct), 1)
+		require.NoError(t, err)
+
+		// Write multiple records - validation should only happen on first write
+		for i := range 100 {
+			require.NoError(t, pw.Write(SimpleStruct{Value: int32(i)}))
+		}
+		require.NoError(t, pw.WriteStop())
+		require.Greater(t, buf.Len(), 0)
+	})
 }
