@@ -663,7 +663,7 @@ func TestDataPageVersion(t *testing.T) {
 
 	t.Run("v2_with_dictionary", func(t *testing.T) {
 		type DictStruct struct {
-			Category string `parquet:"name=category, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+			Category string `parquet:"name=category, type=BYTE_ARRAY, convertedtype=UTF8, encoding=RLE_DICTIONARY"`
 			Value    int32  `parquet:"name=value, type=INT32"`
 		}
 
