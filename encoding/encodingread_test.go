@@ -619,6 +619,14 @@ func TestReadPlain(t *testing.T) {
 				name:  "long-strings",
 				input: []any{"this is a longer string", "another long string with more characters"},
 			},
+			{
+				name:  "empty-string-at-end",
+				input: []any{"a", "b", ""},
+			},
+			{
+				name:  "only-empty-string",
+				input: []any{""},
+			},
 		}
 
 		for _, testCase := range testCases {
