@@ -147,8 +147,10 @@ func ReadPlainBYTE_ARRAY(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 		}
 		ln := binary.LittleEndian.Uint32(buf)
 		cur := make([]byte, ln)
-		if _, err := bytesReader.Read(cur); err != nil {
-			return nil, err
+		if ln > 0 {
+			if _, err := bytesReader.Read(cur); err != nil {
+				return nil, err
+			}
 		}
 		res[i] = string(cur)
 	}

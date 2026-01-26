@@ -1159,3 +1159,110 @@ func TestPositionTracker_Open(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+// TestNestedListWithEmptyStrings tests that nested lists containing empty strings
+// are correctly written and read back. This is a regression test for a bug where
+// empty strings at the end of a BYTE_ARRAY column would cause EOF errors during read.
+func TestNestedListWithEmptyStrings(t *testing.T) {
+	type NestedListRecord struct {
+		Matrix [][]string
+	}
+
+	jsonSchema := `
+{
+  "Tag": "name=parquet_go_root, repetitiontype=REQUIRED",
+  "Fields": [
+    {
+      "Tag": "name=matrix, inname=Matrix, type=LIST, repetitiontype=REQUIRED",
+      "Fields": [
+        {
+          "Tag": "name=element, type=LIST, repetitiontype=REQUIRED",
+          "Fields": [
+            {"Tag": "name=element, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=REQUIRED"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+`
+
+	testCases := []struct {
+		name    string
+		records []NestedListRecord
+	}{
+		{
+			name: "empty_string_at_end",
+			records: []NestedListRecord{
+				{Matrix: [][]string{{"a", "b", ""}}},
+			},
+		},
+		{
+			name: "empty_string_at_start",
+			records: []NestedListRecord{
+				{Matrix: [][]string{{"", "b", "c"}}},
+			},
+		},
+		{
+			name: "empty_string_in_middle",
+			records: []NestedListRecord{
+				{Matrix: [][]string{{"a", "", "c"}}},
+			},
+		},
+		{
+			name: "only_empty_string",
+			records: []NestedListRecord{
+				{Matrix: [][]string{{""}}},
+			},
+		},
+		{
+			name: "multiple_rows_with_empty_strings",
+			records: []NestedListRecord{
+				{Matrix: [][]string{{"a", "b", ""}}},
+				{Matrix: [][]string{{"x", "y", "z"}}},
+				{Matrix: [][]string{{"", "middle", ""}}},
+			},
+		},
+		{
+			name: "multiple_inner_lists_with_empty_strings",
+			records: []NestedListRecord{
+				{Matrix: [][]string{{"a", ""}, {"b", "c", ""}, {""}}},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Write to buffer
+			var buf bytes.Buffer
+			fw := writerfile.NewWriterFile(&buf)
+			pw, err := writer.NewParquetWriter(fw, jsonSchema, 1)
+			require.NoError(t, err)
+			pw.CompressionType = parquet.CompressionCodec_UNCOMPRESSED
+
+			for _, rec := range tc.records {
+				err = pw.Write(rec)
+				require.NoError(t, err)
+			}
+			err = pw.WriteStop()
+			require.NoError(t, err)
+
+			// Read back from buffer
+			fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+			pr, err := NewParquetReader(fr, jsonSchema, 1)
+			require.NoError(t, err)
+
+			numRows := pr.GetNumRows()
+			require.Equal(t, int64(len(tc.records)), numRows)
+
+			for i, expected := range tc.records {
+				result := make([]NestedListRecord, 1)
+				err = pr.Read(&result)
+				require.NoError(t, err, "Failed to read row %d", i)
+				require.Equal(t, expected.Matrix, result[0].Matrix, "Matrix mismatch at row %d", i)
+			}
+
+			pr.ReadStop()
+		})
+	}
+}
