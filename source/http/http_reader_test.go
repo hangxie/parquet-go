@@ -527,7 +527,7 @@ func TestHttp_reader_no_range_support(t *testing.T) {
 	}{
 		{"https://no-such-host.tld/", errors.New("no such host")},
 		{"https://www.google.com/", errors.New("does not support range")},
-		{"https://pandemicdatalake.blob.core.windows.net/public/curated/covid-19/bing_covid-19_data/latest/bing_covid-19_data.parquet", nil},
+		{"https://github.com/hangxie/parquet-tools/raw/refs/heads/main/testdata/good.parquet", nil},
 	}
 
 	for _, tc := range testCases {
