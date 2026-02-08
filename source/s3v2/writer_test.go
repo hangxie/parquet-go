@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/require"
 
@@ -80,6 +80,18 @@ func (m *mockS3WriteClient) CompleteMultipartUpload(ctx context.Context, input *
 
 func (m *mockS3WriteClient) AbortMultipartUpload(ctx context.Context, input *s3.AbortMultipartUploadInput, opts ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error) {
 	return &s3.AbortMultipartUploadOutput{}, nil
+}
+
+func (m *mockS3WriteClient) GetObject(ctx context.Context, input *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	return &s3.GetObjectOutput{}, nil
+}
+
+func (m *mockS3WriteClient) HeadObject(ctx context.Context, input *s3.HeadObjectInput, opts ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+	return &s3.HeadObjectOutput{}, nil
+}
+
+func (m *mockS3WriteClient) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, opts ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	return &s3.ListObjectsV2Output{}, nil
 }
 
 // Test data
@@ -161,14 +173,14 @@ func TestS3Writer_WithPutObjectInputOptions(t *testing.T) {
 	bucket := "test-bucket"
 	key := "test-file.parquet"
 
-	// Create put object input options
-	putObjectOptions := []func(*s3.PutObjectInput){
-		func(input *s3.PutObjectInput) {
+	// Create upload input options
+	uploadInputOptions := []func(*transfermanager.UploadObjectInput){
+		func(input *transfermanager.UploadObjectInput) {
 			input.ContentType = aws.String("application/octet-stream")
 		},
 	}
 
-	writer, err := NewS3FileWriterWithClient(ctx, client, bucket, key, nil, putObjectOptions...)
+	writer, err := NewS3FileWriterWithClient(ctx, client, bucket, key, nil, uploadInputOptions...)
 	require.NoError(t, err)
 	require.NotNil(t, writer)
 }
@@ -179,14 +191,14 @@ func TestS3Writer_WithUploaderOptions(t *testing.T) {
 	bucket := "test-bucket"
 	key := "test-file.parquet"
 
-	// Create uploader options
-	uploaderOptions := []func(*manager.Uploader){
-		func(u *manager.Uploader) {
-			u.PartSize = 1024 * 1024 // 1MB parts
+	// Create transfer manager options
+	tmOptions := []func(*transfermanager.Options){
+		func(o *transfermanager.Options) {
+			o.PartSizeBytes = 1024 * 1024 // 1MB parts
 		},
 	}
 
-	writer, err := NewS3FileWriterWithClient(ctx, client, bucket, key, uploaderOptions)
+	writer, err := NewS3FileWriterWithClient(ctx, client, bucket, key, tmOptions)
 	require.NoError(t, err)
 	require.NotNil(t, writer)
 }

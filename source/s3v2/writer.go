@@ -6,43 +6,34 @@ import (
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/hangxie/parquet-go/v2/source"
 )
-
-type s3WriteClient interface {
-	PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error)
-	UploadPart(context.Context, *s3.UploadPartInput, ...func(*s3.Options)) (*s3.UploadPartOutput, error)
-	CreateMultipartUpload(context.Context, *s3.CreateMultipartUploadInput, ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error)
-	CompleteMultipartUpload(context.Context, *s3.CompleteMultipartUploadInput, ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error)
-	AbortMultipartUpload(context.Context, *s3.AbortMultipartUploadInput, ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error)
-}
 
 // Compile time check that *s3File implement the source.ParquetFileWriter interface.
 var _ source.ParquetFileWriter = (*s3Writer)(nil)
 
 type s3Writer struct {
 	s3File
-	client                s3WriteClient
-	writeOpened           bool
-	writeDone             chan error
-	pipeReader            *io.PipeReader
-	pipeWriter            *io.PipeWriter
-	uploader              *manager.Uploader
-	uploaderOptions       []func(*manager.Uploader)
-	putObjectInputOptions []func(*s3.PutObjectInput)
+	client             transfermanager.S3APIClient
+	writeOpened        bool
+	writeDone          chan error
+	pipeReader         *io.PipeReader
+	pipeWriter         *io.PipeWriter
+	tmOptions          []func(*transfermanager.Options)
+	uploadInputOptions []func(*transfermanager.UploadObjectInput)
 }
 
 // NewS3FileWriter creates an S3 FileWriter, to be used with NewParquetWriter
-func NewS3FileWriter(ctx context.Context, bucket, key string, uploaderOptions []func(*manager.Uploader), cfgs ...*aws.Config) (source.ParquetFileWriter, error) {
+func NewS3FileWriter(ctx context.Context, bucket, key string, tmOptions []func(*transfermanager.Options)) (source.ParquetFileWriter, error) {
 	w, err := NewS3FileWriterWithClient(
 		ctx,
 		s3.NewFromConfig(getConfig()),
 		bucket,
 		key,
-		uploaderOptions,
+		tmOptions,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("new s3 writer: %w", err)
@@ -52,17 +43,17 @@ func NewS3FileWriter(ctx context.Context, bucket, key string, uploaderOptions []
 
 // NewS3FileWriterWithClient is the same as NewS3FileWriter but allows passing
 // your own S3 client.
-func NewS3FileWriterWithClient(ctx context.Context, s3Client s3WriteClient, bucket, key string, uploaderOptions []func(*manager.Uploader), putObjectInputOptions ...func(*s3.PutObjectInput)) (source.ParquetFileWriter, error) {
+func NewS3FileWriterWithClient(ctx context.Context, s3Client transfermanager.S3APIClient, bucket, key string, tmOptions []func(*transfermanager.Options), uploadInputOptions ...func(*transfermanager.UploadObjectInput)) (source.ParquetFileWriter, error) {
 	file := &s3Writer{
 		s3File: s3File{
 			ctx:        ctx,
 			bucketName: bucket,
 			key:        key,
 		},
-		client:                s3Client,
-		writeDone:             make(chan error),
-		uploaderOptions:       uploaderOptions,
-		putObjectInputOptions: putObjectInputOptions,
+		client:             s3Client,
+		writeDone:          make(chan error),
+		tmOptions:          tmOptions,
+		uploadInputOptions: uploadInputOptions,
 	}
 
 	pf, err := file.Create(key)
@@ -130,42 +121,41 @@ func (s *s3Writer) Create(key string) (source.ParquetFileWriter, error) {
 			bucketName: s.bucketName,
 			key:        key,
 		},
-		client:                s.client,
-		uploaderOptions:       s.uploaderOptions,
-		putObjectInputOptions: s.putObjectInputOptions,
-		writeDone:             make(chan error),
+		client:             s.client,
+		tmOptions:          s.tmOptions,
+		uploadInputOptions: s.uploadInputOptions,
+		writeDone:          make(chan error),
 	}
 	pf.openWrite()
 	return pf, nil
 }
 
-// openWrite creates an S3 uploader that consumes the Reader end of an io.Pipe.
+// openWrite creates an S3 transfer manager that consumes the Reader end of an io.Pipe.
 // Calling Close signals write completion.
 func (s *s3Writer) openWrite() {
 	pr, pw := io.Pipe()
-	uploader := manager.NewUploader(s.client, s.uploaderOptions...)
+	tm := transfermanager.New(s.client, s.tmOptions...)
 	s.lock.Lock()
 	s.pipeReader = pr
 	s.pipeWriter = pw
 	s.writeOpened = true
-	s.uploader = uploader
 	s.lock.Unlock()
 
-	uploadParams := &s3.PutObjectInput{
+	uploadParams := &transfermanager.UploadObjectInput{
 		Bucket: aws.String(s.bucketName),
 		Key:    aws.String(s.key),
 		Body:   s.pipeReader,
 	}
 
-	for _, f := range s.putObjectInputOptions {
+	for _, f := range s.uploadInputOptions {
 		f(uploadParams)
 	}
 
-	go func(uploader *manager.Uploader, params *s3.PutObjectInput, done chan error) {
+	go func(tm *transfermanager.Client, params *transfermanager.UploadObjectInput, done chan error) {
 		defer close(done)
 
 		// upload data and signal done when complete
-		_, err := uploader.Upload(s.ctx, params)
+		_, err := tm.UploadObject(s.ctx, params)
 		if err != nil {
 			s.lock.Lock()
 			s.err = err
@@ -177,5 +167,5 @@ func (s *s3Writer) openWrite() {
 		}
 
 		done <- err
-	}(s.uploader, uploadParams, s.writeDone)
+	}(tm, uploadParams, s.writeDone)
 }
