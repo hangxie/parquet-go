@@ -10,6 +10,7 @@ import (
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/bloomfilter"
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/reader"
@@ -954,5 +955,277 @@ func TestDataPageVersion(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 		require.Greater(t, buf.Len(), 0)
+	})
+}
+
+// readBloomFilter reads a bloom filter at the given offset and returns the header and bitset.
+func readBloomFilter(pf source.ParquetFileReader, offset int64) (*parquet.BloomFilterHeader, []byte, error) {
+	header := parquet.NewBloomFilterHeader()
+	tpf := thrift.NewTCompactProtocolFactoryConf(nil)
+	triftReader := source.ConvertToThriftReader(pf, offset)
+	protocol := tpf.GetProtocol(triftReader)
+	err := header.Read(context.Background(), protocol)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Serialize the header to calculate its byte length so we can seek to the bitset.
+	ts := thrift.NewTSerializer()
+	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+	headerBuf, err := ts.Write(context.TODO(), header)
+	if err != nil {
+		return nil, nil, err
+	}
+	headerLen := int64(len(headerBuf))
+
+	// Seek to the bitset start and read it.
+	if _, err := pf.Seek(offset+headerLen, 0); err != nil {
+		return nil, nil, err
+	}
+	bitset := make([]byte, header.NumBytes)
+	if _, err := pf.Read(bitset); err != nil {
+		return nil, nil, err
+	}
+	return header, bitset, nil
+}
+
+func TestBloomFilter(t *testing.T) {
+	t.Run("basic_bloom_filter_metadata", func(t *testing.T) {
+		type BloomRecord struct {
+			ID   int64  `parquet:"name=id, type=INT64, bloomfilter=true"`
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		for i := range 100 {
+			require.NoError(t, pw.Write(BloomRecord{ID: int64(i), Name: fmt.Sprintf("name-%d", i)}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		// Read footer and verify bloom filter metadata
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		require.Len(t, pr.Footer.RowGroups, 1)
+		rg := pr.Footer.RowGroups[0]
+
+		// ID column (index 0) should have bloom filter
+		idCol := rg.Columns[0]
+		require.True(t, idCol.MetaData.IsSetBloomFilterOffset())
+		require.True(t, idCol.MetaData.IsSetBloomFilterLength())
+		require.Greater(t, idCol.MetaData.GetBloomFilterOffset(), int64(0))
+		require.Greater(t, idCol.MetaData.GetBloomFilterLength(), int32(0))
+
+		// Name column (index 1) should NOT have bloom filter
+		nameCol := rg.Columns[1]
+		require.False(t, nameCol.MetaData.IsSetBloomFilterOffset())
+
+		_ = pr.ReadStopWithError()
+	})
+
+	t.Run("bloom_filter_content_check", func(t *testing.T) {
+		type BloomRecord struct {
+			ID int64 `parquet:"name=id, type=INT64, bloomfilter=true"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		for i := range 50 {
+			require.NoError(t, pw.Write(BloomRecord{ID: int64(i * 100)}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		// Read the bloom filter data and verify it works
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		rg := pr.Footer.RowGroups[0]
+		idCol := rg.Columns[0]
+
+		header, bitset, err := readBloomFilter(pf, idCol.MetaData.GetBloomFilterOffset())
+		require.NoError(t, err)
+		require.NotNil(t, header.Algorithm.BLOCK)
+		require.NotNil(t, header.Hash.XXHASH)
+		require.NotNil(t, header.Compression.UNCOMPRESSED)
+
+		f, err := bloomfilter.FromBitset(bitset)
+		require.NoError(t, err)
+
+		// Values that were written should be found
+		for i := range 50 {
+			h, err := bloomfilter.HashValue(int64(i*100), parquet.Type_INT64)
+			require.NoError(t, err)
+			require.True(t, f.Check(h))
+		}
+
+		_ = pr.ReadStopWithError()
+	})
+
+	t.Run("bloom_filter_with_dict_encoding", func(t *testing.T) {
+		type BloomRecord struct {
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY, bloomfilter=true"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		names := []string{"alice", "bob", "charlie", "alice", "bob"}
+		for _, name := range names {
+			require.NoError(t, pw.Write(BloomRecord{Name: name}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		// Read and verify bloom filter works for dict-encoded column
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		rg := pr.Footer.RowGroups[0]
+		col := rg.Columns[0]
+		require.True(t, col.MetaData.IsSetBloomFilterOffset())
+
+		_, bitset, err := readBloomFilter(pf, col.MetaData.GetBloomFilterOffset())
+		require.NoError(t, err)
+
+		f, err := bloomfilter.FromBitset(bitset)
+		require.NoError(t, err)
+
+		// Written values should be found
+		for _, name := range []string{"alice", "bob", "charlie"} {
+			h, err := bloomfilter.HashValue(name, parquet.Type_BYTE_ARRAY)
+			require.NoError(t, err)
+			require.True(t, f.Check(h))
+		}
+
+		_ = pr.ReadStopWithError()
+	})
+
+	t.Run("bloom_filter_custom_size", func(t *testing.T) {
+		type BloomRecord struct {
+			ID int64 `parquet:"name=id, type=INT64, bloomfilter=true, bloomfiltersize=2048"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		rg := pr.Footer.RowGroups[0]
+		col := rg.Columns[0]
+
+		header, _, err := readBloomFilter(pf, col.MetaData.GetBloomFilterOffset())
+		require.NoError(t, err)
+		require.Equal(t, int32(2048), header.NumBytes)
+
+		_ = pr.ReadStopWithError()
+	})
+
+	t.Run("bloom_filter_with_nulls", func(t *testing.T) {
+		type BloomRecord struct {
+			ID *int64 `parquet:"name=id, type=INT64, repetitiontype=OPTIONAL, bloomfilter=true"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		v1 := int64(100)
+		v2 := int64(200)
+		require.NoError(t, pw.Write(BloomRecord{ID: &v1}))
+		require.NoError(t, pw.Write(BloomRecord{ID: nil}))
+		require.NoError(t, pw.Write(BloomRecord{ID: &v2}))
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		rg := pr.Footer.RowGroups[0]
+		col := rg.Columns[0]
+		require.True(t, col.MetaData.IsSetBloomFilterOffset())
+
+		_, bitset, err := readBloomFilter(pf, col.MetaData.GetBloomFilterOffset())
+		require.NoError(t, err)
+
+		f, err := bloomfilter.FromBitset(bitset)
+		require.NoError(t, err)
+
+		// Non-null values should be found
+		h1, err := bloomfilter.HashValue(int64(100), parquet.Type_INT64)
+		require.NoError(t, err)
+		require.True(t, f.Check(h1))
+
+		h2, err := bloomfilter.HashValue(int64(200), parquet.Type_INT64)
+		require.NoError(t, err)
+		require.True(t, f.Check(h2))
+
+		_ = pr.ReadStopWithError()
+	})
+
+	t.Run("bloom_filter_multiple_row_groups", func(t *testing.T) {
+		type BloomRecord struct {
+			ID   int64  `parquet:"name=id, type=INT64, bloomfilter=true"`
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		require.NoError(t, err)
+		pw.RowGroupSize = 256 // force small row groups
+		pw.PageSize = 64      // smaller pages to trigger flushes
+
+		// Write enough data to force multiple row groups
+		for i := range 1000 {
+			require.NoError(t, pw.Write(BloomRecord{
+				ID:   int64(i),
+				Name: fmt.Sprintf("this-is-a-long-name-to-increase-row-size-%d", i),
+			}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		require.NoError(t, err)
+
+		require.Greater(t, len(pr.Footer.RowGroups), 1)
+
+		// Each row group should have bloom filter metadata on the ID column
+		for _, rg := range pr.Footer.RowGroups {
+			col := rg.Columns[0]
+			require.True(t, col.MetaData.IsSetBloomFilterOffset())
+		}
+
+		_ = pr.ReadStopWithError()
+	})
+
+	t.Run("no_bloom_filter_when_not_configured", func(t *testing.T) {
+		type NoBloomRecord struct {
+			ID   int64  `parquet:"name=id, type=INT64"`
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(NoBloomRecord), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(NoBloomRecord{ID: 1, Name: "test"}))
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := reader.NewParquetReader(pf, new(NoBloomRecord), 1)
+		require.NoError(t, err)
+
+		for _, col := range pr.Footer.RowGroups[0].Columns {
+			require.False(t, col.MetaData.IsSetBloomFilterOffset())
+		}
+
+		_ = pr.ReadStopWithError()
 	})
 }

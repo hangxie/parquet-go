@@ -10,6 +10,7 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
+	"github.com/hangxie/parquet-go/v2/bloomfilter"
 	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/layout"
 	"github.com/hangxie/parquet-go/v2/marshal"
@@ -47,6 +48,12 @@ type ParquetWriter struct {
 
 	ColumnIndexes []*parquet.ColumnIndex
 	OffsetIndexes []*parquet.OffsetIndex
+
+	// BloomFilters holds the active bloom filters being built for the current row group.
+	// Key is the column path string (e.g. "Parquet_go_root\x01Name").
+	BloomFilters map[string]*bloomfilter.Filter
+	// BloomFilterData holds serialized (header+bitset) per column chunk, parallel to ColumnIndexes/OffsetIndexes.
+	BloomFilterData [][]byte
 
 	MarshalFunc func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error)
 
@@ -113,6 +120,8 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 
 		res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
 	}
+
+	res.initBloomFilters()
 
 	// Enable writing after init completed successfully
 	res.stopped = false
@@ -210,6 +219,28 @@ func (pw *ParquetWriter) WriteStop() error {
 		}
 	}
 
+	// write BloomFilter
+	if len(pw.BloomFilterData) > 0 {
+		idx := 0
+		for _, rowGroup := range pw.Footer.RowGroups {
+			for _, columnChunk := range rowGroup.Columns {
+				data := pw.BloomFilterData[idx]
+				idx++
+				if data == nil {
+					continue
+				}
+				if _, err = pw.PFile.Write(data); err != nil {
+					return fmt.Errorf("write bloom filter: %w", err)
+				}
+				pos := pw.Offset
+				columnChunk.MetaData.BloomFilterOffset = &pos
+				totalLen := int32(len(data))
+				columnChunk.MetaData.BloomFilterLength = &totalLen
+				pw.Offset += int64(totalLen)
+			}
+		}
+	}
+
 	footerBuf, err := ts.Write(context.TODO(), pw.Footer)
 	if err != nil {
 		return fmt.Errorf("serialize footer: %w", err)
@@ -289,6 +320,8 @@ func (pw *ParquetWriter) flushObjs() error {
 	// layout.TableTo(Data|Dict)Pages appears not to be thread-safe; guard calls
 	// with a conversion mutex to avoid races observed in tests.
 	var convMu sync.Mutex
+	// bloomMu protects bloom filter Insert calls from concurrent goroutines.
+	var bloomMu sync.Mutex
 	var wg sync.WaitGroup
 	var errs []error = make([]error, pw.NP)
 
@@ -314,6 +347,20 @@ func (pw *ParquetWriter) flushObjs() error {
 
 			if err2 == nil {
 				for name, table := range *tableMap {
+					// Collect values for bloom filter before dict encoding converts them to indices.
+					if bf, ok := pw.BloomFilters[name]; ok && table.Schema.Type != nil {
+						bloomMu.Lock()
+						for _, val := range table.Values {
+							if val == nil {
+								continue
+							}
+							if h, hashErr := bloomfilter.HashValue(val, *table.Schema.Type); hashErr == nil {
+								bf.Insert(h)
+							}
+						}
+						bloomMu.Unlock()
+					}
+
 					// Use per-column compression if specified, otherwise fall back to file-level compression
 					compressionType := pw.CompressionType
 					if table.Info != nil && table.Info.CompressionType != nil {
@@ -535,6 +582,33 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 		}
 
 		pw.Footer.RowGroups = append(pw.Footer.RowGroups, rowGroup.RowGroupHeader)
+
+		// Serialize bloom filter data for this row group, one entry per column chunk.
+		if len(pw.BloomFilters) > 0 {
+			ts := thrift.NewTSerializer()
+			ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+			for k := range len(pw.SchemaHandler.SchemaElements) {
+				se := pw.SchemaHandler.SchemaElements[k]
+				if se.GetNumChildren() > 0 {
+					continue
+				}
+				path := pw.SchemaHandler.IndexMap[int32(k)]
+				bf, ok := pw.BloomFilters[path]
+				if !ok {
+					pw.BloomFilterData = append(pw.BloomFilterData, nil)
+					continue
+				}
+				headerBuf, err := ts.Write(context.TODO(), bf.Header())
+				if err != nil {
+					return fmt.Errorf("serialize bloom filter header for column %s: %w", path, err)
+				}
+				data := append(headerBuf, bf.Bitset()...)
+				pw.BloomFilterData = append(pw.BloomFilterData, data)
+			}
+			// Reset bloom filters for next row group
+			pw.initBloomFilters()
+		}
+
 		pw.Size = 0
 		pw.PagesMapBuf = make(map[string][]*layout.Page)
 	}
@@ -542,4 +616,23 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 	pw.Objs = pw.Objs[:0]
 	pw.ObjsSize = 0
 	return nil
+}
+
+// initBloomFilters creates bloom filters for columns that have bloomfilter=true in their tags.
+func (pw *ParquetWriter) initBloomFilters() {
+	if pw.SchemaHandler == nil {
+		return
+	}
+	pw.BloomFilters = make(map[string]*bloomfilter.Filter)
+	for i, info := range pw.SchemaHandler.Infos {
+		if info == nil || !info.BloomFilter {
+			continue
+		}
+		path := pw.SchemaHandler.IndexMap[int32(i)]
+		numBytes := int(info.BloomFilterSize)
+		if numBytes <= 0 {
+			numBytes = bloomfilter.DefaultNumBytes
+		}
+		pw.BloomFilters[path] = bloomfilter.New(numBytes)
+	}
 }
