@@ -4,17 +4,12 @@ on:
   workflow_call:
 
 jobs:
-  build:
+  check-go-version:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-          cache-dependency-path: go.sum
       - name: Check go.mod version is N-2 or older
         run: |
           LATEST=$(curl -s 'https://go.dev/dl/?mode=json' | jq -r '.[0].version' | sed 's/go//')
@@ -30,6 +25,21 @@ jobs:
             echo "::error::go.mod declares go ${GOMOD_VERSION} but policy requires <= 1.${MAX_ALLOWED_MINOR} (N-2 of 1.${LATEST_MINOR})"
             exit 1
           fi
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        go-version: ["1.24", "1.25", "1.26"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache-dependency-path: go.sum
       - name: Installing Dependencies
         run: make deps
       - name: Running format
