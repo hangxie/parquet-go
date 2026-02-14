@@ -23,6 +23,8 @@ type fieldAttr struct {
 	OmitStats       bool
 	RepetitionType  parquet.FieldRepetitionType
 	CompressionType *parquet.CompressionCodec // nil means use file-level compression
+	BloomFilter     bool                      // enable bloom filter for this column
+	BloomFilterSize int32                     // bloom filter size in bytes (0 = default)
 
 	convertedType     string
 	isAdjustedToUTC   bool
@@ -69,6 +71,16 @@ func (mp *fieldAttr) update(key, val string) error {
 		if mp.OmitStats, err = strconv.ParseBool(val); err != nil {
 			return fmt.Errorf("parse omitstats value '%s': %w", val, err)
 		}
+	case "bloomfilter":
+		if mp.BloomFilter, err = strconv.ParseBool(val); err != nil {
+			return fmt.Errorf("parse bloomfilter value '%s': %w", val, err)
+		}
+	case "bloomfiltersize":
+		valInt, err := strconv.ParseInt(val, 10, 32)
+		if err != nil {
+			return fmt.Errorf("parse bloomfiltersize value '%s': %w", val, err)
+		}
+		mp.BloomFilterSize = int32(valInt)
 	case "repetitiontype":
 		mp.RepetitionType, err = parquet.FieldRepetitionTypeFromString(strings.ToUpper(val))
 		if err != nil {
