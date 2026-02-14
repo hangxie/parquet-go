@@ -89,6 +89,10 @@ func TestFieldAttr_Update(t *testing.T) {
 		"compression-lz4":          {"compression", "LZ4_RAW", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_LZ4_RAW)}, ""},
 		"compression-uncompressed": {"compression", "UNCOMPRESSED", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_UNCOMPRESSED)}, ""},
 		"compression-bad":          {"compression", "foobar", fieldAttr{}, "parse compression:"},
+		"bloomfilter-good":         {"bloomfilter", "true", fieldAttr{BloomFilter: true}, ""},
+		"bloomfilter-bad":          {"bloomfilter", "abc", fieldAttr{}, "parse bloomfilter value"},
+		"bloomfiltersize-good":     {"bloomfiltersize", "2048", fieldAttr{BloomFilterSize: 2048}, ""},
+		"bloomfiltersize-bad":      {"bloomfiltersize", "abc", fieldAttr{}, "parse bloomfiltersize value"},
 		"logicaltype":              {"logicaltype.foo", "bar", fieldAttr{logicalTypeFields: map[string]string{"logicaltype.foo": "bar"}}, ""},
 		"unknown-tag":              {"unknown-tag.foo", "foobar", fieldAttr{}, "unrecognized tag"},
 	}
@@ -913,6 +917,8 @@ func TestStringToTag(t *testing.T) {
 		"value-bad":        {"valuefoo=bar", Tag{}, "parse tag"},
 		"compression-nil":  {"type=INT32", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionType: nil}}, ""}, // CompressionType is nil when not specified
 		"compression-set":  {"type=INT32,compression=GZIP", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionType: ToPtr(parquet.CompressionCodec_GZIP)}}, ""},
+		"bloomfilter":      {"type=INT64,bloomfilter=true", Tag{fieldAttr: fieldAttr{Type: "INT64", BloomFilter: true}}, ""},
+		"bloomfilter-size": {"type=INT64,bloomfilter=true,bloomfiltersize=2048", Tag{fieldAttr: fieldAttr{Type: "INT64", BloomFilter: true, BloomFilterSize: 2048}}, ""},
 	}
 
 	for name, tc := range testCases {
