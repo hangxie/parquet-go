@@ -58,3 +58,15 @@ jobs:
             cat /tmp/git-status.log
             false
           fi
+
+  build-complete:
+    runs-on: ubuntu-latest
+    needs: [check-go-version, build]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          if [ "${{ needs.check-go-version.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::One or more jobs failed"
+            exit 1
+          fi
