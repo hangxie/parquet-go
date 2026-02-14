@@ -61,6 +61,8 @@ jobs:
 
   build-complete:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [check-go-version, build]
     if: always()
     steps:
