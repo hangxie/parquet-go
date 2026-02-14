@@ -13,8 +13,23 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache-dependency-path: go.sum
+      - name: Check go.mod version is N-2 or older
+        run: |
+          LATEST=$(curl -s 'https://go.dev/dl/?mode=json' | jq -r '.[0].version' | sed 's/go//')
+          LATEST_MINOR=$(echo "$LATEST" | cut -d. -f2)
+          MAX_ALLOWED_MINOR=$((LATEST_MINOR - 2))
+
+          GOMOD_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
+          GOMOD_MINOR=$(echo "$GOMOD_VERSION" | cut -d. -f2)
+
+          echo "Latest Go: 1.${LATEST_MINOR}, max allowed in go.mod: 1.${MAX_ALLOWED_MINOR}, current go.mod: ${GOMOD_VERSION}"
+
+          if [ "$GOMOD_MINOR" -gt "$MAX_ALLOWED_MINOR" ]; then
+            echo "::error::go.mod declares go ${GOMOD_VERSION} but policy requires <= 1.${MAX_ALLOWED_MINOR} (N-2 of 1.${LATEST_MINOR})"
+            exit 1
+          fi
       - name: Installing Dependencies
         run: make deps
       - name: Running format
