@@ -44,6 +44,7 @@ func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, np int64) 
 	res.Offset = 4
 	_, err = res.PFile.Write([]byte("PAR1"))
 	res.MarshalFunc = marshal.MarshalJSON
+	res.initBloomFilters()
 	return res, err
 }
 
