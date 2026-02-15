@@ -75,8 +75,7 @@ func main() {
 		}
 		bfStatus := "Disabled"
 		if info.BloomFilter {
-			// Note: BloomFilterSize detected from file includes Thrift header overhead
-			bfStatus = fmt.Sprintf("Enabled (Size estimate: %d bytes)", info.BloomFilterSize)
+			bfStatus = fmt.Sprintf("Enabled (Size: %d bytes)", info.BloomFilterSize)
 		}
 		fmt.Printf("Column: %-10s | BloomFilter: %s\n", info.InName, bfStatus)
 	}
