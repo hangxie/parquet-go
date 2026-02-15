@@ -447,8 +447,19 @@ func (pr *ParquetReader) detectBloomFilters() {
 		pathStr := common.PathToStr(append([]string{pr.SchemaHandler.GetRootInName()}, cc.MetaData.GetPathInSchema()...))
 		if index, ok := pr.SchemaHandler.MapIndex[pathStr]; ok {
 			pr.SchemaHandler.Infos[index].BloomFilter = true
-			if cc.MetaData.IsSetBloomFilterLength() {
-				pr.SchemaHandler.Infos[index].BloomFilterSize = cc.MetaData.GetBloomFilterLength()
+			// Read the bloom filter header from the file to get the actual bitset size.
+			// BloomFilterLength in metadata includes the Thrift header overhead, so we
+			// read the header's NumBytes field which contains only the bitset size.
+			if pr.PFile == nil {
+				continue
+			}
+			pf, err := pr.PFile.Clone()
+			if err == nil {
+				filter, err := bloomfilter.ReadBloomFilter(pf, cc.MetaData.GetBloomFilterOffset())
+				if err == nil {
+					pr.SchemaHandler.Infos[index].BloomFilterSize = filter.NumBytes()
+				}
+				_ = pf.Close()
 			}
 		}
 	}

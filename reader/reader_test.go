@@ -1654,9 +1654,8 @@ func TestDetectBloomFilters(t *testing.T) {
 		pr.detectBloomFilters() // should not panic, path not found
 	})
 
-	t.Run("sets_bloom_filter_with_length", func(t *testing.T) {
+	t.Run("sets_bloom_filter_no_pfile", func(t *testing.T) {
 		offset := int64(100)
-		length := int32(1024)
 		rootName := "Parquet_go_root"
 		pr := &ParquetReader{
 			Footer: &parquet.FileMetaData{
@@ -1666,7 +1665,6 @@ func TestDetectBloomFilters(t *testing.T) {
 							{MetaData: &parquet.ColumnMetaData{
 								PathInSchema:      []string{"id"},
 								BloomFilterOffset: &offset,
-								BloomFilterLength: &length,
 							}},
 						},
 					},
@@ -1680,34 +1678,33 @@ func TestDetectBloomFilters(t *testing.T) {
 		}
 		pr.detectBloomFilters()
 		require.True(t, pr.SchemaHandler.Infos[1].BloomFilter)
-		require.Equal(t, int32(1024), pr.SchemaHandler.Infos[1].BloomFilterSize)
+		// BloomFilterSize stays 0 when PFile is nil (cannot read from file)
+		require.Equal(t, int32(0), pr.SchemaHandler.Infos[1].BloomFilterSize)
 	})
 
-	t.Run("sets_bloom_filter_without_length", func(t *testing.T) {
-		offset := int64(100)
-		rootName := "Parquet_go_root"
-		pr := &ParquetReader{
-			Footer: &parquet.FileMetaData{
-				RowGroups: []*parquet.RowGroup{
-					{
-						Columns: []*parquet.ColumnChunk{
-							{MetaData: &parquet.ColumnMetaData{
-								PathInSchema:      []string{"id"},
-								BloomFilterOffset: &offset,
-							}},
-						},
-					},
-				},
-			},
-			SchemaHandler: &schema.SchemaHandler{
-				SchemaElements: []*parquet.SchemaElement{{Name: rootName}},
-				Infos:          []*common.Tag{{InName: rootName}, {InName: "ID"}},
-				MapIndex:       map[string]int32{"Parquet_go_root\x01id": 1},
-			},
+	t.Run("bloom_filter_size_round_trip", func(t *testing.T) {
+		type BloomRecord struct {
+			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, bloomfilter=true, bloomfiltersize=4096"`
 		}
-		pr.detectBloomFilters()
-		require.True(t, pr.SchemaHandler.Infos[1].BloomFilter)
-		require.Equal(t, int32(0), pr.SchemaHandler.Infos[1].BloomFilterSize)
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		require.NoError(t, err)
+		require.NoError(t, pw.Write(BloomRecord{Name: "test"}))
+		require.NoError(t, pw.WriteStop())
+		_ = fw.Close()
+
+		fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := NewParquetReader(fr, nil, 1)
+		require.NoError(t, err)
+		defer func() { _ = pr.ReadStopWithError() }()
+
+		// BloomFilterSize should be the bitset size (4096), not including Thrift header overhead.
+		// After RenameSchema, the internal name "Name" (Go field name) is used in MapIndex.
+		nameIdx, ok := pr.SchemaHandler.MapIndex["Parquet_go_root\x01Name"]
+		require.True(t, ok)
+		require.True(t, pr.SchemaHandler.Infos[nameIdx].BloomFilter)
+		require.Equal(t, int32(4096), pr.SchemaHandler.Infos[nameIdx].BloomFilterSize)
 	})
 }
 
