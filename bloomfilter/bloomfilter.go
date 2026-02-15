@@ -14,10 +14,10 @@ import (
 const (
 	// blockSize is 32 bytes (8 x uint32 words) per the Parquet spec.
 	blockSize = 32
-	// minBytes is the minimum bloom filter size (1 block).
-	minBytes = blockSize
-	// maxBytes is the maximum bloom filter size (128 MB).
-	maxBytes = 128 * 1024 * 1024
+	// MinBytes is the minimum bloom filter size (1 block).
+	MinBytes = blockSize
+	// MaxBytes is the maximum bloom filter size (128 MB).
+	MaxBytes = 128 * 1024 * 1024
 	// DefaultNumBytes is the default bloom filter size in bytes.
 	DefaultNumBytes = 1024
 )
@@ -43,11 +43,11 @@ type Filter struct {
 // New creates a new bloom filter with the given number of bytes.
 // The size is rounded up to the nearest power of 2 and clamped to [32, 128MB].
 func New(numBytes int) *Filter {
-	if numBytes < minBytes {
-		numBytes = minBytes
+	if numBytes < MinBytes {
+		numBytes = MinBytes
 	}
-	if numBytes > maxBytes {
-		numBytes = maxBytes
+	if numBytes > MaxBytes {
+		numBytes = MaxBytes
 	}
 	// Round up to next power of 2
 	numBytes = int(nextPowerOf2(uint32(numBytes)))
@@ -66,7 +66,7 @@ func optimalNumBytes(numDistinct int, fpp float64) int {
 	// m = -n * ln(fpp) / (ln2)^2  (in bits)
 	m := -float64(numDistinct) * math.Log(fpp) / (math.Ln2 * math.Ln2)
 	numBytes := int(math.Ceil(m / 8.0))
-	return max(numBytes, minBytes)
+	return max(numBytes, MinBytes)
 }
 
 // Insert adds a hash value to the bloom filter.
@@ -125,8 +125,8 @@ func (f *Filter) Header() *parquet.BloomFilterHeader {
 // FromBitset reconstructs a bloom filter from raw bitset bytes.
 func FromBitset(data []byte) (*Filter, error) {
 	n := len(data)
-	if n < minBytes {
-		return nil, fmt.Errorf("bloom filter bitset too small: %d bytes (minimum %d)", n, minBytes)
+	if n < MinBytes {
+		return nil, fmt.Errorf("bloom filter bitset too small: %d bytes (minimum %d)", n, MinBytes)
 	}
 	if n%blockSize != 0 {
 		return nil, fmt.Errorf("bloom filter bitset size %d is not a multiple of block size %d", n, blockSize)
