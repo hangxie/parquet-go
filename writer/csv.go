@@ -46,6 +46,7 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, np int64) (*CSVWr
 		return nil, fmt.Errorf("write magic header: %w", err)
 	}
 	res.MarshalFunc = marshal.MarshalCSV
+	res.initBloomFilters()
 	return res, nil
 }
 

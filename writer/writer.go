@@ -100,25 +100,24 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 
 	if obj != nil {
 		if sa, ok := obj.(string); ok {
+			// SetSchemaHandlerFromJSON handles Footer.Schema internally
 			err = res.SetSchemaHandlerFromJSON(sa)
 			if err != nil {
 				res.stopped = true
 				return res, fmt.Errorf("set schema from JSON: %w", err)
 			}
-			res.stopped = false
-			return res, nil
-
-		} else if sa, ok := obj.(*schema.SchemaHandler); ok {
-			res.SchemaHandler = schema.NewSchemaHandlerFromSchemaHandler(sa)
-		} else if sa, ok := obj.([]*parquet.SchemaElement); ok {
-			res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
 		} else {
-			if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
-				return res, fmt.Errorf("build schema handler: %w", err)
+			if sa, ok := obj.(*schema.SchemaHandler); ok {
+				res.SchemaHandler = schema.NewSchemaHandlerFromSchemaHandler(sa)
+			} else if sa, ok := obj.([]*parquet.SchemaElement); ok {
+				res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
+			} else {
+				if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
+					return res, fmt.Errorf("build schema handler: %w", err)
+				}
 			}
+			res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
 		}
-
-		res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
 	}
 
 	res.initBloomFilters()
