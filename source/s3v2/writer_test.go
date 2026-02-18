@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/require"
@@ -283,4 +284,63 @@ func TestS3Writer_Write_Success(t *testing.T) {
 	// Verify data was uploaded
 	uploadedData := client.getUploadedData(bucket, key)
 	require.True(t, bytes.Equal(uploadedData, testDataWriter))
+}
+
+func TestNewS3FileWriter_GetConfigError(t *testing.T) {
+	origGetConfig := getConfig
+	defer func() { getConfig = origGetConfig }()
+
+	getConfig = func() (aws.Config, error) {
+		return aws.Config{}, errors.New("config load error")
+	}
+
+	_, err := NewS3FileWriter(context.Background(), "bucket", "key", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "config load error")
+}
+
+func TestS3Writer_WriteWithPreExistingError(t *testing.T) {
+	ctx := context.Background()
+	client := newMockS3WriteClient()
+
+	writer, err := NewS3FileWriterWithClient(ctx, client, "bucket", "key", nil)
+	require.NoError(t, err)
+
+	// Inject a pre-existing error
+	s3w := writer.(*s3Writer)
+	s3w.lock.Lock()
+	s3w.err = errors.New("prior failure")
+	s3w.lock.Unlock()
+
+	_, err = writer.Write([]byte("data"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "prior failure")
+}
+
+func TestS3Writer_CloseNilWriteDone(t *testing.T) {
+	// Test Close on a writer with nil pipeWriter and nil writeDone
+	w := &s3Writer{}
+	err := w.Close()
+	require.NoError(t, err)
+}
+
+func TestNewS3FileWriter_Success(t *testing.T) {
+	origGetConfig := getConfig
+	defer func() { getConfig = origGetConfig }()
+
+	t.Setenv("AWS_ACCESS_KEY_ID", "fake")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "fake")
+	t.Setenv("AWS_REGION", "us-east-1")
+
+	getConfig = func() (aws.Config, error) {
+		return config.LoadDefaultConfig(context.Background())
+	}
+
+	writer, err := NewS3FileWriter(context.Background(), "bucket", "key", nil)
+	require.NoError(t, err)
+	require.NotNil(t, writer)
+
+	// Close will fail because there's no real S3 endpoint, but the writer
+	// was successfully created through the full getConfig → s3.NewFromConfig path.
+	_ = writer.Close()
 }
