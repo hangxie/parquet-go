@@ -7,14 +7,8 @@ import (
 )
 
 func TestGetConfig(t *testing.T) {
-	// Save original config
-	originalCfg := cfg
-	defer func() {
-		cfg = originalCfg
-	}()
-
-	newCfg := getConfig()
-	require.Equal(t, newCfg, cfg)
+	cfg, err := getConfig()
+	require.NoError(t, err)
 	require.NotEmpty(t, cfg.DefaultsMode)
 	require.NotEmpty(t, cfg.AccountIDEndpointMode)
 }

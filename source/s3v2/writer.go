@@ -28,9 +28,13 @@ type s3Writer struct {
 
 // NewS3FileWriter creates an S3 FileWriter, to be used with NewParquetWriter
 func NewS3FileWriter(ctx context.Context, bucket, key string, tmOptions []func(*transfermanager.Options)) (source.ParquetFileWriter, error) {
+	cfg, err := getConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load AWS config: %w", err)
+	}
 	w, err := NewS3FileWriterWithClient(
 		ctx,
-		s3.NewFromConfig(getConfig()),
+		s3.NewFromConfig(cfg),
 		bucket,
 		key,
 		tmOptions,

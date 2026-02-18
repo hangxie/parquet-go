@@ -319,7 +319,11 @@ type S3FileReaderParams struct {
 func NewS3FileReaderWithParams(ctx context.Context, params S3FileReaderParams) (source.ParquetFileReader, error) {
 	s3Client := params.S3Client
 	if s3Client == nil {
-		s3Client = s3.NewFromConfig(getConfig())
+		cfg, err := getConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load AWS config: %w", err)
+		}
+		s3Client = s3.NewFromConfig(cfg)
 	}
 
 	minRequestSize := int64(params.MinRequestSize)
