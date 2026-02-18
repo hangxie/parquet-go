@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -617,4 +618,174 @@ func TestS3Reader_Seek_SeekStart(t *testing.T) {
 
 	expected := testData[20:30]
 	require.True(t, bytes.Equal(buffer, expected))
+}
+
+func TestS3Reader_Seek_SeekEndPositiveOffset(t *testing.T) {
+	ctx := context.Background()
+	client := newMockS3ReadClient()
+	bucket := "test-bucket"
+	key := "test-file.parquet"
+
+	client.setObject(bucket, key, testData)
+
+	reader, err := NewS3FileReaderWithClient(ctx, client, bucket, key, nil)
+	require.NoError(t, err)
+
+	// Positive offset from SeekEnd is invalid
+	_, err = reader.Seek(10, io.SeekEnd)
+	require.Equal(t, errInvalidOffset, err)
+
+	// Negative offset exceeding file size is invalid
+	_, err = reader.Seek(-int64(len(testData))-1, io.SeekEnd)
+	require.Equal(t, errInvalidOffset, err)
+}
+
+func TestS3Reader_Seek_SeekCurrentOutOfBounds(t *testing.T) {
+	ctx := context.Background()
+	client := newMockS3ReadClient()
+	bucket := "test-bucket"
+	key := "test-file.parquet"
+
+	client.setObject(bucket, key, testData)
+
+	reader, err := NewS3FileReaderWithClient(ctx, client, bucket, key, nil)
+	require.NoError(t, err)
+
+	// SeekCurrent resulting in negative offset
+	_, err = reader.Seek(-1, io.SeekCurrent)
+	require.Equal(t, errInvalidOffset, err)
+
+	// Seek to middle, then SeekCurrent beyond file size
+	_, err = reader.Seek(10, io.SeekStart)
+	require.NoError(t, err)
+	_, err = reader.Seek(int64(len(testData)), io.SeekCurrent)
+	require.Equal(t, errInvalidOffset, err)
+}
+
+func TestNewS3FileReader_GetConfigError(t *testing.T) {
+	origGetConfig := getConfig
+	defer func() { getConfig = origGetConfig }()
+
+	getConfig = func() (aws.Config, error) {
+		return aws.Config{}, errors.New("config load error")
+	}
+
+	_, err := NewS3FileReader(context.Background(), "bucket", "key", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "config load error")
+}
+
+func TestNewS3FileReader_FakeConfig(t *testing.T) {
+	origGetConfig := getConfig
+	defer func() { getConfig = origGetConfig }()
+
+	t.Setenv("AWS_ACCESS_KEY_ID", "fake")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "fake")
+	t.Setenv("AWS_REGION", "us-east-1")
+
+	getConfig = func() (aws.Config, error) {
+		return config.LoadDefaultConfig(context.Background())
+	}
+
+	// getConfig succeeds and s3.NewFromConfig creates a real client,
+	// but HeadObject fails because there's no real S3 endpoint.
+	_, err := NewS3FileReader(context.Background(), "bucket", "key", nil)
+	require.Error(t, err)
+}
+
+func TestNewS3FileReaderWithParams_GetConfigError(t *testing.T) {
+	origGetConfig := getConfig
+	defer func() { getConfig = origGetConfig }()
+
+	getConfig = func() (aws.Config, error) {
+		return aws.Config{}, errors.New("config unavailable")
+	}
+
+	_, err := NewS3FileReaderWithParams(context.Background(), S3FileReaderParams{
+		Bucket: "bucket",
+		Key:    "key",
+		// S3Client intentionally nil to trigger getConfig path
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "config unavailable")
+}
+
+// errReader is a reader that always returns an error.
+type errReader struct{ err error }
+
+func (e *errReader) Read([]byte) (int, error) { return 0, e.err }
+func (e *errReader) Close() error             { return nil }
+
+// eofReader returns data and io.EOF together on the final read,
+// simulating a chunked socket that signals end-of-stream.
+type eofReader struct {
+	data []byte
+	pos  int
+}
+
+func (r *eofReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[r.pos:])
+	r.pos += n
+	if r.pos >= len(r.data) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (r *eofReader) Close() error { return nil }
+
+func TestS3Reader_Read_SocketEOFMidFile(t *testing.T) {
+	ctx := context.Background()
+	client := newMockS3ReadClient()
+	bucket := "test-bucket"
+	key := "test-file.parquet"
+
+	client.setObject(bucket, key, testData)
+
+	reader, err := NewS3FileReaderWithClient(ctx, client, bucket, key, nil)
+	require.NoError(t, err)
+
+	// Inject a socket that returns EOF with only partial file data,
+	// simulating a chunked response ending before the file is finished.
+	s3r := reader.(*s3Reader)
+	s3r.socket = &eofReader{data: testData[:10]}
+
+	buf := make([]byte, 20)
+	n, err := reader.Read(buf)
+	// Socket EOF should be swallowed (file isn't done), socket should be closed
+	require.NoError(t, err)
+	require.Equal(t, 10, n)
+	require.Equal(t, testData[:10], buf[:10])
+	require.Nil(t, s3r.socket)
+}
+
+func TestS3Reader_Read_NonEOFError(t *testing.T) {
+	ctx := context.Background()
+	client := newMockS3ReadClient()
+	bucket := "test-bucket"
+	key := "test-file.parquet"
+
+	client.setObject(bucket, key, testData)
+
+	reader, err := NewS3FileReaderWithClient(ctx, client, bucket, key, nil)
+	require.NoError(t, err)
+
+	// Read once to open the socket
+	buf := make([]byte, 5)
+	_, err = reader.Read(buf)
+	require.NoError(t, err)
+
+	// Inject an error-returning socket
+	s3r := reader.(*s3Reader)
+	socketErr := fmt.Errorf("connection reset")
+	s3r.socket = &errReader{err: socketErr}
+
+	_, err = reader.Read(buf)
+	require.ErrorIs(t, err, socketErr)
+
+	// Socket should have been closed by the defer
+	require.Nil(t, s3r.socket)
 }
