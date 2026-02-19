@@ -166,6 +166,50 @@ func TestColumnIndex(t *testing.T) {
 			require.Equal(t, expects[i].NullCounts, colIdx.GetNullCounts())
 		}
 	})
+
+	t.Run("dict_encoded_column_index_size", func(t *testing.T) {
+		// Dict-encoded columns have a dictionary page followed by data pages.
+		// ColumnIndex entries must only correspond to data pages, not dictionary pages.
+		type Entry struct {
+			Val string `parquet:"name=val, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+		}
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(Entry), 1)
+		require.NoError(t, err)
+
+		entries := []Entry{
+			{Val: "alpha"},
+			{Val: "beta"},
+			{Val: "alpha"},
+		}
+		for _, entry := range entries {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+		pr, err := reader.NewParquetReader(pf, nil, 1)
+		require.NoError(t, err)
+		require.NoError(t, pr.ReadFooter())
+
+		require.Equal(t, 1, len(pr.Footer.RowGroups))
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, 1, len(columns))
+
+		colIdx, err := readColumnIndex(pr.PFile, *columns[0].ColumnIndexOffset)
+		require.NoError(t, err)
+
+		// There should be exactly 1 data page, so ColumnIndex arrays should have length 1.
+		// A bug would produce length 2 (one phantom entry for the dict page + one for data).
+		require.Equal(t, 1, len(colIdx.GetMinValues()))
+		require.Equal(t, 1, len(colIdx.GetMaxValues()))
+		require.Equal(t, 1, len(colIdx.GetNullPages()))
+	})
 }
 
 func TestParquetWriter(t *testing.T) {
