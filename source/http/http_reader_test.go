@@ -86,6 +86,15 @@ func createMalformedRangeServer() *httptest.Server {
 	}))
 }
 
+// Helper function to create a server with unparseable size in Content-Range
+func createUnparseableSizeServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-0/notanumber")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("x"))
+	}))
+}
+
 // Note: Multipart file reader tests are complex due to the need to mock
 // multipart.FileHeader and multipart.File interfaces. The existing basic
 // test coverage should be sufficient for now, as the multipart wrapper
@@ -465,6 +474,17 @@ func TestNewHttpReader(t *testing.T) {
 			extraHeaders:       nil,
 			errMsg:             "does not support range",
 		},
+		{
+			name: "unparseable_content_range_size",
+			setupServer: func() (string, func()) {
+				server := createUnparseableSizeServer()
+				return server.URL, server.Close
+			},
+			dedicatedTransport: false,
+			ignoreTLS:          false,
+			extraHeaders:       nil,
+			errMsg:             "parse data size from",
+		},
 	}
 
 	for _, tt := range tests {
@@ -539,6 +559,75 @@ func TestHttp_reader_no_range_support(t *testing.T) {
 			require.Contains(t, err.Error(), tc.expectedError.Error(), "expected error like [%v] but got [%v]", tc.expectedError, err)
 		}
 	}
+}
+
+func TestHttpReader_ReadWithExtraHeaders(t *testing.T) {
+	var receivedHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-0/%d", len(testData)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(testData[:1])
+	}))
+	defer server.Close()
+
+	headers := map[string]string{
+		"X-Custom-Header": "custom-value",
+		"Authorization":   "Bearer test-token",
+	}
+	reader, err := NewHttpReader(server.URL, false, false, headers)
+	require.NoError(t, err)
+
+	buf := make([]byte, 1)
+	_, err = reader.Read(buf)
+	require.NoError(t, err)
+
+	// Verify extra headers were sent with the Read request
+	require.Equal(t, "custom-value", receivedHeaders.Get("X-Custom-Header"))
+	require.Equal(t, "Bearer test-token", receivedHeaders.Get("Authorization"))
+}
+
+func TestHttpReader_ReadBeyondSize(t *testing.T) {
+	// Server lies about file size but returns more data than expected,
+	// causing offset to exceed the reported size.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-0/5")
+		w.WriteHeader(http.StatusPartialContent)
+		// Return 3 bytes even though only 1 was implied by the range
+		_, _ = w.Write([]byte("xyz"))
+	}))
+	defer server.Close()
+
+	reader, err := NewHttpReader(server.URL, false, false, nil)
+	require.NoError(t, err)
+
+	// Seek to offset 4 (near end of reported size 5)
+	_, err = reader.Seek(4, io.SeekStart)
+	require.NoError(t, err)
+
+	// Read: server returns 3 bytes, so offset would become 4+3=7 > size(5)
+	buf := make([]byte, 10)
+	n, err := reader.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
+
+	// Verify offset was clamped to size (5)
+	hr := reader.(*httpReader)
+	require.Equal(t, hr.size, hr.offset)
+}
+
+func TestHttpReader_ReadServerDown(t *testing.T) {
+	server := createTestServer()
+
+	reader, err := NewHttpReader(server.URL, false, false, nil)
+	require.NoError(t, err)
+
+	// Shut down the server so Read's client.Do fails
+	server.Close()
+
+	buf := make([]byte, 10)
+	_, err = reader.Read(buf)
+	require.Error(t, err)
 }
 
 func TestNewHttpReader_ConcurrentSafety(t *testing.T) {

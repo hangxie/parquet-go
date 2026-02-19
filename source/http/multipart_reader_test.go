@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"mime/multipart"
+	nethttp "net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -246,51 +247,37 @@ func TestMultipartFileReader_Close(t *testing.T) {
 func TestMultipartFileReader_Open(t *testing.T) {
 	testData := []byte("test data for open operation")
 
-	// Create a more realistic test using actual multipart data
+	// Build a real multipart form and parse it via http to get a valid FileHeader
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-
 	formFile, err := writer.CreateFormFile("file", "test.parquet")
 	require.NoError(t, err)
-
 	_, err = formFile.Write(testData)
 	require.NoError(t, err)
+	require.NoError(t, writer.Close())
 
-	err = writer.Close()
-	if err != nil {
-		panic(err)
-	}
-
-	// Parse the multipart form
-	reader := multipart.NewReader(&buf, writer.Boundary())
-	part, err := reader.NextPart()
+	req, err := nethttp.NewRequest(nethttp.MethodPost, "/", &buf)
 	require.NoError(t, err)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	require.NoError(t, req.ParseMultipartForm(1<<20))
 
-	// Create the file header and wrapper
-	fileHeader := &multipart.FileHeader{
-		Filename: part.FileName(),
-		Header:   part.Header,
-	}
+	fh := req.MultipartForm.File["file"][0]
+	f, err := fh.Open()
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
 
-	// Create a mock file that implements multipart.File
-	mockFile := newMockMultipartFile(testData)
+	mfr := NewMultipartFileWrapper(fh, f)
 
-	// For testing Open(), we need a fileHeader that can actually open
-	// In practice, this would be from an actual HTTP multipart form
-	originalReader := &multipartFileReader{
-		fileHeader: fileHeader,
-		file:       mockFile,
-	}
+	// Open should succeed and return a new reader
+	opened, err := mfr.Open("ignored")
+	require.NoError(t, err)
+	require.NotNil(t, opened)
 
-	// Test opening - this may fail in unit test environment since we don't have
-	// a real multipart.FileHeader with valid Open() method
-	_, err = originalReader.Open("new-file.parquet")
-	// We expect this to potentially fail in unit test environment
-	// but we test that the method exists and handles errors properly
-	if err != nil {
-		// This is expected in unit test environment
-		require.Error(t, err)
-	}
+	// The opened reader should be able to read the same data
+	content, err := io.ReadAll(opened)
+	require.NoError(t, err)
+	require.Equal(t, testData, content)
+	require.NoError(t, opened.Close())
 }
 
 func TestMultipartFileReader_Open_ErrorHandling(t *testing.T) {
