@@ -182,6 +182,15 @@ func TestNewMemFileWriterWithExistingFs(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestNewMemFileWriter_CreateError(t *testing.T) {
+	// Use a read-only filesystem to trigger a Create error
+	memFs = afero.NewReadOnlyFs(afero.NewMemMapFs())
+
+	_, err := NewMemFileWriter("test.parquet", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create mem file")
+}
+
 func TestSetAndGetInMemFileFs(t *testing.T) {
 	// Reset memFs to nil first
 	memFs = nil
