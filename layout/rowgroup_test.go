@@ -71,6 +71,27 @@ func (m *mockParquetFileReader) Clone() (source.ParquetFileReader, error) {
 	return newReader, nil
 }
 
+// failingMockReader is a mock that returns errors from Open and Clone.
+type failingMockReader struct {
+	mockParquetFileReader
+	openErr  error
+	cloneErr error
+}
+
+func (m *failingMockReader) Open(string) (source.ParquetFileReader, error) {
+	if m.openErr != nil {
+		return nil, m.openErr
+	}
+	return newMockParquetFileReader(m.data), nil
+}
+
+func (m *failingMockReader) Clone() (source.ParquetFileReader, error) {
+	if m.cloneErr != nil {
+		return nil, m.cloneErr
+	}
+	return newMockParquetFileReader(m.data), nil
+}
+
 func TestNewRowGroup(t *testing.T) {
 	rowGroup := NewRowGroup()
 	require.NotNil(t, rowGroup)
@@ -80,273 +101,131 @@ func TestNewRowGroup(t *testing.T) {
 
 func TestReadRowGroup_Comprehensive(t *testing.T) {
 	t.Run("single_column_single_parallelism", func(t *testing.T) {
-		// Create a row group header with one column chunk
 		rowGroupHeader := &parquet.RowGroup{
 			Columns: []*parquet.ColumnChunk{
-				{
-					FileOffset: 0,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 10,
-					},
-				},
+				{FileOffset: 0, MetaData: &parquet.ColumnMetaData{NumValues: 10}},
 			},
 		}
-
-		// Create mock file reader with minimal valid thrift data
-		mockData := make([]byte, 100)
-		mockReader := newMockParquetFileReader(mockData)
-
-		// Create a minimal schema handler
+		mockReader := newMockParquetFileReader(make([]byte, 100))
 		schemaHandler := &schema.SchemaHandler{
 			SchemaElements: []*parquet.SchemaElement{
-				{
-					Name: "test_column",
-					Type: parquet.TypePtr(parquet.Type_INT32),
-				},
+				{Name: "test_column", Type: parquet.TypePtr(parquet.Type_INT32)},
 			},
 		}
 
-		// This will likely fail due to invalid thrift data, but we test the structure
-		rowGroup, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
-
-		// We expect this to fail due to invalid data, but the structure should be set up
-		require.NotNil(t, rowGroup)
-		if rowGroup != nil {
-			require.Equal(t, rowGroupHeader, rowGroup.RowGroupHeader)
-		}
-
-		// Error is expected due to mock data not being valid thrift
-		if err == nil {
-			// If somehow it succeeded, check the basic structure
-			require.LessOrEqual(t, len(rowGroup.Chunks), 1)
-		}
+		// Invalid thrift data causes ReadChunk to fail, which is now propagated
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "read chunk")
 	})
 
 	t.Run("multiple_columns_multiple_parallelism", func(t *testing.T) {
-		// Create a row group header with multiple column chunks
 		rowGroupHeader := &parquet.RowGroup{
 			Columns: []*parquet.ColumnChunk{
-				{
-					FileOffset: 0,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 5,
-					},
-				},
-				{
-					FileOffset: 50,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 5,
-					},
-				},
-				{
-					FileOffset: 100,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 5,
-					},
-				},
+				{FileOffset: 0, MetaData: &parquet.ColumnMetaData{NumValues: 5}},
+				{FileOffset: 50, MetaData: &parquet.ColumnMetaData{NumValues: 5}},
+				{FileOffset: 100, MetaData: &parquet.ColumnMetaData{NumValues: 5}},
 			},
 		}
-
-		// Create mock file reader
-		mockData := make([]byte, 200)
-		mockReader := newMockParquetFileReader(mockData)
-
-		// Create schema handler
+		mockReader := newMockParquetFileReader(make([]byte, 200))
 		schemaHandler := &schema.SchemaHandler{
 			SchemaElements: []*parquet.SchemaElement{
-				{
-					Name: "col1",
-					Type: parquet.TypePtr(parquet.Type_INT32),
-				},
-				{
-					Name: "col2",
-					Type: parquet.TypePtr(parquet.Type_INT64),
-				},
-				{
-					Name: "col3",
-					Type: parquet.TypePtr(parquet.Type_BOOLEAN),
-				},
+				{Name: "col1", Type: parquet.TypePtr(parquet.Type_INT32)},
+				{Name: "col2", Type: parquet.TypePtr(parquet.Type_INT64)},
+				{Name: "col3", Type: parquet.TypePtr(parquet.Type_BOOLEAN)},
 			},
 		}
 
-		// Test with 2 parallel readers
-		rowGroup, _ := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 2)
-
-		// Basic structure verification
-		require.NotNil(t, rowGroup)
-		if rowGroup != nil {
-			require.Equal(t, rowGroupHeader, rowGroup.RowGroupHeader)
-		}
-
-		// Error is expected due to mock data, but we can verify the parallelism logic ran
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 2)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "read chunk")
 	})
 
 	t.Run("column_with_file_path", func(t *testing.T) {
 		filePath := "test_file.parquet"
-
-		// Create a row group header with column chunk that has a file path
 		rowGroupHeader := &parquet.RowGroup{
 			Columns: []*parquet.ColumnChunk{
-				{
-					FileOffset: 0,
-					FilePath:   &filePath,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 3,
-					},
-				},
+				{FileOffset: 0, FilePath: &filePath, MetaData: &parquet.ColumnMetaData{NumValues: 3}},
 			},
 		}
-
-		// Create mock file reader
-		mockData := make([]byte, 50)
-		mockReader := newMockParquetFileReader(mockData)
-
-		// Create schema handler
+		mockReader := newMockParquetFileReader(make([]byte, 50))
 		schemaHandler := &schema.SchemaHandler{
 			SchemaElements: []*parquet.SchemaElement{
-				{
-					Name: "test_column",
-					Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-				},
+				{Name: "test_column", Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY)},
 			},
 		}
 
-		// Test that Open() method is called when FilePath is provided
-		rowGroup, _ := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
-
-		// Verify basic structure
-		require.NotNil(t, rowGroup)
-		if rowGroup != nil {
-			require.Equal(t, rowGroupHeader, rowGroup.RowGroupHeader)
-		}
+		// Open succeeds (mock returns new reader), but ReadChunk fails on invalid thrift
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "read chunk")
 	})
 
 	t.Run("high_parallelism_few_columns", func(t *testing.T) {
-		// Test case where NP > number of columns
 		rowGroupHeader := &parquet.RowGroup{
 			Columns: []*parquet.ColumnChunk{
-				{
-					FileOffset: 0,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 2,
-					},
-				},
+				{FileOffset: 0, MetaData: &parquet.ColumnMetaData{NumValues: 2}},
 			},
 		}
-
-		mockData := make([]byte, 30)
-		mockReader := newMockParquetFileReader(mockData)
-
+		mockReader := newMockParquetFileReader(make([]byte, 30))
 		schemaHandler := &schema.SchemaHandler{
 			SchemaElements: []*parquet.SchemaElement{
-				{
-					Name: "lonely_column",
-					Type: parquet.TypePtr(parquet.Type_FLOAT),
-				},
+				{Name: "lonely_column", Type: parquet.TypePtr(parquet.Type_FLOAT)},
 			},
 		}
 
-		// Use high parallelism (5) with only 1 column
-		rowGroup, _ := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 5)
-
-		// Should handle this gracefully
-		require.NotNil(t, rowGroup)
+		// Use high parallelism (5) with only 1 column - should not panic
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 5)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "read chunk")
 	})
 
 	t.Run("parallelism_equals_columns", func(t *testing.T) {
-		// Test case where NP == number of columns (exact match)
 		rowGroupHeader := &parquet.RowGroup{
 			Columns: []*parquet.ColumnChunk{
-				{
-					FileOffset: 0,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 1,
-					},
-				},
-				{
-					FileOffset: 25,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 1,
-					},
-				},
-				{
-					FileOffset: 50,
-					MetaData: &parquet.ColumnMetaData{
-						NumValues: 1,
-					},
-				},
+				{FileOffset: 0, MetaData: &parquet.ColumnMetaData{NumValues: 1}},
+				{FileOffset: 25, MetaData: &parquet.ColumnMetaData{NumValues: 1}},
+				{FileOffset: 50, MetaData: &parquet.ColumnMetaData{NumValues: 1}},
 			},
 		}
-
-		mockData := make([]byte, 75)
-		mockReader := newMockParquetFileReader(mockData)
-
+		mockReader := newMockParquetFileReader(make([]byte, 75))
 		schemaHandler := &schema.SchemaHandler{
 			SchemaElements: []*parquet.SchemaElement{
-				{
-					Name: "col1",
-					Type: parquet.TypePtr(parquet.Type_INT32),
-				},
-				{
-					Name: "col2",
-					Type: parquet.TypePtr(parquet.Type_INT64),
-				},
-				{
-					Name: "col3",
-					Type: parquet.TypePtr(parquet.Type_DOUBLE),
-				},
+				{Name: "col1", Type: parquet.TypePtr(parquet.Type_INT32)},
+				{Name: "col2", Type: parquet.TypePtr(parquet.Type_INT64)},
+				{Name: "col3", Type: parquet.TypePtr(parquet.Type_DOUBLE)},
 			},
 		}
 
-		// Use parallelism equal to column count (3)
-		rowGroup, _ := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 3)
-
-		// Should handle this case efficiently
-		require.NotNil(t, rowGroup)
-		if rowGroup != nil {
-			require.Equal(t, rowGroupHeader, rowGroup.RowGroupHeader)
-		}
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 3)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "read chunk")
 	})
 
 	t.Run("single_parallelism_many_columns", func(t *testing.T) {
-		// Test case where NP = 1 but many columns (sequential processing)
 		var columns []*parquet.ColumnChunk
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			columns = append(columns, &parquet.ColumnChunk{
 				FileOffset: int64(i * 20),
-				MetaData: &parquet.ColumnMetaData{
-					NumValues: 1,
-				},
+				MetaData:   &parquet.ColumnMetaData{NumValues: 1},
 			})
 		}
-
-		rowGroupHeader := &parquet.RowGroup{
-			Columns: columns,
-		}
-
-		mockData := make([]byte, 120)
-		mockReader := newMockParquetFileReader(mockData)
+		rowGroupHeader := &parquet.RowGroup{Columns: columns}
+		mockReader := newMockParquetFileReader(make([]byte, 120))
 
 		var schemaElements []*parquet.SchemaElement
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			schemaElements = append(schemaElements, &parquet.SchemaElement{
 				Name: fmt.Sprintf("col%d", i),
 				Type: parquet.TypePtr(parquet.Type_INT32),
 			})
 		}
+		schemaHandler := &schema.SchemaHandler{SchemaElements: schemaElements}
 
-		schemaHandler := &schema.SchemaHandler{
-			SchemaElements: schemaElements,
-		}
-
-		// Use single-threaded processing
-		rowGroup, _ := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
-
-		// Should process all columns sequentially
-		require.NotNil(t, rowGroup)
-		if rowGroup != nil {
-			require.Equal(t, rowGroupHeader, rowGroup.RowGroupHeader)
-		}
+		// Single-threaded - first column fails, returns error immediately
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "read chunk")
 	})
 }
 
@@ -384,6 +263,50 @@ func TestReadRowGroup_ErrorConditions(t *testing.T) {
 		}
 
 		_, err := ReadRowGroup(rowGroupHeader, nil, nil, 0)
+		require.Error(t, err)
+	})
+
+	t.Run("clone_error", func(t *testing.T) {
+		rowGroupHeader := &parquet.RowGroup{
+			Columns: []*parquet.ColumnChunk{
+				{FileOffset: 0, MetaData: &parquet.ColumnMetaData{NumValues: 1}},
+			},
+		}
+		mockReader := &failingMockReader{
+			mockParquetFileReader: *newMockParquetFileReader(make([]byte, 50)),
+			cloneErr:              fmt.Errorf("clone failed"),
+		}
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "clone failed")
+	})
+
+	t.Run("open_error", func(t *testing.T) {
+		filePath := "missing.parquet"
+		rowGroupHeader := &parquet.RowGroup{
+			Columns: []*parquet.ColumnChunk{
+				{FileOffset: 0, FilePath: &filePath, MetaData: &parquet.ColumnMetaData{NumValues: 1}},
+			},
+		}
+		mockReader := &failingMockReader{
+			mockParquetFileReader: *newMockParquetFileReader(make([]byte, 50)),
+			openErr:               fmt.Errorf("open failed"),
+		}
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "open failed")
+	})
+
+	t.Run("read_chunk_error_propagated", func(t *testing.T) {
+		// ReadChunk will fail because mock data is not valid thrift.
+		// Previously this error was silently dropped.
+		rowGroupHeader := &parquet.RowGroup{
+			Columns: []*parquet.ColumnChunk{
+				{FileOffset: 0, MetaData: &parquet.ColumnMetaData{NumValues: 1}},
+			},
+		}
+		mockReader := newMockParquetFileReader(make([]byte, 50))
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1)
 		require.Error(t, err)
 	})
 }

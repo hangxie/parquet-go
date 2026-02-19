@@ -50,13 +50,13 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 		return nil, fmt.Errorf("NP must be greater than 0, got %d", NP)
 	}
 
-	var err error
 	rowGroup := new(RowGroup)
 	rowGroup.RowGroupHeader = rowGroupHeader
 
 	columnChunks := rowGroupHeader.GetColumns()
 	ln := int64(len(columnChunks))
 	chunksList := make([][]*Chunk, NP)
+	errs := make([]error, NP)
 	for i := range NP {
 		chunksList[i] = make([]*Chunk, 0)
 	}
@@ -76,21 +76,40 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 			defer wg.Done()
 			for i := bgn; i < end; i++ {
 				offset := columnChunks[i].FileOffset
-				PFile := PFile
+				var pf source.ParquetFileReader
+				var err error
 				if columnChunks[i].FilePath != nil {
-					PFile, _ = PFile.Open(*columnChunks[i].FilePath)
+					pf, err = PFile.Open(*columnChunks[i].FilePath)
 				} else {
-					PFile, _ = PFile.Clone()
+					pf, err = PFile.Clone()
 				}
-				thriftReader := source.ConvertToThriftReader(PFile, offset)
-				chunk, _ := ReadChunk(thriftReader, schemaHandler, columnChunks[i])
+				if err != nil {
+					errs[index] = fmt.Errorf("column %d: open file: %w", i, err)
+					return
+				}
+				thriftReader := source.ConvertToThriftReader(pf, offset)
+				chunk, err := ReadChunk(thriftReader, schemaHandler, columnChunks[i])
+				if err != nil {
+					_ = pf.Close()
+					errs[index] = fmt.Errorf("column %d: read chunk: %w", i, err)
+					return
+				}
 				chunksList[index] = append(chunksList[index], chunk)
-				_ = PFile.Close()
+				if err := pf.Close(); err != nil {
+					errs[index] = fmt.Errorf("column %d: close file: %w", i, err)
+					return
+				}
 			}
 		}(c, bgn, end)
 	}
 
 	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	for c := range NP {
 		if len(chunksList[c]) <= 0 {
@@ -99,5 +118,5 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 		rowGroup.Chunks = append(rowGroup.Chunks, chunksList[c]...)
 	}
 
-	return rowGroup, err
+	return rowGroup, nil
 }
