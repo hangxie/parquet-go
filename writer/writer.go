@@ -601,8 +601,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 				if err != nil {
 					return fmt.Errorf("serialize bloom filter header for column %s: %w", path, err)
 				}
-				data := append(headerBuf, bf.Bitset()...)
-				pw.BloomFilterData = append(pw.BloomFilterData, data)
+				pw.BloomFilterData = append(pw.BloomFilterData, append(headerBuf, bf.Bitset()...))
 			}
 			// Reset bloom filters for next row group
 			pw.initBloomFilters()
