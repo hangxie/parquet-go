@@ -55,3 +55,57 @@ func TestBlobWriter_Write(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 0, n)
 }
+
+func TestBlobWriter_CloseNilWriter(t *testing.T) {
+	// Close on a writer with no underlying writer should succeed
+	w := &blobWriter{}
+	require.NoError(t, w.Close())
+}
+
+func TestBlobWriter_CreateEmptyName(t *testing.T) {
+	b := memblob.OpenBucket(nil)
+	defer func() {
+		_ = b.Close()
+	}()
+
+	ctx := context.Background()
+	w := &blobWriter{
+		blobFile: blobFile{
+			ctx:    ctx,
+			bucket: b,
+		},
+	}
+
+	_, err := w.Create("")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "file name empty")
+}
+
+func TestBlobWriter_WriteLazyInit(t *testing.T) {
+	b := memblob.OpenBucket(nil)
+	defer func() {
+		_ = b.Close()
+	}()
+
+	ctx := context.Background()
+	testData := []byte("lazy init write")
+
+	// Create a writer with a key but nil writer to trigger lazy initialization
+	w := &blobWriter{
+		blobFile: blobFile{
+			ctx:    ctx,
+			bucket: b,
+			key:    "lazy-test",
+		},
+	}
+
+	n, err := w.Write(testData)
+	require.NoError(t, err)
+	require.Equal(t, len(testData), n)
+
+	require.NoError(t, w.Close())
+
+	data, err := b.ReadAll(ctx, "lazy-test")
+	require.NoError(t, err)
+	require.Equal(t, testData, data)
+}
