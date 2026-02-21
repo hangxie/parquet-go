@@ -80,16 +80,16 @@ func NewShreddedVariantReconstructor(
 // It handles definition levels to return nil for missing values.
 // getValueAtRow returns the value from a table at the given row index.
 // It handles repeated fields by returning a slice of values.
-func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx int, tableBgn, tableEnd map[string]int) any {
+func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx int, tableBgn, tableEnd map[string]int) (any, error) {
 	if table == nil {
-		return nil
+		return nil, nil
 	}
 
 	tableName := common.PathToStr(table.Path)
 	bgn, ok1 := tableBgn[tableName]
 	end, ok2 := tableEnd[tableName]
 	if !ok1 || !ok2 || bgn < 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Find the values for this row by scanning repetition levels
@@ -101,7 +101,10 @@ func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx
 		}
 		if currentRow == rowIdx {
 			// Check definition level to see if value is present
-			maxDL, _ := r.SchemaHandler.MaxDefinitionLevel(table.Path)
+			maxDL, err := r.SchemaHandler.MaxDefinitionLevel(table.Path)
+			if err != nil {
+				return nil, err
+			}
 			if table.DefinitionLevels[i] >= maxDL {
 				values = append(values, table.Values[i])
 			} else {
@@ -113,27 +116,34 @@ func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx
 	}
 
 	if len(values) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Check if the field is repeated in the schema
 	isRepeated := false
-	maxRL, _ := r.SchemaHandler.MaxRepetitionLevel(table.Path)
+	maxRL, err := r.SchemaHandler.MaxRepetitionLevel(table.Path)
+	if err != nil {
+		return nil, err
+	}
 	if maxRL > 0 {
 		isRepeated = true
 	}
 
 	if isRepeated {
-		return values
+		return values, nil
 	}
-	return values[0]
+	return values[0], nil
 }
 
 // reconstructValue recursively builds a Go value from shredded columns.
 func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte) (any, error) {
 	// 1. Check if this is a leaf column
 	if table, ok := (*r.tableMap)[pathPrefix]; ok {
-		val := r.getValueAtRow(table, rowIdx, tableBgn, tableEnd)
+		val, err := r.getValueAtRow(table, rowIdx, tableBgn, tableEnd)
+		if err != nil {
+			fmt.Printf("Error at path %q: %v\n", pathPrefix, err)
+			return nil, err
+		}
 		return val, nil
 	}
 
@@ -153,22 +163,22 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 	}
 
 	// Special case: if we have Metadata/Value/Typed_value, it's a variant
-	_, hasMetadata := childTables["Metadata"]
-	_, hasValue := childTables["Value"]
-	_, hasTypedValue := childTables["Typed_value"]
+	var metaName, valueName, typedName string
+	for name := range childTables {
+		if strings.EqualFold(name, "Metadata") {
+			metaName = name
+		} else if strings.EqualFold(name, "Value") {
+			valueName = name
+		} else if strings.EqualFold(name, "Typed_value") || strings.EqualFold(name, "TypedValue") {
+			typedName = name
+		}
+	}
 
-	// Also consider it a variant if it has NO Metadata but has only one child which is one of Value or Typed_value?
-	// Actually, the Apache testing files often have a layout like:
-	// Var.Typed_value (GROUP)
-	//   A.Value (BYTE_ARRAY)
-	//   B.Value (BYTE_ARRAY)
-	// Here A and B are fields of an object. A has only one child "Value".
-
-	if hasMetadata || hasValue || hasTypedValue {
+	if metaName != "" || valueName != "" || typedName != "" {
 		metadataValues := make([]any, 0)
 		metadataSet := false
-		if hasMetadata {
-			mVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Metadata", rowIdx, tableBgn, tableEnd, nil)
+		if metaName != "" {
+			mVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+metaName, rowIdx, tableBgn, tableEnd, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -183,8 +193,8 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 
 		valueValues := make([]any, 0)
 		valueSet := false
-		if hasValue {
-			vVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Value", rowIdx, tableBgn, tableEnd, nil)
+		if valueName != "" {
+			vVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+valueName, rowIdx, tableBgn, tableEnd, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -199,7 +209,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 
 		typedValueValues := make([]any, 0)
 		typedValueSet := false
-		if hasTypedValue {
+		if typedName != "" {
 			var err error
 			// Pass metadata down if set, otherwise use current metadata
 			effectiveMetadata := metadata
@@ -210,7 +220,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 					effectiveMetadata = []byte(s)
 				}
 			}
-			tVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Typed_value", rowIdx, tableBgn, tableEnd, effectiveMetadata)
+			tVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+typedName, rowIdx, tableBgn, tableEnd, effectiveMetadata)
 			if err != nil {
 				return nil, err
 			}
@@ -251,7 +261,10 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 			// Check if any of the underlying leaf columns are repeated
 			for _, tables := range childTables {
 				for _, table := range tables {
-					maxRL, _ := r.SchemaHandler.MaxRepetitionLevel(table.Path)
+					maxRL, err := r.SchemaHandler.MaxRepetitionLevel(table.Path)
+					if err != nil {
+						return nil, err
+					}
 					if maxRL > 0 {
 						isRepeated = true
 						break
@@ -641,8 +654,13 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 		repetitionLevels, definitionLevels := make([]int32, len(path)), make([]int32, len(path))
 		for i := range path {
-			repetitionLevels[i], _ = schemaHandler.MaxRepetitionLevel(path[:i+1])
-			definitionLevels[i], _ = schemaHandler.MaxDefinitionLevel(path[:i+1])
+			var err error
+			if repetitionLevels[i], err = schemaHandler.MaxRepetitionLevel(path[:i+1]); err != nil {
+				return err
+			}
+			if definitionLevels[i], err = schemaHandler.MaxDefinitionLevel(path[:i+1]); err != nil {
+				return err
+			}
 		}
 
 		for _, rc := range sliceRecords {

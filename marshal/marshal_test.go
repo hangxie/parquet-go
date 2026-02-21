@@ -140,7 +140,8 @@ func TestParquetMapStructMarshal(t *testing.T) {
 	stack := []*Node{}
 
 	// Test marshaling
-	result := mapStruct.Marshal(node, nodeBuf, stack)
+	result, err := mapStruct.Marshal(node, nodeBuf, stack)
+	require.NoError(t, err)
 	require.NotEmpty(t, result)
 
 	// Test with empty map
@@ -152,7 +153,8 @@ func TestParquetMapStructMarshal(t *testing.T) {
 		DL:      0,
 	}
 
-	emptyResult := mapStruct.Marshal(emptyNode, nodeBuf, stack)
+	emptyResult, err := mapStruct.Marshal(emptyNode, nodeBuf, stack)
+	require.NoError(t, err)
 	require.Empty(t, emptyResult)
 }
 
@@ -223,7 +225,8 @@ func TestParquetPtrMarshal(t *testing.T) {
 			}
 
 			stack := []*Node{}
-			result := ptrMarshal.Marshal(node, nil, stack)
+			result, err := ptrMarshal.Marshal(node, nil, stack)
+			require.NoError(t, err)
 
 			// Verify node count
 			require.Len(t, result, testCase.expectedNodeCount)

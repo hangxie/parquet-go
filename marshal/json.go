@@ -15,7 +15,10 @@ import (
 
 // ss is []string
 func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
-	res := setupTableMap(schemaHandler, len(ss))
+	res, err := setupTableMap(schemaHandler, len(ss))
+	if err != nil {
+		return nil, err
+	}
 	pathMap := schemaHandler.PathMap
 	nodeBuf := NewNodeBuf(1)
 
@@ -81,7 +84,10 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 						}
 					}
 
-					rlNow, _ := schemaHandler.MaxRepetitionLevel(common.StrToPath(pathStr))
+					rlNow, err := schemaHandler.MaxRepetitionLevel(common.StrToPath(pathStr))
+					if err != nil {
+						return nil, err
+					}
 					for j := len(keys) - 1; j >= 0; j-- {
 						key := keys[j]
 						value := node.Val.MapIndex(key).Elem()
@@ -168,7 +174,10 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 							}
 						}
 					}
-					rlNow, _ := schemaHandler.MaxRepetitionLevel(common.StrToPath(pathStr))
+					rlNow, err := schemaHandler.MaxRepetitionLevel(common.StrToPath(pathStr))
+					if err != nil {
+						return nil, err
+					}
 
 					for j := ln - 1; j >= 0; j-- {
 						newNode := nodeBuf.GetNode()
@@ -201,7 +210,10 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 							}
 						}
 					}
-					rlNow, _ := schemaHandler.MaxRepetitionLevel(common.StrToPath(pathStr))
+					rlNow, err := schemaHandler.MaxRepetitionLevel(common.StrToPath(pathStr))
+					if err != nil {
+						return nil, err
+					}
 
 					for j := ln - 1; j >= 0; j-- {
 						newNode := nodeBuf.GetNode()
