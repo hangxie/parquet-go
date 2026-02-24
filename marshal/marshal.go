@@ -47,24 +47,24 @@ func (nbt *NodeBufType) Reset() {
 }
 
 type Marshaler interface {
-	Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) (newStack []*Node)
+	Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) (newStack []*Node, err error)
 }
 
 type ParquetPtr struct{}
 
-func (p *ParquetPtr) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) []*Node {
+func (p *ParquetPtr) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
 	if node.Val.IsNil() {
-		return stack
+		return stack, nil
 	}
 	node.Val = node.Val.Elem()
 	node.DL++
 	stack = append(stack, node)
-	return stack
+	return stack, nil
 }
 
 type ParquetStruct struct{}
 
-func (p *ParquetStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) []*Node {
+func (p *ParquetStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
 	var ok bool
 
 	numField := node.Val.Type().NumField()
@@ -83,19 +83,19 @@ func (p *ParquetStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node)
 		newNode.DL = node.DL
 		stack = append(stack, newNode)
 	}
-	return stack
+	return stack, nil
 }
 
 type ParquetMapStruct struct {
 	schemaHandler *schema.SchemaHandler
 }
 
-func (p *ParquetMapStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) []*Node {
+func (p *ParquetMapStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
 	var ok bool
 
 	keys := node.Val.MapKeys()
 	if len(keys) <= 0 {
-		return stack
+		return stack, nil
 	}
 
 	missingKeys := make(map[string]bool)
@@ -146,14 +146,14 @@ func (p *ParquetMapStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*No
 			stack = append(stack, newNode)
 		}
 	}
-	return stack
+	return stack, nil
 }
 
 type ParquetSlice struct {
 	schemaHandler *schema.SchemaHandler
 }
 
-func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) []*Node {
+func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
 	ln := node.Val.Len()
 	pathMap := node.PathMap
 	path := node.PathMap.Path
@@ -165,19 +165,22 @@ func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) 
 						pathMap = pmElement
 						path = path + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element"
 					} else {
-						return stack
+						return stack, nil
 					}
 				} else {
-					return stack
+					return stack, nil
 				}
 			}
 		}
 	}
 	if ln <= 0 {
-		return stack
+		return stack, nil
 	}
 
-	rlNow, _ := p.schemaHandler.MaxRepetitionLevel(common.StrToPath(path))
+	rlNow, err := p.schemaHandler.MaxRepetitionLevel(common.StrToPath(path))
+	if err != nil {
+		return nil, err
+	}
 	for j := ln - 1; j >= 0; j-- {
 		newNode := nodeBuf.GetNode()
 		newNode.PathMap = pathMap
@@ -195,21 +198,24 @@ func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) 
 		newNode.DL = node.DL + 1
 		stack = append(stack, newNode)
 	}
-	return stack
+	return stack, nil
 }
 
 type ParquetMap struct {
 	schemaHandler *schema.SchemaHandler
 }
 
-func (p *ParquetMap) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) []*Node {
+func (p *ParquetMap) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
 	path := node.PathMap.Path + common.PAR_GO_PATH_DELIMITER + "Key_value"
 	keys := node.Val.MapKeys()
 	if len(keys) <= 0 {
-		return stack
+		return stack, nil
 	}
 
-	rlNow, _ := p.schemaHandler.MaxRepetitionLevel(common.StrToPath(path))
+	rlNow, err := p.schemaHandler.MaxRepetitionLevel(common.StrToPath(path))
+	if err != nil {
+		return nil, err
+	}
 	for j := len(keys) - 1; j >= 0; j-- {
 		key := keys[j]
 		value := node.Val.MapIndex(key)
@@ -235,13 +241,16 @@ func (p *ParquetMap) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) []
 		}
 		stack = append(stack, newNode)
 	}
-	return stack
+	return stack, nil
 }
 
 // Convert the objects to table map. srcInterface is a slice of objects
 func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
 	src := reflect.ValueOf(srcInterface)
-	res := setupTableMap(schemaHandler, len(srcInterface))
+	res, err := setupTableMap(schemaHandler, len(srcInterface))
+	if err != nil {
+		return nil, err
+	}
 	pathMap := schemaHandler.PathMap
 	nodeBuf := NewNodeBuf(1)
 
@@ -252,8 +261,12 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 		if numChildren == 0 {
 			table := layout.NewEmptyTable()
 			table.Path = common.StrToPath(pathStr)
-			table.MaxDefinitionLevel, _ = schemaHandler.MaxDefinitionLevel(table.Path)
-			table.MaxRepetitionLevel, _ = schemaHandler.MaxRepetitionLevel(table.Path)
+			if table.MaxDefinitionLevel, err = schemaHandler.MaxDefinitionLevel(table.Path); err != nil {
+				return nil, err
+			}
+			if table.MaxRepetitionLevel, err = schemaHandler.MaxRepetitionLevel(table.Path); err != nil {
+				return nil, err
+			}
 			table.RepetitionType = schema.GetRepetitionType()
 			table.Schema = schemaHandler.SchemaElements[schemaHandler.MapIndex[pathStr]]
 			table.Info = schemaHandler.Infos[i]
@@ -355,7 +368,9 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 			}
 
 			oldLen := len(stack)
-			stack = m.Marshal(node, nodeBuf, stack)
+			if stack, err = m.Marshal(node, nodeBuf, stack); err != nil {
+				return nil, err
+			}
 			if len(stack) == oldLen {
 				path := node.PathMap.Path
 				index := schemaHandler.MapIndex[path]
@@ -381,7 +396,7 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 	return &res, nil
 }
 
-func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) map[string]*layout.Table {
+func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) (map[string]*layout.Table, error) {
 	tableMap := make(map[string]*layout.Table)
 	for i := range len(schemaHandler.SchemaElements) {
 		schema := schemaHandler.SchemaElements[i]
@@ -390,8 +405,13 @@ func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) map[str
 		if numChildren == 0 {
 			table := layout.NewEmptyTable()
 			table.Path = common.StrToPath(pathStr)
-			table.MaxDefinitionLevel, _ = schemaHandler.MaxDefinitionLevel(table.Path)
-			table.MaxRepetitionLevel, _ = schemaHandler.MaxRepetitionLevel(table.Path)
+			var err error
+			if table.MaxDefinitionLevel, err = schemaHandler.MaxDefinitionLevel(table.Path); err != nil {
+				return nil, err
+			}
+			if table.MaxRepetitionLevel, err = schemaHandler.MaxRepetitionLevel(table.Path); err != nil {
+				return nil, err
+			}
 			table.RepetitionType = schema.GetRepetitionType()
 			table.Schema = schemaHandler.SchemaElements[schemaHandler.MapIndex[pathStr]]
 			table.Info = schemaHandler.Infos[i]
@@ -402,7 +422,7 @@ func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) map[str
 			tableMap[pathStr] = table
 		}
 	}
-	return tableMap
+	return tableMap, nil
 }
 
 func HandleVariant(
@@ -452,7 +472,10 @@ func HandleVariant(
 	}
 
 	// If the variant group is present, its definition level should be at its max
-	childDL, _ := schemaHandler.MaxDefinitionLevel(common.StrToPath(node.PathMap.Path))
+	childDL, err := schemaHandler.MaxDefinitionLevel(common.StrToPath(node.PathMap.Path))
+	if err != nil {
+		return nil, true, err
+	}
 
 	// Push Metadata
 	metaNode := nodeBuf.GetNode()
