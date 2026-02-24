@@ -15,7 +15,10 @@ import (
 
 // ss is []string
 func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
-	res := setupTableMap(schemaHandler, len(ss))
+	res, err := setupTableMap(schemaHandler, len(ss))
+	if err != nil {
+		return nil, err
+	}
 	pathMap := schemaHandler.PathMap
 	nodeBuf := NewNodeBuf(1)
 
