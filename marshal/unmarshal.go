@@ -162,15 +162,22 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 	}
 
 	// Special case: if we have Metadata/Value/Typed_value, it's a variant
-	_, hasMetadata := childTables["Metadata"]
-	_, hasValue := childTables["Value"]
-	_, hasTypedValue := childTables["Typed_value"]
+	var metaName, valueName, typedName string
+	for name := range childTables {
+		if strings.EqualFold(name, "Metadata") {
+			metaName = name
+		} else if strings.EqualFold(name, "Value") {
+			valueName = name
+		} else if strings.EqualFold(name, "Typed_value") || strings.EqualFold(name, "TypedValue") {
+			typedName = name
+		}
+	}
 
-	if hasMetadata || hasValue || hasTypedValue {
+	if metaName != "" || valueName != "" || typedName != "" {
 		metadataValues := make([]any, 0)
 		metadataSet := false
-		if hasMetadata {
-			mVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Metadata", rowIdx, tableBgn, tableEnd, nil)
+		if metaName != "" {
+			mVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+metaName, rowIdx, tableBgn, tableEnd, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -185,8 +192,8 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 
 		valueValues := make([]any, 0)
 		valueSet := false
-		if hasValue {
-			vVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Value", rowIdx, tableBgn, tableEnd, nil)
+		if valueName != "" {
+			vVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+valueName, rowIdx, tableBgn, tableEnd, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -201,7 +208,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 
 		typedValueValues := make([]any, 0)
 		typedValueSet := false
-		if hasTypedValue {
+		if typedName != "" {
 			var err error
 			// Pass metadata down if set, otherwise use current metadata
 			effectiveMetadata := metadata
@@ -212,7 +219,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 					effectiveMetadata = []byte(s)
 				}
 			}
-			tVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Typed_value", rowIdx, tableBgn, tableEnd, effectiveMetadata)
+			tVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+typedName, rowIdx, tableBgn, tableEnd, effectiveMetadata)
 			if err != nil {
 				return nil, err
 			}
