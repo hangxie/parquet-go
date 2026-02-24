@@ -1900,8 +1900,8 @@ func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
 
 	mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
 	vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
-	imKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value" + common.PAR_GO_PATH_DELIMITER + "A" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-	ivKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value" + common.PAR_GO_PATH_DELIMITER + "A" + common.PAR_GO_PATH_DELIMITER + "Value"
+	imKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "TypedValue" + common.PAR_GO_PATH_DELIMITER + "A" + common.PAR_GO_PATH_DELIMITER + "Metadata"
+	ivKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "TypedValue" + common.PAR_GO_PATH_DELIMITER + "A" + common.PAR_GO_PATH_DELIMITER + "Value"
 
 	tableMap := map[string]*layout.Table{
 		mKey: {
@@ -1917,13 +1917,13 @@ func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
 			DefinitionLevels: []int32{0},
 		},
 		imKey: {
-			Path:             []string{"Parquet_go_root", "Var", "Typed_value", "A", "Metadata"},
+			Path:             []string{"Parquet_go_root", "Var", "TypedValue", "A", "Metadata"},
 			Values:           []any{metadata},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
 		},
 		ivKey: {
-			Path:             []string{"Parquet_go_root", "Var", "Typed_value", "A", "Value"},
+			Path:             []string{"Parquet_go_root", "Var", "TypedValue", "A", "Value"},
 			Values:           []any{innerVariant.Value},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
@@ -1934,13 +1934,13 @@ func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
 		Metadata []byte `parquet:"name=Metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
 		Value    []byte `parquet:"name=Value, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
 	}
-	type Typed_value struct { //nolint:revive,stylecheck
+	type TypedValue struct {
 		A Inner `parquet:"name=A, repetitiontype=REQUIRED"`
 	}
 	type VarGroup struct {
-		Metadata    []byte      `parquet:"name=Metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
-		Value       []byte      `parquet:"name=Value, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
-		Typed_value Typed_value `parquet:"name=Typed_value, repetitiontype=REQUIRED"` //nolint:revive,stylecheck
+		Metadata   []byte     `parquet:"name=Metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value      []byte     `parquet:"name=Value, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		TypedValue TypedValue `parquet:"name=TypedValue, repetitiontype=REQUIRED"`
 	}
 
 	sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
@@ -2264,16 +2264,16 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 
 		// 3. Trigger ReconstructVariant error fallback
 		type VarGroupTyped struct {
-			Metadata    []byte `parquet:"name=Metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
-			Value       []byte `parquet:"name=Value, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
-			Typed_value []byte `parquet:"name=Typed_value, type=BYTE_ARRAY, repetitiontype=REQUIRED"` //nolint:revive,stylecheck
+			Metadata   []byte `parquet:"name=Metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+			Value      []byte `parquet:"name=Value, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+			TypedValue []byte `parquet:"name=TypedValue, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
 		}
 		sh3, _ := schema.NewSchemaHandlerFromStruct(new(struct {
 			Var VarGroupTyped `parquet:"name=Var, type=VARIANT, repetitiontype=REQUIRED"`
 		}))
-		tKey3 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value"
+		tKey3 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "TypedValue"
 		tableMap2[tKey3] = &layout.Table{
-			Path:             []string{"Parquet_go_root", "Var", "Typed_value"},
+			Path:             []string{"Parquet_go_root", "Var", "TypedValue"},
 			Values:           []any{func() {}}, // Incompatible type for variant encoding
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
