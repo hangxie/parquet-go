@@ -1898,10 +1898,10 @@ func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
 		Value:    types.EncodeVariantInt8(123),
 	}
 
-	mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-	vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
-	imKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "TypedValue" + common.PAR_GO_PATH_DELIMITER + "A" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-	ivKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "TypedValue" + common.PAR_GO_PATH_DELIMITER + "A" + common.PAR_GO_PATH_DELIMITER + "Value"
+	mKey := common.PathToStr([]string{"Parquet_go_root", "Var", "Metadata"})
+	vKey := common.PathToStr([]string{"Parquet_go_root", "Var", "Value"})
+	imKey := common.PathToStr([]string{"Parquet_go_root", "Var", "TypedValue", "A", "Metadata"})
+	ivKey := common.PathToStr([]string{"Parquet_go_root", "Var", "TypedValue", "A", "Value"})
 
 	tableMap := map[string]*layout.Table{
 		mKey: {
