@@ -335,6 +335,63 @@ func TestParquetWriter(t *testing.T) {
 	})
 }
 
+func TestNewParquetWriter_SchemaVariants(t *testing.T) {
+	tests := map[string]struct {
+		obj     any
+		wantErr bool
+	}{
+		"invalid_json_schema_string": {
+			obj:     `{"invalid": json}`,
+			wantErr: true,
+		},
+		"valid_json_schema_string": {
+			obj: `{
+				"Tag": "name=parquet-go-root",
+				"Fields": [
+					{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"},
+					{"Tag": "name=age, type=INT32"}
+				]
+			}`,
+			wantErr: false,
+		},
+		"nil_object": {
+			obj:     nil,
+			wantErr: false,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			fw := writerfile.NewWriterFile(&buf)
+			pw, err := NewParquetWriter(fw, tt.obj, 1)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, pw)
+			}
+		})
+	}
+}
+
+func TestWrite_AfterStop(t *testing.T) {
+	type SimpleStruct struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	pw, _, err := createTestParquetWriter(new(SimpleStruct), 1)
+	require.NoError(t, err)
+
+	require.NoError(t, pw.Write(SimpleStruct{Name: "test"}))
+	require.NoError(t, pw.WriteStop())
+
+	// Writing after stop should return error
+	err = pw.Write(SimpleStruct{Name: "after_stop"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "stopped")
+}
+
 func TestNewParquetWriterFromWriter(t *testing.T) {
 	type TestStruct struct {
 		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
