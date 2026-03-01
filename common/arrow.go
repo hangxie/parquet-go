@@ -10,6 +10,9 @@ import (
 // We need to transpose the rows and columns because parquet-go library writes
 // data row by row while the arrow library provides the data column by column.
 func TransposeTable(table [][]any) [][]any {
+	if len(table) == 0 || len(table[0]) == 0 {
+		return nil
+	}
 	transposedTable := newTable(len(table[0]), len(table))
 	for i := range transposedTable {
 		row := transposedTable[i]

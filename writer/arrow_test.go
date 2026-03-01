@@ -234,6 +234,54 @@ func testRecord(mem memory.Allocator) arrow.RecordBatch {
 	return array.NewRecordBatch(testSchema, cols, -1)
 }
 
+func TestWriteArrow_EmptyRecord(t *testing.T) {
+	schema := arrow.NewSchema(
+		[]arrow.Field{
+			{Name: "id", Type: arrow.PrimitiveTypes.Int32},
+			{Name: "name", Type: arrow.BinaryTypes.String},
+		},
+		nil,
+	)
+
+	mem := memory.NewGoAllocator()
+
+	// Build empty columns (0 rows)
+	col1 := func() arrow.Array {
+		ib := array.NewInt32Builder(mem)
+		defer ib.Release()
+		return ib.NewInt32Array()
+	}()
+	defer col1.Release()
+
+	col2 := func() arrow.Array {
+		sb := array.NewStringBuilder(mem)
+		defer sb.Release()
+		return sb.NewStringArray()
+	}()
+	defer col2.Release()
+
+	record := array.NewRecordBatch(schema, []arrow.Array{col1, col2}, 0)
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	aw, err := NewArrowWriter(schema, fw, 1)
+	require.NoError(t, err)
+
+	err = aw.WriteArrow(record)
+	require.NoError(t, err)
+
+	err = aw.WriteStop()
+	require.NoError(t, err)
+
+	// Verify the file is valid with 0 rows
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := reader.NewParquetReader(pf, nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), pr.GetNumRows())
+	_ = pr.ReadStopWithError()
+	require.NoError(t, pf.Close())
+}
+
 // testNullableSchema is schema for the testing the support for nullability
 // and covers all the types which we support from the arrow.
 var testNullableSchema = arrow.NewSchema(
