@@ -3511,3 +3511,148 @@ func TestTableToDataPagesWithVersion_EmptyTable(t *testing.T) {
 	require.Empty(t, pages)
 	require.Equal(t, int64(0), size)
 }
+
+func TestEncodingValues_ErrorPaths(t *testing.T) {
+	tests := map[string]struct {
+		pType    parquet.Type
+		encoding parquet.Encoding
+		values   []any
+		wantErr  bool
+	}{
+		"RLE_with_BYTE_ARRAY": {
+			pType:    parquet.Type_BYTE_ARRAY,
+			encoding: parquet.Encoding_RLE,
+			values:   []any{"hello"},
+			wantErr:  true,
+		},
+		"DELTA_BINARY_PACKED_with_BYTE_ARRAY": {
+			pType:    parquet.Type_BYTE_ARRAY,
+			encoding: parquet.Encoding_DELTA_BINARY_PACKED,
+			values:   []any{"hello"},
+			wantErr:  true,
+		},
+		"DELTA_BYTE_ARRAY_with_INT32": {
+			pType:    parquet.Type_INT32,
+			encoding: parquet.Encoding_DELTA_BYTE_ARRAY,
+			values:   []any{int32(1)},
+			wantErr:  true,
+		},
+		"DELTA_LENGTH_BYTE_ARRAY_with_INT32": {
+			pType:    parquet.Type_INT32,
+			encoding: parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY,
+			values:   []any{int32(1)},
+			wantErr:  true,
+		},
+		"BYTE_STREAM_SPLIT_with_BYTE_ARRAY": {
+			pType:    parquet.Type_BYTE_ARRAY,
+			encoding: parquet.Encoding_BYTE_STREAM_SPLIT,
+			values:   []any{"hello"},
+			wantErr:  true,
+		},
+		"DELTA_BINARY_PACKED_with_INT32_success": {
+			pType:    parquet.Type_INT32,
+			encoding: parquet.Encoding_DELTA_BINARY_PACKED,
+			values:   []any{int32(1), int32(2), int32(3)},
+			wantErr:  false,
+		},
+		"DELTA_BYTE_ARRAY_with_BYTE_ARRAY_success": {
+			pType:    parquet.Type_BYTE_ARRAY,
+			encoding: parquet.Encoding_DELTA_BYTE_ARRAY,
+			values:   []any{"abc", "def"},
+			wantErr:  false,
+		},
+		"DELTA_LENGTH_BYTE_ARRAY_with_BYTE_ARRAY_success": {
+			pType:    parquet.Type_BYTE_ARRAY,
+			encoding: parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY,
+			values:   []any{"abc", "def"},
+			wantErr:  false,
+		},
+		"BYTE_STREAM_SPLIT_with_FLOAT_success": {
+			pType:    parquet.Type_FLOAT,
+			encoding: parquet.Encoding_BYTE_STREAM_SPLIT,
+			values:   []any{float32(1.5), float32(2.5)},
+			wantErr:  false,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			page := NewDataPage()
+			page.Schema = &parquet.SchemaElement{
+				Type: common.ToPtr(tt.pType),
+				Name: "test_col",
+			}
+			page.Info = &common.Tag{}
+			page.Info.Encoding = tt.encoding
+
+			result, err := page.EncodingValues(tt.values)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+				require.NotEmpty(t, result)
+			}
+		})
+	}
+}
+
+func TestDataPageCompress_ZeroLevels(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		Type:           common.ToPtr(parquet.Type_INT32),
+		Name:           "required_col",
+		RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+	}
+	page.Info = &common.Tag{}
+	page.MaxVal = int32(100)
+	page.MinVal = int32(1)
+	nullCount := int64(0)
+	page.NullCount = &nullCount
+
+	page.DataTable = &Table{
+		Values:             []any{int32(1), int32(50), int32(100)},
+		DefinitionLevels:   []int32{0, 0, 0},
+		RepetitionLevels:   []int32{0, 0, 0},
+		MaxDefinitionLevel: 0,
+		MaxRepetitionLevel: 0,
+	}
+
+	data, err := page.DataPageCompress(parquet.CompressionCodec_UNCOMPRESSED)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+
+	require.Equal(t, parquet.PageType_DATA_PAGE, page.Header.Type)
+	require.NotNil(t, page.Header.DataPageHeader.Statistics)
+	require.NotNil(t, page.Header.DataPageHeader.Statistics.Max)
+	require.NotNil(t, page.Header.DataPageHeader.Statistics.Min)
+}
+
+func TestDataPageCompress_OmitStats(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		Type: common.ToPtr(parquet.Type_INT32),
+		Name: "test_col",
+	}
+	page.Info = &common.Tag{}
+	page.Info.OmitStats = true
+
+	page.DataTable = &Table{
+		Values:             []any{int32(10), int32(20)},
+		DefinitionLevels:   []int32{1, 1},
+		RepetitionLevels:   []int32{0, 0},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 0,
+	}
+
+	data, err := page.DataPageCompress(parquet.CompressionCodec_UNCOMPRESSED)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+
+	stats := page.Header.DataPageHeader.Statistics
+	require.NotNil(t, stats)
+	// OmitStats means MaxVal/MinVal are never set on the page
+	require.Nil(t, stats.Max)
+	require.Nil(t, stats.Min)
+	require.Nil(t, stats.NullCount)
+}

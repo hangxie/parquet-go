@@ -231,3 +231,128 @@ func TestTableToDictDataPagesWithInvalidType(t *testing.T) {
 	_, _, err := TableToDictDataPages(dictRec, table, 1024, 1, parquet.CompressionCodec_UNCOMPRESSED)
 	require.Error(t, err)
 }
+
+func TestDictDataPageCompress_WithLevelsAndStatistics(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		Type: common.ToPtr(parquet.Type_INT32),
+		Name: "test_col",
+	}
+	page.Info = &common.Tag{}
+	page.MaxVal = int32(100)
+	page.MinVal = int32(10)
+	nullCount := int64(1)
+	page.NullCount = &nullCount
+
+	page.DataTable = &Table{
+		DefinitionLevels:   []int32{1, 0, 1, 1},
+		RepetitionLevels:   []int32{0, 0, 1, 0},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 1,
+	}
+
+	values := []int32{0, 1, 2}
+
+	data, err := page.DictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, values)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+
+	require.NotNil(t, page.Header.DataPageHeader.Statistics)
+	require.NotNil(t, page.Header.DataPageHeader.Statistics.Max)
+	require.NotNil(t, page.Header.DataPageHeader.Statistics.Min)
+	require.NotNil(t, page.Header.DataPageHeader.Statistics.NullCount)
+	require.Equal(t, int64(1), *page.Header.DataPageHeader.Statistics.NullCount)
+}
+
+func TestTableToDictDataPages_WithNulls(t *testing.T) {
+	dictRec := NewDictRec(parquet.Type_INT32)
+
+	dictRec.DictSlice = append(dictRec.DictSlice, int32(10))
+	dictRec.DictSlice = append(dictRec.DictSlice, int32(20))
+	dictRec.DictMap[int32(10)] = 0
+	dictRec.DictMap[int32(20)] = 1
+
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Type:           common.ToPtr(parquet.Type_INT32),
+			Name:           "test_col",
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+		},
+		Values:             []any{int32(10), nil, int32(20)},
+		DefinitionLevels:   []int32{1, 0, 1},
+		RepetitionLevels:   []int32{0, 0, 0},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 0,
+		Info:               &common.Tag{},
+	}
+
+	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 2, parquet.CompressionCodec_UNCOMPRESSED)
+	require.NoError(t, err)
+	require.NotEmpty(t, pages)
+	require.Positive(t, totalSize)
+
+	// Verify null count was tracked
+	require.NotNil(t, pages[0].NullCount)
+	require.Equal(t, int64(1), *pages[0].NullCount)
+}
+
+func TestTableToDictDataPages_MultiplePages(t *testing.T) {
+	dictRec := NewDictRec(parquet.Type_INT32)
+
+	dictRec.DictSlice = append(dictRec.DictSlice, int32(1))
+	dictRec.DictSlice = append(dictRec.DictSlice, int32(2))
+	dictRec.DictMap[int32(1)] = 0
+	dictRec.DictMap[int32(2)] = 1
+
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_INT32),
+			Name: "test_col",
+		},
+		Values:             []any{int32(1), int32(2), int32(1), int32(2)},
+		DefinitionLevels:   []int32{0, 0, 0, 0},
+		RepetitionLevels:   []int32{0, 0, 0, 0},
+		MaxDefinitionLevel: 0,
+		MaxRepetitionLevel: 0,
+		Info:               &common.Tag{},
+	}
+
+	// Use tiny pageSize (4 bytes) to force multiple pages
+	pages, totalSize, err := TableToDictDataPages(dictRec, table, 4, 2, parquet.CompressionCodec_UNCOMPRESSED)
+	require.NoError(t, err)
+	require.Greater(t, len(pages), 1)
+	require.Positive(t, totalSize)
+}
+
+func TestTableToDictDataPages_OmitStats(t *testing.T) {
+	dictRec := NewDictRec(parquet.Type_INT32)
+
+	dictRec.DictSlice = append(dictRec.DictSlice, int32(10))
+	dictRec.DictMap[int32(10)] = 0
+
+	info := &common.Tag{}
+	info.OmitStats = true
+
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_INT32),
+			Name: "test_col",
+		},
+		Values:             []any{int32(10), int32(10)},
+		DefinitionLevels:   []int32{0, 0},
+		RepetitionLevels:   []int32{0, 0},
+		MaxDefinitionLevel: 0,
+		MaxRepetitionLevel: 0,
+		Info:               info,
+	}
+
+	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 2, parquet.CompressionCodec_UNCOMPRESSED)
+	require.NoError(t, err)
+	require.NotEmpty(t, pages)
+	require.Positive(t, totalSize)
+
+	// OmitStats: MaxVal, MinVal, NullCount should not be set on the page
+	require.Nil(t, pages[0].MaxVal)
+	require.Nil(t, pages[0].MinVal)
+	require.Nil(t, pages[0].NullCount)
+}
