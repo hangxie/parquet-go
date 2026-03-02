@@ -143,6 +143,79 @@ func TestUnmarshal_PanicZeroValue(t *testing.T) {
 	require.Contains(t, err.Error(), "dstInterface must be a non-nil pointer")
 }
 
+func TestConvertToJSONFriendly_OldListFormat(t *testing.T) {
+	// Struct with single exported "Array" field of slice type simulates old list format
+	type OldList struct {
+		Array []int32 `json:"array"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}))
+	require.NoError(t, err)
+
+	input := OldList{Array: []int32{1, 2, 3}}
+	result, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+
+	// Should unwrap to a slice, not a map
+	slice, ok := result.([]any)
+	require.True(t, ok)
+	require.Equal(t, 3, len(slice))
+	require.Equal(t, int32(1), slice[0])
+	require.Equal(t, int32(2), slice[1])
+	require.Equal(t, int32(3), slice[2])
+}
+
+func TestConvertToJSONFriendly_UnexportedFields(t *testing.T) {
+	type MixedStruct struct {
+		Public  string `json:"public"`
+		private string //nolint:unused // intentionally unexported for test
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}))
+	require.NoError(t, err)
+
+	input := MixedStruct{Public: "visible"}
+	result, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+
+	m, ok := result.(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, m, "public")
+	require.Equal(t, "visible", m["public"])
+	// Unexported field should not be in the result
+	require.NotContains(t, m, "private")
+}
+
+func TestUnmarshalStringToByteArray(t *testing.T) {
+	// Marshal stores string as BYTE_ARRAY, verify Unmarshal round-trip is consistent.
+	type ByteStruct struct {
+		Data string `parquet:"name=data, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(ByteStruct))
+	require.NoError(t, err)
+
+	original := []any{
+		ByteStruct{Data: "hello"},
+		ByteStruct{Data: "world"},
+	}
+
+	tableMap, err := Marshal(original, sh)
+	require.NoError(t, err)
+
+	dst := make([]ByteStruct, 0)
+	err = Unmarshal(tableMap, 0, 2, &dst, sh, "")
+	require.NoError(t, err)
+
+	require.Len(t, dst, 2)
+	require.Equal(t, "hello", dst[0].Data)
+	require.Equal(t, "world", dst[1].Data)
+}
+
 func TestConvertToJSONFriendly_Combined(t *testing.T) {
 	type DecimalStruct struct {
 		Decimal1 int32  `parquet:"name=decimal1, type=INT32, convertedtype=DECIMAL, scale=2, precision=9"`

@@ -187,6 +187,102 @@ func TestMarshalNilPathMapReturnsError(t *testing.T) {
 	require.Contains(t, err.Error(), "nil PathMap")
 }
 
+func TestParquetMapStructMarshal_MissingKeys(t *testing.T) {
+	// Schema expects two fields, but the map only provides one
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
+			{"Tag": "name=age, type=INT32", "Type": "int32"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	require.NoError(t, err)
+
+	mapStruct := &ParquetMapStruct{schemaHandler: sch}
+
+	// Only provide "name", missing "age"
+	mapValue := map[string]any{
+		"Name": "Alice",
+	}
+
+	node := &Node{
+		Val:     reflect.ValueOf(mapValue),
+		PathMap: sch.PathMap,
+		RL:      0,
+		DL:      0,
+	}
+
+	nodeBuf := NewNodeBuf(10)
+	stack := []*Node{}
+
+	result, err := mapStruct.Marshal(node, nodeBuf, stack)
+	require.NoError(t, err)
+	// Should have nodes for the present key plus nil nodes for missing keys
+	require.NotEmpty(t, result)
+
+	// Find the node for the missing key — it should have an invalid reflect.Value
+	var foundMissing bool
+	for _, n := range result {
+		if !n.Val.IsValid() {
+			foundMissing = true
+			break
+		}
+	}
+	require.True(t, foundMissing)
+}
+
+func TestMarshalByteArrayField(t *testing.T) {
+	type ByteStruct struct {
+		Data []byte `parquet:"name=data, type=BYTE_ARRAY"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(ByteStruct))
+	require.NoError(t, err)
+
+	data := []any{
+		ByteStruct{Data: []byte{0x01, 0x02, 0x03}},
+		ByteStruct{Data: []byte{0xAA, 0xBB}},
+	}
+
+	res, err := Marshal(data, sh)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	table := (*res)["Parquet_go_root\x01Data"]
+	require.NotNil(t, table)
+	require.Equal(t, 2, len(table.Values))
+	// Values should be non-nil strings (BYTE_ARRAY stored as string in parquet)
+	require.NotNil(t, table.Values[0])
+	require.NotNil(t, table.Values[1])
+}
+
+func TestMarshalEmptyContainer(t *testing.T) {
+	type SliceStruct struct {
+		Items []string `parquet:"name=items, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8, repetitiontype=OPTIONAL"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(SliceStruct))
+	require.NoError(t, err)
+
+	data := []any{
+		SliceStruct{Items: []string{}}, // empty slice
+	}
+
+	res, err := Marshal(data, sh)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	// With an empty slice, child tables should get nil appended
+	for key, table := range *res {
+		if key != "" {
+			require.Equal(t, 1, len(table.Values))
+			require.Nil(t, table.Values[0])
+		}
+	}
+}
+
 func TestParquetPtrMarshal(t *testing.T) {
 	var integer int = 10
 	testData := &marshalCases{
