@@ -1,6 +1,6 @@
 module github.com/hangxie/parquet-go/v2
 
-go 1.24.11
+go 1.25.0
 
 require (
 	cloud.google.com/go/storage v1.60.0
@@ -25,7 +25,7 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	gocloud.dev v0.45.0
 	golang.org/x/sync v0.19.0
-	google.golang.org/api v0.267.0
+	google.golang.org/api v0.269.0
 )
 
 require (
@@ -104,7 +104,7 @@ require (
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto v0.0.0-20260209200024-4cfbd4190f57 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260217215200-42d3e9bedb6d // indirect
 	google.golang.org/grpc v1.79.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
