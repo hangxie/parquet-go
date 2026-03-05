@@ -1351,6 +1351,105 @@ func TestChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 	}
 }
 
+func TestAggregateSizeStatistics(t *testing.T) {
+	tests := map[string]struct {
+		pages         []*Page
+		statsStartIdx int
+		wantNil       bool
+		wantDefHist   []int64
+		wantRepHist   []int64
+		wantByteBytes *int64
+	}{
+		"all_nil_returns_nil": {
+			pages:         []*Page{{}, {}},
+			statsStartIdx: 0,
+			wantNil:       true,
+		},
+		"nil_page_skipped": {
+			pages: []*Page{
+				nil,
+				{DefinitionLevelHistogram: []int64{2, 3}},
+			},
+			statsStartIdx: 0,
+			wantDefHist:   []int64{2, 3},
+		},
+		"definition_histogram_aggregated": {
+			pages: []*Page{
+				{DefinitionLevelHistogram: []int64{1, 4}},
+				{DefinitionLevelHistogram: []int64{2, 3}},
+			},
+			statsStartIdx: 0,
+			wantDefHist:   []int64{3, 7},
+		},
+		"repetition_histogram_aggregated": {
+			pages: []*Page{
+				{RepetitionLevelHistogram: []int64{5, 2}},
+				{RepetitionLevelHistogram: []int64{3, 1}},
+			},
+			statsStartIdx: 0,
+			wantRepHist:   []int64{8, 3},
+		},
+		"byte_array_bytes_aggregated": {
+			pages: []*Page{
+				{UnencodedByteArrayDataBytes: common.ToPtr(int64(100))},
+				{UnencodedByteArrayDataBytes: common.ToPtr(int64(200))},
+			},
+			statsStartIdx: 0,
+			wantByteBytes: common.ToPtr(int64(300)),
+		},
+		"stats_start_idx_skips_dict_page": {
+			pages: []*Page{
+				{DefinitionLevelHistogram: []int64{99, 99}}, // dict page, should be skipped
+				{DefinitionLevelHistogram: []int64{1, 2}},
+			},
+			statsStartIdx: 1,
+			wantDefHist:   []int64{1, 2},
+		},
+		"all_three_combined": {
+			pages: []*Page{
+				{
+					DefinitionLevelHistogram:    []int64{1, 4},
+					RepetitionLevelHistogram:    []int64{3, 2},
+					UnencodedByteArrayDataBytes: common.ToPtr(int64(50)),
+				},
+				{
+					DefinitionLevelHistogram:    []int64{2, 3},
+					RepetitionLevelHistogram:    []int64{4, 1},
+					UnencodedByteArrayDataBytes: common.ToPtr(int64(75)),
+				},
+			},
+			statsStartIdx: 0,
+			wantDefHist:   []int64{3, 7},
+			wantRepHist:   []int64{7, 3},
+			wantByteBytes: common.ToPtr(int64(125)),
+		},
+		"empty_pages_slice": {
+			pages:         []*Page{},
+			statsStartIdx: 0,
+			wantNil:       true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := aggregateSizeStatistics(tt.pages, tt.statsStartIdx)
+			if tt.wantNil {
+				require.Nil(t, result)
+				return
+			}
+			require.NotNil(t, result)
+			require.Equal(t, tt.wantDefHist, result.DefinitionLevelHistogram)
+			require.Equal(t, tt.wantRepHist, result.RepetitionLevelHistogram)
+			if tt.wantByteBytes == nil {
+				require.Nil(t, result.UnencodedByteArrayDataBytes)
+			} else {
+				require.NotNil(t, result.UnencodedByteArrayDataBytes)
+				require.Equal(t, *tt.wantByteBytes, *result.UnencodedByteArrayDataBytes)
+			}
+		})
+	}
+}
+
 // Helper function to create a test page with geospatial statistics
 func createTestPage(xmin, xmax, ymin, ymax float64, geoTypes []int32) *Page {
 	return &Page{

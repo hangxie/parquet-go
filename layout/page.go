@@ -85,6 +85,11 @@ type Page struct {
 	// Each has size maxLevel+1; nil if maxLevel == 0.
 	DefinitionLevelHistogram []int64
 	RepetitionLevelHistogram []int64
+
+	// UnencodedByteArrayDataBytes tracks the total byte size of BYTE_ARRAY
+	// data values (excluding 4-byte length prefixes) for SizeStatistics.
+	// Only set for BYTE_ARRAY physical type columns; nil otherwise.
+	UnencodedByteArrayDataBytes *int64
 }
 
 // Create a new page
@@ -314,8 +319,9 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 }
 
 // computeLevelHistograms builds definition and repetition level histograms
-// from the page's DataTable. These survive DataTable being nilled out later
-// and are used when building ColumnIndex in the writer.
+// from the page's DataTable, and computes unencoded byte array data bytes
+// for BYTE_ARRAY columns. These survive DataTable being nilled out later
+// and are used when building ColumnIndex and SizeStatistics in the writer.
 func (page *Page) computeLevelHistograms() {
 	if page.DataTable == nil {
 		return
@@ -331,6 +337,22 @@ func (page *Page) computeLevelHistograms() {
 		for _, rl := range page.DataTable.RepetitionLevels {
 			page.RepetitionLevelHistogram[rl]++
 		}
+	}
+	// Compute unencoded byte array data bytes for BYTE_ARRAY columns.
+	// Per the spec this is the total byte size excluding 4-byte length prefixes.
+	if page.Schema != nil && page.Schema.Type != nil && *page.Schema.Type == parquet.Type_BYTE_ARRAY {
+		var totalBytes int64
+		for idx, v := range page.DataTable.Values {
+			if v == nil || page.DataTable.DefinitionLevels[idx] != page.DataTable.MaxDefinitionLevel {
+				continue
+			}
+			if s, ok := v.(string); ok {
+				totalBytes += int64(len(s))
+			} else if b, ok := v.([]byte); ok {
+				totalBytes += int64(len(b))
+			}
+		}
+		page.UnencodedByteArrayDataBytes = &totalBytes
 	}
 }
 
