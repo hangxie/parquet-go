@@ -210,6 +210,77 @@ func TestColumnIndex(t *testing.T) {
 		require.Equal(t, 1, len(colIdx.GetMaxValues()))
 		require.Equal(t, 1, len(colIdx.GetNullPages()))
 	})
+
+	t.Run("level_histograms", func(t *testing.T) {
+		// Optional field: maxDefinitionLevel=1, maxRepetitionLevel=0
+		// X has values [ptr(1), nil, ptr(3)] → defLevels=[1,0,1]
+		// Histogram: defLevel 0 → 1, defLevel 1 → 2
+		type Entry struct {
+			X *int64 `parquet:"name=x, type=INT64"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		entries := []Entry{
+			{common.ToPtr(int64(1))},
+			{nil},
+			{common.ToPtr(int64(3))},
+		}
+		for _, entry := range entries {
+			require.NoError(t, pw.Write(entry))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+		pr, err := reader.NewParquetReader(pf, nil, 1)
+		require.NoError(t, err)
+		require.NoError(t, pr.ReadFooter())
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		colIdx, err := readColumnIndex(pr.PFile, *columns[0].ColumnIndexOffset)
+		require.NoError(t, err)
+
+		// One page, maxDefLevel=1 → histogram has 2 elements: [count_of_0, count_of_1]
+		require.True(t, colIdx.IsSetDefinitionLevelHistograms())
+		require.Equal(t, []int64{1, 2}, colIdx.GetDefinitionLevelHistograms())
+
+		// maxRepLevel=0 for non-nested → no repetition histogram
+		require.False(t, colIdx.IsSetRepetitionLevelHistograms())
+	})
+
+	t.Run("level_histograms_required_field", func(t *testing.T) {
+		// Required field: maxDefinitionLevel=0, maxRepetitionLevel=0
+		// No histograms should be set since they'd be trivial
+		type Entry struct {
+			X int64 `parquet:"name=x, type=INT64"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(Entry{X: 42}))
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+		pr, err := reader.NewParquetReader(pf, nil, 1)
+		require.NoError(t, err)
+		require.NoError(t, pr.ReadFooter())
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		colIdx, err := readColumnIndex(pr.PFile, *columns[0].ColumnIndexOffset)
+		require.NoError(t, err)
+
+		// Both maxDefLevel and maxRepLevel are 0 → no histograms
+		require.False(t, colIdx.IsSetDefinitionLevelHistograms())
+		require.False(t, colIdx.IsSetRepetitionLevelHistograms())
+	})
 }
 
 func TestParquetWriter(t *testing.T) {

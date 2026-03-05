@@ -3628,6 +3628,140 @@ func TestDataPageCompress_ZeroLevels(t *testing.T) {
 	require.NotNil(t, page.Header.DataPageHeader.Statistics.Min)
 }
 
+func TestComputeLevelHistograms(t *testing.T) {
+	tests := map[string]struct {
+		page           *Page
+		wantDefHist    []int64
+		wantRepHist    []int64
+		wantByteArrayN *int64
+	}{
+		"nil_data_table": {
+			page: &Page{
+				DataTable: nil,
+			},
+			wantDefHist:    nil,
+			wantRepHist:    nil,
+			wantByteArrayN: nil,
+		},
+		"definition_level_histogram_only": {
+			page: &Page{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT32),
+				},
+				DataTable: &Table{
+					Values:             []any{int32(1), nil, int32(3)},
+					DefinitionLevels:   []int32{1, 0, 1},
+					RepetitionLevels:   []int32{0, 0, 0},
+					MaxDefinitionLevel: 1,
+					MaxRepetitionLevel: 0,
+				},
+			},
+			wantDefHist:    []int64{1, 2},
+			wantRepHist:    nil,
+			wantByteArrayN: nil,
+		},
+		"repetition_level_histogram_only": {
+			page: &Page{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT32),
+				},
+				DataTable: &Table{
+					Values:             []any{int32(1), int32(2), int32(3), int32(4)},
+					DefinitionLevels:   []int32{0, 0, 0, 0},
+					RepetitionLevels:   []int32{0, 1, 0, 1},
+					MaxDefinitionLevel: 0,
+					MaxRepetitionLevel: 1,
+				},
+			},
+			wantDefHist:    nil,
+			wantRepHist:    []int64{2, 2},
+			wantByteArrayN: nil,
+		},
+		"both_def_and_rep_histograms": {
+			page: &Page{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT32),
+				},
+				DataTable: &Table{
+					Values:             []any{int32(1), nil, int32(3), int32(4)},
+					DefinitionLevels:   []int32{1, 0, 1, 1},
+					RepetitionLevels:   []int32{0, 0, 1, 0},
+					MaxDefinitionLevel: 1,
+					MaxRepetitionLevel: 1,
+				},
+			},
+			wantDefHist:    []int64{1, 3},
+			wantRepHist:    []int64{3, 1},
+			wantByteArrayN: nil,
+		},
+		"byte_array_string_values": {
+			page: &Page{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
+				},
+				DataTable: &Table{
+					Values:             []any{"hello", nil, "world"},
+					DefinitionLevels:   []int32{1, 0, 1},
+					RepetitionLevels:   []int32{0, 0, 0},
+					MaxDefinitionLevel: 1,
+					MaxRepetitionLevel: 0,
+				},
+			},
+			wantDefHist:    []int64{1, 2},
+			wantRepHist:    nil,
+			wantByteArrayN: common.ToPtr(int64(10)), // "hello"(5) + "world"(5)
+		},
+		"byte_array_byte_slice_values": {
+			page: &Page{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
+				},
+				DataTable: &Table{
+					Values:             []any{[]byte{1, 2, 3}, nil, []byte{4, 5}},
+					DefinitionLevels:   []int32{1, 0, 1},
+					RepetitionLevels:   []int32{0, 0, 0},
+					MaxDefinitionLevel: 1,
+					MaxRepetitionLevel: 0,
+				},
+			},
+			wantDefHist:    []int64{1, 2},
+			wantRepHist:    nil,
+			wantByteArrayN: common.ToPtr(int64(5)), // 3 + 2
+		},
+		"required_field_no_histograms": {
+			page: &Page{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT64),
+				},
+				DataTable: &Table{
+					Values:             []any{int64(1), int64(2)},
+					DefinitionLevels:   []int32{0, 0},
+					RepetitionLevels:   []int32{0, 0},
+					MaxDefinitionLevel: 0,
+					MaxRepetitionLevel: 0,
+				},
+			},
+			wantDefHist:    nil,
+			wantRepHist:    nil,
+			wantByteArrayN: nil,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			tt.page.computeLevelHistograms()
+			require.Equal(t, tt.wantDefHist, tt.page.DefinitionLevelHistogram)
+			require.Equal(t, tt.wantRepHist, tt.page.RepetitionLevelHistogram)
+			if tt.wantByteArrayN == nil {
+				require.Nil(t, tt.page.UnencodedByteArrayDataBytes)
+			} else {
+				require.NotNil(t, tt.page.UnencodedByteArrayDataBytes)
+				require.Equal(t, *tt.wantByteArrayN, *tt.page.UnencodedByteArrayDataBytes)
+			}
+		})
+	}
+}
+
 func TestDataPageCompress_OmitStats(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{
