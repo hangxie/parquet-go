@@ -150,6 +150,9 @@ func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 		}
 	}
 
+	// Aggregate SizeStatistics from per-page metrics.
+	metaData.SizeStatistics = aggregateSizeStatistics(pages, statsStartIdx)
+
 	chunk.ChunkHeader.MetaData = metaData
 	return chunk, nil
 }
@@ -221,6 +224,57 @@ func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sc
 		DecodeDictChunk(chunk)
 	}
 	return chunk, nil
+}
+
+// aggregateSizeStatistics combines per-page level histograms and byte array
+// sizes into a single SizeStatistics for the column chunk. Returns nil if
+// there is nothing to report (all levels are 0 and not a BYTE_ARRAY column).
+func aggregateSizeStatistics(pages []*Page, statsStartIdx int) *parquet.SizeStatistics {
+	var defHist []int64
+	var repHist []int64
+	var totalByteArrayBytes *int64
+
+	for i := statsStartIdx; i < len(pages); i++ {
+		p := pages[i]
+		if p == nil {
+			continue
+		}
+		// Aggregate definition level histograms.
+		if p.DefinitionLevelHistogram != nil {
+			if defHist == nil {
+				defHist = make([]int64, len(p.DefinitionLevelHistogram))
+			}
+			for k, v := range p.DefinitionLevelHistogram {
+				defHist[k] += v
+			}
+		}
+		// Aggregate repetition level histograms.
+		if p.RepetitionLevelHistogram != nil {
+			if repHist == nil {
+				repHist = make([]int64, len(p.RepetitionLevelHistogram))
+			}
+			for k, v := range p.RepetitionLevelHistogram {
+				repHist[k] += v
+			}
+		}
+		// Aggregate unencoded byte array data bytes.
+		if p.UnencodedByteArrayDataBytes != nil {
+			if totalByteArrayBytes == nil {
+				totalByteArrayBytes = new(int64)
+			}
+			*totalByteArrayBytes += *p.UnencodedByteArrayDataBytes
+		}
+	}
+
+	if defHist == nil && repHist == nil && totalByteArrayBytes == nil {
+		return nil
+	}
+
+	ss := parquet.NewSizeStatistics()
+	ss.DefinitionLevelHistogram = defHist
+	ss.RepetitionLevelHistogram = repHist
+	ss.UnencodedByteArrayDataBytes = totalByteArrayBytes
+	return ss
 }
 
 // aggregateGeospatialStatistics combines geospatial statistics from multiple pages

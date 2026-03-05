@@ -283,6 +283,171 @@ func TestColumnIndex(t *testing.T) {
 	})
 }
 
+func TestSizeStatistics(t *testing.T) {
+	t.Run("byte_array_column", func(t *testing.T) {
+		// BYTE_ARRAY column should have unencoded_byte_array_data_bytes set.
+		// Values: "ab" (2), "cde" (3), "f" (1) → total = 6 bytes (excludes 4-byte length prefixes)
+		type Entry struct {
+			S string `parquet:"name=s, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(Entry{S: "ab"}))
+		require.NoError(t, pw.Write(Entry{S: "cde"}))
+		require.NoError(t, pw.Write(Entry{S: "f"}))
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		ss := columns[0].MetaData.SizeStatistics
+		require.NotNil(t, ss, "SizeStatistics should be set")
+		require.True(t, ss.IsSetUnencodedByteArrayDataBytes())
+		require.Equal(t, int64(6), ss.GetUnencodedByteArrayDataBytes())
+	})
+
+	t.Run("non_byte_array_required", func(t *testing.T) {
+		// Required INT64 column: maxDefLevel=0, maxRepLevel=0, not BYTE_ARRAY.
+		// SizeStatistics should be nil — nothing to report.
+		type Entry struct {
+			X int64 `parquet:"name=x, type=INT64"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(Entry{X: 42}))
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Nil(t, columns[0].MetaData.SizeStatistics)
+	})
+
+	t.Run("non_byte_array_optional", func(t *testing.T) {
+		// Optional INT64 column: maxDefLevel=1 → has def histogram but no byte array bytes.
+		type Entry struct {
+			X *int64 `parquet:"name=x, type=INT64"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(Entry{X: common.ToPtr(int64(42))}))
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		ss := columns[0].MetaData.SizeStatistics
+		require.NotNil(t, ss)
+		require.False(t, ss.IsSetUnencodedByteArrayDataBytes())
+		require.True(t, ss.IsSetDefinitionLevelHistogram())
+	})
+
+	t.Run("level_histograms_aggregated", func(t *testing.T) {
+		// Optional INT64 field: maxDefLevel=1.
+		// Values: [ptr(1), nil, ptr(3)] → defLevels=[1,0,1]
+		// Aggregated histogram: [1, 2] (one 0, two 1s)
+		type Entry struct {
+			X *int64 `parquet:"name=x, type=INT64"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(Entry{X: common.ToPtr(int64(1))}))
+		require.NoError(t, pw.Write(Entry{X: nil}))
+		require.NoError(t, pw.Write(Entry{X: common.ToPtr(int64(3))}))
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		ss := columns[0].MetaData.SizeStatistics
+		require.NotNil(t, ss)
+		require.True(t, ss.IsSetDefinitionLevelHistogram())
+		require.Equal(t, []int64{1, 2}, ss.GetDefinitionLevelHistogram())
+		// maxRepLevel=0 → no rep histogram
+		require.False(t, ss.IsSetRepetitionLevelHistogram())
+	})
+
+	t.Run("required_field_no_histograms", func(t *testing.T) {
+		// Required INT64 field: maxDefLevel=0, maxRepLevel=0
+		type Entry struct {
+			X int64 `parquet:"name=x, type=INT64"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(Entry{X: 42}))
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		ss := columns[0].MetaData.SizeStatistics
+		// Both levels are 0 → SizeStatistics should be nil (no useful info)
+		require.Nil(t, ss)
+	})
+
+	t.Run("nullable_byte_array", func(t *testing.T) {
+		// Nullable BYTE_ARRAY: both unencoded bytes and def histogram
+		type Entry struct {
+			S *string `parquet:"name=s, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		s1, s2 := "hello", "go"
+		require.NoError(t, pw.Write(Entry{S: &s1}))
+		require.NoError(t, pw.Write(Entry{S: nil}))
+		require.NoError(t, pw.Write(Entry{S: &s2}))
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		ss := columns[0].MetaData.SizeStatistics
+		require.NotNil(t, ss)
+		// "hello"=5 + "go"=2 = 7
+		require.True(t, ss.IsSetUnencodedByteArrayDataBytes())
+		require.Equal(t, int64(7), ss.GetUnencodedByteArrayDataBytes())
+		// defLevels=[1,0,1] → histogram [1, 2]
+		require.True(t, ss.IsSetDefinitionLevelHistogram())
+		require.Equal(t, []int64{1, 2}, ss.GetDefinitionLevelHistogram())
+	})
+}
+
 func TestParquetWriter(t *testing.T) {
 	t.Run("double_write_stop", func(t *testing.T) {
 		pw, buf, err := createTestParquetWriter(new(test), 1)
