@@ -375,6 +375,137 @@ func TestNewParquetWriter_SchemaVariants(t *testing.T) {
 	}
 }
 
+func TestColumnOrders(t *testing.T) {
+	t.Run("struct_writer", func(t *testing.T) {
+		type Entry struct {
+			Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+			Age   int32  `parquet:"name=age, type=INT32"`
+			Score int64  `parquet:"name=score, type=INT64"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(Entry{Name: "alice", Age: 30, Score: 100}))
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		require.NotNil(t, pr.Footer.ColumnOrders, "ColumnOrders should be set in footer")
+		require.Equal(t, 3, len(pr.Footer.ColumnOrders), "one ColumnOrder per leaf column")
+		for i, co := range pr.Footer.ColumnOrders {
+			require.NotNil(t, co.TYPE_ORDER, "ColumnOrder[%d] should have TYPE_ORDER set", i)
+		}
+	})
+
+	t.Run("zero_rows", func(t *testing.T) {
+		type Entry struct {
+			X int32  `parquet:"name=x, type=INT32"`
+			Y string `parquet:"name=y, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		require.NotNil(t, pr.Footer.ColumnOrders)
+		require.Equal(t, 2, len(pr.Footer.ColumnOrders))
+	})
+
+	t.Run("nested_schema", func(t *testing.T) {
+		type Inner struct {
+			A int32 `parquet:"name=a, type=INT32"`
+			B int32 `parquet:"name=b, type=INT32"`
+		}
+		type Outer struct {
+			Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+			Inner Inner  `parquet:"name=inner"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Outer), 1)
+		require.NoError(t, err)
+
+		require.NoError(t, pw.Write(Outer{Name: "test", Inner: Inner{A: 1, B: 2}}))
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Outer), 1)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+
+		// 3 leaf columns: name, inner.a, inner.b
+		require.NotNil(t, pr.Footer.ColumnOrders)
+		require.Equal(t, 3, len(pr.Footer.ColumnOrders))
+	})
+
+	t.Run("csv_writer", func(t *testing.T) {
+		md := []string{
+			"name=name, type=BYTE_ARRAY, convertedtype=UTF8",
+			"name=age, type=INT32",
+		}
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		cw, err := NewCSVWriter(md, fw, 1)
+		require.NoError(t, err)
+
+		name := "alice"
+		age := "30"
+		require.NoError(t, cw.WriteString([]*string{&name, &age}))
+		require.NoError(t, cw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+		pr, err := reader.NewParquetReader(pf, nil, 1)
+		require.NoError(t, err)
+
+		require.NotNil(t, pr.Footer.ColumnOrders)
+		require.Equal(t, 2, len(pr.Footer.ColumnOrders))
+	})
+
+	t.Run("json_writer", func(t *testing.T) {
+		jsonSchema := `{
+			"Tag": "name=parquet-go-root",
+			"Fields": [
+				{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"},
+				{"Tag": "name=age, type=INT32"}
+			]
+		}`
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		require.NoError(t, err)
+
+		require.NoError(t, jw.Write(`{"name":"alice","age":30}`))
+		require.NoError(t, jw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+		pr, err := reader.NewParquetReader(pf, nil, 1)
+		require.NoError(t, err)
+
+		require.NotNil(t, pr.Footer.ColumnOrders)
+		require.Equal(t, 2, len(pr.Footer.ColumnOrders))
+	})
+}
+
 func TestWrite_AfterStop(t *testing.T) {
 	type SimpleStruct struct {
 		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`

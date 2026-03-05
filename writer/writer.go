@@ -240,6 +240,18 @@ func (pw *ParquetWriter) WriteStop() error {
 		}
 	}
 
+	// Set ColumnOrders so readers can correctly interpret min/max statistics.
+	// One TYPE_ORDER entry per leaf column, per the Parquet spec.
+	if pw.SchemaHandler != nil {
+		numCols := pw.SchemaHandler.GetColumnNum()
+		pw.Footer.ColumnOrders = make([]*parquet.ColumnOrder, numCols)
+		for i := range numCols {
+			pw.Footer.ColumnOrders[i] = &parquet.ColumnOrder{
+				TYPE_ORDER: parquet.NewTypeDefinedOrder(),
+			}
+		}
+	}
+
 	footerBuf, err := ts.Write(context.TODO(), pw.Footer)
 	if err != nil {
 		return fmt.Errorf("serialize footer: %w", err)
