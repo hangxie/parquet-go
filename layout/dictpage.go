@@ -165,6 +165,8 @@ func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth
 		page.Path = table.Path
 		page.Info = table.Info
 
+		page.computeLevelHistograms()
+
 		_, err = page.DictDataPageCompress(compressType, bitWidth, values)
 		if err != nil {
 			return nil, 0, err

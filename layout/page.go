@@ -80,6 +80,11 @@ type Page struct {
 	// Geospatial statistics for GEOMETRY/GEOGRAPHY columns
 	GeospatialBBox  *parquet.BoundingBox
 	GeospatialTypes []int32
+
+	// Level histograms for ColumnIndex (computed during page creation).
+	// Each has size maxLevel+1; nil if maxLevel == 0.
+	DefinitionLevelHistogram []int64
+	RepetitionLevelHistogram []int64
 }
 
 // Create a new page
@@ -200,6 +205,8 @@ func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parq
 		page.Path = table.Path
 		page.Info = table.Info
 
+		page.computeLevelHistograms()
+
 		if pageVersion == 2 {
 			_, err = page.DataPageV2Compress(compressType)
 		} else {
@@ -303,6 +310,27 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 		return encoding.WriteByteStreamSplit(valuesBuf), nil
 	default:
 		return encoding.WritePlain(valuesBuf, *page.Schema.Type)
+	}
+}
+
+// computeLevelHistograms builds definition and repetition level histograms
+// from the page's DataTable. These survive DataTable being nilled out later
+// and are used when building ColumnIndex in the writer.
+func (page *Page) computeLevelHistograms() {
+	if page.DataTable == nil {
+		return
+	}
+	if page.DataTable.MaxDefinitionLevel > 0 {
+		page.DefinitionLevelHistogram = make([]int64, page.DataTable.MaxDefinitionLevel+1)
+		for _, dl := range page.DataTable.DefinitionLevels {
+			page.DefinitionLevelHistogram[dl]++
+		}
+	}
+	if page.DataTable.MaxRepetitionLevel > 0 {
+		page.RepetitionLevelHistogram = make([]int64, page.DataTable.MaxRepetitionLevel+1)
+		for _, rl := range page.DataTable.RepetitionLevels {
+			page.RepetitionLevelHistogram[rl]++
+		}
 	}
 }
 

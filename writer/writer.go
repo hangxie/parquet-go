@@ -577,6 +577,14 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 						columnIndex.NullCounts[dataPageIdx] = *nullCount
 					}
 
+					// Append pre-computed per-page level histograms for ColumnIndex.
+					if page.DefinitionLevelHistogram != nil {
+						columnIndex.DefinitionLevelHistograms = append(columnIndex.DefinitionLevelHistograms, page.DefinitionLevelHistogram...)
+					}
+					if page.RepetitionLevelHistogram != nil {
+						columnIndex.RepetitionLevelHistograms = append(columnIndex.RepetitionLevelHistograms, page.RepetitionLevelHistogram...)
+					}
+
 					pageLocation := parquet.NewPageLocation()
 					pageLocation.Offset = pw.Offset
 					pageLocation.FirstRowIndex = firstRowIndex
