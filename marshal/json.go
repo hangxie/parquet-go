@@ -73,7 +73,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 				keys := node.Val.MapKeys()
 
 				if schema.GetConvertedType() == parquet.ConvertedType_MAP { // real map
-					pathStr = pathStr + common.PAR_GO_PATH_DELIMITER + "Key_value"
+					pathStr = pathStr + common.ParGoPathDelimiter + "Key_value"
 					if len(keys) <= 0 {
 						for key, table := range res {
 							if common.IsChildPath(node.PathMap.Path, key) {
@@ -161,7 +161,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 				ln := node.Val.Len()
 
 				if schema.GetConvertedType() == parquet.ConvertedType_LIST { // real LIST
-					pathStr = pathStr + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element"
+					pathStr = pathStr + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element"
 					if ln <= 0 {
 						for key, table := range res {
 							if common.IsChildPath(node.PathMap.Path, key) {

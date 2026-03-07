@@ -59,7 +59,7 @@ func TestMarshalCSV(t *testing.T) {
 		require.Len(t, *result, expectedColumns)
 
 		// Check specific column data
-		nameColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Name"]
+		nameColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Name"]
 		require.NotNil(t, nameColumn)
 		require.Len(t, nameColumn.Values, 3)
 		require.Equal(t, "Alice", nameColumn.Values[0])

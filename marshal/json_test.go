@@ -51,12 +51,12 @@ func TestMarshalJSON(t *testing.T) {
 			},
 			expectedCols: 2,
 			checkColumns: func(t *testing.T, result *map[string]*layout.Table, sch *schema.SchemaHandler) {
-				nameColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Name"]
+				nameColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Name"]
 				require.NotNil(t, nameColumn)
 				require.Len(t, nameColumn.Values, 3)
 				require.Equal(t, "Alice", nameColumn.Values[0])
 
-				ageColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Age"]
+				ageColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Age"]
 				require.NotNil(t, ageColumn)
 				require.Len(t, ageColumn.Values, 3)
 			},
@@ -178,7 +178,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Check that optional field handling works
-		nicknameColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Nickname"]
+		nicknameColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Nickname"]
 		require.NotNil(t, nicknameColumn)
 		require.Len(t, nicknameColumn.Values, 2)
 	})
@@ -307,7 +307,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 		require.NotNil(t, result)
 
 		// Check that missing fields get nil values
-		missingColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Missing_field"]
+		missingColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Missing_field"]
 		require.NotNil(t, missingColumn)
 		require.Len(t, missingColumn.Values, 1)
 		require.Nil(t, missingColumn.Values[0])
@@ -481,7 +481,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 
 		require.NotNil(t, result)
 
-		dataColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Data"]
+		dataColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Data"]
 		require.NotNil(t, dataColumn)
 
 		require.Len(t, dataColumn.Values, 2)
@@ -514,7 +514,7 @@ func TestMarshalJSON_UseNumber(t *testing.T) {
 
 	require.NotNil(t, result)
 
-	numberColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Large_number"]
+	numberColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Large_number"]
 	require.NotNil(t, numberColumn)
 
 	require.Len(t, numberColumn.Values, 1)
@@ -642,7 +642,7 @@ func TestMarshalJSON_ComplexPath_IsChildPath(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Should have created nil entries for missing nested fields
-	leafColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Level1"+common.PAR_GO_PATH_DELIMITER+"Level2"+common.PAR_GO_PATH_DELIMITER+"Leaf"]
+	leafColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Level1"+common.ParGoPathDelimiter+"Level2"+common.ParGoPathDelimiter+"Leaf"]
 	require.NotNil(t, leafColumn)
 	require.Len(t, leafColumn.Values, 1)
 	require.Nil(t, leafColumn.Values[0])
@@ -737,7 +737,7 @@ func TestMarshalJSON_MapInvalidKeyAccess(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Should have nil value for missing_field due to invalid key access path
-	missingField := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Struct_field"+common.PAR_GO_PATH_DELIMITER+"Missing_field"]
+	missingField := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Struct_field"+common.ParGoPathDelimiter+"Missing_field"]
 	require.NotNil(t, missingField)
 	require.Len(t, missingField.Values, 1)
 	require.Nil(t, missingField.Values[0])
@@ -770,7 +770,7 @@ func TestMarshalJSON_InvalidMapIndexValue(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Should handle the valid case correctly
-	field1 := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Field1"]
+	field1 := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Field1"]
 	require.NotNil(t, field1)
 	require.Len(t, field1.Values, 1)
 	require.Equal(t, "value1", field1.Values[0])
@@ -864,7 +864,7 @@ func TestMarshalJSON_NilMapIndexValues(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Verify field2 got nil value due to missing key
-	field2Column := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Struct_field"+common.PAR_GO_PATH_DELIMITER+"Field2"]
+	field2Column := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Struct_field"+common.ParGoPathDelimiter+"Field2"]
 	require.NotNil(t, field2Column)
 	require.Len(t, field2Column.Values, 1)
 	require.Nil(t, field2Column.Values[0])
@@ -979,8 +979,8 @@ func TestMarshalJSON_NodeBufReset(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Verify all records were processed
-	idColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Id"]
-	nameColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Name"]
+	idColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Id"]
+	nameColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Name"]
 
 	require.NotNil(t, idColumn)
 	require.Len(t, idColumn.Values, 3)

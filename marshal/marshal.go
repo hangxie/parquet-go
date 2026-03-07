@@ -163,7 +163,7 @@ func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) 
 				if pmList, ok := pathMap.Children["List"]; ok {
 					if pmElement, ok := pmList.Children["Element"]; ok {
 						pathMap = pmElement
-						path = path + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element"
+						path = path + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element"
 					} else {
 						return stack, nil
 					}
@@ -206,7 +206,7 @@ type ParquetMap struct {
 }
 
 func (p *ParquetMap) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
-	path := node.PathMap.Path + common.PAR_GO_PATH_DELIMITER + "Key_value"
+	path := node.PathMap.Path + common.ParGoPathDelimiter + "Key_value"
 	keys := node.Val.MapKeys()
 	if len(keys) <= 0 {
 		return stack, nil
