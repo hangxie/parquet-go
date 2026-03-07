@@ -34,10 +34,6 @@ func LimitedReadAll(r io.Reader, maxSize int64) ([]byte, error) {
 // expands to exhaust available memory.
 const DefaultMaxDecompressedSize = 256 * 1024 * 1024
 
-// MaxDecompressionRatio is the maximum allowed ratio of decompressed to compressed size.
-// A ratio of 1000:1 is generous for legitimate data but helps catch malicious payloads.
-const MaxDecompressionRatio = 1000
-
 // maxDecompressedSize is the configurable maximum decompressed size.
 // Use SetMaxDecompressedSize to change this value.
 var maxDecompressedSize int64 = DefaultMaxDecompressedSize
@@ -80,14 +76,6 @@ func Uncompress(buf []byte, compressMethod parquet.CompressionCodec) ([]byte, er
 		return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d", len(result), maxSize)
 	}
 
-	// Validate decompression ratio to catch decompression bombs
-	if len(buf) > 0 {
-		ratio := int64(len(result)) / int64(len(buf))
-		if ratio > MaxDecompressionRatio {
-			return nil, fmt.Errorf("decompression ratio %d:1 exceeds maximum allowed ratio %d:1", ratio, MaxDecompressionRatio)
-		}
-	}
-
 	return result, nil
 }
 
@@ -104,11 +92,6 @@ func UncompressWithExpectedSize(buf []byte, compressMethod parquet.CompressionCo
 	maxSize := GetMaxDecompressedSize()
 	if maxSize > 0 && expectedSize > maxSize {
 		return nil, fmt.Errorf("expected decompressed size %d exceeds maximum allowed size %d", expectedSize, maxSize)
-	}
-
-	// Validate expected decompression ratio
-	if len(buf) > 0 && expectedSize/int64(len(buf)) > MaxDecompressionRatio {
-		return nil, fmt.Errorf("expected decompression ratio exceeds maximum allowed ratio %d:1", MaxDecompressionRatio)
 	}
 
 	result, err := c.Uncompress(buf)
