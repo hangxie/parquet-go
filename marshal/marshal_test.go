@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/schema"
 	"github.com/hangxie/parquet-go/v2/types"
 )
@@ -39,11 +40,11 @@ func TestMarshalVariant(t *testing.T) {
 	require.NotNil(t, res)
 
 	// Check if all tables are present
-	require.Contains(t, *res, "Parquet_go_root\x01Var\x01Metadata")
-	require.Contains(t, *res, "Parquet_go_root\x01Var\x01Value")
+	require.Contains(t, *res, common.ParGoRootInName+common.ParGoPathDelimiter+"Var"+common.ParGoPathDelimiter+"Metadata")
+	require.Contains(t, *res, common.ParGoRootInName+common.ParGoPathDelimiter+"Var"+common.ParGoPathDelimiter+"Value")
 
-	metadataTable := (*res)["Parquet_go_root\x01Var\x01Metadata"]
-	valueTable := (*res)["Parquet_go_root\x01Var\x01Value"]
+	metadataTable := (*res)[common.ParGoRootInName+common.ParGoPathDelimiter+"Var"+common.ParGoPathDelimiter+"Metadata"]
+	valueTable := (*res)[common.ParGoRootInName+common.ParGoPathDelimiter+"Var"+common.ParGoPathDelimiter+"Value"]
 
 	require.Equal(t, 3, len(metadataTable.Values))
 	require.Equal(t, 3, len(valueTable.Values))
@@ -250,7 +251,7 @@ func TestMarshalByteArrayField(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
-	table := (*res)["Parquet_go_root\x01Data"]
+	table := (*res)[common.ParGoRootInName+common.ParGoPathDelimiter+"Data"]
 	require.NotNil(t, table)
 	require.Equal(t, 2, len(table.Values))
 	// Values should be non-nil strings (BYTE_ARRAY stored as string in parquet)

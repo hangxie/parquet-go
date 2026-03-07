@@ -37,7 +37,7 @@ func (pmt *PathMapType) Add(path []string) {
 	}
 	c := path[1]
 	if _, ok := pmt.Children[c]; !ok {
-		pmt.Children[c] = NewPathMap(pmt.Path + common.PAR_GO_PATH_DELIMITER + c)
+		pmt.Children[c] = NewPathMap(pmt.Path + common.ParGoPathDelimiter + c)
 	}
 	pmt.Children[c].Add(path[1:])
 }
@@ -291,8 +291,8 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 	ot := reflect.TypeOf(obj).Elem()
 	item := NewItem()
 	item.GoType = ot
-	item.Info.InName = "Parquet_go_root"
-	item.Info.ExName = "parquet_go_root"
+	item.Info.InName = common.ParGoRootInName
+	item.Info.ExName = common.ParGoRootExName
 	item.Info.RepetitionType = parquet.FieldRepetitionType_REQUIRED
 
 	stack := make([]*Item, 1)

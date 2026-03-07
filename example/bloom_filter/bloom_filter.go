@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/reader"
 	"github.com/hangxie/parquet-go/v2/source/local"
 	"github.com/hangxie/parquet-go/v2/writer"
@@ -70,7 +71,7 @@ func main() {
 
 	fmt.Println("\nDetected Schema Attributes:")
 	for _, info := range pr.SchemaHandler.Infos {
-		if info.InName == "Parquet_go_root" {
+		if info.InName == common.ParGoRootInName {
 			continue // Skip root element
 		}
 		bfStatus := "Disabled"

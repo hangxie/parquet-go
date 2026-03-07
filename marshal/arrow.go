@@ -17,7 +17,7 @@ func MarshalArrow(records []any, schemaHandler *schema.SchemaHandler) (*map[stri
 		return &res, nil
 	}
 	for i := range len(records[0].([]any)) {
-		pathStr := schemaHandler.GetRootInName() + common.PAR_GO_PATH_DELIMITER + schemaHandler.Infos[i+1].InName
+		pathStr := schemaHandler.GetRootInName() + common.ParGoPathDelimiter + schemaHandler.Infos[i+1].InName
 		table := layout.NewEmptyTable()
 		res[pathStr] = table
 		table.Path = common.StrToPath(pathStr)

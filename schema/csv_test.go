@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 )
 
@@ -26,7 +27,7 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			expectError:       false,
 			expectedNumFields: func() *int { n := 2; return &n }(), // root + 1 field
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "Id", schema.SchemaElements[1].Name)
 				require.Equal(t, parquet.Type_INT64, *schema.SchemaElements[1].Type)
 			},
@@ -41,7 +42,7 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			expectError:       false,
 			expectedNumFields: func() *int { n := 4; return &n }(), // root + 3 fields
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "Id", schema.SchemaElements[1].Name)
 				require.Equal(t, "Name", schema.SchemaElements[2].Name)
 				require.Equal(t, "Age", schema.SchemaElements[3].Name)

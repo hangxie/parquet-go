@@ -19,7 +19,7 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 	// Infos contains root node
 	fieldCount := len(schemaHandler.Infos) - 1
 	for i := range fieldCount {
-		pathStr := schemaHandler.GetRootInName() + common.PAR_GO_PATH_DELIMITER + schemaHandler.Infos[i+1].InName
+		pathStr := schemaHandler.GetRootInName() + common.ParGoPathDelimiter + schemaHandler.Infos[i+1].InName
 		table := layout.NewEmptyTable()
 		res[pathStr] = table
 		table.Path = common.StrToPath(pathStr)

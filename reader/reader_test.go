@@ -160,7 +160,7 @@ func TestParquetReader_ReadPartial(t *testing.T) {
 	// Use any available field path for testing
 	var nameField string
 	for path := range pr.SchemaHandler.MapIndex {
-		if path != "Parquet_go_root" && path != "" {
+		if path != common.ParGoRootInName && path != "" {
 			nameField = path
 			break
 		}
@@ -190,7 +190,7 @@ func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 	// Use any available field path for testing
 	var nameField string
 	for path := range pr.SchemaHandler.MapIndex {
-		if path != "Parquet_go_root" && path != "" {
+		if path != common.ParGoRootInName && path != "" {
 			nameField = path
 			break
 		}
@@ -1656,7 +1656,7 @@ func TestDetectBloomFilters(t *testing.T) {
 
 	t.Run("sets_bloom_filter_no_pfile", func(t *testing.T) {
 		offset := int64(100)
-		rootName := "Parquet_go_root"
+		rootName := common.ParGoRootInName
 		pr := &ParquetReader{
 			Footer: &parquet.FileMetaData{
 				RowGroups: []*parquet.RowGroup{
@@ -1673,7 +1673,7 @@ func TestDetectBloomFilters(t *testing.T) {
 			SchemaHandler: &schema.SchemaHandler{
 				SchemaElements: []*parquet.SchemaElement{{Name: rootName}},
 				Infos:          []*common.Tag{{InName: rootName}, {InName: "ID"}},
-				MapIndex:       map[string]int32{"Parquet_go_root\x01id": 1},
+				MapIndex:       map[string]int32{common.ParGoRootInName + common.ParGoPathDelimiter + "id": 1},
 			},
 		}
 		pr.detectBloomFilters()
@@ -1701,7 +1701,7 @@ func TestDetectBloomFilters(t *testing.T) {
 
 		// BloomFilterSize should be the bitset size (4096), not including Thrift header overhead.
 		// After RenameSchema, the internal name "Name" (Go field name) is used in MapIndex.
-		nameIdx, ok := pr.SchemaHandler.MapIndex["Parquet_go_root\x01Name"]
+		nameIdx, ok := pr.SchemaHandler.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"Name"]
 		require.True(t, ok)
 		require.True(t, pr.SchemaHandler.Infos[nameIdx].BloomFilter)
 		require.Equal(t, int32(4096), pr.SchemaHandler.Infos[nameIdx].BloomFilterSize)

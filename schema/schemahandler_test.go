@@ -24,7 +24,7 @@ func TestNewSchemaHandlerFromSchemaHandler(t *testing.T) {
 
 	// Verify that the schema was copied correctly
 	require.Equal(t, len(originalSchema.SchemaElements), len(schema2.SchemaElements))
-	require.Equal(t, "Parquet_go_root", schema2.SchemaElements[0].Name)
+	require.Equal(t, common.ParGoRootInName, schema2.SchemaElements[0].Name)
 	require.Equal(t, "Field1", schema2.SchemaElements[1].Name)
 	require.Equal(t, "Field2", schema2.SchemaElements[2].Name)
 
@@ -51,7 +51,7 @@ func TestNewSchemaHandlerFromSchemaList(t *testing.T) {
 	numChildren := int32(2)
 
 	schemaElements := []*parquet.SchemaElement{
-		{Name: "Parquet_go_root", RepetitionType: &requiredRep, NumChildren: &numChildren},
+		{Name: common.ParGoRootInName, RepetitionType: &requiredRep, NumChildren: &numChildren},
 		{Name: "Field1", Type: &int32Type, RepetitionType: &requiredRep},
 		{Name: "Field2", Type: &byteArrayType, ConvertedType: &utf8Conv, RepetitionType: &optionalRep},
 	}
@@ -60,7 +60,7 @@ func TestNewSchemaHandlerFromSchemaList(t *testing.T) {
 
 	// Verify that the schema was created correctly from the list
 	require.Equal(t, len(schemaElements), len(schema2.SchemaElements))
-	require.Equal(t, "Parquet_go_root", schema2.SchemaElements[0].Name)
+	require.Equal(t, common.ParGoRootInName, schema2.SchemaElements[0].Name)
 	require.Equal(t, "Field1", schema2.SchemaElements[1].Name)
 	require.Equal(t, "Field2", schema2.SchemaElements[2].Name)
 
@@ -110,7 +110,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 2, len(schema.SchemaElements))
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "Id", schema.SchemaElements[1].Name)
 				require.Equal(t, "INT32", schema.SchemaElements[1].Type.String())
 				require.Equal(t, "REQUIRED", schema.SchemaElements[1].RepetitionType.String())
@@ -126,7 +126,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 2, len(schema.SchemaElements))
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "Name", schema.SchemaElements[1].Name)
 				require.Equal(t, "BYTE_ARRAY", schema.SchemaElements[1].Type.String())
 				require.Equal(t, "OPTIONAL", schema.SchemaElements[1].RepetitionType.String())
@@ -159,7 +159,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 9, len(schema.SchemaElements))
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "MapField1", schema.SchemaElements[1].Name)
 				require.Equal(t, "Key_value", schema.SchemaElements[2].Name)
 				require.Equal(t, "Key", schema.SchemaElements[3].Name)
@@ -223,7 +223,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 7, len(schema.SchemaElements))
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "ListField1", schema.SchemaElements[1].Name)
 				require.Equal(t, "List", schema.SchemaElements[2].Name)
 				require.Equal(t, "Element", schema.SchemaElements[3].Name)
@@ -268,7 +268,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 2, len(schema.SchemaElements))
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "ListField", schema.SchemaElements[1].Name)
 
 				require.Equal(t, "REPEATED", schema.SchemaElements[1].RepetitionType.String())
@@ -285,7 +285,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				// VARIANT should create a GROUP with 2 children: Metadata and Value
 				require.Equal(t, 4, len(schema.SchemaElements))
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "VariantField", schema.SchemaElements[1].Name)
 				require.Equal(t, "Metadata", schema.SchemaElements[2].Name)
 				require.Equal(t, "Value", schema.SchemaElements[3].Name)
@@ -314,7 +314,7 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 9, len(schema.SchemaElements))
-				require.Equal(t, "Parquet_go_root", schema.SchemaElements[0].Name)
+				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
 				require.Equal(t, "MapField1", schema.SchemaElements[1].Name)
 				require.Equal(t, "Key_value", schema.SchemaElements[2].Name)
 				require.Equal(t, "Key", schema.SchemaElements[3].Name)
@@ -395,31 +395,31 @@ func TestSchemaHandler_GetRepetitionLevelIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	// Test simple field with repetition level 0 - should succeed since res starts at 0
-	index, err := schema.GetRepetitionLevelIndex([]string{"Parquet_go_root", "SimpleField"}, 0)
+	index, err := schema.GetRepetitionLevelIndex([]string{common.ParGoRootInName, "SimpleField"}, 0)
 	require.Nil(t, err)               // Should succeed since res==0 before any REPEATED fields are found
 	require.Equal(t, int32(1), index) // Returns i-1 where i is the position where rl is found (i=2 for path[2])
 
 	// Test repeated field with repetition level 1
-	index, err = schema.GetRepetitionLevelIndex([]string{"Parquet_go_root", "RepeatedField"}, 1)
+	index, err = schema.GetRepetitionLevelIndex([]string{common.ParGoRootInName, "RepeatedField"}, 1)
 	require.Nil(t, err)
 	// Function returns i-1 where i is the position where rl is found
 	// For RepeatedField at path[2], i=2, so result should be 1
 	require.Equal(t, int32(1), index)
 
 	// Test nested repeated field with repetition level 1
-	index, err = schema.GetRepetitionLevelIndex([]string{"Parquet_go_root", "NestedList", "InnerField"}, 1)
+	index, err = schema.GetRepetitionLevelIndex([]string{common.ParGoRootInName, "NestedList", "InnerField"}, 1)
 	require.Nil(t, err)
 	// For NestedList at path[2], i=2, so result should be 1
 	require.Equal(t, int32(1), index)
 
 	// Test doubly nested repeated field with repetition level 2
-	index, err = schema.GetRepetitionLevelIndex([]string{"Parquet_go_root", "NestedList", "InnerList"}, 2)
+	index, err = schema.GetRepetitionLevelIndex([]string{common.ParGoRootInName, "NestedList", "InnerList"}, 2)
 	require.Nil(t, err)
 	// For InnerList at path[3], i=3, so result should be 2
 	require.Equal(t, int32(2), index)
 
 	// Test with invalid repetition level
-	_, err = schema.GetRepetitionLevelIndex([]string{"Parquet_go_root", "RepeatedField"}, 2)
+	_, err = schema.GetRepetitionLevelIndex([]string{common.ParGoRootInName, "RepeatedField"}, 2)
 	require.NotNil(t, err)
 
 	// Test with empty path
@@ -444,7 +444,7 @@ func TestSchemaHandler_GetRootExName(t *testing.T) {
 
 	// The root ExName should be the external name of the root element
 	// For struct schemas, this is typically the root name (case-sensitive)
-	require.Equal(t, "parquet_go_root", rootName)
+	require.Equal(t, common.ParGoRootExName, rootName)
 
 	// Test with empty schema
 	emptySchema := &SchemaHandler{
@@ -469,37 +469,37 @@ func TestSchemaHandler_MaxDefinitionLevel(t *testing.T) {
 	require.Nil(t, err)
 
 	// Test root path
-	level, err := schema.MaxDefinitionLevel([]string{"Parquet_go_root"})
+	level, err := schema.MaxDefinitionLevel([]string{common.ParGoRootInName})
 	require.Nil(t, err)
 	require.Equal(t, int32(0), level)
 
 	// Test required field - should have definition level 0
-	level, err = schema.MaxDefinitionLevel([]string{"Parquet_go_root", "RequiredField"})
+	level, err = schema.MaxDefinitionLevel([]string{common.ParGoRootInName, "RequiredField"})
 	require.Nil(t, err)
 	require.Equal(t, int32(0), level)
 
 	// Test optional field - should have definition level 1
-	level, err = schema.MaxDefinitionLevel([]string{"Parquet_go_root", "OptionalField"})
+	level, err = schema.MaxDefinitionLevel([]string{common.ParGoRootInName, "OptionalField"})
 	require.Nil(t, err)
 	require.Equal(t, int32(1), level)
 
 	// Test repeated field - should have definition level 1
-	level, err = schema.MaxDefinitionLevel([]string{"Parquet_go_root", "RepeatedField"})
+	level, err = schema.MaxDefinitionLevel([]string{common.ParGoRootInName, "RepeatedField"})
 	require.Nil(t, err)
 	require.Equal(t, int32(1), level)
 
 	// Test nested required field inside optional struct - should have definition level 1
-	level, err = schema.MaxDefinitionLevel([]string{"Parquet_go_root", "NestedStruct", "InnerRequired"})
+	level, err = schema.MaxDefinitionLevel([]string{common.ParGoRootInName, "NestedStruct", "InnerRequired"})
 	require.Nil(t, err)
 	require.Equal(t, int32(1), level)
 
 	// Test nested optional field inside optional struct - should have definition level 2
-	level, err = schema.MaxDefinitionLevel([]string{"Parquet_go_root", "NestedStruct", "InnerOptional"})
+	level, err = schema.MaxDefinitionLevel([]string{common.ParGoRootInName, "NestedStruct", "InnerOptional"})
 	require.Nil(t, err)
 	require.Equal(t, int32(2), level)
 
 	// Test invalid path
-	_, err = schema.MaxDefinitionLevel([]string{"Parquet_go_root", "NonExistentField"})
+	_, err = schema.MaxDefinitionLevel([]string{common.ParGoRootInName, "NonExistentField"})
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "name not in schema")
 
@@ -522,27 +522,27 @@ func TestSchemaHandler_MaxRepetitionLevel(t *testing.T) {
 	require.Nil(t, err)
 
 	// Test simple field - should have repetition level 0
-	level, err := schema.MaxRepetitionLevel([]string{"Parquet_go_root", "SimpleField"})
+	level, err := schema.MaxRepetitionLevel([]string{common.ParGoRootInName, "SimpleField"})
 	require.Nil(t, err)
 	require.Equal(t, int32(0), level)
 
 	// Test repeated field - should have repetition level 1
-	level, err = schema.MaxRepetitionLevel([]string{"Parquet_go_root", "RepeatedField"})
+	level, err = schema.MaxRepetitionLevel([]string{common.ParGoRootInName, "RepeatedField"})
 	require.Nil(t, err)
 	require.Equal(t, int32(1), level)
 
 	// Test nested field inside repeated struct - should have repetition level 1
-	level, err = schema.MaxRepetitionLevel([]string{"Parquet_go_root", "NestedList", "InnerField"})
+	level, err = schema.MaxRepetitionLevel([]string{common.ParGoRootInName, "NestedList", "InnerField"})
 	require.Nil(t, err)
 	require.Equal(t, int32(1), level)
 
 	// Test doubly nested repeated field - should have repetition level 2
-	level, err = schema.MaxRepetitionLevel([]string{"Parquet_go_root", "NestedList", "InnerList"})
+	level, err = schema.MaxRepetitionLevel([]string{common.ParGoRootInName, "NestedList", "InnerList"})
 	require.Nil(t, err)
 	require.Equal(t, int32(2), level)
 
 	// Test invalid path
-	_, err = schema.MaxRepetitionLevel([]string{"Parquet_go_root", "NonExistentField"})
+	_, err = schema.MaxRepetitionLevel([]string{common.ParGoRootInName, "NonExistentField"})
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "name not in schema")
 
@@ -718,11 +718,11 @@ func TestGetRepetitionType(t *testing.T) {
 		}))
 		require.NoError(t, err)
 
-		rt, err := sh.GetRepetitionType([]string{"Parquet_go_root", "Field1"})
+		rt, err := sh.GetRepetitionType([]string{common.ParGoRootInName, "Field1"})
 		require.NoError(t, err)
 		require.Equal(t, parquet.FieldRepetitionType_REQUIRED, rt)
 
-		rt, err = sh.GetRepetitionType([]string{"Parquet_go_root", "Field2"})
+		rt, err = sh.GetRepetitionType([]string{common.ParGoRootInName, "Field2"})
 		require.NoError(t, err)
 		require.Equal(t, parquet.FieldRepetitionType_OPTIONAL, rt)
 	})
@@ -733,14 +733,14 @@ func TestGetRepetitionType(t *testing.T) {
 		}))
 		require.NoError(t, err)
 
-		_, err = sh.GetRepetitionType([]string{"Parquet_go_root", "NonExistent"})
+		_, err = sh.GetRepetitionType([]string{common.ParGoRootInName, "NonExistent"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "name not in schema")
 	})
 
 	t.Run("nil schema element", func(t *testing.T) {
 		// Create a schema handler with a nil element in SchemaElements
-		// Use the correct path delimiter (common.PAR_GO_PATH_DELIMITER = "\x01")
+		// Use the correct path delimiter (common.ParGoPathDelimiter = "\x01")
 		pathKey := common.PathToStr([]string{"test", "path"})
 		sh := &SchemaHandler{
 			SchemaElements: []*parquet.SchemaElement{nil},
@@ -1069,7 +1069,7 @@ func TestSchemaHandler_GetVariantSchemaInfo(t *testing.T) {
 		}))
 		require.NoError(t, err)
 
-		info := sh.GetVariantSchemaInfo("NonExistent" + common.PAR_GO_PATH_DELIMITER + "Path")
+		info := sh.GetVariantSchemaInfo("NonExistent" + common.ParGoPathDelimiter + "Path")
 		require.Nil(t, info)
 	})
 

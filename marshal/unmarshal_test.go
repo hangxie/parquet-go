@@ -633,12 +633,12 @@ func TestConvertToJSONFriendly_NonDefaultRootName(t *testing.T) {
 
 	customRootSchema.MapIndex = make(map[string]int32)
 	for k, v := range oldMapIndex {
-		newKey := strings.Replace(k, "Parquet_go_root", "Custom_Root", 1)
+		newKey := strings.Replace(k, common.ParGoRootInName, "Custom_Root", 1)
 		customRootSchema.MapIndex[newKey] = v
 	}
 
 	for k, v := range customRootSchema.IndexMap {
-		newValue := strings.Replace(v, "Parquet_go_root", "Custom_Root", 1)
+		newValue := strings.Replace(v, common.ParGoRootInName, "Custom_Root", 1)
 		customRootSchema.IndexMap[k] = newValue
 	}
 
@@ -954,23 +954,23 @@ type OldListTestStruct struct {
 // createOldListSchema creates the standard old list schema pattern used across tests
 func createOldListSchema() *schema.SchemaHandler {
 	schemaElements := []*parquet.SchemaElement{
-		{Name: "Parquet_go_root", RepetitionType: nil, NumChildren: common.ToPtr(int32(1))},
+		{Name: common.ParGoRootInName, RepetitionType: nil, NumChildren: common.ToPtr(int32(1))},
 		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), ConvertedType: common.ToPtr(parquet.ConvertedType_LIST), NumChildren: common.ToPtr(int32(1))},
 		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), Type: common.ToPtr(parquet.Type_INT32)},
 	}
 
 	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
 	// Set up the critical MapIndex entries for old list detection
-	schemaHandler.MapIndex["Parquet_go_root"] = 1
-	schemaHandler.MapIndex["Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"array"] = 1
-	schemaHandler.MapIndex["Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"array"+common.PAR_GO_PATH_DELIMITER+"array"] = 2
+	schemaHandler.MapIndex[common.ParGoRootInName] = 1
+	schemaHandler.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"array"] = 1
+	schemaHandler.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"array"+common.ParGoPathDelimiter+"array"] = 2
 
 	return schemaHandler
 }
 
 // createOldListTable creates a table map for old list testing
 func createOldListTable(path []string, values []any, repetitionLevels, definitionLevels []int32) *map[string]*layout.Table {
-	pathKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + strings.Join(path, common.PAR_GO_PATH_DELIMITER)
+	pathKey := common.ParGoRootInName + common.ParGoPathDelimiter + strings.Join(path, common.ParGoPathDelimiter)
 	return &map[string]*layout.Table{
 		pathKey: {
 			Path:             path,
@@ -1001,8 +1001,8 @@ func TestUnmarshal_MapPathMissingKeyValueComponent(t *testing.T) {
 	// Create a table with a malformed path that ends at the map without key/value
 	// This simulates corrupted data where the path is truncated
 	tableMap := &map[string]*layout.Table{
-		"Parquet_go_root.M.Key_value": {
-			Path:             []string{"Parquet_go_root", "M", "Key_value"}, // Missing "Key" or "Value" after Key_value
+		common.ParGoRootInName + ".M.Key_value": {
+			Path:             []string{common.ParGoRootInName, "M", "Key_value"}, // Missing "Key" or "Value" after Key_value
 			Values:           []any{"test_key"},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{3},
@@ -1023,7 +1023,7 @@ func TestOldStyleList(t *testing.T) {
 		values := []any{int32(1), int32(2), int32(3), int32(4), int32(5), int32(6), int32(7), int32(8)}
 		repetitionLevels := []int32{0, 2, 1, 2, 0, 2, 1, 2, 0, 2, 1, 2}
 		definitionLevels := []int32{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2}
-		tableMap := createOldListTable([]string{"Parquet_go_root", "array", "array"}, values, repetitionLevels, definitionLevels)
+		tableMap := createOldListTable([]string{common.ParGoRootInName, "array", "array"}, values, repetitionLevels, definitionLevels)
 
 		result := make([]TestTarget, 0)
 		require.NoError(t, Unmarshal(tableMap, 0, 3, &result, schemaHandler, ""))
@@ -1111,9 +1111,9 @@ func TestNewShreddedVariantReconstructor(t *testing.T) {
 
 	sh := &schema.SchemaHandler{
 		IndexMap: map[int32]string{
-			2: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata",
-			3: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value",
-			4: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value",
+			2: "Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata",
+			3: "Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value",
+			4: "Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Typed_value",
 		},
 	}
 
@@ -1137,21 +1137,21 @@ func TestNewShreddedVariantReconstructor(t *testing.T) {
 	}
 
 	tableMap := &map[string]*layout.Table{
-		"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    metadataTable,
-		"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":       valueTable,
-		"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": typedValueTable,
+		"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata":    metadataTable,
+		"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":       valueTable,
+		"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Typed_value": typedValueTable,
 	}
 
 	t.Run("all_tables_present", func(t *testing.T) {
 		r := NewShreddedVariantReconstructor(
-			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			"Root"+common.ParGoPathDelimiter+"Var",
 			variantInfo,
 			tableMap,
 			sh,
 		)
 
 		require.NotNil(t, r)
-		require.Equal(t, "Root"+common.PAR_GO_PATH_DELIMITER+"Var", r.Path)
+		require.Equal(t, "Root"+common.ParGoPathDelimiter+"Var", r.Path)
 		require.NotNil(t, r.MetadataTable)
 		require.NotNil(t, r.ValueTable)
 		require.Len(t, r.TypedValueTables, 1)
@@ -1166,7 +1166,7 @@ func TestNewShreddedVariantReconstructor(t *testing.T) {
 		}
 
 		r := NewShreddedVariantReconstructor(
-			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			"Root"+common.ParGoPathDelimiter+"Var",
 			infoNoValue,
 			tableMap,
 			sh,
@@ -1182,7 +1182,7 @@ func TestNewShreddedVariantReconstructor(t *testing.T) {
 		emptyTableMap := &map[string]*layout.Table{}
 
 		r := NewShreddedVariantReconstructor(
-			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			"Root"+common.ParGoPathDelimiter+"Var",
 			variantInfo,
 			emptyTableMap,
 			sh,
@@ -1199,8 +1199,8 @@ func TestShreddedVariantReconstructor_GetValueAtRow(t *testing.T) {
 	sh := &schema.SchemaHandler{
 		MapIndex: map[string]int32{
 			"Root": 0,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var":                                             1,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 2,
+			"Root" + common.ParGoPathDelimiter + "Var":                                          1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 2,
 		},
 		SchemaElements: []*parquet.SchemaElement{
 			{Name: "Root"},
@@ -1308,17 +1308,17 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 	sh := &schema.SchemaHandler{
 		MapIndex: map[string]int32{
 			"Root": 0,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var":                                                1,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    2,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":       3,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": 4,
+			"Root" + common.ParGoPathDelimiter + "Var":                                             1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata":    2,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":       3,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Typed_value": 4,
 		},
 		IndexMap: map[int32]string{
 			0: "Root",
-			1: "Root" + common.PAR_GO_PATH_DELIMITER + "Var",
-			2: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata",
-			3: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value",
-			4: "Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value",
+			1: "Root" + common.ParGoPathDelimiter + "Var",
+			2: "Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata",
+			3: "Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value",
+			4: "Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Typed_value",
 		},
 		SchemaElements: []*parquet.SchemaElement{
 			{Name: "Root"},
@@ -1344,12 +1344,12 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		}
 
 		tableMap := &map[string]*layout.Table{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    valueTable,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": metadataTable,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    valueTable,
 		}
 
 		r := NewShreddedVariantReconstructor(
-			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
 				ValueIdx:       3,
@@ -1361,12 +1361,12 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		)
 
 		tableBgn := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 0,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    0,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 0,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    0,
 		}
 		tableEnd := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 1,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    1,
 		}
 
 		variant, err := r.Reconstruct(0, tableBgn, tableEnd)
@@ -1384,11 +1384,11 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		}
 
 		tableMap := &map[string]*layout.Table{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": metadataTable,
 		}
 
 		r := NewShreddedVariantReconstructor(
-			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
 				ValueIdx:       -1,
@@ -1400,10 +1400,10 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		)
 
 		tableBgn := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 0,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 0,
 		}
 		tableEnd := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 1,
 		}
 
 		variant, err := r.Reconstruct(0, tableBgn, tableEnd)
@@ -1420,11 +1420,11 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		}
 
 		tableMap := &map[string]*layout.Table{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": metadataTable,
 		}
 
 		r := NewShreddedVariantReconstructor(
-			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
 				ValueIdx:       -1,
@@ -1436,10 +1436,10 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		)
 
 		tableBgn := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 0,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 0,
 		}
 		tableEnd := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 1,
 		}
 
 		_, err := r.Reconstruct(0, tableBgn, tableEnd)
@@ -1462,12 +1462,12 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		}
 
 		tableMap := &map[string]*layout.Table{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    valueTable,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": metadataTable,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    valueTable,
 		}
 
 		r := NewShreddedVariantReconstructor(
-			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
 				ValueIdx:       3,
@@ -1479,12 +1479,12 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		)
 
 		tableBgn := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 0,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    0,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 0,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    0,
 		}
 		tableEnd := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": 1,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": 1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    1,
 		}
 
 		variant, err := r.Reconstruct(0, tableBgn, tableEnd)
@@ -1507,12 +1507,12 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		}
 
 		tableMap := &map[string]*layout.Table{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    metadataTable,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": typedValueTable,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata":    metadataTable,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Typed_value": typedValueTable,
 		}
 
 		r := NewShreddedVariantReconstructor(
-			"Root"+common.PAR_GO_PATH_DELIMITER+"Var",
+			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
 				ValueIdx:       -1,
@@ -1524,12 +1524,12 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 		)
 
 		tableBgn := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    0,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": 0,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata":    0,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Typed_value": 0,
 		}
 		tableEnd := map[string]int{
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata":    1,
-			"Root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Typed_value": 1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata":    1,
+			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Typed_value": 1,
 		}
 
 		variant, err := r.Reconstruct(0, tableBgn, tableEnd)
@@ -1556,7 +1556,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testStruct.Var)
 	})
@@ -1578,7 +1578,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.NotNil(t, testStruct.Var)
 		require.Equal(t, variant, *testStruct.Var)
@@ -1603,7 +1603,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Inner"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Inner"+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testStruct.Inner.Var)
 	})
@@ -1633,7 +1633,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 1, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 1, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testSlice[1].Var)
 	})
@@ -1654,7 +1654,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"NonExistent", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"NonExistent", "", sh, variant, 0, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not found")
 	})
@@ -1677,7 +1677,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Inner"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Inner"+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.NotNil(t, testStruct.Inner)
 		require.Equal(t, variant, testStruct.Inner.Var)
@@ -1700,7 +1700,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		// rowIdx 5 is out of bounds for a slice with 1 element
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 5, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 5, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "out of bounds")
 	})
@@ -1721,7 +1721,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Data"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Data"+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "[]byte")
 	})
@@ -1742,7 +1742,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Value"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Value"+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "unexpected kind")
 	})
@@ -1763,7 +1763,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Name", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Name", "", sh, variant, 0, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "could not set variant value at path end")
 	})
@@ -1785,7 +1785,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		// Access row 1 without SliceRecord - should use direct po.Index(rowIdx)
-		err := setVariantValue(root, "Parquet_go_root"+common.PAR_GO_PATH_DELIMITER+"Var", "", sh, variant, 1, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 1, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testSlice[1].Var)
 	})
@@ -1805,7 +1805,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		// Path is just the root (empty path after prefix)
-		err := setVariantValue(root, "Parquet_go_root", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName, "", sh, variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testVariant)
 	})
@@ -1824,7 +1824,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		// Path is just the root (empty path after prefix)
-		err := setVariantValue(root, "Parquet_go_root", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName, "", sh, variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.NotNil(t, testVariant)
 		require.Equal(t, variant, *testVariant)
@@ -1842,16 +1842,16 @@ func TestUnmarshal_ShreddedVariant_NoDuplicateRows(t *testing.T) {
 
 	// Manually inject VariantSchemas info to simulate a shredded variant.
 	// NewSchemaHandlerFromStruct creates "Parquet_go_root", "ID", "Variant", "Variant.Metadata", "Variant.Value"
-	variantPath := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Variant"
+	variantPath := common.ParGoRootInName + common.ParGoPathDelimiter + "Variant"
 
 	// We verify indices
 	var metadataIdx, valueIdx int32
-	if idx, ok := sh.MapIndex[variantPath+common.PAR_GO_PATH_DELIMITER+"Metadata"]; ok {
+	if idx, ok := sh.MapIndex[variantPath+common.ParGoPathDelimiter+"Metadata"]; ok {
 		metadataIdx = idx
 	} else {
 		t.Fatal("Metadata index not found")
 	}
-	if idx, ok := sh.MapIndex[variantPath+common.PAR_GO_PATH_DELIMITER+"Value"]; ok {
+	if idx, ok := sh.MapIndex[variantPath+common.ParGoPathDelimiter+"Value"]; ok {
 		valueIdx = idx
 	} else {
 		t.Fatal("Value index not found")
@@ -1886,20 +1886,20 @@ func TestUnmarshal_ShreddedVariant_NoDuplicateRows(t *testing.T) {
 	}
 
 	tableMap := map[string]*layout.Table{
-		"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "ID": {
-			Path:             []string{"Parquet_go_root", "ID"},
+		common.ParGoRootInName + common.ParGoPathDelimiter + "ID": {
+			Path:             []string{common.ParGoRootInName, "ID"},
 			Values:           idValues,
 			RepetitionLevels: rLs,
 			DefinitionLevels: dLs,
 		},
-		"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Variant" + common.PAR_GO_PATH_DELIMITER + "Metadata": {
-			Path:             []string{"Parquet_go_root", "Variant", "Metadata"},
+		common.ParGoRootInName + common.ParGoPathDelimiter + "Variant" + common.ParGoPathDelimiter + "Metadata": {
+			Path:             []string{common.ParGoRootInName, "Variant", "Metadata"},
 			Values:           metaValues,
 			RepetitionLevels: rLs,
 			DefinitionLevels: dLs,
 		},
-		"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Variant" + common.PAR_GO_PATH_DELIMITER + "Value": {
-			Path:             []string{"Parquet_go_root", "Variant", "Value"},
+		common.ParGoRootInName + common.ParGoPathDelimiter + "Variant" + common.ParGoPathDelimiter + "Value": {
+			Path:             []string{common.ParGoRootInName, "Variant", "Value"},
 			Values:           valValues,
 			RepetitionLevels: rLs,
 			DefinitionLevels: dLs,
@@ -1940,8 +1940,8 @@ func TestUnmarshal_ErrorHandling_TypeConversion(t *testing.T) {
 	}
 
 	tableMap := map[string]*layout.Table{
-		"Parquet_go_root.Field": {
-			Path:             []string{"Parquet_go_root", "Field"},
+		common.ParGoRootInName + ".Field": {
+			Path:             []string{common.ParGoRootInName, "Field"},
 			Values:           []interface{}{IncompatibleType{Something: "bad"}},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
@@ -1971,32 +1971,32 @@ func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
 		Value:    types.EncodeVariantInt8(123),
 	}
 
-	mKey := common.PathToStr([]string{"Parquet_go_root", "Var", "Metadata"})
-	vKey := common.PathToStr([]string{"Parquet_go_root", "Var", "Value"})
-	imKey := common.PathToStr([]string{"Parquet_go_root", "Var", "TypedValue", "A", "Metadata"})
-	ivKey := common.PathToStr([]string{"Parquet_go_root", "Var", "TypedValue", "A", "Value"})
+	mKey := common.PathToStr([]string{common.ParGoRootInName, "Var", "Metadata"})
+	vKey := common.PathToStr([]string{common.ParGoRootInName, "Var", "Value"})
+	imKey := common.PathToStr([]string{common.ParGoRootInName, "Var", "TypedValue", "A", "Metadata"})
+	ivKey := common.PathToStr([]string{common.ParGoRootInName, "Var", "TypedValue", "A", "Value"})
 
 	tableMap := map[string]*layout.Table{
 		mKey: {
-			Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+			Path:             []string{common.ParGoRootInName, "Var", "Metadata"},
 			Values:           []any{metadata},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
 		},
 		vKey: {
-			Path:             []string{"Parquet_go_root", "Var", "Value"},
+			Path:             []string{common.ParGoRootInName, "Var", "Value"},
 			Values:           []any{nil},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{0},
 		},
 		imKey: {
-			Path:             []string{"Parquet_go_root", "Var", "TypedValue", "A", "Metadata"},
+			Path:             []string{common.ParGoRootInName, "Var", "TypedValue", "A", "Metadata"},
 			Values:           []any{metadata},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
 		},
 		ivKey: {
-			Path:             []string{"Parquet_go_root", "Var", "TypedValue", "A", "Value"},
+			Path:             []string{common.ParGoRootInName, "Var", "TypedValue", "A", "Value"},
 			Values:           []any{innerVariant.Value},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
@@ -2047,7 +2047,7 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 	t.Run("reconstruct_value_error_propagation", func(t *testing.T) {
 		metadata := types.EncodeVariantMetadata([]string{"a"})
 		metadataTable := &layout.Table{
-			Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+			Path:             []string{common.ParGoRootInName, "Var", "Metadata"},
 			Values:           []any{metadata},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
@@ -2055,15 +2055,15 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 
 		// Incompatible value to trigger error in reconstructValue or getValueAtRow
 		valueTable := &layout.Table{
-			Path:             []string{"Parquet_go_root", "Var", "Value"},
+			Path:             []string{common.ParGoRootInName, "Var", "Value"},
 			Values:           []any{struct{ Bad bool }{Bad: true}},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
 		}
 
 		tableMap := map[string]*layout.Table{
-			"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
-			"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    valueTable,
+			common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": metadataTable,
+			common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    valueTable,
 		}
 
 		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
@@ -2080,8 +2080,8 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 
 		r := NewShreddedVariantReconstructor(path, info, &tableMap, sh)
 
-		mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-		vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+		mKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata"
+		vKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value"
 
 		tableBgn := map[string]int{mKey: 0, vKey: 0}
 		tableEnd := map[string]int{mKey: 1, vKey: 1}
@@ -2101,21 +2101,21 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 		// tableMap containing a Variant struct directly (if that's possible in some paths)
 		// Actually reconstructValue returns Variant if it finds Metadata/Value children
 		metadataTable := &layout.Table{
-			Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+			Path:             []string{common.ParGoRootInName, "Var", "Metadata"},
 			Values:           []any{metadata},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
 		}
 		valueTable := &layout.Table{
-			Path:             []string{"Parquet_go_root", "Var", "Value"},
+			Path:             []string{common.ParGoRootInName, "Var", "Value"},
 			Values:           []any{expectedVariant.Value},
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
 		}
 
 		tableMap := map[string]*layout.Table{
-			"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata": metadataTable,
-			"Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value":    valueTable,
+			common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": metadataTable,
+			common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    valueTable,
 		}
 
 		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
@@ -2132,8 +2132,8 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 
 		r := NewShreddedVariantReconstructor(path, info, &tableMap, sh)
 
-		mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-		vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+		mKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata"
+		vKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value"
 
 		tableBgn := map[string]int{mKey: 0, vKey: 0}
 		tableEnd := map[string]int{mKey: 1, vKey: 1}
@@ -2157,17 +2157,17 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		val1 := types.EncodeVariantInt8(1)
 		val2 := types.EncodeVariantInt8(2)
 
-		mKeyInt := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-		vKeyInt := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "List" + common.PAR_GO_PATH_DELIMITER + "Element" + common.PAR_GO_PATH_DELIMITER + "Value"
+		mKeyInt := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element" + common.ParGoPathDelimiter + "Metadata"
+		vKeyInt := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element" + common.ParGoPathDelimiter + "Value"
 
 		metadataTable := &layout.Table{
-			Path:             []string{"Parquet_go_root", "Var", "List", "Element", "Metadata"},
+			Path:             []string{common.ParGoRootInName, "Var", "List", "Element", "Metadata"},
 			Values:           []any{metadata, metadata},
 			RepetitionLevels: []int32{0, 1},
 			DefinitionLevels: []int32{1, 1},
 		}
 		valueTable := &layout.Table{
-			Path:             []string{"Parquet_go_root", "Var", "List", "Element", "Value"},
+			Path:             []string{common.ParGoRootInName, "Var", "List", "Element", "Value"},
 			Values:           []any{val1, val2},
 			RepetitionLevels: []int32{0, 1},
 			DefinitionLevels: []int32{1, 1},
@@ -2194,7 +2194,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 
 		// Manually create reconstructor since it's not a top-level Variant group
 		r := &ShreddedVariantReconstructor{
-			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,
 		}
@@ -2220,8 +2220,8 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		}))
 
 		// Internal paths for repeated struct fields
-		aPath := []string{"Parquet_go_root", "Obj", "A"}
-		bPath := []string{"Parquet_go_root", "Obj", "B"}
+		aPath := []string{common.ParGoRootInName, "Obj", "A"}
+		bPath := []string{common.ParGoRootInName, "Obj", "B"}
 		aKey := common.PathToStr(aPath)
 		bKey := common.PathToStr(bPath)
 
@@ -2241,7 +2241,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		}
 
 		r := &ShreddedVariantReconstructor{
-			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Obj",
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Obj",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,
 		}
@@ -2273,10 +2273,10 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 			} `parquet:"name=Var"`
 		}))
 
-		aKey1 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "A"
+		aKey1 := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "A"
 		tableMap1 := map[string]*layout.Table{
 			aKey1: {
-				Path:             []string{"Parquet_go_root", "Var", "A"},
+				Path:             []string{common.ParGoRootInName, "Var", "A"},
 				Values:           []any{int32(42)},
 				RepetitionLevels: []int32{0},
 				DefinitionLevels: []int32{1},
@@ -2284,7 +2284,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		}
 
 		r1 := &ShreddedVariantReconstructor{
-			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap1,
 			SchemaHandler: sh1,
 		}
@@ -2305,24 +2305,24 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		sh2, _ := schema.NewSchemaHandlerFromStruct(new(struct {
 			Var VarGroup `parquet:"name=Var, type=VARIANT, repetitiontype=REQUIRED"`
 		}))
-		mKey2 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-		vKey2 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+		mKey2 := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata"
+		vKey2 := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value"
 		tableMap2 := map[string]*layout.Table{
 			mKey2: {
-				Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+				Path:             []string{common.ParGoRootInName, "Var", "Metadata"},
 				Values:           []any{string([]byte{0x01, 0x00, 0x00})},
 				RepetitionLevels: []int32{0},
 				DefinitionLevels: []int32{1},
 			},
 			vKey2: {
-				Path:             []string{"Parquet_go_root", "Var", "Value"},
+				Path:             []string{common.ParGoRootInName, "Var", "Value"},
 				Values:           []any{types.EncodeVariantInt32(123)},
 				RepetitionLevels: []int32{0},
 				DefinitionLevels: []int32{1},
 			},
 		}
 		r2 := &ShreddedVariantReconstructor{
-			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap2,
 			SchemaHandler: sh2,
 		}
@@ -2344,9 +2344,9 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		sh3, _ := schema.NewSchemaHandlerFromStruct(new(struct {
 			Var VarGroupTyped `parquet:"name=Var, type=VARIANT, repetitiontype=REQUIRED"`
 		}))
-		tKey3 := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "TypedValue"
+		tKey3 := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "TypedValue"
 		tableMap2[tKey3] = &layout.Table{
-			Path:             []string{"Parquet_go_root", "Var", "TypedValue"},
+			Path:             []string{common.ParGoRootInName, "Var", "TypedValue"},
 			Values:           []any{func() {}}, // Incompatible type for variant encoding
 			RepetitionLevels: []int32{0},
 			DefinitionLevels: []int32{1},
@@ -2354,7 +2354,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		tableBgn2[tKey3], tableEnd2[tKey3] = 0, 1
 
 		r3 := &ShreddedVariantReconstructor{
-			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap2,
 			SchemaHandler: sh3,
 		}
@@ -2369,7 +2369,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 			Var int32 `parquet:"name=Var, type=VARIANT"`
 		}))
 		r := &ShreddedVariantReconstructor{
-			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &map[string]*layout.Table{},
 			SchemaHandler: sh,
 		}
@@ -2380,17 +2380,17 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		require.Nil(t, valNull)
 
 		// Variant direct case
-		mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-		vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+		mKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata"
+		vKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value"
 		tableMap := map[string]*layout.Table{
 			mKey: {
-				Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+				Path:             []string{common.ParGoRootInName, "Var", "Metadata"},
 				Values:           []any{[]byte{0x01, 0x00, 0x00}},
 				RepetitionLevels: []int32{0},
 				DefinitionLevels: []int32{1},
 			},
 			vKey: {
-				Path:             []string{"Parquet_go_root", "Var", "Value"},
+				Path:             []string{common.ParGoRootInName, "Var", "Value"},
 				Values:           []any{types.EncodeVariantInt32(123)},
 				RepetitionLevels: []int32{0},
 				DefinitionLevels: []int32{1},
@@ -2407,17 +2407,17 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
 			Var int32 `parquet:"name=Var, type=INT32"`
 		}))
-		tKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var"
+		tKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var"
 		tableMap := map[string]*layout.Table{
 			tKey: {
-				Path:             []string{"Parquet_go_root", "Var"},
+				Path:             []string{common.ParGoRootInName, "Var"},
 				Values:           []any{int32(123)},
 				RepetitionLevels: []int32{0},
 				DefinitionLevels: []int32{1},
 			},
 		}
 		r := &ShreddedVariantReconstructor{
-			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,
 		}
@@ -2431,19 +2431,19 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
 			Var []int32 `parquet:"name=Var, type=VARIANT, repetitiontype=REPEATED"`
 		}))
-		mKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Metadata"
-		vKey := "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var" + common.PAR_GO_PATH_DELIMITER + "Value"
+		mKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata"
+		vKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value"
 
 		// Metadata and Value as strings, and repeated
 		tableMap := map[string]*layout.Table{
 			mKey: {
-				Path:             []string{"Parquet_go_root", "Var", "Metadata"},
+				Path:             []string{common.ParGoRootInName, "Var", "Metadata"},
 				Values:           []any{string([]byte{0x01, 0x00, 0x00}), string([]byte{0x01, 0x00, 0x00})},
 				RepetitionLevels: []int32{0, 1},
 				DefinitionLevels: []int32{1, 1},
 			},
 			vKey: {
-				Path:             []string{"Parquet_go_root", "Var", "Value"},
+				Path:             []string{common.ParGoRootInName, "Var", "Value"},
 				Values:           []any{string(types.EncodeVariantInt32(111)), string(types.EncodeVariantInt32(222))},
 				RepetitionLevels: []int32{0, 1},
 				DefinitionLevels: []int32{1, 1},
@@ -2451,7 +2451,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		}
 
 		r := &ShreddedVariantReconstructor{
-			Path:          "Parquet_go_root" + common.PAR_GO_PATH_DELIMITER + "Var",
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,
 		}

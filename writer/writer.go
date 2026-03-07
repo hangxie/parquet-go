@@ -50,7 +50,7 @@ type ParquetWriter struct {
 	OffsetIndexes []*parquet.OffsetIndex
 
 	// BloomFilters holds the active bloom filters being built for the current row group.
-	// Key is the column path string (e.g. "Parquet_go_root\x01Name").
+	// Key is the column path string (e.g. common.ParGoRootInName + "\x01Name").
 	BloomFilters map[string]*bloomfilter.Filter
 	// BloomFilterData holds serialized (header+bitset) per column chunk, parallel to ColumnIndexes/OffsetIndexes.
 	BloomFilterData [][]byte

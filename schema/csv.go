@@ -13,7 +13,7 @@ func NewSchemaHandlerFromMetadata(mds []string) (*SchemaHandler, error) {
 	infos := make([]*common.Tag, 0)
 
 	rootSchema := parquet.NewSchemaElement()
-	rootSchema.Name = "Parquet_go_root"
+	rootSchema.Name = common.ParGoRootInName
 	rootNumChildren := int32(len(mds))
 	rootSchema.NumChildren = &rootNumChildren
 	rt := parquet.FieldRepetitionType_REQUIRED
@@ -21,8 +21,8 @@ func NewSchemaHandlerFromMetadata(mds []string) (*SchemaHandler, error) {
 	schemaList = append(schemaList, rootSchema)
 
 	rootInfo := &common.Tag{}
-	rootInfo.InName = "Parquet_go_root"
-	rootInfo.ExName = "parquet_go_root"
+	rootInfo.InName = common.ParGoRootInName
+	rootInfo.ExName = common.ParGoRootExName
 	rootInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
 	infos = append(infos, rootInfo)
 

@@ -44,7 +44,7 @@ func TestMarshalArrow(t *testing.T) {
 	require.Len(t, *result, expectedColumns)
 
 	// Check specific column data
-	idColumn := (*result)[sch.GetRootInName()+common.PAR_GO_PATH_DELIMITER+"Id"]
+	idColumn := (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+"Id"]
 	require.NotNil(t, idColumn)
 	if idColumn != nil {
 		require.Len(t, idColumn.Values, 3)

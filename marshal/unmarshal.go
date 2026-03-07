@@ -57,7 +57,7 @@ func NewShreddedVariantReconstructor(
 
 	// Find all typed_value leaf tables (kept for test compatibility)
 	for tableName, table := range *tableMap {
-		if !strings.HasPrefix(tableName, path+common.PAR_GO_PATH_DELIMITER) {
+		if !strings.HasPrefix(tableName, path+common.ParGoPathDelimiter) {
 			continue
 		}
 		if tableName == metadataPath || (valuePath != "" && tableName == valuePath) {
@@ -65,7 +65,7 @@ func NewShreddedVariantReconstructor(
 		}
 
 		// Also skip if it looks like metadata or value by name (safety/robustness)
-		relPath := strings.TrimPrefix(tableName, path+common.PAR_GO_PATH_DELIMITER)
+		relPath := strings.TrimPrefix(tableName, path+common.ParGoPathDelimiter)
 		if strings.EqualFold(relPath, "Metadata") || strings.EqualFold(relPath, "Value") {
 			continue
 		}
@@ -149,9 +149,9 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 	// 2. Not a leaf, check for children
 	childTables := make(map[string][]*layout.Table)
 	for tableName, table := range *r.tableMap {
-		if strings.HasPrefix(tableName, pathPrefix+common.PAR_GO_PATH_DELIMITER) {
-			relPath := strings.TrimPrefix(tableName, pathPrefix+common.PAR_GO_PATH_DELIMITER)
-			parts := strings.Split(relPath, common.PAR_GO_PATH_DELIMITER)
+		if strings.HasPrefix(tableName, pathPrefix+common.ParGoPathDelimiter) {
+			relPath := strings.TrimPrefix(tableName, pathPrefix+common.ParGoPathDelimiter)
+			parts := strings.Split(relPath, common.ParGoPathDelimiter)
 			childName := parts[0]
 			childTables[childName] = append(childTables[childName], table)
 		}
@@ -177,7 +177,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 		metadataValues := make([]any, 0)
 		metadataSet := false
 		if metaName != "" {
-			mVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+metaName, rowIdx, tableBgn, tableEnd, nil)
+			mVal, err := r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+metaName, rowIdx, tableBgn, tableEnd, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -193,7 +193,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 		valueValues := make([]any, 0)
 		valueSet := false
 		if valueName != "" {
-			vVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+valueName, rowIdx, tableBgn, tableEnd, nil)
+			vVal, err := r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+valueName, rowIdx, tableBgn, tableEnd, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -219,7 +219,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 					effectiveMetadata = []byte(s)
 				}
 			}
-			tVal, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+typedName, rowIdx, tableBgn, tableEnd, effectiveMetadata)
+			tVal, err := r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+typedName, rowIdx, tableBgn, tableEnd, effectiveMetadata)
 			if err != nil {
 				return nil, err
 			}
@@ -348,7 +348,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 		// This handles the A.Value or B.Value case where A is a group with one child.
 		for name := range childTables {
 			if name == "Value" || name == "Typed_value" {
-				return r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+name, rowIdx, tableBgn, tableEnd, metadata)
+				return r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+name, rowIdx, tableBgn, tableEnd, metadata)
 			}
 		}
 	}
@@ -359,21 +359,21 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 		*r.SchemaHandler.SchemaElements[idx].ConvertedType == parquet.ConvertedType_LIST
 
 	if isList {
-		return r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"List", rowIdx, tableBgn, tableEnd, metadata)
+		return r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+"List", rowIdx, tableBgn, tableEnd, metadata)
 	}
 
 	// Handle 3-level list "List" group
-	if strings.HasSuffix(pathPrefix, common.PAR_GO_PATH_DELIMITER+"List") {
-		return r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+"Element", rowIdx, tableBgn, tableEnd, metadata)
+	if strings.HasSuffix(pathPrefix, common.ParGoPathDelimiter+"List") {
+		return r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+"Element", rowIdx, tableBgn, tableEnd, metadata)
 	}
 
 	// Handle "Element" group (repeated)
-	if strings.HasSuffix(pathPrefix, common.PAR_GO_PATH_DELIMITER+"Element") {
+	if strings.HasSuffix(pathPrefix, common.ParGoPathDelimiter+"Element") {
 		// ... existing repeated element logic ...
 		tableValues := make(map[string][]any)
 		maxLen := 0
 		for childName := range childTables {
-			val, err := r.reconstructValue(pathPrefix+common.PAR_GO_PATH_DELIMITER+childName, rowIdx, tableBgn, tableEnd, metadata)
+			val, err := r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+childName, rowIdx, tableBgn, tableEnd, metadata)
 			if err != nil {
 				return nil, err
 			}
@@ -453,7 +453,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 	isRepeated := false
 
 	for childName := range childTables {
-		childPath := pathPrefix + common.PAR_GO_PATH_DELIMITER + childName
+		childPath := pathPrefix + common.ParGoPathDelimiter + childName
 		val, err := r.reconstructValue(childPath, rowIdx, tableBgn, tableEnd, metadata)
 		if err != nil {
 			return nil, err
@@ -489,7 +489,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 					if val != nil {
 						// Use ExName for the field name
 						actualFieldName := childName
-						childPath := pathPrefix + common.PAR_GO_PATH_DELIMITER + childName
+						childPath := pathPrefix + common.ParGoPathDelimiter + childName
 						if idx, ok := r.SchemaHandler.MapIndex[childPath]; ok {
 							actualFieldName = r.SchemaHandler.Infos[idx].ExName
 						}
@@ -508,7 +508,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 		val := slice[0]
 		// Use ExName for the field name
 		actualFieldName := childName
-		childPath := pathPrefix + common.PAR_GO_PATH_DELIMITER + childName
+		childPath := pathPrefix + common.ParGoPathDelimiter + childName
 		if idx, ok := r.SchemaHandler.MapIndex[childPath]; ok {
 			actualFieldName = r.SchemaHandler.Infos[idx].ExName
 		}
@@ -630,7 +630,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 			// Mark all child paths as belonging to this variant
 			for childPath := range tableNeeds {
-				if strings.HasPrefix(childPath, variantPath+common.PAR_GO_PATH_DELIMITER) {
+				if strings.HasPrefix(childPath, variantPath+common.ParGoPathDelimiter) {
 					variantChildPaths[childPath] = variantPath
 				}
 			}
@@ -1176,9 +1176,9 @@ func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaH
 	if pathPrefix != "" {
 		var builder strings.Builder
 		builder.WriteString(pathPrefix)
-		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString(common.ParGoPathDelimiter)
 		builder.WriteString("List")
-		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString(common.ParGoPathDelimiter)
 		builder.WriteString("Element")
 		elementPath = builder.String()
 	}
@@ -1201,17 +1201,17 @@ func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHan
 	if pathPrefix != "" {
 		var builder strings.Builder
 		builder.WriteString(pathPrefix)
-		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString(common.ParGoPathDelimiter)
 		builder.WriteString("Key_value")
-		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString(common.ParGoPathDelimiter)
 		builder.WriteString("Key")
 		keyPath = builder.String()
 
 		builder.Reset()
 		builder.WriteString(pathPrefix)
-		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString(common.ParGoPathDelimiter)
 		builder.WriteString("Key_value")
-		builder.WriteString(common.PAR_GO_PATH_DELIMITER)
+		builder.WriteString(common.ParGoPathDelimiter)
 		builder.WriteString("Value")
 		valuePath = builder.String()
 	}
@@ -1254,7 +1254,7 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 		valType.Field(0).Type.Kind() == reflect.Slice {
 		fieldPath := valType.Field(0).Name
 		if pathPrefix != "" {
-			fieldPath = pathPrefix + common.PAR_GO_PATH_DELIMITER + fieldPath
+			fieldPath = pathPrefix + common.ParGoPathDelimiter + fieldPath
 		}
 		return convertValueToJSONFriendlyWithContext(val.Field(0), schemaHandler, fieldPath, ctx)
 	}
@@ -1293,7 +1293,7 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 
 		fieldPath := field.Name
 		if pathPrefix != "" {
-			fieldPath = pathPrefix + common.PAR_GO_PATH_DELIMITER + fieldPath
+			fieldPath = pathPrefix + common.ParGoPathDelimiter + fieldPath
 		}
 
 		converted, err := convertValueToJSONFriendlyWithContext(fieldVal, schemaHandler, fieldPath, ctx)
@@ -1314,7 +1314,7 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 	rootName := schemaHandler.GetRootInName()
 	expectedSchemaPath := pathPrefix
 	if !strings.HasPrefix(pathPrefix, rootName) {
-		expectedSchemaPath = rootName + common.PAR_GO_PATH_DELIMITER + expectedSchemaPath
+		expectedSchemaPath = rootName + common.ParGoPathDelimiter + expectedSchemaPath
 	}
 
 	var schemaElement *parquet.SchemaElement
