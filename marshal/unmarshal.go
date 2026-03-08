@@ -618,9 +618,19 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 	variantReconstructors := make(map[string]*ShreddedVariantReconstructor)
 	variantChildPaths := make(map[string]string) // maps child path to variant path
 
+	// Determine the Go element type for variant target detection
+	dstElemType := goElementType(reflect.TypeOf(dstInterface))
+
 	if schemaHandler.VariantSchemas != nil {
 		for variantPath, info := range schemaHandler.VariantSchemas {
 			if !strings.HasPrefix(variantPath, prefixPath) {
+				continue
+			}
+
+			// If the Go target field for this variant path is a struct (not types.Variant),
+			// skip reconstruction - let normal struct unmarshaling handle the children
+			goType := goTypeAtSchemaPath(dstElemType, variantPath, prefixPath)
+			if goType != nil && goType.Kind() == reflect.Struct && goType != reflect.TypeOf(types.Variant{}) {
 				continue
 			}
 
@@ -1113,6 +1123,47 @@ func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *sche
 	}
 
 	return fmt.Errorf("could not set variant value at path end")
+}
+
+// goElementType returns the base element type by dereferencing pointers and unwrapping slices/arrays.
+func goElementType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+		t = t.Elem()
+	}
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t
+}
+
+// goTypeAtSchemaPath walks a Go type tree following a schema path to find the Go type
+// at that location. Returns nil if the path cannot be followed.
+func goTypeAtSchemaPath(elemType reflect.Type, schemaPath, prefixPath string) reflect.Type {
+	path := common.StrToPath(schemaPath)
+	prefixIndex := common.PathStrIndex(prefixPath)
+
+	t := elemType
+	for i := prefixIndex; i < len(path); i++ {
+		for t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		if t.Kind() != reflect.Struct {
+			return nil
+		}
+		field, ok := t.FieldByName(path[i])
+		if !ok {
+			return nil
+		}
+		t = field.Type
+	}
+
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t
 }
 
 // ConvertToJSONFriendly converts parquet data to JSON-friendly format by applying logical type conversions

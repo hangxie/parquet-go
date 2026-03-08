@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecodeVariantMetadata_Empty(t *testing.T) {
@@ -2369,4 +2372,269 @@ func TestAnyToVariant_NestedStruct(t *testing.T) {
 	if inner["ID"].(int64) != 123 {
 		t.Errorf("expected 123, got %v", inner["ID"])
 	}
+}
+
+// --- ShredVariant Tests ---
+
+func TestShredVariant_PrimitiveMatch(t *testing.T) {
+	// int64 value with int64 typed_value schema → should route to TypedValue
+	schema := &ShredSchema{TypedValueType: reflect.TypeOf(int64(0))}
+	result, err := ShredVariant(int64(42), schema)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, int64(42), result.TypedValue)
+	require.Nil(t, result.Value) // fully shredded, no Value fallback
+	require.NotEmpty(t, result.Metadata)
+}
+
+func TestShredVariant_PrimitiveMismatch(t *testing.T) {
+	// string value with int64 typed_value schema → should route to Value fallback
+	schema := &ShredSchema{TypedValueType: reflect.TypeOf(int64(0))}
+	result, err := ShredVariant("hello", schema)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, result.TypedValue) // type doesn't match
+	require.NotNil(t, result.Value)   // falls back to Value blob
+}
+
+func TestShredVariant_Null(t *testing.T) {
+	schema := &ShredSchema{TypedValueType: reflect.TypeOf(int64(0))}
+	result, err := ShredVariant(nil, schema)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, result.TypedValue)
+	require.Nil(t, result.Value)
+	require.NotEmpty(t, result.Metadata) // metadata always present
+}
+
+func TestShredVariant_ObjectWithFields(t *testing.T) {
+	// Object with known fields extracted
+	schema := &ShredSchema{
+		ObjectFields: map[string]*ShredSchema{
+			"name": {TypedValueType: reflect.TypeOf("")},
+			"age":  {TypedValueType: reflect.TypeOf(int64(0))},
+		},
+	}
+	input := map[string]any{"name": "Alice", "age": int64(30), "extra": "data"}
+	result, err := ShredVariant(input, schema)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Known fields should be in ObjectFields
+	require.Contains(t, result.ObjectFields, "name")
+	require.Equal(t, "Alice", result.ObjectFields["name"].TypedValue)
+	require.Contains(t, result.ObjectFields, "age")
+	require.Equal(t, int64(30), result.ObjectFields["age"].TypedValue)
+
+	// Unknown field "extra" goes to Value blob
+	require.NotNil(t, result.Value)
+}
+
+func TestShredVariant_ObjectAllKnown(t *testing.T) {
+	// All fields are known → Value should be nil
+	schema := &ShredSchema{
+		ObjectFields: map[string]*ShredSchema{
+			"name": {TypedValueType: reflect.TypeOf("")},
+		},
+	}
+	input := map[string]any{"name": "Bob"}
+	result, err := ShredVariant(input, schema)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, result.ObjectFields, "name")
+	require.Equal(t, "Bob", result.ObjectFields["name"].TypedValue)
+	require.Nil(t, result.Value) // fully shredded, no remainder
+}
+
+func TestShredVariant_Array(t *testing.T) {
+	schema := &ShredSchema{
+		ArrayElement: &ShredSchema{TypedValueType: reflect.TypeOf(int64(0))},
+	}
+	input := []any{int64(1), int64(2), int64(3)}
+	result, err := ShredVariant(input, schema)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.ArrayElements, 3)
+	require.Equal(t, int64(1), result.ArrayElements[0].TypedValue)
+	require.Equal(t, int64(2), result.ArrayElements[1].TypedValue)
+	require.Equal(t, int64(3), result.ArrayElements[2].TypedValue)
+}
+
+func TestShredVariant_ArrayOfObjects(t *testing.T) {
+	schema := &ShredSchema{
+		ArrayElement: &ShredSchema{
+			ObjectFields: map[string]*ShredSchema{
+				"id": {TypedValueType: reflect.TypeOf(int64(0))},
+			},
+		},
+	}
+	input := []any{
+		map[string]any{"id": int64(1), "x": "a"},
+		map[string]any{"id": int64(2)},
+	}
+	result, err := ShredVariant(input, schema)
+	require.NoError(t, err)
+	require.Len(t, result.ArrayElements, 2)
+	require.Equal(t, int64(1), result.ArrayElements[0].ObjectFields["id"].TypedValue)
+	require.NotNil(t, result.ArrayElements[0].Value) // has remainder "x"
+	require.Equal(t, int64(2), result.ArrayElements[1].ObjectFields["id"].TypedValue)
+	require.Nil(t, result.ArrayElements[1].Value) // fully shredded
+}
+
+func TestShredVariant_NestedObjectArray(t *testing.T) {
+	schema := &ShredSchema{
+		ObjectFields: map[string]*ShredSchema{
+			"items": {
+				ArrayElement: &ShredSchema{
+					TypedValueType: reflect.TypeOf(""),
+				},
+			},
+		},
+	}
+	input := map[string]any{
+		"items": []any{"a", "b"},
+	}
+	result, err := ShredVariant(input, schema)
+	require.NoError(t, err)
+	require.Contains(t, result.ObjectFields, "items")
+	items := result.ObjectFields["items"]
+	require.Len(t, items.ArrayElements, 2)
+	require.Equal(t, "a", items.ArrayElements[0].TypedValue)
+	require.Equal(t, "b", items.ArrayElements[1].TypedValue)
+}
+
+func TestShredVariant_BoolTypes(t *testing.T) {
+	schema := &ShredSchema{TypedValueType: reflect.TypeOf(true)}
+	result, err := ShredVariant(true, schema)
+	require.NoError(t, err)
+	require.Equal(t, true, result.TypedValue)
+	require.Nil(t, result.Value)
+}
+
+func TestShredVariant_Float64(t *testing.T) {
+	schema := &ShredSchema{TypedValueType: reflect.TypeOf(float64(0))}
+	result, err := ShredVariant(float64(3.14), schema)
+	require.NoError(t, err)
+	require.Equal(t, float64(3.14), result.TypedValue)
+	require.Nil(t, result.Value)
+}
+
+func TestShredVariant_ObjectMissingField(t *testing.T) {
+	// Schema expects "name" but input doesn't have it
+	schema := &ShredSchema{
+		ObjectFields: map[string]*ShredSchema{
+			"name": {TypedValueType: reflect.TypeOf("")},
+		},
+	}
+	input := map[string]any{"age": int64(30)}
+	result, err := ShredVariant(input, schema)
+	require.NoError(t, err)
+	require.Contains(t, result.ObjectFields, "name")
+	require.Nil(t, result.ObjectFields["name"].TypedValue)
+	require.Nil(t, result.ObjectFields["name"].Value)
+	// The unknown "age" field goes to remainder Value
+	require.NotNil(t, result.Value)
+}
+
+// --- FillShreddedStruct Tests ---
+
+func TestFillShreddedStruct_PrimitiveInt64(t *testing.T) {
+	type Shredded struct {
+		Metadata   string  `parquet:"name=metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value      *string `parquet:"name=value, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		TypedValue *int64  `parquet:"name=typed_value, type=INT64, repetitiontype=OPTIONAL"`
+	}
+
+	schema := &ShredSchema{TypedValueType: reflect.TypeOf(int64(0))}
+	result, err := ShredVariant(int64(42), schema)
+	require.NoError(t, err)
+
+	var dst Shredded
+	err = FillShreddedStruct(result, &dst)
+	require.NoError(t, err)
+	require.NotEmpty(t, dst.Metadata)
+	require.Nil(t, dst.Value)
+	require.NotNil(t, dst.TypedValue)
+	require.Equal(t, int64(42), *dst.TypedValue)
+}
+
+func TestFillShreddedStruct_PrimitiveFallback(t *testing.T) {
+	type Shredded struct {
+		Metadata   string  `parquet:"name=metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value      *string `parquet:"name=value, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		TypedValue *int64  `parquet:"name=typed_value, type=INT64, repetitiontype=OPTIONAL"`
+	}
+
+	schema := &ShredSchema{TypedValueType: reflect.TypeOf(int64(0))}
+	result, err := ShredVariant("hello", schema) // string doesn't match int64
+	require.NoError(t, err)
+
+	var dst Shredded
+	err = FillShreddedStruct(result, &dst)
+	require.NoError(t, err)
+	require.NotEmpty(t, dst.Metadata)
+	require.NotNil(t, dst.Value) // value blob for the string
+	require.Nil(t, dst.TypedValue)
+}
+
+func TestFillShreddedStruct_Null(t *testing.T) {
+	type Shredded struct {
+		Metadata   string  `parquet:"name=metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value      *string `parquet:"name=value, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		TypedValue *int64  `parquet:"name=typed_value, type=INT64, repetitiontype=OPTIONAL"`
+	}
+
+	schema := &ShredSchema{TypedValueType: reflect.TypeOf(int64(0))}
+	result, err := ShredVariant(nil, schema)
+	require.NoError(t, err)
+
+	var dst Shredded
+	err = FillShreddedStruct(result, &dst)
+	require.NoError(t, err)
+	require.NotEmpty(t, dst.Metadata)
+	require.Nil(t, dst.Value)
+	require.Nil(t, dst.TypedValue)
+}
+
+// --- ShredSchemaFromStruct Tests ---
+
+func TestShredSchemaFromStruct_Basic(t *testing.T) {
+	type Shredded struct {
+		Metadata   string  `parquet:"name=metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value      *string `parquet:"name=value, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		TypedValue *int64  `parquet:"name=typed_value, type=INT64, repetitiontype=OPTIONAL"`
+	}
+
+	schema, err := ShredSchemaFromStruct(reflect.TypeOf(Shredded{}))
+	require.NoError(t, err)
+	require.NotNil(t, schema)
+	require.Equal(t, reflect.TypeOf(int64(0)), schema.TypedValueType)
+	require.Nil(t, schema.ObjectFields)
+	require.Nil(t, schema.ArrayElement)
+}
+
+func TestShredSchemaFromStruct_StringTypedValue(t *testing.T) {
+	type Shredded struct {
+		Metadata   string  `parquet:"name=metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value      *string `parquet:"name=value, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		TypedValue *string `parquet:"name=typed_value, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+	}
+
+	schema, err := ShredSchemaFromStruct(reflect.TypeOf(Shredded{}))
+	require.NoError(t, err)
+	require.NotNil(t, schema)
+	require.Equal(t, reflect.TypeOf(""), schema.TypedValueType)
+}
+
+func TestShredSchemaFromStruct_NoTypedValue(t *testing.T) {
+	// Struct without typed_value → nil TypedValueType
+	type Unshredded struct {
+		Metadata string `parquet:"name=metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value    string `parquet:"name=value, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+	}
+
+	schema, err := ShredSchemaFromStruct(reflect.TypeOf(Unshredded{}))
+	require.NoError(t, err)
+	require.NotNil(t, schema)
+	require.Nil(t, schema.TypedValueType)
 }

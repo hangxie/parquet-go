@@ -27,8 +27,11 @@ import (
 // a variant containing {"name": "John", "age": 30} could be shredded into separate
 // typed columns for frequently-occurring fields.
 //
-// Current shredding support:
-//   - Writing: Always produces UNSHREDDED output (metadata + value only)
+// Shredding support:
+//   - Writing: Supports both unshredded (metadata + value only) and shredded output.
+//     For automatic shredding, use ShredVariant() with FillShreddedStruct() to decompose
+//     values into typed columns. For manual shredding, define a struct with metadata,
+//     value, and typed_value fields.
 //   - Reading: Shredded variant reading is implemented. The implementation
 //     reconstructs the full Variant value from metadata, value, and
 //     typed_value columns.
@@ -1230,4 +1233,283 @@ func ReconstructVariant(metadata, value []byte, typedValue any) (Variant, error)
 		Metadata: metadata,
 		Value:    mergedValue,
 	}, nil
+}
+
+// ShredSchema describes how to shred a VARIANT value into typed columns.
+// It defines which Go type the typed_value column expects, and optionally
+// describes object field extraction and array element shredding.
+type ShredSchema struct {
+	// TypedValueType is the Go type for the typed_value column.
+	// If nil, no typed_value extraction is performed at this level.
+	TypedValueType reflect.Type
+
+	// ObjectFields maps field names to their shred schemas for object shredding.
+	// When a variant value is a map[string]any, fields listed here are extracted
+	// into separate typed columns, and any remaining fields stay in the value blob.
+	ObjectFields map[string]*ShredSchema
+
+	// ArrayElement describes the shred schema for each array element.
+	// When a variant value is []any, each element is shredded per this schema.
+	ArrayElement *ShredSchema
+}
+
+// ShredResult holds the result of shredding a variant value.
+type ShredResult struct {
+	// Metadata is the variant metadata bytes (always populated).
+	Metadata []byte
+
+	// Value is the variant value blob for data that couldn't be shredded.
+	// Nil when the value is fully shredded into TypedValue/ObjectFields/ArrayElements.
+	Value []byte
+
+	// TypedValue is the extracted typed value (nil when the value doesn't match
+	// the TypedValueType in the ShredSchema, or when the input is nil).
+	TypedValue any
+
+	// ObjectFields holds shred results for extracted object fields.
+	ObjectFields map[string]*ShredResult
+
+	// ArrayElements holds shred results for array elements.
+	ArrayElements []*ShredResult
+}
+
+// ShredVariant decomposes a Go value into a ShredResult according to the provided schema.
+// The result can be used with FillShreddedStruct to populate a struct for writing.
+//
+// Shredding rules:
+//   - nil: both Value and TypedValue are nil
+//   - Primitive matching TypedValueType: routes to TypedValue
+//   - Primitive not matching: encodes to Value blob
+//   - map[string]any: extracts ObjectFields entries, remainder to Value blob
+//   - []any: shreds each element per ArrayElement schema
+func ShredVariant(value any, s *ShredSchema) (*ShredResult, error) {
+	result := &ShredResult{
+		Metadata: EncodeVariantMetadata(nil),
+	}
+
+	if value == nil {
+		return result, nil
+	}
+
+	// Handle object shredding
+	if s.ObjectFields != nil {
+		if obj, ok := value.(map[string]any); ok {
+			return shredObject(obj, s)
+		}
+	}
+
+	// Handle array shredding
+	if s.ArrayElement != nil {
+		if arr, ok := value.([]any); ok {
+			return shredArray(arr, s)
+		}
+	}
+
+	// Handle primitive shredding
+	if s.TypedValueType != nil {
+		valType := reflect.TypeOf(value)
+		if valType == s.TypedValueType {
+			// Type matches → route to TypedValue
+			result.TypedValue = value
+			return result, nil
+		}
+	}
+
+	// Type doesn't match or no TypedValueType → encode to Value blob
+	v, err := AnyToVariant(value)
+	if err != nil {
+		return nil, fmt.Errorf("shred variant value: %w", err)
+	}
+	result.Metadata = v.Metadata
+	result.Value = v.Value
+	return result, nil
+}
+
+// shredObject handles shredding of map[string]any values.
+func shredObject(obj map[string]any, s *ShredSchema) (*ShredResult, error) {
+	// Collect all keys for metadata
+	keys := make(map[string]struct{})
+	collectKeys(obj, keys)
+
+	fieldNames := make([]string, 0, len(keys))
+	for k := range keys {
+		fieldNames = append(fieldNames, k)
+	}
+	metadata, _ := EncodeVariantMetadataSorted(fieldNames)
+
+	result := &ShredResult{
+		Metadata:     metadata,
+		ObjectFields: make(map[string]*ShredResult, len(s.ObjectFields)),
+	}
+
+	// Separate known and unknown fields
+	remainder := make(map[string]any)
+	for k, v := range obj {
+		if _, known := s.ObjectFields[k]; known {
+			child, err := ShredVariant(v, s.ObjectFields[k])
+			if err != nil {
+				return nil, fmt.Errorf("shred object field %q: %w", k, err)
+			}
+			result.ObjectFields[k] = child
+		} else {
+			remainder[k] = v
+		}
+	}
+
+	// Add nil results for missing known fields
+	for k, fieldSchema := range s.ObjectFields {
+		if _, exists := result.ObjectFields[k]; !exists {
+			child, err := ShredVariant(nil, fieldSchema)
+			if err != nil {
+				return nil, fmt.Errorf("shred nil object field %q: %w", k, err)
+			}
+			result.ObjectFields[k] = child
+		}
+	}
+
+	// Encode remainder to Value blob if any unknown fields exist
+	if len(remainder) > 0 {
+		v, err := EncodeGoValueAsVariantWithMetadata(remainder, metadata)
+		if err != nil {
+			return nil, fmt.Errorf("encode remainder object: %w", err)
+		}
+		result.Value = v
+	}
+
+	return result, nil
+}
+
+// shredArray handles shredding of []any values.
+func shredArray(arr []any, s *ShredSchema) (*ShredResult, error) {
+	result := &ShredResult{
+		Metadata:      EncodeVariantMetadata(nil),
+		ArrayElements: make([]*ShredResult, len(arr)),
+	}
+
+	for i, elem := range arr {
+		child, err := ShredVariant(elem, s.ArrayElement)
+		if err != nil {
+			return nil, fmt.Errorf("shred array element %d: %w", i, err)
+		}
+		result.ArrayElements[i] = child
+	}
+
+	return result, nil
+}
+
+// FillShreddedStruct populates a struct's fields from a ShredResult.
+// The struct must have fields tagged with parquet names matching the standard
+// shredded variant convention: metadata, value, typed_value.
+//
+// Field mapping:
+//   - Metadata field (string): set to string(result.Metadata)
+//   - Value field (*string): set to string(result.Value), nil if no value blob
+//   - TypedValue field (*T): set to result.TypedValue if non-nil
+func FillShreddedStruct(result *ShredResult, dst any) error {
+	v := reflect.ValueOf(dst)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return fmt.Errorf("dst must be a non-nil pointer to struct")
+	}
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return fmt.Errorf("dst must point to a struct, got %v", v.Kind())
+	}
+
+	t := v.Type()
+	for i := range t.NumField() {
+		field := t.Field(i)
+		tagStr := field.Tag.Get("parquet")
+		if tagStr == "" {
+			continue
+		}
+
+		name := extractParquetName(tagStr)
+		fv := v.Field(i)
+
+		switch {
+		case strings.EqualFold(name, "metadata"):
+			if fv.Kind() == reflect.String {
+				fv.SetString(string(result.Metadata))
+			} else if fv.Type() == reflect.TypeOf([]byte(nil)) {
+				fv.SetBytes(result.Metadata)
+			}
+
+		case strings.EqualFold(name, "value"):
+			if result.Value == nil {
+				// Leave as zero value (nil for pointer types)
+				continue
+			}
+			valStr := string(result.Value)
+			if fv.Kind() == reflect.Ptr {
+				ptr := reflect.New(fv.Type().Elem())
+				ptr.Elem().SetString(valStr)
+				fv.Set(ptr)
+			} else if fv.Kind() == reflect.String {
+				fv.SetString(valStr)
+			}
+
+		case strings.EqualFold(name, "typed_value"):
+			if result.TypedValue == nil {
+				continue
+			}
+			tv := reflect.ValueOf(result.TypedValue)
+			if fv.Kind() == reflect.Ptr {
+				ptr := reflect.New(fv.Type().Elem())
+				if tv.Type().ConvertibleTo(fv.Type().Elem()) {
+					ptr.Elem().Set(tv.Convert(fv.Type().Elem()))
+				} else {
+					ptr.Elem().Set(tv)
+				}
+				fv.Set(ptr)
+			} else if tv.Type().ConvertibleTo(fv.Type()) {
+				fv.Set(tv.Convert(fv.Type()))
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractParquetName extracts the "name=..." value from a parquet tag string.
+func extractParquetName(tagStr string) string {
+	for _, part := range strings.Split(tagStr, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "name=") {
+			return strings.TrimPrefix(part, "name=")
+		}
+	}
+	return ""
+}
+
+// ShredSchemaFromStruct derives a ShredSchema from a struct type's parquet tags.
+// It looks for a field named "typed_value" (case-insensitive in the parquet tag)
+// and uses its Go type as the TypedValueType.
+func ShredSchemaFromStruct(t reflect.Type) (*ShredSchema, error) {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("expected struct type, got %v", t.Kind())
+	}
+
+	schema := &ShredSchema{}
+
+	for i := range t.NumField() {
+		field := t.Field(i)
+		tagStr := field.Tag.Get("parquet")
+		if tagStr == "" {
+			continue
+		}
+
+		name := extractParquetName(tagStr)
+		if strings.EqualFold(name, "typed_value") {
+			ft := field.Type
+			for ft.Kind() == reflect.Ptr {
+				ft = ft.Elem()
+			}
+			schema.TypedValueType = ft
+		}
+	}
+
+	return schema, nil
 }
