@@ -9,6 +9,11 @@ GIT_HASH    = $(shell git rev-parse --short HEAD)
 PKG_PREFIX  = github.com/hangxie/parquet-go
 VERSION     = $(shell git describe --tags --always)
 
+TESTDATA_DIR     = $(BUILD_DIR)/testdata
+PARQUET_TESTING  = https://raw.githubusercontent.com/apache/parquet-testing/master/data
+TESTDATA_FILES   = $(TESTDATA_DIR)/datapage_v1-uncompressed-checksum.parquet \
+                   $(TESTDATA_DIR)/datapage_v1-corrupt-checksum.parquet
+
 # go option
 CGO_ENABLED := 0
 GO          ?= go
@@ -61,8 +66,18 @@ clean:  ## Clean up the build dirs
 	@rm -rf $(BUILD_DIR) vendor .venv
 	@find . -name *.parquet | xargs -r rm
 
+.PHONY: testdata
+testdata:  ## Download test data from apache/parquet-testing
+	@mkdir -p $(TESTDATA_DIR)
+	@for f in $(TESTDATA_FILES); do \
+		if [ ! -f "$$f" ]; then \
+			echo "    ==> Downloading $$(basename $$f)"; \
+			curl -sSfL -o "$$f" "$(PARQUET_TESTING)/$$(basename $$f)"; \
+		fi; \
+	done
+
 .PHONY: test
-test: deps tools  ## Run unit tests
+test: deps tools testdata  ## Run unit tests
 	@echo "==> Running unit tests"
 	@mkdir -p $(BUILD_DIR)/test
 	@set -euo pipefail ; \

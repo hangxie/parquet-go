@@ -11,10 +11,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/parquet"
 	"github.com/hangxie/parquet-go/v2/reader"
 	"github.com/hangxie/parquet-go/v2/source/buffer"
 	"github.com/hangxie/parquet-go/v2/source/local"
+)
+
+const (
+	validCRCFile   = "../build/testdata/datapage_v1-uncompressed-checksum.parquet"
+	corruptCRCFile = "../build/testdata/datapage_v1-corrupt-checksum.parquet"
 )
 
 type TestPageRecord struct {
@@ -1154,4 +1160,77 @@ func TestDecodeDictionaryPage_NegativeCases(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "decode dictionary values")
 	})
+}
+
+func testdataAvailable(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat(validCRCFile); os.IsNotExist(err) {
+		t.Skip("test data not available, run 'make testdata' first")
+	}
+}
+
+func TestCRCValidation_ValidFile(t *testing.T) {
+	testdataAvailable(t)
+
+	testCases := map[string]struct {
+		mode common.CRCMode
+	}{
+		"ignore": {common.CRCIgnore},
+		"auto":   {common.CRCAuto},
+		"strict": {common.CRCStrict},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			pf, err := local.NewLocalFileReader(validCRCFile)
+			require.NoError(t, err)
+			defer func() {
+				_ = pf.Close()
+			}()
+
+			pr, err := reader.NewParquetReader(pf, nil, 1,
+				reader.ParquetReaderOptions{CRCMode: tc.mode})
+			require.NoError(t, err)
+			defer func() { _ = pr.ReadStopWithError() }()
+
+			values, _, _, err := pr.ReadColumnByIndex(0, pr.GetNumRows())
+			require.NoError(t, err)
+			require.NotEmpty(t, values)
+		})
+	}
+}
+
+func TestCRCValidation_CorruptFile(t *testing.T) {
+	testdataAvailable(t)
+
+	testCases := map[string]struct {
+		mode   common.CRCMode
+		errMsg string
+	}{
+		"ignore": {common.CRCIgnore, ""},
+		"auto":   {common.CRCAuto, "CRC mismatch"},
+		"strict": {common.CRCStrict, "CRC mismatch"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			pf, err := local.NewLocalFileReader(corruptCRCFile)
+			require.NoError(t, err)
+			defer func() {
+				_ = pf.Close()
+			}()
+
+			pr, err := reader.NewParquetReader(pf, nil, 1,
+				reader.ParquetReaderOptions{CRCMode: tc.mode})
+			require.NoError(t, err)
+			defer func() { _ = pr.ReadStopWithError() }()
+
+			_, _, _, err = pr.ReadColumnByIndex(0, pr.GetNumRows())
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.errMsg)
+			}
+		})
+	}
 }

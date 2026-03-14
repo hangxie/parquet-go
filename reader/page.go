@@ -8,6 +8,7 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
+	"github.com/hangxie/parquet-go/v2/common"
 	"github.com/hangxie/parquet-go/v2/compress"
 	"github.com/hangxie/parquet-go/v2/encoding"
 	"github.com/hangxie/parquet-go/v2/parquet"
@@ -253,7 +254,11 @@ func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChu
 
 // ReadPageData reads and decompresses the data from a page at the given offset
 // Returns the uncompressed page data
-func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec) ([]byte, error) {
+func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, opts ...common.PageReadOptions) ([]byte, error) {
+	var opt common.PageReadOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	// Re-read the header to get exact header size
 	_, headerSize, err := readPageHeader(pFile, offset)
 	if err != nil {
@@ -272,6 +277,10 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 	_, err = pFile.Read(compressedData)
 	if err != nil {
 		return nil, fmt.Errorf("read compressed page data: %w", err)
+	}
+
+	if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), opt.CRCMode, compressedData); err != nil {
+		return nil, fmt.Errorf("CRC validation failed: %w", err)
 	}
 
 	// Decompress the data
@@ -353,7 +362,7 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	}
 
 	// Read and decode the page data
-	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec)
+	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, common.PageReadOptions{CRCMode: pr.CRCMode})
 	if err != nil {
 		return nil, fmt.Errorf("read page data: %w", err)
 	}
