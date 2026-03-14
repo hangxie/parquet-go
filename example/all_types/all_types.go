@@ -353,7 +353,7 @@ func main() {
 	jsonBs, _ := json.Marshal(jsonFriendly)
 	log.Println(string(jsonBs))
 
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }
 

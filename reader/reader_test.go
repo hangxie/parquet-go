@@ -134,7 +134,7 @@ func createNestedParquetData() ([]byte, error) {
 func TestParquetReader_GetNumRows(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer pr.ReadStop()
+	defer func() { _ = pr.ReadStopWithError() }()
 
 	numRows := pr.GetNumRows()
 	require.Equal(t, numRecord, numRows)
@@ -149,7 +149,7 @@ func TestParquetReader_ReadPartial(t *testing.T) {
 	buf := buffer.NewBufferReaderFromBytesNoAlloc(data)
 	pr, err := NewParquetReader(buf, new(NestedRecord), 1)
 	require.NoError(t, err)
-	defer pr.ReadStop()
+	defer func() { _ = pr.ReadStopWithError() }()
 
 	// First, let's check what paths are available in the schema
 	require.NotNil(t, pr.SchemaHandler)
@@ -185,7 +185,7 @@ func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 	buf := buffer.NewBufferReaderFromBytesNoAlloc(data)
 	pr, err := NewParquetReader(buf, new(NestedRecord), 1)
 	require.NoError(t, err)
-	defer pr.ReadStop()
+	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Use any available field path for testing
 	var nameField string
@@ -234,25 +234,25 @@ func TestParquetReader_ReadStop(t *testing.T) {
 	require.NotNil(t, pr.ColumnBuffers)
 	require.NotEmpty(t, pr.ColumnBuffers)
 
-	// Call ReadStop
-	pr.ReadStop()
+	// Call ReadStopWithError
+	_ = pr.ReadStopWithError()
 
 	// Verify that column buffers are properly cleaned up
-	// ReadStop should close all file handles in column buffers
+	// ReadStopWithError should close all file handles in column buffers
 	// We can't easily verify this without exposing internal state
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 
 	// Test ReadStop with nil column buffers
 	pr2, err := parquetReader()
 	require.NoError(t, err)
 	pr2.ColumnBuffers = nil
-	pr2.ReadStop()
+	_ = pr2.ReadStopWithError()
 
 	// Test ReadStop with empty column buffers
 	pr3, err := parquetReader()
 	require.NoError(t, err)
 	pr3.ColumnBuffers = make(map[string]*ColumnBufferType)
-	pr3.ReadStop()
+	_ = pr3.ReadStopWithError()
 }
 
 func TestParquetReader_ReadStopWithError(t *testing.T) {
@@ -291,7 +291,7 @@ func TestParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
 	// Create a simple parquet reader using existing data
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer pr.ReadStop()
+	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Test with invalid JSON first (should fail immediately)
 	invalidJSON := `{"invalid": json}`
@@ -752,58 +752,6 @@ func TestParquetReader_RenameSchema_NilChecks(t *testing.T) {
 	}
 }
 
-func TestParquetReader_SkipRowsByIndex_NilChecks(t *testing.T) {
-	tests := []struct {
-		name   string
-		setup  func() *ParquetReader
-		index  int64
-		expect string
-	}{
-		{
-			name: "nil_schema_handler",
-			setup: func() *ParquetReader {
-				return &ParquetReader{
-					SchemaHandler: nil,
-				}
-			},
-			index:  0,
-			expect: "should handle nil SchemaHandler gracefully",
-		},
-		{
-			name: "nil_value_columns",
-			setup: func() *ParquetReader {
-				return &ParquetReader{
-					SchemaHandler: &schema.SchemaHandler{
-						ValueColumns: nil,
-					},
-				}
-			},
-			index:  0,
-			expect: "should handle nil ValueColumns gracefully",
-		},
-		{
-			name: "index_out_of_bounds",
-			setup: func() *ParquetReader {
-				return &ParquetReader{
-					SchemaHandler: &schema.SchemaHandler{
-						ValueColumns: []string{"col1", "col2"},
-					},
-				}
-			},
-			index:  5,
-			expect: "should handle index out of bounds gracefully",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pr := tt.setup()
-
-			pr.SkipRowsByIndex(tt.index, 1)
-		})
-	}
-}
-
 func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -971,7 +919,7 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	pr, err := NewParquetReader(parquetBuffer, new(Record), 1, opts)
 	require.NoError(t, err)
 	require.True(t, pr.CaseInsensitive)
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 
 	// Test with CaseInsensitive option set to false
 	parquetBuffer2 := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
@@ -979,13 +927,13 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	pr2, err := NewParquetReader(parquetBuffer2, new(Record), 1, opts2)
 	require.NoError(t, err)
 	require.False(t, pr2.CaseInsensitive)
-	pr2.ReadStop()
+	_ = pr2.ReadStopWithError()
 }
 
 func TestParquetReader_Reset(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer pr.ReadStop()
+	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Read first 10 records
 	records1 := make([]Record, 10)
@@ -1034,7 +982,7 @@ func TestParquetReader_Reset(t *testing.T) {
 func TestParquetReader_Reset_MultipleResets(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer pr.ReadStop()
+	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Read and reset multiple times
 	for iteration := range 3 {
@@ -1063,7 +1011,7 @@ func TestParquetReader_Reset_MultipleResets(t *testing.T) {
 func TestParquetReader_Reset_AfterReadAll(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer pr.ReadStop()
+	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Read all records
 	allRecords := make([]Record, numRecord)
@@ -1266,7 +1214,7 @@ func TestNestedListWithEmptyStrings(t *testing.T) {
 				require.Equal(t, expected.Matrix, result[0].Matrix, "Matrix mismatch at row %d", i)
 			}
 
-			pr.ReadStop()
+			_ = pr.ReadStopWithError()
 		})
 	}
 }

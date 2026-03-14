@@ -99,7 +99,7 @@ func main() {
 		}
 		log.Println(stus)
 	}
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	if err = fr.Close(); err != nil {
 		log.Println("Failed to close reader: ", err)
 	}

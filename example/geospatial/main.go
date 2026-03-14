@@ -103,7 +103,7 @@ func main() {
 			fmt.Printf("Column '%s': No geospatial statistics\n", colName)
 		}
 	}
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }
 

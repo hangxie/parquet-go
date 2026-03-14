@@ -67,7 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create parquet reader: %v", err)
 	}
-	defer pr.ReadStop()
+	defer func() { _ = pr.ReadStopWithError() }()
 
 	fmt.Println("\nDetected Schema Attributes:")
 	for _, info := range pr.SchemaHandler.Infos {

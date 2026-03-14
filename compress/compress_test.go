@@ -15,6 +15,7 @@ func TestCompress(t *testing.T) {
 		codec        parquet.CompressionCodec
 		rawData      []byte
 		expectedData []byte
+		errMsg       string
 	}{
 		{
 			name:         "uncompressed-data",
@@ -32,7 +33,7 @@ func TestCompress(t *testing.T) {
 			name:         "uncompressed-nil",
 			codec:        parquet.CompressionCodec_UNCOMPRESSED,
 			rawData:      nil,
-			expectedData: nil, // nil input may return nil for uncompressed codec
+			expectedData: nil,
 		},
 		{
 			name:         "snappy-compression",
@@ -41,30 +42,32 @@ func TestCompress(t *testing.T) {
 			expectedData: nil, // Will be verified by round-trip test
 		},
 		{
-			name:         "unsupported-codec",
-			codec:        parquet.CompressionCodec(-1),
-			rawData:      []byte{1, 2, 3, 4, 5},
-			expectedData: nil,
+			name:    "unsupported-codec",
+			codec:   parquet.CompressionCodec(-1),
+			rawData: []byte{1, 2, 3, 4, 5},
+			errMsg:  "unsupported compress method",
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actualCompressedData := Compress(testCase.rawData, testCase.codec)
+			actualCompressedData, err := CompressWithError(testCase.rawData, testCase.codec)
 
-			if testCase.codec == parquet.CompressionCodec_UNCOMPRESSED {
+			if testCase.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), testCase.errMsg)
+				require.Nil(t, actualCompressedData)
+			} else if testCase.codec == parquet.CompressionCodec_UNCOMPRESSED {
+				require.NoError(t, err)
 				if testCase.name == "uncompressed-nil" {
-					// For nil input, test round-trip decompression
 					decompressed, err := Uncompress(actualCompressedData, testCase.codec)
 					require.NoError(t, err)
 					require.Equal(t, 0, len(decompressed))
 				} else {
 					require.Equal(t, testCase.expectedData, actualCompressedData)
 				}
-			} else if testCase.codec == parquet.CompressionCodec(-1) {
-				require.Nil(t, actualCompressedData)
 			} else {
-				// For real compression codecs, test round-trip
+				require.NoError(t, err)
 				if actualCompressedData != nil {
 					decompressed, err := Uncompress(actualCompressedData, testCase.codec)
 					require.NoError(t, err)
@@ -82,7 +85,8 @@ func TestCompressLargeData(t *testing.T) {
 		largeData[i] = byte(i % 10) // Repeating pattern for better compression
 	}
 
-	compressed := Compress(largeData, parquet.CompressionCodec_SNAPPY)
+	compressed, err := CompressWithError(largeData, parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
 	require.NotNil(t, compressed)
 	require.Less(t, len(compressed), len(largeData))
 
@@ -97,8 +101,10 @@ func TestErrorHandling(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported compress method")
 
-	// Test Compress with unsupported codec returns nil
-	result := Compress([]byte{1, 2, 3}, parquet.CompressionCodec(999))
+	// Test CompressWithError with unsupported codec returns error
+	result, err := CompressWithError([]byte{1, 2, 3}, parquet.CompressionCodec(999))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported compress method")
 	require.Nil(t, result)
 }
 
@@ -197,14 +203,15 @@ func TestDecompressionSizeLimit(t *testing.T) {
 	}
 
 	// Compress with snappy
-	compressed := Compress(testData, parquet.CompressionCodec_SNAPPY)
+	compressed, err := CompressWithError(testData, parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
 	require.NotNil(t, compressed)
 
 	// Set a very small limit
 	SetMaxDecompressedSize(100)
 
 	// Decompression should fail due to size limit
-	_, err := Uncompress(compressed, parquet.CompressionCodec_SNAPPY)
+	_, err = Uncompress(compressed, parquet.CompressionCodec_SNAPPY)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exceeds maximum")
 
@@ -224,7 +231,8 @@ func TestUncompressWithExpectedSize(t *testing.T) {
 	SetMaxDecompressedSize(DefaultMaxDecompressedSize)
 
 	testData := []byte("Hello, World! This is test data for compression.")
-	compressed := Compress(testData, parquet.CompressionCodec_SNAPPY)
+	compressed, err := CompressWithError(testData, parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
 	require.NotNil(t, compressed)
 
 	// Test with correct expected size

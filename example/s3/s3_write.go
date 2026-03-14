@@ -96,7 +96,7 @@ func main() {
 	}
 
 	// close the parquet file
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	err = fr.Close()
 	if err != nil {
 		log.Println("Error closing S3 file reader")

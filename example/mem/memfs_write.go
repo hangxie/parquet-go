@@ -97,7 +97,7 @@ func main() {
 		}
 		log.Println(stus)
 	}
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 
 	// NOTE: you can access the underlying MemFs using ParquetFile.GetMemFileFs()

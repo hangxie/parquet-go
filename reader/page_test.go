@@ -1070,8 +1070,8 @@ func TestReadFirstDataPageHeader_NegativeCases(t *testing.T) {
 	})
 }
 
-func TestReadAllPageHeaders_DeprecatedWrapper(t *testing.T) {
-	// Test the deprecated ReadAllPageHeaders function to ensure it still works
+func TestReadAllPageHeaders_ViaGetAllPageHeaders(t *testing.T) {
+	// Test using the non-deprecated GetAllPageHeaders API
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
@@ -1084,32 +1084,10 @@ func TestReadAllPageHeaders_DeprecatedWrapper(t *testing.T) {
 	require.NotEmpty(t, pr.Footer.RowGroups)
 	require.NotEmpty(t, pr.Footer.RowGroups[0].Columns)
 
-	// Test the deprecated function directly
-	headers, err := reader.ReadAllPageHeaders(pr.PFile, pr.Footer.RowGroups[0].Columns[0])
+	// Use the non-deprecated API
+	headers, err := pr.GetAllPageHeaders(0, 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, headers)
-
-	// Verify the results match GetAllPageHeaders
-	headersViaAPI, err := pr.GetAllPageHeaders(0, 0)
-	require.NoError(t, err)
-	require.Equal(t, len(headers), len(headersViaAPI))
-}
-
-func TestReadAllPageHeaders_NilMetadata(t *testing.T) {
-	// Test ReadAllPageHeaders with nil metadata returns error
-	testFile := getTestParquetFile(t)
-	buf, err := local.NewLocalFileReader(testFile)
-	require.NoError(t, err)
-	defer func() { _ = buf.Close() }()
-
-	// Create a column chunk with nil metadata
-	cc := &parquet.ColumnChunk{
-		MetaData: nil,
-	}
-
-	_, err = reader.ReadAllPageHeaders(buf, cc)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "metadata is nil")
 }
 
 func TestDecodeDictionaryPage_NegativeCases(t *testing.T) {

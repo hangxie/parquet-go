@@ -138,6 +138,6 @@ func main() {
 		tps[0].Decimal4 = types.DECIMAL_BYTE_ARRAY_ToString([]byte(tps[0].Decimal4), 20, 2)
 		log.Println(tps)
 	}
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }

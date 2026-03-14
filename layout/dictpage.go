@@ -55,7 +55,10 @@ func (page *Page) DictPageCompress(compressType parquet.CompressionCodec, pT par
 	if err != nil {
 		return nil, err
 	}
-	var dataEncodeBuf []byte = compress.Compress(dataBuf, compressType)
+	dataEncodeBuf, err := compress.CompressWithError(dataBuf, compressType)
+	if err != nil {
+		return nil, err
+	}
 
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DICTIONARY_PAGE
@@ -211,7 +214,10 @@ func (page *Page) DictDataPageCompress(compressType parquet.CompressionCodec, bi
 	dataBuf = append(dataBuf, definitionLevelBuf...)
 	dataBuf = append(dataBuf, valuesRawBuf...)
 
-	var dataEncodeBuf []byte = compress.Compress(dataBuf, compressType)
+	dataEncodeBuf, err := compress.CompressWithError(dataBuf, compressType)
+	if err != nil {
+		return nil, err
+	}
 
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DATA_PAGE
