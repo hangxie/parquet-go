@@ -626,19 +626,6 @@ func TestReadRowsWithError(t *testing.T) {
 	}
 }
 
-func TestReadRows_DeprecatedWrapper(t *testing.T) {
-	dt := &layout.Table{
-		Values:           []any{int64(1), int64(2), int64(3)},
-		DefinitionLevels: []int32{1, 1, 1},
-		RepetitionLevels: []int32{0, 0, 0},
-	}
-	cb := &ColumnBufferType{Footer: &parquet.FileMetaData{NumRows: 10}, DataTable: dt, DataTableNumRows: 2}
-
-	tbl, n := cb.ReadRows(2)
-	require.Equal(t, int64(2), n)
-	require.NotNil(t, tbl)
-}
-
 func TestSkipRowsWithError(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -747,19 +734,6 @@ func TestSkipRowsWithError(t *testing.T) {
 	}
 }
 
-func TestSkipRows_DeprecatedWrapper(t *testing.T) {
-	dt := &layout.Table{
-		Values:           []any{int64(7), int64(8)},
-		DefinitionLevels: []int32{1, 1},
-		RepetitionLevels: []int32{0, 0},
-	}
-	cb := &ColumnBufferType{Footer: &parquet.FileMetaData{NumRows: 10}, DataTable: dt, DataTableNumRows: 2}
-
-	n := cb.SkipRows(2)
-	require.Equal(t, int64(2), n)
-	require.Equal(t, int64(0), cb.DataTableNumRows)
-}
-
 func TestNewColumnBuffer_FilePathOpenError(t *testing.T) {
 	mockFile := newMockColumnBufferFileReader([]byte{})
 	mockFile.SetOpenFails(true)
@@ -805,7 +779,7 @@ func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 
-	n := cb.SkipRows(1)
+	n, _ := cb.SkipRowsWithError(1)
 	require.Equal(t, int64(0), n)
 }
 

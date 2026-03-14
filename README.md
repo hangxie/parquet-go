@@ -73,8 +73,8 @@ See [geoparquet.md](geoparquet.md) for detailed documentation.
 
 #### API Enhancements
 - `Reset()`: Reset reader to beginning of file
-- `ReadStopWithError()`: Handle errors during ReadStop operations
-- `SkipRowsByIndexWithError()`: Handle errors during SkipRowsByIndex operations
+- `ReadStopWithError()`: Close reader resources with proper error handling
+- `SkipRowsByIndexWithError()`: Skip rows by column index with proper error handling
 - `Clone()`: Clone ParquetFileReader interface for concurrent access
 - Page manipulation functions for advanced use cases
 
@@ -209,7 +209,7 @@ func main() {
     if err != nil {
         log.Fatal("Can't create parquet reader", err)
     }
-    defer pr.ReadStop()
+    defer func() { _ = pr.ReadStopWithError() }()
 
     num := int(pr.GetNumRows())
     students := make([]Student, num)

@@ -96,6 +96,6 @@ func main() {
 
 	log.Println(string(jsonBs))
 
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }

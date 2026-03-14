@@ -444,7 +444,10 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 	}
 
 	dataBuf := slices.Concat(repetitionLevelBuf, definitionLevelBuf, valuesRawBuf)
-	var dataEncodeBuf []byte = compress.Compress(dataBuf, compressType)
+	dataEncodeBuf, err := compress.CompressWithError(dataBuf, compressType)
+	if err != nil {
+		return nil, err
+	}
 
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DATA_PAGE
@@ -532,7 +535,10 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 		}
 	}
 
-	var dataEncodeBuf []byte = compress.Compress(valuesRawBuf, compressType)
+	dataEncodeBuf, err := compress.CompressWithError(valuesRawBuf, compressType)
+	if err != nil {
+		return nil, err
+	}
 
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DATA_PAGE_V2

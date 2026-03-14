@@ -102,17 +102,20 @@ func TestDECIMAL(t *testing.T) {
 func TestINT96(t *testing.T) {
 	t1 := time.Now().Truncate(time.Microsecond).UTC()
 	s := TimeToINT96(t1)
-	t2 := INT96ToTime(s)
+	t2, err := INT96ToTimeWithError(s)
+	require.NoError(t, err)
 	require.True(t, t1.Equal(t2), "INT96 error: expected %v, got %v", t1, t2)
 }
 
 func TestINT96ToTime_InvalidInput(t *testing.T) {
-	// Test deprecated function returns zero time for invalid input
-	result := INT96ToTime("")
-	require.True(t, result.IsZero())
+	// Test that INT96ToTimeWithError returns error for invalid input
+	_, err := INT96ToTimeWithError("")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "too short")
 
-	result = INT96ToTime("short")
-	require.True(t, result.IsZero())
+	_, err = INT96ToTimeWithError("short")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "too short")
 }
 
 func TestINT96ToTimeWithError(t *testing.T) {
@@ -337,7 +340,7 @@ func TestParseDateString(t *testing.T) {
 		name     string
 		input    string
 		expected int32
-		hasError bool
+		errMsg   string
 	}{
 		{
 			name:     "valid_date_epoch",
@@ -355,22 +358,23 @@ func TestParseDateString(t *testing.T) {
 			expected: -1,
 		},
 		{
-			name:     "invalid_format",
-			input:    "01/15/2024",
-			hasError: true,
+			name:   "invalid_format",
+			input:  "01/15/2024",
+			errMsg: "cannot parse",
 		},
 		{
-			name:     "empty_string",
-			input:    "",
-			hasError: true,
+			name:   "empty_string",
+			input:  "",
+			errMsg: "cannot parse",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ParseDateString(tt.input)
-			if tt.hasError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.expected, result)
@@ -384,7 +388,7 @@ func TestParseTimeString(t *testing.T) {
 		name     string
 		input    string
 		expected int64
-		hasError bool
+		errMsg   string
 	}{
 		{
 			name:     "time_millis",
@@ -412,17 +416,18 @@ func TestParseTimeString(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name:     "invalid_format",
-			input:    "12-34-56",
-			hasError: true,
+			name:   "invalid_format",
+			input:  "12-34-56",
+			errMsg: "cannot parse time string",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ParseTimeString(tt.input)
-			if tt.hasError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.expected, result)
@@ -436,7 +441,7 @@ func TestParseIntervalString(t *testing.T) {
 		name     string
 		input    string
 		expected []byte
-		hasError bool
+		errMsg   string
 	}{
 		{
 			name:     "complex_interval",
@@ -464,37 +469,38 @@ func TestParseIntervalString(t *testing.T) {
 			expected: make([]byte, 12),
 		},
 		{
-			name:     "invalid_unit",
-			input:    "5 weeks",
-			hasError: true,
+			name:   "invalid_unit",
+			input:  "5 weeks",
+			errMsg: "unknown interval unit",
 		},
 		{
-			name:     "invalid_months_value",
-			input:    "abc mon",
-			hasError: true,
+			name:   "invalid_months_value",
+			input:  "abc mon",
+			errMsg: "invalid months value",
 		},
 		{
-			name:     "invalid_days_value",
-			input:    "xyz day",
-			hasError: true,
+			name:   "invalid_days_value",
+			input:  "xyz day",
+			errMsg: "invalid days value",
 		},
 		{
-			name:     "invalid_seconds_value",
-			input:    "bad sec",
-			hasError: true,
+			name:   "invalid_seconds_value",
+			input:  "bad sec",
+			errMsg: "invalid seconds value",
 		},
 		{
-			name:     "incomplete_pair",
-			input:    "5",
-			hasError: true,
+			name:   "incomplete_pair",
+			input:  "5",
+			errMsg: "invalid interval format",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ParseIntervalString(tt.input)
-			if tt.hasError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.expected, []byte(result))
@@ -505,9 +511,9 @@ func TestParseIntervalString(t *testing.T) {
 
 func TestParseFloat16String(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		hasError bool
+		name   string
+		input  string
+		errMsg string
 	}{
 		{
 			name:  "positive_float",
@@ -546,17 +552,18 @@ func TestParseFloat16String(t *testing.T) {
 			input: "NaN",
 		},
 		{
-			name:     "invalid",
-			input:    "abc",
-			hasError: true,
+			name:   "invalid",
+			input:  "abc",
+			errMsg: "invalid float16 value",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ParseFloat16String(tt.input)
-			if tt.hasError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				require.NoError(t, err)
 				require.Len(t, result, 2)
@@ -567,9 +574,9 @@ func TestParseFloat16String(t *testing.T) {
 
 func TestParseINT96String(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		hasError bool
+		name   string
+		input  string
+		errMsg string
 	}{
 		{
 			name:  "valid_timestamp",
@@ -580,17 +587,18 @@ func TestParseINT96String(t *testing.T) {
 			input: "1970-01-01T00:00:00Z",
 		},
 		{
-			name:     "invalid_format",
-			input:    "not a timestamp",
-			hasError: true,
+			name:   "invalid_format",
+			input:  "not a timestamp",
+			errMsg: "cannot parse",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ParseINT96String(tt.input)
-			if tt.hasError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				require.NoError(t, err)
 				require.Len(t, result, 12)

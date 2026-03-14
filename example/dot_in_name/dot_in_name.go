@@ -80,7 +80,7 @@ func main() {
 	}
 	log.Println(os)
 
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 
 	///read column by path
@@ -101,6 +101,6 @@ func main() {
 	v3, _, _, _ := pr.ReadColumnByPath("parquet_go_root\x01c", cn)
 	log.Println(v1, v2, v3)
 
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }

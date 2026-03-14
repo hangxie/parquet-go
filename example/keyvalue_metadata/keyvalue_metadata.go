@@ -113,6 +113,6 @@ func main() {
 		log.Println(stus)
 	}
 
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }

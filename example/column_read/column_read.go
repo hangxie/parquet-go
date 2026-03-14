@@ -87,10 +87,10 @@ func main() {
 	log.Println("parquet_go_root.scores_key", scores_key, err)
 	log.Println("parquet_go_root.scores_value", scores_value, err)
 
-	pr.SkipRowsByIndex(2, 5) // skip the first five rows
+	_ = pr.SkipRowsByIndexWithError(2, 5) // skip the first five rows
 	ids, _, _, _ = pr.ReadColumnByIndex(2, num)
 	log.Println(ids)
 
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }

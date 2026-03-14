@@ -77,6 +77,6 @@ func main() {
 	fmt.Printf("OptionalDate %v\n", *dateItem[0].OptionalDate)
 	fmt.Printf("NullDate: %v\n", dateItem[0].NullDate)
 
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }

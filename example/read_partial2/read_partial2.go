@@ -86,6 +86,6 @@ func main() {
 	_ = pr.ReadPartial(&scores, common.ReformPathStr("parquet_go_root.scores"))
 	log.Println(scores)
 
-	pr.ReadStop()
+	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 }
