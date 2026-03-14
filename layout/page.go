@@ -578,9 +578,9 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 }
 
 // This is a test function
-func ReadPage2(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData) (*Page, int64, int64, error) {
+func ReadPage2(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...common.PageReadOptions) (*Page, int64, int64, error) {
 	var err error
-	page, err := ReadPageRawData(thriftReader, schemaHandler, colMetaData)
+	page, err := ReadPageRawData(thriftReader, schemaHandler, colMetaData, opts...)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -595,7 +595,11 @@ func ReadPage2(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sc
 }
 
 // Read page RawData
-func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData) (*Page, error) {
+func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...common.PageReadOptions) (*Page, error) {
+	var opt common.PageReadOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	var err error
 
 	pageHeader, err := ReadPageHeader(thriftReader)
@@ -619,6 +623,10 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	buf := make([]byte, compressedPageSize)
 	if _, err := io.ReadFull(thriftReader, buf); err != nil {
 		return nil, err
+	}
+
+	if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), opt.CRCMode, buf); err != nil {
+		return nil, fmt.Errorf("CRC validation failed: %w", err)
 	}
 
 	page.Header = pageHeader
@@ -1007,7 +1015,11 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 }
 
 // Read page from parquet file
-func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData) (*Page, int64, int64, error) {
+func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...common.PageReadOptions) (*Page, int64, int64, error) {
+	var opt common.PageReadOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	var err error
 
 	pageHeader, err := ReadPageHeader(thriftReader)
@@ -1051,6 +1063,11 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 			return nil, 0, 0, err
 		}
 
+		// Validate CRC on compressed page data
+		if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), opt.CRCMode, repetitionLevelsBuf, definitionLevelsBuf, dataBuf); err != nil {
+			return nil, 0, 0, fmt.Errorf("CRC validation failed: %w", err)
+		}
+
 		codec := colMetaData.GetCodec()
 		if len(dataBuf) > 0 {
 			if dataBuf, err = compress.Uncompress(dataBuf, codec); err != nil {
@@ -1083,6 +1100,9 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 		buf = make([]byte, compressedPageSize)
 		if _, err = io.ReadFull(thriftReader, buf); err != nil {
 			return nil, 0, 0, err
+		}
+		if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), opt.CRCMode, buf); err != nil {
+			return nil, 0, 0, fmt.Errorf("CRC validation failed: %w", err)
 		}
 		codec := colMetaData.GetCodec()
 		if buf, err = compress.Uncompress(buf, codec); err != nil {

@@ -25,6 +25,7 @@ import (
 
 type ParquetReaderOptions struct {
 	CaseInsensitive bool
+	CRCMode         common.CRCMode
 }
 
 type ParquetReader struct {
@@ -41,13 +42,18 @@ type ParquetReader struct {
 
 	// Determines whether case sensitivity is enabled
 	CaseInsensitive bool
+
+	// CRCMode controls CRC validation when reading pages
+	CRCMode common.CRCMode
 }
 
 // Create a parquet reader: obj is a object with schema tags or a JSON schema string
 func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ...ParquetReaderOptions) (*ParquetReader, error) {
 	var caseInsensitive bool
+	var crcMode common.CRCMode
 	if len(opts) > 0 {
 		caseInsensitive = opts[0].CaseInsensitive
+		crcMode = opts[0].CRCMode
 	}
 
 	var err error
@@ -55,6 +61,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 	res.NP = np
 	res.PFile = pFile
 	res.CaseInsensitive = caseInsensitive
+	res.CRCMode = crcMode
 	if err = res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
 	}
@@ -89,7 +96,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 		}
 		if schema.GetNumChildren() == 0 {
 			if pathStr, exists := res.SchemaHandler.IndexMap[int32(i)]; exists {
-				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr); err != nil {
+				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: res.CRCMode}); err != nil {
 					return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 				}
 			}
@@ -112,7 +119,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 		schemaElement := pr.SchemaHandler.SchemaElements[i]
 		if schemaElement.GetNumChildren() == 0 {
 			pathStr := pr.SchemaHandler.IndexMap[int32(i)]
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr); err != nil {
+			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: pr.CRCMode}); err != nil {
 				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 			}
 		}
@@ -222,7 +229,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 	// Ensure column buffers exist
 	for _, pathStr := range pr.SchemaHandler.ValueColumns {
 		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr); err != nil {
+			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: pr.CRCMode}); err != nil {
 				return fmt.Errorf("create column buffer for %s: %w", pathStr, err)
 			}
 		}
@@ -482,7 +489,7 @@ func (pr *ParquetReader) Reset() error {
 
 	// Recreate all column buffers from scratch
 	for pathStr := range pr.ColumnBuffers {
-		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr)
+		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: pr.CRCMode})
 		if err != nil {
 			return fmt.Errorf("recreate column buffer for %s: %w", pathStr, err)
 		}

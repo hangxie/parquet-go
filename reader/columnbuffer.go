@@ -31,9 +31,11 @@ type ColumnBufferType struct {
 
 	DataTable        *layout.Table
 	DataTableNumRows int64
+
+	PageReadOptions common.PageReadOptions
 }
 
-func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string) (*ColumnBufferType, error) {
+func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts ...common.PageReadOptions) (*ColumnBufferType, error) {
 	if pFile == nil {
 		return nil, fmt.Errorf("pFile is nil")
 	}
@@ -57,12 +59,17 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	if err != nil {
 		return nil, err
 	}
+	var opt common.PageReadOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	res := &ColumnBufferType{
 		PFile:            newPFile,
 		Footer:           footer,
 		SchemaHandler:    schemaHandler,
 		PathStr:          pathStr,
 		DataTableNumRows: -1,
+		PageReadOptions:  opt,
 	}
 
 	if err = res.NextRowGroup(); err == io.EOF {
@@ -133,7 +140,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 
 func (cbt *ColumnBufferType) ReadPage() error {
 	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
-		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData)
+		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, cbt.PageReadOptions)
 		if err != nil {
 			// data is nil and rl/dl=0, no pages in file
 			if err == io.EOF && cbt.DataTable == nil && cbt.SchemaHandler != nil &&
@@ -186,7 +193,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 
 func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
-		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData)
+		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, cbt.PageReadOptions)
 		if err != nil {
 			return nil, err
 		}
