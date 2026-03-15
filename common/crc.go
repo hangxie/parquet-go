@@ -48,3 +48,14 @@ func ValidatePageCRC(hasCRC bool, expectedCRC int32, mode CRCMode, pageData ...[
 	}
 	return nil
 }
+
+// ComputePageCRC computes CRC32 (IEEE polynomial) over page data.
+// Multiple byte slices are hashed incrementally without concatenation,
+// consistent with ValidatePageCRC.
+func ComputePageCRC(pageData ...[]byte) uint32 {
+	h := crc32.NewIEEE()
+	for _, d := range pageData {
+		h.Write(d)
+	}
+	return h.Sum32()
+}

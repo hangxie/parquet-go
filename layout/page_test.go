@@ -3790,3 +3790,194 @@ func TestDataPageCompress_OmitStats(t *testing.T) {
 	require.Nil(t, stats.Min)
 	require.Nil(t, stats.NullCount)
 }
+
+func TestDataPageCompress_ReturnsCompressedData(t *testing.T) {
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_INT32),
+			Name: "test_col",
+		},
+		Values:             []any{int32(1), int32(2), int32(3)},
+		DefinitionLevels:   []int32{1, 1, 1},
+		RepetitionLevels:   []int32{0, 0, 0},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 0,
+		Path:               []string{"test_col"},
+	}
+
+	page := NewDataPage()
+	page.DataTable = table
+	page.Schema = table.Schema
+	page.Info = &common.Tag{}
+
+	compressedData, err := page.dataPageCompress(parquet.CompressionCodec_UNCOMPRESSED)
+	require.NoError(t, err)
+	require.NotEmpty(t, compressedData)
+
+	// Header should be populated but RawData should NOT be set
+	require.Equal(t, parquet.PageType_DATA_PAGE, page.Header.Type)
+	require.Positive(t, page.Header.CompressedPageSize)
+	require.Empty(t, page.RawData)
+}
+
+func TestDataPageV2Compress_ReturnsCompressedBuffers(t *testing.T) {
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_INT32),
+			Name: "test_col",
+		},
+		Values:             []any{int32(10), int32(20), int32(30)},
+		DefinitionLevels:   []int32{1, 1, 1},
+		RepetitionLevels:   []int32{0, 0, 0},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 0,
+		Path:               []string{"test_col"},
+	}
+
+	page := NewDataPage()
+	page.DataTable = table
+	page.Schema = table.Schema
+	page.Info = &common.Tag{}
+
+	repLevels, defLevels, compressedValues, err := page.dataPageV2Compress(parquet.CompressionCodec_UNCOMPRESSED)
+	require.NoError(t, err)
+	require.NotEmpty(t, compressedValues)
+	_ = repLevels
+	_ = defLevels
+
+	require.Equal(t, parquet.PageType_DATA_PAGE_V2, page.Header.Type)
+	require.Positive(t, page.Header.CompressedPageSize)
+	require.Empty(t, page.RawData)
+}
+
+func TestSerializePage(t *testing.T) {
+	testCases := []struct {
+		name           string
+		writeCRC       bool
+		compressedData [][]byte
+		expectCRC      bool
+	}{
+		{
+			name:           "without_crc",
+			writeCRC:       false,
+			compressedData: [][]byte{[]byte("compressed-data")},
+			expectCRC:      false,
+		},
+		{
+			name:           "with_crc",
+			writeCRC:       true,
+			compressedData: [][]byte{[]byte("compressed-data")},
+			expectCRC:      true,
+		},
+		{
+			name:           "with_crc_multiple_slices",
+			writeCRC:       true,
+			compressedData: [][]byte{[]byte("rep-levels"), []byte("def-levels"), []byte("values")},
+			expectCRC:      true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			page := NewPage()
+			page.Header.Type = parquet.PageType_DATA_PAGE
+			page.Header.CompressedPageSize = 15
+			page.Header.UncompressedPageSize = 15
+
+			opt := PageWriteOption{
+				WriteCRC: tc.writeCRC,
+			}
+
+			err := serializePage(page, opt, tc.compressedData...)
+			require.NoError(t, err)
+			require.NotEmpty(t, page.RawData)
+
+			if tc.expectCRC {
+				require.True(t, page.Header.IsSetCrc())
+				expectedCRC := common.ComputePageCRC(tc.compressedData...)
+				require.Equal(t, int32(expectedCRC), page.Header.GetCrc())
+			} else {
+				require.False(t, page.Header.IsSetCrc())
+			}
+		})
+	}
+}
+
+func TestTableToDataPagesWithOption(t *testing.T) {
+	testCases := []struct {
+		name      string
+		opt       PageWriteOption
+		expectCRC bool
+	}{
+		{
+			name: "v1_without_crc",
+			opt: PageWriteOption{
+				PageSize:        1024,
+				CompressType:    parquet.CompressionCodec_UNCOMPRESSED,
+				DataPageVersion: 1,
+				WriteCRC:        false,
+			},
+			expectCRC: false,
+		},
+		{
+			name: "v1_with_crc",
+			opt: PageWriteOption{
+				PageSize:        1024,
+				CompressType:    parquet.CompressionCodec_UNCOMPRESSED,
+				DataPageVersion: 1,
+				WriteCRC:        true,
+			},
+			expectCRC: true,
+		},
+		{
+			name: "v2_with_crc",
+			opt: PageWriteOption{
+				PageSize:        1024,
+				CompressType:    parquet.CompressionCodec_UNCOMPRESSED,
+				DataPageVersion: 2,
+				WriteCRC:        true,
+			},
+			expectCRC: true,
+		},
+		{
+			name: "v1_with_snappy_and_crc",
+			opt: PageWriteOption{
+				PageSize:        1024,
+				CompressType:    parquet.CompressionCodec_SNAPPY,
+				DataPageVersion: 1,
+				WriteCRC:        true,
+			},
+			expectCRC: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			table := &Table{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT32),
+					Name: "test_col",
+				},
+				Values:             []any{int32(1), int32(2), int32(3)},
+				DefinitionLevels:   []int32{1, 1, 1},
+				RepetitionLevels:   []int32{0, 0, 0},
+				MaxDefinitionLevel: 1,
+				Info:               &common.Tag{},
+			}
+
+			pages, totalSize, err := TableToDataPagesWithOption(table, tc.opt)
+			require.NoError(t, err)
+			require.NotEmpty(t, pages)
+			require.Positive(t, totalSize)
+
+			for _, page := range pages {
+				require.NotEmpty(t, page.RawData)
+				if tc.expectCRC {
+					require.True(t, page.Header.IsSetCrc(), "expected CRC to be set")
+				} else {
+					require.False(t, page.Header.IsSetCrc(), "expected CRC not to be set")
+				}
+			}
+		})
+	}
+}

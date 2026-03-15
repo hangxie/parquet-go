@@ -1697,3 +1697,100 @@ func TestBloomFilter(t *testing.T) {
 		_ = pr.ReadStopWithError()
 	})
 }
+
+func TestWriteCRC_RoundTrip(t *testing.T) {
+	type testRecord struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Age  int32  `parquet:"name=age, type=INT32"`
+	}
+
+	testCases := []struct {
+		name     string
+		writeCRC bool
+		crcMode  common.CRCMode
+	}{
+		{
+			name:     "crc_enabled_strict_read",
+			writeCRC: true,
+			crcMode:  common.CRCStrict,
+		},
+		{
+			name:     "crc_enabled_auto_read",
+			writeCRC: true,
+			crcMode:  common.CRCAuto,
+		},
+		{
+			name:     "crc_disabled_auto_read",
+			writeCRC: false,
+			crcMode:  common.CRCAuto,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Write
+			pw, buf, err := createTestParquetWriter(new(testRecord), 1)
+			require.NoError(t, err)
+			pw.WriteCRC = tc.writeCRC
+
+			for i := range 10 {
+				require.NoError(t, pw.Write(testRecord{
+					Name: fmt.Sprintf("name_%d", i),
+					Age:  int32(20 + i),
+				}))
+			}
+			require.NoError(t, pw.WriteStop())
+
+			// Read
+			pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+			pr, err := reader.NewParquetReader(pf, new(testRecord), 1,
+				reader.ParquetReaderOptions{CRCMode: tc.crcMode})
+			require.NoError(t, err)
+
+			results := make([]testRecord, 10)
+			require.NoError(t, pr.Read(&results))
+			require.NoError(t, pr.ReadStopWithError())
+			_ = pf.Close()
+
+			require.Len(t, results, 10)
+			for i, r := range results {
+				require.Equal(t, fmt.Sprintf("name_%d", i), r.Name)
+				require.Equal(t, int32(20+i), r.Age)
+			}
+		})
+	}
+}
+
+func TestWriteCRC_DictEncoding_RoundTrip(t *testing.T) {
+	type testRecord struct {
+		Category string `parquet:"name=category, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	}
+
+	// Write with CRC
+	pw, buf, err := createTestParquetWriter(new(testRecord), 1)
+	require.NoError(t, err)
+	pw.WriteCRC = true
+
+	for i := range 20 {
+		require.NoError(t, pw.Write(testRecord{
+			Category: fmt.Sprintf("cat_%d", i%5),
+		}))
+	}
+	require.NoError(t, pw.WriteStop())
+
+	// Read with strict CRC
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := reader.NewParquetReader(pf, new(testRecord), 1,
+		reader.ParquetReaderOptions{CRCMode: common.CRCStrict})
+	require.NoError(t, err)
+
+	results := make([]testRecord, 20)
+	require.NoError(t, pr.Read(&results))
+	require.NoError(t, pr.ReadStopWithError())
+	_ = pf.Close()
+
+	require.Len(t, results, 20)
+	for i, r := range results {
+		require.Equal(t, fmt.Sprintf("cat_%d", i%5), r.Category)
+	}
+}

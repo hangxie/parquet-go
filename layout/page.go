@@ -118,13 +118,59 @@ func NewDataPage() *Page {
 	return page
 }
 
-// Convert a table to data pages
-func TableToDataPages(table *Table, pageSize int32, compressType parquet.CompressionCodec) ([]*Page, int64, error) {
-	return TableToDataPagesWithVersion(table, pageSize, compressType, 1)
+// PageWriteOption consolidates page-level write parameters.
+// This struct is extensible for future features (e.g., encryption).
+type PageWriteOption struct {
+	PageSize        int32
+	CompressType    parquet.CompressionCodec
+	DataPageVersion int32
+	WriteCRC        bool
 }
 
-// Convert a table to data pages with specified version (1 for DATA_PAGE, 2 for DATA_PAGE_V2)
+// serializePage applies optional CRC, serializes the page header via Thrift,
+// and assembles page.RawData from the serialized header and compressed data.
+// This is the shared post-compression pipeline for all page types.
+func serializePage(page *Page, opt PageWriteOption, compressedData ...[]byte) error {
+	if opt.WriteCRC {
+		crc := int32(common.ComputePageCRC(compressedData...))
+		page.Header.Crc = &crc
+	}
+
+	ts := thrift.NewTSerializer()
+	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
+	if err != nil {
+		return err
+	}
+
+	for _, d := range compressedData {
+		pageHeaderBuf = append(pageHeaderBuf, d...)
+	}
+	page.RawData = pageHeaderBuf
+
+	return nil
+}
+
+// Deprecated: Use TableToDataPagesWithOption instead.
+func TableToDataPages(table *Table, pageSize int32, compressType parquet.CompressionCodec) ([]*Page, int64, error) {
+	return TableToDataPagesWithOption(table, PageWriteOption{
+		PageSize:        pageSize,
+		CompressType:    compressType,
+		DataPageVersion: 1,
+	})
+}
+
+// Deprecated: Use TableToDataPagesWithOption instead.
 func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parquet.CompressionCodec, pageVersion int32) ([]*Page, int64, error) {
+	return TableToDataPagesWithOption(table, PageWriteOption{
+		PageSize:        pageSize,
+		CompressType:    compressType,
+		DataPageVersion: pageVersion,
+	})
+}
+
+// TableToDataPagesWithOption converts a table to data pages using the provided options.
+func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int64, error) {
 	var totSize int64 = 0
 	totalLn := len(table.Values)
 	if totalLn == 0 {
@@ -148,7 +194,7 @@ func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parq
 			return nil, 0, fmt.Errorf("find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 		}
 
-		for j < totalLn && size < pageSize {
+		for j < totalLn && size < opt.PageSize {
 			if table.Values[j] == nil {
 				// Check if this is a required field with a value that should be present
 				// DefinitionLevel == MaxDefinitionLevel means we're at a leaf that should have a value
@@ -174,7 +220,7 @@ func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parq
 		}
 
 		page := NewDataPage()
-		page.PageSize = pageSize
+		page.PageSize = opt.PageSize
 		page.Header.DataPageHeader.NumValues = numValues
 		page.Header.Type = parquet.PageType_DATA_PAGE
 
@@ -206,19 +252,28 @@ func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parq
 		}
 
 		page.Schema = table.Schema
-		page.CompressType = compressType
+		page.CompressType = opt.CompressType
 		page.Path = table.Path
 		page.Info = table.Info
 
 		page.computeLevelHistograms()
 
-		if pageVersion == 2 {
-			_, err = page.DataPageV2Compress(compressType)
+		if opt.DataPageVersion == 2 {
+			repLevels, defLevels, compressedValues, compressErr := page.dataPageV2Compress(opt.CompressType)
+			if compressErr != nil {
+				return nil, 0, compressErr
+			}
+			if err = serializePage(page, opt, repLevels, defLevels, compressedValues); err != nil {
+				return nil, 0, err
+			}
 		} else {
-			_, err = page.DataPageCompress(compressType)
-		}
-		if err != nil {
-			return nil, 0, err
+			compressedData, compressErr := page.dataPageCompress(opt.CompressType)
+			if compressErr != nil {
+				return nil, 0, compressErr
+			}
+			if err = serializePage(page, opt, compressedData); err != nil {
+				return nil, 0, err
+			}
 		}
 
 		totSize += int64(len(page.RawData))
@@ -384,8 +439,38 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 	return nil
 }
 
-// Compress the data page to parquet file
+// Deprecated: Use TableToDataPagesWithOption instead.
+//
+// Before (manually build page, compress, then use page.RawData):
+//
+//	page := NewDataPage()
+//	// ... set up page fields from table ...
+//	_, err := page.DataPageCompress(compressType)
+//	// serialized data is in page.RawData
+//
+// After (returns ready-to-use pages with RawData already set):
+//
+//	pages, size, err := TableToDataPagesWithOption(table, PageWriteOption{
+//	    PageSize:     pageSize,
+//	    CompressType: compressType,
+//	})
 func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byte, error) {
+	compressedData, err := page.dataPageCompress(compressType)
+	if err != nil {
+		return nil, err
+	}
+	ts := thrift.NewTSerializer()
+	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
+	if err != nil {
+		return nil, err
+	}
+
+	page.RawData = slices.Concat(pageHeaderBuf, compressedData)
+	return page.RawData, nil
+}
+
+func (page *Page) dataPageCompress(compressType parquet.CompressionCodec) ([]byte, error) {
 	ln := len(page.DataTable.DefinitionLevels)
 
 	// valuesBuf == nil means "up to i, every item in DefinitionLevels was
@@ -464,6 +549,30 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 		return nil, err
 	}
 
+	return dataEncodeBuf, nil
+}
+
+// Deprecated: Use TableToDataPagesWithOption instead.
+//
+// Before (manually build page, compress, then use page.RawData):
+//
+//	page := NewDataPage()
+//	// ... set up page fields from table ...
+//	_, err := page.DataPageV2Compress(compressType)
+//	// serialized data is in page.RawData
+//
+// After (returns ready-to-use pages with RawData already set):
+//
+//	pages, size, err := TableToDataPagesWithOption(table, PageWriteOption{
+//	    PageSize:        pageSize,
+//	    CompressType:    compressType,
+//	    DataPageVersion: 2,
+//	})
+func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]byte, error) {
+	repLevels, defLevels, compressedValues, err := page.dataPageV2Compress(compressType)
+	if err != nil {
+		return nil, err
+	}
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
 	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
@@ -471,14 +580,13 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 		return nil, err
 	}
 
-	res := append(pageHeaderBuf, dataEncodeBuf...)
-	page.RawData = res
-
-	return res, nil
+	page.RawData = slices.Concat(pageHeaderBuf, repLevels, defLevels, compressedValues)
+	return page.RawData, nil
 }
 
-// Compress data page v2 to parquet file
-func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]byte, error) {
+// dataPageV2Compress compresses a data page v2 and populates the page header.
+// Returns (repetitionLevels, definitionLevels, compressedValues, error).
+func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec) ([]byte, []byte, []byte, error) {
 	ln := len(page.DataTable.DefinitionLevels)
 
 	valuesBuf := make([]any, 0)
@@ -488,7 +596,7 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 			// DefinitionLevel == MaxDefinitionLevel means we're at a leaf that should have a value
 			if page.Schema.GetRepetitionType() == parquet.FieldRepetitionType_REQUIRED &&
 				page.DataTable.DefinitionLevels[i] == page.DataTable.MaxDefinitionLevel {
-				return nil, fmt.Errorf("nil value encountered for REQUIRED field %s at index %d", page.DataTable.Path, i)
+				return nil, nil, nil, fmt.Errorf("nil value encountered for REQUIRED field %s at index %d", page.DataTable.Path, i)
 			}
 			// Skip nil values for optional fields
 			continue
@@ -500,7 +608,7 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 	// valuesRawBuf := encoding.WritePlain(valuesBuf)
 	valuesRawBuf, err := page.EncodingValues(valuesBuf)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	var definitionLevelBuf []byte
@@ -513,7 +621,7 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 			int32(bits.Len32(uint32(page.DataTable.MaxDefinitionLevel))),
 			parquet.Type_INT64)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
 
@@ -531,13 +639,13 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 			int32(bits.Len32(uint32(page.DataTable.MaxRepetitionLevel))),
 			parquet.Type_INT64)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
 
 	dataEncodeBuf, err := compress.CompressWithError(valuesRawBuf, compressType)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	page.Header = parquet.NewPageHeader()
@@ -557,24 +665,10 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 
 	page.Header.DataPageHeaderV2.Statistics = parquet.NewStatistics()
 	if err = page.setPageStatistics(page.Header.DataPageHeaderV2.Statistics); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
-	ts := thrift.NewTSerializer()
-	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
-	if err != nil {
-		return nil, err
-	}
-
-	var res []byte
-	res = append(res, pageHeaderBuf...)
-	res = append(res, repetitionLevelBuf...)
-	res = append(res, definitionLevelBuf...)
-	res = append(res, dataEncodeBuf...)
-	page.RawData = res
-
-	return res, nil
+	return repetitionLevelBuf, definitionLevelBuf, dataEncodeBuf, nil
 }
 
 // This is a test function
