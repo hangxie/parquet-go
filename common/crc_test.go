@@ -43,3 +43,34 @@ func TestValidatePageCRC(t *testing.T) {
 		})
 	}
 }
+
+func TestComputePageCRC(t *testing.T) {
+	testCases := map[string]struct {
+		data     [][]byte
+		expected uint32
+	}{
+		"single-slice": {
+			data:     [][]byte{[]byte("hello")},
+			expected: 0x3610A686,
+		},
+		"multiple-slices": {
+			data:     [][]byte{[]byte("hel"), []byte("lo")},
+			expected: 0x3610A686,
+		},
+		"empty": {
+			data:     [][]byte{},
+			expected: 0x00000000,
+		},
+		"nil-slice": {
+			data:     [][]byte{nil, []byte("test")},
+			expected: 0xD87F7E0C,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			result := ComputePageCRC(tc.data...)
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}

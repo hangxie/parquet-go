@@ -31,6 +31,7 @@ type ParquetWriter struct {
 	RowGroupSize    int64
 	CompressionType parquet.CompressionCodec
 	DataPageVersion int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
+	WriteCRC        bool  // compute and write CRC32 checksums on pages (default false)
 	Offset          int64
 
 	Objs              []any
@@ -392,7 +393,11 @@ func (pw *ParquetWriter) flushObjs() error {
 
 						// mutiple goroutines may write to same dict page
 						convMu.Lock()
-						pages, _, localErr := layout.TableToDictDataPages(dictRec, table, int32(pw.PageSize), 32, compressionType)
+						pages, _, localErr := layout.TableToDictDataPagesWithOption(dictRec, table, 32, layout.PageWriteOption{
+							PageSize:     int32(pw.PageSize),
+							CompressType: compressionType,
+							WriteCRC:     pw.WriteCRC,
+						})
 						convMu.Unlock()
 						if localErr != nil {
 							errs[index] = localErr
@@ -400,7 +405,12 @@ func (pw *ParquetWriter) flushObjs() error {
 							pagesMapList[index][name] = pages
 						}
 					} else {
-						pages, _, localErr := layout.TableToDataPagesWithVersion(table, int32(pw.PageSize), compressionType, pw.DataPageVersion)
+						pages, _, localErr := layout.TableToDataPagesWithOption(table, layout.PageWriteOption{
+							PageSize:        int32(pw.PageSize),
+							CompressType:    compressionType,
+							DataPageVersion: pw.DataPageVersion,
+							WriteCRC:        pw.WriteCRC,
+						})
 						if localErr != nil {
 							errs[index] = localErr
 						} else {
@@ -469,7 +479,11 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 					return fmt.Errorf("missing dictionary recorder for column %s", name)
 				}
 				dictRec := v.(*layout.DictRecType)
-				dictPage, _, err := layout.DictRecToDictPage(dictRec, int32(pw.PageSize), compressionType)
+				dictPage, _, err := layout.DictRecToDictPageWithOption(dictRec, layout.PageWriteOption{
+					PageSize:     int32(pw.PageSize),
+					CompressType: compressionType,
+					WriteCRC:     pw.WriteCRC,
+				})
 				if err != nil {
 					return fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)
 				}

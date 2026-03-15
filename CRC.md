@@ -34,7 +34,17 @@ CRC setting.
 
 ## Writer: CRC Computation
 
-*TODO: Define CRC write behavior (see #207).*
+CRC computation on write is controlled by the `WriteCRC` field on
+`ParquetWriter`. When enabled, the writer computes CRC32 (IEEE
+polynomial) over the compressed page data and sets `PageHeader.Crc`
+before serialization. The default is `false` (no CRC written).
 
-The writer should compute CRC32 of the compressed page data and set
-the `Crc` field in `PageHeader` before serialization.
+```go
+pw, _ := writer.NewParquetWriter(pFile, obj, np)
+pw.WriteCRC = true
+```
+
+CRC is computed on all page types: data pages (v1 and v2),
+dictionary pages, and dictionary-encoded data pages. The checksum
+covers the same bytes that the reader validates — the full
+`CompressedPageSize` payload after the page header.
