@@ -459,6 +459,19 @@ func HandleVariant(
 		return stack, true, nil
 	}
 
+	// If the value is a struct (but not types.Variant), delegate to normal struct
+	// marshaling. This enables manual shredding where users provide structs with
+	// Metadata, Value, and typed_value fields that map to the VARIANT children.
+	actualVal := node.Val
+	if actualVal.Kind() == reflect.Ptr {
+		actualVal = actualVal.Elem()
+	}
+	if actualVal.Kind() == reflect.Struct {
+		if _, isVariant := actualVal.Interface().(types.Variant); !isVariant {
+			return stack, false, nil
+		}
+	}
+
 	v, err := types.AnyToVariant(node.Val.Interface())
 	if err != nil {
 		return nil, true, fmt.Errorf("convert to variant: %w", err)

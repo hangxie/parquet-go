@@ -335,3 +335,99 @@ func TestParquetPtrMarshal(t *testing.T) {
 		})
 	}
 }
+
+func TestMarshalVariant_StructBased(t *testing.T) {
+	// Struct-based VARIANT: user provides Metadata/Value/TypedValue fields directly
+	type ShreddedVariant struct {
+		Metadata   string  `parquet:"name=metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value      *string `parquet:"name=value, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		TypedValue *int64  `parquet:"name=typed_value, type=INT64, repetitiontype=OPTIONAL"`
+	}
+	type Record struct {
+		ID   int64           `parquet:"name=id, type=INT64"`
+		Data ShreddedVariant `parquet:"name=data, type=VARIANT"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Record))
+	require.NoError(t, err)
+
+	metaBytes := string(types.EncodeVariantMetadata(nil))
+	valBytes := string(types.EncodeVariantInt64(42))
+	typedVal := int64(42)
+
+	data := []any{
+		Record{
+			ID: 1,
+			Data: ShreddedVariant{
+				Metadata:   metaBytes,
+				Value:      nil,       // fully shredded → no value blob
+				TypedValue: &typedVal, // typed_value populated
+			},
+		},
+		Record{
+			ID: 2,
+			Data: ShreddedVariant{
+				Metadata:   metaBytes,
+				Value:      &valBytes, // fallback value blob
+				TypedValue: nil,       // not matching typed schema
+			},
+		},
+	}
+
+	res, err := Marshal(data, sh)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	root := common.ParGoRootInName + common.ParGoPathDelimiter
+	metadataPath := root + "Data" + common.ParGoPathDelimiter + "Metadata"
+	valuePath := root + "Data" + common.ParGoPathDelimiter + "Value"
+	typedValuePath := root + "Data" + common.ParGoPathDelimiter + "TypedValue"
+
+	require.Contains(t, *res, metadataPath, "metadata table missing")
+	require.Contains(t, *res, valuePath, "value table missing")
+	require.Contains(t, *res, typedValuePath, "typed_value table missing")
+
+	metadataTable := (*res)[metadataPath]
+	valueTable := (*res)[valuePath]
+	typedValueTable := (*res)[typedValuePath]
+
+	// Both rows should have metadata
+	require.Equal(t, 2, len(metadataTable.Values))
+
+	// Row 1: typed_value populated, value nil
+	require.Equal(t, 2, len(typedValueTable.Values))
+	require.Equal(t, 2, len(valueTable.Values))
+
+	// Row 1: TypedValue=42, Value=nil
+	require.NotNil(t, typedValueTable.Values[0])
+	// Row 2: TypedValue=nil, Value=valBytes
+	require.NotNil(t, valueTable.Values[1])
+}
+
+func TestMarshalVariant_StructBased_NilVariant(t *testing.T) {
+	// Pointer to struct: when nil, all children should get nil
+	type ShreddedVariant struct {
+		Metadata   string  `parquet:"name=metadata, type=BYTE_ARRAY, repetitiontype=REQUIRED"`
+		Value      *string `parquet:"name=value, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		TypedValue *int64  `parquet:"name=typed_value, type=INT64, repetitiontype=OPTIONAL"`
+	}
+	type Record struct {
+		Data *ShreddedVariant `parquet:"name=data, type=VARIANT, repetitiontype=OPTIONAL"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Record))
+	require.NoError(t, err)
+
+	data := []any{Record{Data: nil}}
+
+	res, err := Marshal(data, sh)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	root := common.ParGoRootInName + common.ParGoPathDelimiter
+	metadataPath := root + "Data" + common.ParGoPathDelimiter + "Metadata"
+
+	metadataTable := (*res)[metadataPath]
+	require.Equal(t, 1, len(metadataTable.Values))
+	require.Nil(t, metadataTable.Values[0]) // nil variant → nil children
+}
