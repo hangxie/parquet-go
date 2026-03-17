@@ -3965,6 +3965,39 @@ func TestDataPageV2Compress_ReturnsCompressedBuffers(t *testing.T) {
 	require.Empty(t, page.RawData)
 }
 
+func TestDataPageV2Compress_SkipsCompressionWhenNoGain(t *testing.T) {
+	// When compression doesn't reduce size, the writer should store the data
+	// uncompressed and set is_compressed=false. This is standard practice in
+	// other Parquet implementations (e.g., PyArrow).
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_INT32),
+			Name: "test_col",
+		},
+		Values:             []any{int32(10), int32(20), int32(30)},
+		DefinitionLevels:   []int32{1, 1, 1},
+		RepetitionLevels:   []int32{0, 0, 0},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 0,
+		Path:               []string{"test_col"},
+	}
+
+	page := NewDataPage()
+	page.DataTable = table
+	page.Schema = table.Schema
+	page.Info = &common.Tag{}
+
+	_, _, _, err := page.dataPageV2Compress(parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
+
+	// With only 3 small INT32 values, Snappy compression won't reduce size.
+	// The writer should detect this and set IsCompressed=false.
+	require.False(t, page.Header.DataPageHeaderV2.GetIsCompressed(),
+		"expected is_compressed=false when compression does not reduce size")
+	require.Equal(t, page.Header.CompressedPageSize, page.Header.UncompressedPageSize,
+		"compressed and uncompressed sizes should match when data is stored uncompressed")
+}
+
 func TestSerializePage(t *testing.T) {
 	testCases := []struct {
 		name           string
