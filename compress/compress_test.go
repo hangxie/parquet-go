@@ -274,6 +274,92 @@ func TestSetGetMaxDecompressedSize(t *testing.T) {
 	require.Equal(t, int64(DefaultMaxDecompressedSize), GetMaxDecompressedSize())
 }
 
+func TestSetCompressionLevel(t *testing.T) {
+	t.Run("unsupported codec returns error", func(t *testing.T) {
+		resetCompressionUsed()
+		defer resetCompressionUsed()
+		err := SetCompressionLevel(parquet.CompressionCodec_UNCOMPRESSED, 5)
+		require.Error(t, err)
+	})
+
+	t.Run("codec without factory returns error", func(t *testing.T) {
+		resetCompressionUsed()
+		defer resetCompressionUsed()
+		err := SetCompressionLevel(parquet.CompressionCodec_SNAPPY, 5)
+		require.Error(t, err)
+	})
+}
+
+func TestErrCompressionInUse(t *testing.T) {
+	require.ErrorIs(t, ErrCompressionInUse, ErrCompressionInUse)
+}
+
+func TestCompressionUsedGuard(t *testing.T) {
+	resetCompressionUsed()
+	defer resetCompressionUsed()
+
+	// Decompression should NOT set the flag
+	_, _ = Uncompress([]byte{1, 2, 3}, parquet.CompressionCodec_SNAPPY)
+
+	// SetCompressionLevel should still work after decompression
+	// (will fail because no factory for SNAPPY, but should NOT be ErrCompressionInUse)
+	err := SetCompressionLevel(parquet.CompressionCodec_SNAPPY, 5)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrCompressionInUse)
+
+	// Now compress something
+	_, _ = CompressWithError([]byte{1, 2, 3}, parquet.CompressionCodec_SNAPPY)
+
+	// SetCompressionLevel should now return ErrCompressionInUse
+	err = SetCompressionLevel(parquet.CompressionCodec_SNAPPY, 5)
+	require.ErrorIs(t, err, ErrCompressionInUse)
+}
+
+func TestSetCompressionLevelRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name  string
+		codec parquet.CompressionCodec
+		level int
+	}{
+		{"gzip-level-1", parquet.CompressionCodec_GZIP, 1},
+		{"gzip-level-9", parquet.CompressionCodec_GZIP, 9},
+		{"zstd-level-1", parquet.CompressionCodec_ZSTD, 1},
+		{"zstd-level-22", parquet.CompressionCodec_ZSTD, 22},
+		{"brotli-level-0", parquet.CompressionCodec_BROTLI, 0},
+		{"brotli-level-11", parquet.CompressionCodec_BROTLI, 11},
+		{"lz4raw-level-1", parquet.CompressionCodec_LZ4_RAW, 1},
+		{"lz4raw-level-9", parquet.CompressionCodec_LZ4_RAW, 9},
+		{"lz4-level-1", parquet.CompressionCodec_LZ4, 1},
+	}
+
+	input := make([]byte, 1000)
+	for i := range input {
+		input[i] = byte(i % 10)
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			saved := saveCompressor(tc.codec)
+			resetCompressionUsed()
+			defer func() {
+				restoreCompressor(tc.codec, saved)
+				resetCompressionUsed()
+			}()
+
+			err := SetCompressionLevel(tc.codec, tc.level)
+			require.NoError(t, err)
+
+			compressed, err := CompressWithError(input, tc.codec)
+			require.NoError(t, err)
+			require.NotNil(t, compressed)
+
+			decompressed, err := Uncompress(compressed, tc.codec)
+			require.NoError(t, err)
+			require.Equal(t, input, decompressed)
+		})
+	}
+}
+
 func TestLimitedReadAll(t *testing.T) {
 	t.Run("within limit", func(t *testing.T) {
 		data := []byte("hello world")

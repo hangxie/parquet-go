@@ -1,6 +1,7 @@
 package compress
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -56,6 +57,53 @@ type Compressor struct {
 
 var compressors = map[parquet.CompressionCodec]*Compressor{}
 
+// ErrCompressionInUse is returned by SetCompressionLevel when compression has
+// already been used. SetCompressionLevel must be called before any compression.
+var ErrCompressionInUse = errors.New("compression already in use, SetCompressionLevel must be called before any compression")
+
+// compressionUsed tracks whether any compression has occurred. Once set to true,
+// SetCompressionLevel will refuse to modify compressors.
+var compressionUsed atomic.Bool
+
+// compressorFactories maps codecs to functions that create a Compressor at a given level.
+// Each codec file registers its factory in init() if it supports levels.
+var compressorFactories = map[parquet.CompressionCodec]func(level int) (*Compressor, error){}
+
+// resetCompressionUsed resets the compressionUsed flag for testing purposes only.
+func resetCompressionUsed() {
+	compressionUsed.Store(false)
+}
+
+// saveCompressor returns the current compressor for a codec, for test cleanup.
+func saveCompressor(codec parquet.CompressionCodec) *Compressor {
+	return compressors[codec]
+}
+
+// restoreCompressor restores a previously saved compressor for a codec.
+func restoreCompressor(codec parquet.CompressionCodec, c *Compressor) {
+	compressors[codec] = c
+}
+
+// SetCompressionLevel sets the compression level for the specified codec.
+// It must be called before any compression occurs. Returns ErrCompressionInUse
+// if compression has already been used, or an error if the codec does not support
+// levels or the level is invalid.
+func SetCompressionLevel(codec parquet.CompressionCodec, level int) error {
+	if compressionUsed.Load() {
+		return ErrCompressionInUse
+	}
+	factory, ok := compressorFactories[codec]
+	if !ok {
+		return fmt.Errorf("codec %v does not support compression levels", codec)
+	}
+	c, err := factory(level)
+	if err != nil {
+		return fmt.Errorf("set compression level for %v: %w", codec, err)
+	}
+	compressors[codec] = c
+	return nil
+}
+
 // Uncompress decompresses data using the specified compression method.
 // It validates the output size against the configured maximum to prevent
 // decompression bomb attacks.
@@ -110,6 +158,7 @@ func UncompressWithExpectedSize(buf []byte, compressMethod parquet.CompressionCo
 // CompressWithError compresses data using the specified compression method.
 // Returns an error if the compression codec is not supported.
 func CompressWithError(buf []byte, compressMethod parquet.CompressionCodec) ([]byte, error) {
+	compressionUsed.Store(true)
 	c, ok := compressors[compressMethod]
 	if !ok {
 		return nil, fmt.Errorf("unsupported compress method: %v", compressMethod)
