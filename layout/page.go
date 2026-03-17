@@ -648,6 +648,14 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 		return nil, nil, nil, err
 	}
 
+	// If compression didn't reduce size, store data uncompressed and set
+	// is_compressed=false. This is standard practice in Parquet writers
+	// (e.g., PyArrow) to avoid wasting space and CPU on decompression.
+	isCompressed := len(dataEncodeBuf) < len(valuesRawBuf)
+	if !isCompressed {
+		dataEncodeBuf = valuesRawBuf
+	}
+
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DATA_PAGE_V2
 	page.Header.CompressedPageSize = int32(len(dataEncodeBuf) + len(definitionLevelBuf) + len(repetitionLevelBuf))
@@ -661,7 +669,7 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 
 	page.Header.DataPageHeaderV2.DefinitionLevelsByteLength = int32(len(definitionLevelBuf))
 	page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = int32(len(repetitionLevelBuf))
-	page.Header.DataPageHeaderV2.IsCompressed = true
+	page.Header.DataPageHeaderV2.IsCompressed = isCompressed
 
 	page.Header.DataPageHeaderV2.Statistics = parquet.NewStatistics()
 	if err = page.setPageStatistics(page.Header.DataPageHeaderV2.Statistics); err != nil {
