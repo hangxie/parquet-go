@@ -21,4 +21,24 @@ func init() {
 			return dec.DecodeAll(buf, nil)
 		},
 	}
+	compressorFactories[parquet.CompressionCodec_ZSTD] = newZSTDCompressor
+}
+
+func newZSTDCompressor(level int) (*Compressor, error) {
+	enc, err := zstd.NewWriter(nil,
+		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(level)),
+		zstd.WithZeroFrames(true),
+	)
+	if err != nil {
+		return nil, err
+	}
+	dec, _ := zstd.NewReader(nil)
+	return &Compressor{
+		Compress: func(buf []byte) []byte {
+			return enc.EncodeAll(buf, nil)
+		},
+		Uncompress: func(buf []byte) ([]byte, error) {
+			return dec.DecodeAll(buf, nil)
+		},
+	}, nil
 }
