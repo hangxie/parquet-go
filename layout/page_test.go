@@ -2052,6 +2052,121 @@ func TestReadPage(t *testing.T) {
 	}
 }
 
+func TestReadPageV2IsCompressedFalse(t *testing.T) {
+	// Regression test: DATA_PAGE_V2 with is_compressed=false should not
+	// attempt decompression, even when the column's codec is SNAPPY.
+	// Previously, ReadPage unconditionally decompressed V2 data pages,
+	// causing "corrupt input" errors for files written by other libraries
+	// (e.g., PyArrow) that set is_compressed=false.
+	schemaElements := []*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "test_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+	}
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+
+	colMetaData := &parquet.ColumnMetaData{
+		Type:         parquet.Type_INT32,
+		Codec:        parquet.CompressionCodec_SNAPPY,
+		PathInSchema: []string{"test_col"},
+	}
+
+	// Create DATA_PAGE_V2 with is_compressed=false and uncompressed INT32 data
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   8,
+		UncompressedPageSize: 8,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  2,
+			NumNulls:                   0,
+			NumRows:                    2,
+			Encoding:                   parquet.Encoding_PLAIN,
+			DefinitionLevelsByteLength: 0,
+			RepetitionLevelsByteLength: 0,
+			IsCompressed:               false,
+		},
+	}
+
+	transport := thrift.NewTMemoryBufferLen(1024)
+	protocol := thrift.NewTCompactProtocolConf(transport, nil)
+	require.NoError(t, header.Write(context.Background(), protocol))
+	require.NoError(t, protocol.Flush(context.Background()))
+	headerData := transport.Buffer.Bytes()
+
+	var buf bytes.Buffer
+	buf.Write(headerData)
+	// 2 PLAIN INT32 values: 42, 84 (uncompressed)
+	buf.Write([]byte{0x2A, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00})
+
+	mem := thrift.NewTMemoryBufferLen(buf.Len())
+	mem.Buffer.Write(buf.Bytes())
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData)
+	require.NoError(t, err)
+	require.NotNil(t, page)
+	require.Equal(t, parquet.PageType_DATA_PAGE_V2, page.Header.GetType())
+}
+
+func TestProcessDataPageV2IsCompressedFalse(t *testing.T) {
+	// Regression test: processDataPageV2 must not decompress when
+	// is_compressed=false, even when CompressType is SNAPPY.
+	schemaElements := []*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "test_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+	}
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+
+	page := NewDataPage()
+	page.Header = &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   8,
+		UncompressedPageSize: 8,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  2,
+			NumNulls:                   0,
+			NumRows:                    2,
+			Encoding:                   parquet.Encoding_PLAIN,
+			DefinitionLevelsByteLength: 0,
+			RepetitionLevelsByteLength: 0,
+			IsCompressed:               false,
+		},
+	}
+	page.CompressType = parquet.CompressionCodec_SNAPPY
+	page.Path = []string{"parquet_go_root", "test_col"}
+	page.Schema = schemaElements[1]
+	// 2 PLAIN INT32 values: 42, 84 (uncompressed)
+	page.RawData = []byte{0x2A, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00}
+	page.DataTable = &Table{
+		Path:               []string{"parquet_go_root", "test_col"},
+		MaxDefinitionLevel: 0,
+		MaxRepetitionLevel: 0,
+		Values:             make([]any, 2),
+		DefinitionLevels:   []int32{0, 0},
+		RepetitionLevels:   []int32{0, 0},
+	}
+
+	err := page.GetValueFromRawData(schemaHandler)
+	require.NoError(t, err)
+	require.Equal(t, int32(42), page.DataTable.Values[0])
+	require.Equal(t, int32(84), page.DataTable.Values[1])
+}
+
 func TestReadPage2(t *testing.T) {
 	// Create schema handler
 	schemaElements := []*parquet.SchemaElement{
