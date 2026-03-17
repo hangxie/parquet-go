@@ -932,9 +932,11 @@ func (p *Page) processDictionaryPage() error {
 
 // Process data page v2
 func (p *Page) processDataPageV2(schemaHandler *schema.SchemaHandler) error {
-	var err error
-	if p.RawData, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
-		return fmt.Errorf("uncompress data page v2: %w", err)
+	if p.Header.DataPageHeaderV2.GetIsCompressed() {
+		var err error
+		if p.RawData, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
+			return fmt.Errorf("uncompress data page v2: %w", err)
+		}
 	}
 	return p.processDataPage(schemaHandler, p.Header.DataPageHeaderV2.GetEncoding())
 }
@@ -1162,10 +1164,15 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 			return nil, 0, 0, fmt.Errorf("CRC validation failed: %w", err)
 		}
 
-		codec := colMetaData.GetCodec()
-		if len(dataBuf) > 0 {
-			if dataBuf, err = compress.Uncompress(dataBuf, codec); err != nil {
-				return nil, 0, 0, err
+		// DATA_PAGE_V2: only decompress data if is_compressed is true.
+		// Rep/def levels in V2 are always uncompressed; only the values
+		// portion may be compressed, controlled by the is_compressed flag.
+		if pageHeader.DataPageHeaderV2.GetIsCompressed() {
+			codec := colMetaData.GetCodec()
+			if len(dataBuf) > 0 {
+				if dataBuf, err = compress.Uncompress(dataBuf, codec); err != nil {
+					return nil, 0, 0, err
+				}
 			}
 		}
 
