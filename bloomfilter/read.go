@@ -7,7 +7,7 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 // ReadBloomFilter reads a bloom filter from the given ReadSeeker at the specified offset.

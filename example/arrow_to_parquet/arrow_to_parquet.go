@@ -11,9 +11,9 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 func main() {
@@ -64,7 +64,7 @@ func main() {
 	}
 	rec := b.NewRecordBatch()
 
-	w, err := writer.NewArrowWriter(schema, fw, 1)
+	w, err := writer.NewArrowWriter(schema, fw, writer.WithNP(1))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
@@ -86,7 +86,7 @@ func main() {
 		return
 	}
 
-	pr, err := reader.NewParquetReader(fr, nil, 1)
+	pr, err := reader.NewParquetReader(fr, nil, reader.WithNP(1))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return

@@ -6,32 +6,148 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"runtime"
+	"runtime/debug"
 	"sync"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
-	"github.com/hangxie/parquet-go/v2/bloomfilter"
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/bloomfilter"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/compress"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
-// ParquetWriter is a writer  parquet file
+// WriterOption configures a ParquetWriter. Use With* functions to create options.
+type WriterOption func(*writerConfig) error
+
+// writerConfig holds resolved per-writer configuration (unexported).
+type writerConfig struct {
+	np                int64
+	pageSize          int64
+	rowGroupSize      int64
+	compressionType   parquet.CompressionCodec
+	dataPageVersion   int32
+	writeCRC          bool
+	compressionLevels map[parquet.CompressionCodec]int
+}
+
+const (
+	maxPageSize     = 1<<31 - 1 // Thrift page header uses i32
+	maxRowGroupSize = 1 << 35   // ~34 GB practical memory bound
+)
+
+func defaultWriterConfig() writerConfig {
+	return writerConfig{
+		np:              4,
+		pageSize:        common.DefaultPageSize,
+		rowGroupSize:    common.DefaultRowGroupSize,
+		compressionType: parquet.CompressionCodec_SNAPPY,
+		dataPageVersion: 1,
+		writeCRC:        false,
+	}
+}
+
+// WithNP sets the number of goroutines for parallel page encoding.
+func WithNP(n int64) WriterOption {
+	return func(c *writerConfig) error {
+		if n < 1 {
+			return fmt.Errorf("NP must be >= 1, got %d", n)
+		}
+		c.np = n
+		return nil
+	}
+}
+
+// WithPageSize sets the target uncompressed page size in bytes.
+func WithPageSize(n int64) WriterOption {
+	return func(c *writerConfig) error {
+		if n <= 0 || n > maxPageSize {
+			return fmt.Errorf("page size must be between 1 and %d, got %d", maxPageSize, n)
+		}
+		c.pageSize = n
+		return nil
+	}
+}
+
+// WithRowGroupSize sets the target row group size in bytes.
+func WithRowGroupSize(n int64) WriterOption {
+	return func(c *writerConfig) error {
+		if n <= 0 || n > maxRowGroupSize {
+			return fmt.Errorf("row group size must be between 1 and %d, got %d", maxRowGroupSize, n)
+		}
+		c.rowGroupSize = n
+		return nil
+	}
+}
+
+// WithCompressionType sets the compression codec for this writer.
+func WithCompressionType(codec parquet.CompressionCodec) WriterOption {
+	return func(c *writerConfig) error {
+		if compress.DefaultCompressor(codec) == nil {
+			return fmt.Errorf("unsupported compression codec %v (%d); available: UNCOMPRESSED, SNAPPY, GZIP, LZ4, LZ4_RAW, ZSTD, BROTLI", codec, int32(codec))
+		}
+		c.compressionType = codec
+		return nil
+	}
+}
+
+// WithDataPageVersion sets the data page version (1 or 2).
+func WithDataPageVersion(v int32) WriterOption {
+	return func(c *writerConfig) error {
+		if v != 1 && v != 2 {
+			return fmt.Errorf("data page version must be 1 or 2, got %d", v)
+		}
+		c.dataPageVersion = v
+		return nil
+	}
+}
+
+// WithWriteCRC enables or disables CRC32 checksum computation on pages.
+func WithWriteCRC(b bool) WriterOption {
+	return func(c *writerConfig) error {
+		c.writeCRC = b
+		return nil
+	}
+}
+
+// WithCompressionLevel sets a per-codec compression level for this writer.
+// Call multiple times for different codecs. Codecs not configured here fall
+// back to the codec-specific built-in default level (e.g., gzip.DefaultCompression
+// for GZIP, zstd.SpeedDefault for ZSTD).
+//
+// Compressors created via this option are concurrency-safe: each compression
+// call allocates fresh state, so multiple goroutines may write pages in
+// parallel without additional synchronization.
+func WithCompressionLevel(codec parquet.CompressionCodec, level int) WriterOption {
+	return func(c *writerConfig) error {
+		if c.compressionLevels == nil {
+			c.compressionLevels = make(map[parquet.CompressionCodec]int)
+		}
+		c.compressionLevels[codec] = level
+		return nil
+	}
+}
+
+// ParquetWriter is a writer for parquet files.
+// Do not mutate exported fields after construction; doing so causes
+// data races and undefined behavior. Use With* options at construction time.
 type ParquetWriter struct {
 	SchemaHandler *schema.SchemaHandler
-	NP            int64 // parallel number
 	Footer        *parquet.FileMetaData
 	PFile         source.ParquetFileWriter
 
-	PageSize        int64
-	RowGroupSize    int64
-	CompressionType parquet.CompressionCodec
-	DataPageVersion int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
-	WriteCRC        bool  // compute and write CRC32 checksums on pages (default false)
+	np              int64
+	pageSize        int64
+	rowGroupSize    int64
+	compressionType parquet.CompressionCodec
+	dataPageVersion int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
+	writeCRC        bool  // compute and write CRC32 checksums on pages (default false)
 	Offset          int64
 
 	Objs              []any
@@ -58,54 +174,110 @@ type ParquetWriter struct {
 
 	MarshalFunc func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error)
 
-	stopped            bool
-	encodingsValidated bool // tracks if encoding/version validation has been done
+	compressors map[parquet.CompressionCodec]*compress.Compressor // per-writer compressor instances
+
+	stopped       bool
+	headerWritten bool
 }
 
-func NewParquetWriterFromWriter(w io.Writer, obj any, np int64) (*ParquetWriter, error) {
+// NP returns the number of parallel goroutines for page encoding.
+func (pw *ParquetWriter) NP() int64 { return pw.np }
+
+// PageSize returns the target uncompressed page size in bytes.
+func (pw *ParquetWriter) PageSize() int64 { return pw.pageSize }
+
+// RowGroupSize returns the target row group size in bytes.
+func (pw *ParquetWriter) RowGroupSize() int64 { return pw.rowGroupSize }
+
+// CompressionType returns the compression codec for this writer.
+func (pw *ParquetWriter) CompressionType() parquet.CompressionCodec { return pw.compressionType }
+
+// DataPageVersion returns the data page version (1 or 2).
+func (pw *ParquetWriter) DataPageVersion() int32 { return pw.dataPageVersion }
+
+// WriteCRC returns whether CRC32 checksum computation is enabled.
+func (pw *ParquetWriter) WriteCRC() bool { return pw.writeCRC }
+
+func createdByString() string {
+	version := "v3-dev"
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+	return fmt.Sprintf("parquet-go version %s (build %s)", version, runtime.Version())
+}
+
+func applyWriterConfig(pw *ParquetWriter, cfg writerConfig) {
+	pw.np = cfg.np
+	pw.pageSize = cfg.pageSize
+	pw.rowGroupSize = cfg.rowGroupSize
+	pw.compressionType = cfg.compressionType
+	pw.dataPageVersion = cfg.dataPageVersion
+	pw.writeCRC = cfg.writeCRC
+
+	pw.PagesMapBuf = make(map[string][]*layout.Page)
+	pw.ColumnIndexes = make([]*parquet.ColumnIndex, 0)
+	pw.OffsetIndexes = make([]*parquet.OffsetIndex, 0)
+	pw.Offset = 4
+	pw.Footer = parquet.NewFileMetaData()
+	pw.Footer.Version = 2
+	pw.Footer.CreatedBy = common.ToPtr(createdByString())
+	pw.stopped = true
+}
+
+func (pw *ParquetWriter) createCompressors(cfg writerConfig) error {
+	if cfg.compressionLevels == nil {
+		return nil
+	}
+	pw.compressors = make(map[parquet.CompressionCodec]*compress.Compressor, len(cfg.compressionLevels))
+	for codec, level := range cfg.compressionLevels {
+		c, err := compress.NewCompressor(codec, level)
+		if err != nil {
+			return fmt.Errorf("create compressor for codec %v at level %d: %w", codec, level, err)
+		}
+		pw.compressors[codec] = c
+	}
+	return nil
+}
+
+// NewParquetWriterFromWriter creates a ParquetWriter that writes to an io.Writer.
+func NewParquetWriterFromWriter(w io.Writer, obj any, opts ...WriterOption) (*ParquetWriter, error) {
 	wf := writerfile.NewWriterFile(w)
-	return NewParquetWriter(wf, obj, np)
+	return NewParquetWriter(wf, obj, opts...)
 }
 
-// Create a parquet handler. Obj is a object with tags or JSON schema string.
-func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*ParquetWriter, error) {
-	var err error
+// NewParquetWriter creates a parquet writer. Obj is an object with tags,
+// a JSON schema string, a *schema.SchemaHandler, or []*parquet.SchemaElement.
+// Pass nil for obj to set the schema later via SetSchemaHandlerFromJSON.
+func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error) {
+	cfg := defaultWriterConfig()
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return nil, fmt.Errorf("apply writer option: %w", err)
+		}
+	}
+
+	// Cross-validate
+	if cfg.rowGroupSize < cfg.pageSize {
+		return nil, fmt.Errorf("row group size (%d) must be >= page size (%d)", cfg.rowGroupSize, cfg.pageSize)
+	}
 
 	res := new(ParquetWriter)
-	res.NP = np
-	res.PageSize = common.DefaultPageSize         // 8K
-	res.RowGroupSize = common.DefaultRowGroupSize // 128M
-	res.CompressionType = parquet.CompressionCodec_SNAPPY
-	res.DataPageVersion = 1 // default to DATA_PAGE (V1)
-	res.ObjsSize = 0
-	res.CheckSizeCritical = 0
-	res.Size = 0
-	res.NumRows = 0
-	res.Offset = 4
+	applyWriterConfig(res, cfg)
 	res.PFile = pFile
-	res.PagesMapBuf = make(map[string][]*layout.Page)
-	// DictRecs sync.Map zero value is ready to use
-	res.Footer = parquet.NewFileMetaData()
-	res.Footer.Version = 2
-	res.ColumnIndexes = make([]*parquet.ColumnIndex, 0)
-	res.OffsetIndexes = make([]*parquet.OffsetIndex, 0)
-	// include the createdBy to avoid
-	// WARN  CorruptStatistics:118 - Ignoring statistics because created_by is null or empty! See PARQUET-251 and PARQUET-297
-	res.Footer.CreatedBy = common.ToPtr("github.com/hangxie/parquet-go v2 latest")
-	_, err = res.PFile.Write([]byte("PAR1"))
-	if err != nil {
-		return nil, fmt.Errorf("write magic header: %w", err)
+
+	if err := res.createCompressors(cfg); err != nil {
+		return nil, err
 	}
+
 	res.MarshalFunc = marshal.Marshal
-	res.stopped = true
 
 	if obj != nil {
+		var err error
 		if sa, ok := obj.(string); ok {
-			// SetSchemaHandlerFromJSON handles Footer.Schema internally
+			// SetSchemaHandlerFromJSON handles validation, PAR1 write, and bloom filter init
 			err = res.SetSchemaHandlerFromJSON(sa)
 			if err != nil {
-				res.stopped = true
-				return res, fmt.Errorf("set schema from JSON: %w", err)
+				return nil, fmt.Errorf("set schema from JSON: %w", err)
 			}
 		} else {
 			if sa, ok := obj.(*schema.SchemaHandler); ok {
@@ -114,19 +286,25 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*Parqu
 				res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
 			} else {
 				if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
-					return res, fmt.Errorf("build schema handler: %w", err)
+					return nil, fmt.Errorf("build schema handler: %w", err)
 				}
 			}
 			res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
+
+			if err := res.SchemaHandler.ValidateEncodingsForDataPageVersion(res.dataPageVersion); err != nil {
+				return nil, fmt.Errorf("encoding validation: %w", err)
+			}
+
+			if _, err := res.PFile.Write([]byte("PAR1")); err != nil {
+				return nil, fmt.Errorf("write magic header: %w", err)
+			}
+			res.headerWritten = true
+			res.initBloomFilters()
 		}
 	}
 
-	res.initBloomFilters()
-
-	// Enable writing after init completed successfully
 	res.stopped = false
-
-	return res, err
+	return res, nil
 }
 
 func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
@@ -136,6 +314,19 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	}
 	pw.Footer.Schema = pw.Footer.Schema[:0]
 	pw.Footer.Schema = append(pw.Footer.Schema, pw.SchemaHandler.SchemaElements...)
+
+	if err := pw.SchemaHandler.ValidateEncodingsForDataPageVersion(pw.dataPageVersion); err != nil {
+		return fmt.Errorf("encoding validation: %w", err)
+	}
+
+	// Write deferred magic header if not yet written (obj was nil at construction)
+	if !pw.headerWritten {
+		if _, err := pw.PFile.Write([]byte("PAR1")); err != nil {
+			return fmt.Errorf("write magic header: %w", err)
+		}
+		pw.headerWritten = true
+	}
+	pw.initBloomFilters()
 	return nil
 }
 
@@ -280,14 +471,6 @@ func (pw *ParquetWriter) Write(src any) error {
 		return fmt.Errorf("writer stopped")
 	}
 
-	// Validate encodings are compatible with data page version (once per writer)
-	if !pw.encodingsValidated {
-		if err := pw.SchemaHandler.ValidateEncodingsForDataPageVersion(pw.DataPageVersion); err != nil {
-			return fmt.Errorf("encoding validation: %w", err)
-		}
-		pw.encodingsValidated = true
-	}
-
 	var err error
 	ln := int64(len(pw.Objs))
 
@@ -303,7 +486,7 @@ func (pw *ParquetWriter) Write(src any) error {
 	pw.ObjsSize += pw.ObjSize
 	pw.Objs = append(pw.Objs, src)
 
-	criSize := pw.NP * pw.PageSize * pw.SchemaHandler.GetColumnNum()
+	criSize := pw.np * pw.pageSize * pw.SchemaHandler.GetColumnNum()
 
 	if pw.ObjsSize >= criSize {
 		err = pw.Flush(false)
@@ -323,21 +506,21 @@ func (pw *ParquetWriter) flushObjs() error {
 	if l <= 0 {
 		return nil
 	}
-	pagesMapList := make([]map[string][]*layout.Page, pw.NP)
-	for i := range int(pw.NP) {
+	pagesMapList := make([]map[string][]*layout.Page, pw.np)
+	for i := range int(pw.np) {
 		pagesMapList[i] = make(map[string][]*layout.Page)
 	}
 
-	delta := (l + pw.NP - 1) / pw.NP
+	delta := (l + pw.np - 1) / pw.np
 	// layout.TableTo(Data|Dict)Pages appears not to be thread-safe; guard calls
 	// with a conversion mutex to avoid races observed in tests.
 	var convMu sync.Mutex
 	// bloomMu protects bloom filter Insert calls from concurrent goroutines.
 	var bloomMu sync.Mutex
 	var wg sync.WaitGroup
-	var errs []error = make([]error, pw.NP)
+	var errs []error = make([]error, pw.np)
 
-	for c := range pw.NP {
+	for c := range pw.np {
 		bgn := c * delta
 		end := bgn + delta
 		if end > l {
@@ -374,7 +557,7 @@ func (pw *ParquetWriter) flushObjs() error {
 					}
 
 					// Use per-column compression if specified, otherwise fall back to file-level compression
-					compressionType := pw.CompressionType
+					compressionType := pw.compressionType
 					if table.Info != nil && table.Info.CompressionType != nil {
 						compressionType = *table.Info.CompressionType
 					}
@@ -393,10 +576,11 @@ func (pw *ParquetWriter) flushObjs() error {
 
 						// mutiple goroutines may write to same dict page
 						convMu.Lock()
-						pages, _, localErr := layout.TableToDictDataPagesWithOption(dictRec, table, 32, layout.PageWriteOption{
-							PageSize:     int32(pw.PageSize),
+						pages, _, localErr := layout.TableToDictDataPages(dictRec, table, 32, layout.PageWriteOption{
+							PageSize:     int32(pw.pageSize),
 							CompressType: compressionType,
-							WriteCRC:     pw.WriteCRC,
+							WriteCRC:     pw.writeCRC,
+							Compressors:  pw.compressors,
 						})
 						convMu.Unlock()
 						if localErr != nil {
@@ -405,11 +589,12 @@ func (pw *ParquetWriter) flushObjs() error {
 							pagesMapList[index][name] = pages
 						}
 					} else {
-						pages, _, localErr := layout.TableToDataPagesWithOption(table, layout.PageWriteOption{
-							PageSize:        int32(pw.PageSize),
+						pages, _, localErr := layout.TableToDataPages(table, layout.PageWriteOption{
+							PageSize:        int32(pw.pageSize),
 							CompressType:    compressionType,
-							DataPageVersion: pw.DataPageVersion,
-							WriteCRC:        pw.WriteCRC,
+							DataPageVersion: pw.dataPageVersion,
+							WriteCRC:        pw.writeCRC,
+							Compressors:     pw.compressors,
 						})
 						if localErr != nil {
 							errs[index] = localErr
@@ -461,12 +646,12 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 		return fmt.Errorf("flush objects during flush: %w", err)
 	}
 
-	if (pw.Size+pw.ObjsSize >= pw.RowGroupSize || flag) && len(pw.PagesMapBuf) > 0 {
+	if (pw.Size+pw.ObjsSize >= pw.rowGroupSize || flag) && len(pw.PagesMapBuf) > 0 {
 		// pages -> chunk
 		chunkMap := make(map[string]*layout.Chunk)
 		for name, pages := range pw.PagesMapBuf {
 			// Determine compression type for this column
-			compressionType := pw.CompressionType
+			compressionType := pw.compressionType
 			if idx, ok := pw.SchemaHandler.MapIndex[name]; ok {
 				if info := pw.SchemaHandler.Infos[idx]; info != nil && info.CompressionType != nil {
 					compressionType = *info.CompressionType
@@ -479,10 +664,11 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 					return fmt.Errorf("missing dictionary recorder for column %s", name)
 				}
 				dictRec := v.(*layout.DictRecType)
-				dictPage, _, err := layout.DictRecToDictPageWithOption(dictRec, layout.PageWriteOption{
-					PageSize:     int32(pw.PageSize),
+				dictPage, _, err := layout.DictRecToDictPage(dictRec, layout.PageWriteOption{
+					PageSize:     int32(pw.pageSize),
 					CompressType: compressionType,
-					WriteCRC:     pw.WriteCRC,
+					WriteCRC:     pw.writeCRC,
+					Compressors:  pw.compressors,
 				})
 				if err != nil {
 					return fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)

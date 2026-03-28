@@ -8,12 +8,11 @@ import (
 	"log"
 	"math"
 
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/types"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/types"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 type Row struct {
@@ -26,26 +25,15 @@ type Row struct {
 }
 
 func main() {
-	// Configure JSON output: GeoJSON + include hex alongside for Geometry
-	types.SetGeometryJSONMode(types.GeospatialModeHybrid)
-	types.SetGeographyJSONMode(types.GeospatialModeGeoJSON)
-	// Example reprojection hook: (no-op) here for demo; plug in your own
-	types.SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
-		// Implement CRS->CRS84 reprojection here if needed
-		return nil, false
-	})
-
 	// Write a few rows
 	fw, err := local.NewLocalFileWriter("/tmp/geospatial.parquet")
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw, err := writer.NewParquetWriter(fw, new(Row), 1)
+	pw, err := writer.NewParquetWriter(fw, new(Row), writer.WithNP(1))
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
-
 	rows := []Row{
 		{Geom: wkbPoint(1, 2), Geog: wkbLineString([][2]float64{{-122.4, 37.8}, {-122.41, 37.81}}), GeomType: "Point"},
 		{Geom: wkbPolygon([][][2]float64{{{0, 0}, {10, 0}, {10, 10}, {0, 10}, {0, 0}}}), Geog: wkbPoint(-0.1276, 51.5074), GeomType: "Polygon"},
@@ -64,12 +52,12 @@ func main() {
 	}
 	_ = fw.Close()
 
-	// Read and convert to JSON-friendly (applies our geospatial JSON mode)
+	// Read and convert to JSON-friendly with per-call geospatial options
 	fr, err := local.NewLocalFileReader("/tmp/geospatial.parquet")
 	if err != nil {
 		log.Fatal(err)
 	}
-	pr, err := reader.NewParquetReader(fr, nil, 1)
+	pr, err := reader.NewParquetReader(fr, nil, reader.WithNP(1))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -78,7 +66,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	out, err := marshal.ConvertToJSONFriendly(data, pr.SchemaHandler)
+	out, err := marshal.ConvertToJSONFriendly(data, pr.SchemaHandler,
+		marshal.WithGeospatialOptions(
+			types.WithGeometryJSONMode(types.GeospatialModeHybrid),
+			types.WithGeographyJSONMode(types.GeospatialModeGeoJSON),
+			types.WithReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+				// Implement CRS->CRS84 reprojection here if needed
+				return nil, false
+			}),
+		),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -103,7 +100,7 @@ func main() {
 			fmt.Printf("Column '%s': No geospatial statistics\n", colName)
 		}
 	}
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }
 

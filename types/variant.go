@@ -885,8 +885,8 @@ func EncodeVariantInt16(v int16) []byte {
 }
 
 // EncodeGoValueAsVariant encodes a Go value as variant value bytes.
-// This is used for converting typed_value columns back to variant format
-// during shredded variant reconstruction.
+// The metadata parameter is used for field ID lookup when encoding structs,
+// maps, or arrays containing objects. Pass nil when encoding only primitives.
 //
 // Supported types:
 //   - nil: variant null
@@ -898,9 +898,22 @@ func EncodeVariantInt16(v int16) []byte {
 //   - []byte: variant binary
 //   - []any: variant array (recursively encodes elements)
 //   - map[string]any: variant object (requires metadata for field IDs)
-func EncodeGoValueAsVariant(v any) ([]byte, error) {
+//   - Variant / *Variant: returns encoded value directly
+//   - structs: encoded as variant objects (requires metadata)
+func EncodeGoValueAsVariant(v any, metadata []byte) ([]byte, error) {
 	if v == nil {
 		return EncodeVariantNull(), nil
+	}
+
+	// If already a Variant, return its encoded value directly
+	if variant, ok := v.(Variant); ok {
+		return variant.Value, nil
+	}
+	if ptr, ok := v.(*Variant); ok {
+		if ptr == nil {
+			return EncodeVariantNull(), nil
+		}
+		return ptr.Value, nil
 	}
 
 	switch val := v.(type) {
@@ -915,7 +928,6 @@ func EncodeGoValueAsVariant(v any) ([]byte, error) {
 	case int64:
 		return EncodeVariantInt64(val), nil
 	case int:
-		// Convert to int64 for encoding
 		return EncodeVariantInt64(int64(val)), nil
 	case float32:
 		return EncodeVariantFloat(val), nil
@@ -932,113 +944,41 @@ func EncodeGoValueAsVariant(v any) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("invalid json.Number: %s", val)
 	case []byte:
-		// Encode as binary
 		buf := make([]byte, 5+len(val))
 		buf[0] = 0x3C // basic_type=0, primitive_type=15 (binary)
 		binary.LittleEndian.PutUint32(buf[1:], uint32(len(val)))
 		copy(buf[5:], val)
 		return buf, nil
 	case []any:
-		// Encode each element and wrap as array
 		encodedElements := make([][]byte, len(val))
 		for i, elem := range val {
-			encoded, err := EncodeGoValueAsVariant(elem)
+			encoded, err := EncodeGoValueAsVariant(elem, metadata)
 			if err != nil {
 				return nil, fmt.Errorf("encode array element %d: %w", i, err)
 			}
 			encodedElements[i] = encoded
 		}
 		return EncodeVariantArray(encodedElements), nil
-	default:
-		return nil, fmt.Errorf("unsupported type for variant encoding: %T", v)
-	}
-}
-
-// EncodeGoValueAsVariantWithMetadata encodes a Go value as variant value bytes,
-// using the provided metadata for field ID lookup in objects.
-// This handles map[string]any by looking up field names in the metadata dictionary.
-func EncodeGoValueAsVariantWithMetadata(v any, metadata []byte) ([]byte, error) {
-	if v == nil {
-		return EncodeVariantNull(), nil
-	}
-
-	// If already a Variant, return its encoded value directly
-	if variant, ok := v.(Variant); ok {
-		return variant.Value, nil
-	}
-	if ptr, ok := v.(*Variant); ok {
-		if ptr == nil {
-			return EncodeVariantNull(), nil
-		}
-		return ptr.Value, nil
-	}
-
-	// Use reflection to handle arbitrary structs and slice/maps generically
-	val := reflect.ValueOf(v)
-
-	// Handle structs as objects
-	if val.Kind() == reflect.Struct {
-		meta, err := decodeVariantMetadata(metadata)
-		if err != nil {
-			return nil, fmt.Errorf("decode metadata for struct encoding: %w", err)
-		}
-
-		fieldNameToID := make(map[string]int)
-		for i, name := range meta.dictionary {
-			fieldNameToID[name] = i
-		}
-
-		fieldIDs := make([]int, 0, val.NumField())
-		values := make([][]byte, 0, val.NumField())
-
-		t := val.Type()
-		for i := 0; i < val.NumField(); i++ {
-			field := t.Field(i)
-			if field.PkgPath != "" { // unexported
-				continue
-			}
-			name := field.Name
-			id, exists := fieldNameToID[name]
-			if !exists {
-				// If struct field not in metadata, we can either error or skip.
-				// Since collectKeys should have found it, erroring is appropriate if we expect strict schema.
-				// However, if metadata is partial, skipping might be preferred.
-				// For AnyToVariant consistency, we error if metadata is missing a field present in the value.
-				return nil, fmt.Errorf("struct field %q not in metadata dictionary", name)
-			}
-
-			encoded, err := EncodeGoValueAsVariantWithMetadata(val.Field(i).Interface(), metadata)
-			if err != nil {
-				return nil, fmt.Errorf("encode struct field %q: %w", name, err)
-			}
-			fieldIDs = append(fieldIDs, id)
-			values = append(values, encoded)
-		}
-		return EncodeVariantObject(fieldIDs, values), nil
-	}
-
-	// Handle map[string]any with metadata
-	if obj, ok := v.(map[string]any); ok {
+	case map[string]any:
 		meta, err := decodeVariantMetadata(metadata)
 		if err != nil {
 			return nil, fmt.Errorf("decode metadata for object encoding: %w", err)
 		}
 
-		// Build field name to ID mapping
 		fieldNameToID := make(map[string]int)
 		for i, name := range meta.dictionary {
 			fieldNameToID[name] = i
 		}
 
-		fieldIDs := make([]int, 0, len(obj))
-		values := make([][]byte, 0, len(obj))
+		fieldIDs := make([]int, 0, len(val))
+		values := make([][]byte, 0, len(val))
 
-		for name, val := range obj {
+		for name, v := range val {
 			id, exists := fieldNameToID[name]
 			if !exists {
 				return nil, fmt.Errorf("field %q not in metadata dictionary", name)
 			}
-			encoded, err := EncodeGoValueAsVariantWithMetadata(val, metadata)
+			encoded, err := EncodeGoValueAsVariant(v, metadata)
 			if err != nil {
 				return nil, fmt.Errorf("encode object field %q: %w", name, err)
 			}
@@ -1049,21 +989,45 @@ func EncodeGoValueAsVariantWithMetadata(v any, metadata []byte) ([]byte, error) 
 		return EncodeVariantObject(fieldIDs, values), nil
 	}
 
-	// Handle []any with metadata (to support nested objects)
-	if arr, ok := v.([]any); ok {
-		encodedElements := make([][]byte, len(arr))
-		for i, elem := range arr {
-			encoded, err := EncodeGoValueAsVariantWithMetadata(elem, metadata)
-			if err != nil {
-				return nil, fmt.Errorf("encode array element %d: %w", i, err)
-			}
-			encodedElements[i] = encoded
+	// Use reflection to handle structs as objects
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Struct {
+		meta, err := decodeVariantMetadata(metadata)
+		if err != nil {
+			return nil, fmt.Errorf("decode metadata for struct encoding: %w", err)
 		}
-		return EncodeVariantArray(encodedElements), nil
+
+		fieldNameToID := make(map[string]int)
+		for i, name := range meta.dictionary {
+			fieldNameToID[name] = i
+		}
+
+		fieldIDs := make([]int, 0, rv.NumField())
+		values := make([][]byte, 0, rv.NumField())
+
+		t := rv.Type()
+		for i := 0; i < rv.NumField(); i++ {
+			field := t.Field(i)
+			if field.PkgPath != "" { // unexported
+				continue
+			}
+			name := field.Name
+			id, exists := fieldNameToID[name]
+			if !exists {
+				return nil, fmt.Errorf("struct field %q not in metadata dictionary", name)
+			}
+
+			encoded, err := EncodeGoValueAsVariant(rv.Field(i).Interface(), metadata)
+			if err != nil {
+				return nil, fmt.Errorf("encode struct field %q: %w", name, err)
+			}
+			fieldIDs = append(fieldIDs, id)
+			values = append(values, encoded)
+		}
+		return EncodeVariantObject(fieldIDs, values), nil
 	}
 
-	// For non-objects, use the basic encoder
-	return EncodeGoValueAsVariant(v)
+	return nil, fmt.Errorf("unsupported type for variant encoding: %T", v)
 }
 
 // AnyToVariant converts a Go value to a Variant struct.
@@ -1099,7 +1063,7 @@ func AnyToVariant(v any) (Variant, error) {
 	metadata, _ := EncodeVariantMetadataSorted(fieldNames)
 
 	// 3. Encode value with metadata
-	val, err := EncodeGoValueAsVariantWithMetadata(v, metadata)
+	val, err := EncodeGoValueAsVariant(v, metadata)
 	if err != nil {
 		return Variant{}, err
 	}
@@ -1175,7 +1139,7 @@ func MergeVariantWithTypedValue(value []byte, typedValue any, metadata []byte) (
 
 	// Case 3: Only typed_value is present -> encode typed_value
 	if valueIsNull && !typedValueIsNull {
-		return EncodeGoValueAsVariantWithMetadata(typedValue, metadata)
+		return EncodeGoValueAsVariant(typedValue, metadata)
 	}
 
 	// Case 4: Both present -> partially shredded object (merge)
@@ -1204,11 +1168,11 @@ func MergeVariantWithTypedValue(value []byte, typedValue any, metadata []byte) (
 		for k, v := range typedObj {
 			baseObj[k] = v
 		}
-		return EncodeGoValueAsVariantWithMetadata(baseObj, metadata)
+		return EncodeGoValueAsVariant(baseObj, metadata)
 	}
 
 	// If types don't match for merge, prefer typed_value as it's the "extracted" value
-	return EncodeGoValueAsVariantWithMetadata(typedValue, metadata)
+	return EncodeGoValueAsVariant(typedValue, metadata)
 }
 
 // ReconstructVariant reconstructs a Variant from its potentially shredded components.

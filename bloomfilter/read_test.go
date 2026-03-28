@@ -10,7 +10,7 @@ import (
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 // serializeBloomFilter creates the on-disk bytes for a bloom filter (header + bitset).

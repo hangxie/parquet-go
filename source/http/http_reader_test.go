@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Mock data for testing
@@ -190,6 +190,49 @@ func TestHttpReader_Open(t *testing.T) {
 
 	// Verify it's a different instance
 	require.NotSame(t, reader, newReader)
+}
+
+func TestHttpReader_OpenWithNilTransport(t *testing.T) {
+	server := createTestServer()
+	defer server.Close()
+
+	// Create a reader using a client with nil Transport (uses http.DefaultTransport)
+	client := &http.Client{Transport: nil}
+	reader, err := NewHttpReaderWithClient(server.URL, client, nil)
+	require.NoError(t, err)
+
+	// Open should not panic even though Transport is nil
+	newReader, err := reader.Open("ignored")
+	require.NoError(t, err)
+	require.NotNil(t, newReader)
+}
+
+// mockRoundTripper is a simple RoundTripper that delegates to a function.
+type mockRoundTripper struct {
+	fn func(*http.Request) (*http.Response, error)
+}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return m.fn(req)
+}
+
+func TestHttpReader_OpenWithNonStandardTransport(t *testing.T) {
+	server := createTestServer()
+	defer server.Close()
+
+	// Use a client whose Transport is not *http.Transport
+	client := server.Client()
+	client.Transport = &mockRoundTripper{fn: func(req *http.Request) (*http.Response, error) {
+		return http.DefaultTransport.RoundTrip(req)
+	}}
+
+	reader, err := NewHttpReaderWithClient(server.URL, client, nil)
+	require.NoError(t, err)
+
+	// Open should not panic with a non-*http.Transport transport
+	newReader, err := reader.Open("ignored")
+	require.NoError(t, err)
+	require.NotNil(t, newReader)
 }
 
 func TestHttpReader_Read(t *testing.T) {
@@ -513,32 +556,6 @@ func TestNewHttpReader(t *testing.T) {
 	}
 }
 
-func TestSetDefaultClient(t *testing.T) {
-	// Save original client
-	originalClient := defaultClient
-	defer func() {
-		defaultClient = originalClient
-	}()
-
-	// Create a custom client
-	customClient := &http.Client{}
-
-	// Set as default
-	SetDefaultClient(customClient)
-
-	require.Equal(t, customClient, defaultClient)
-
-	// Test that NewHttpReader uses the default client
-	server := createTestServer()
-	defer server.Close()
-
-	reader, err := NewHttpReader(server.URL, false, false, nil)
-	require.NoError(t, err)
-
-	httpReader := reader.(*httpReader)
-	require.Equal(t, customClient, httpReader.httpClient)
-}
-
 // Integration test with real-world HTTP endpoints
 func TestHttp_reader_no_range_support(t *testing.T) {
 	testCases := []struct {
@@ -628,6 +645,43 @@ func TestHttpReader_ReadServerDown(t *testing.T) {
 	buf := make([]byte, 10)
 	_, err = reader.Read(buf)
 	require.Error(t, err)
+}
+
+func TestNewHttpReaderWithClient(t *testing.T) {
+	data := make([]byte, 100)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-0/%d", len(data)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(data[:1])
+	}))
+	defer ts.Close()
+
+	client := ts.Client()
+	reader, err := NewHttpReaderWithClient(ts.URL, client, nil)
+	require.NoError(t, err)
+	require.NotNil(t, reader)
+	require.NoError(t, reader.Close())
+}
+
+func TestNewHttpReaderWithClient_ExtraHeaders(t *testing.T) {
+	var receivedHeaders http.Header
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header
+		w.Header().Set("Content-Range", "bytes 0-0/100")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte{0})
+	}))
+	defer ts.Close()
+
+	headers := map[string]string{"X-Custom": "test-value"}
+	reader, err := NewHttpReaderWithClient(ts.URL, ts.Client(), headers)
+	require.NoError(t, err)
+	require.NotNil(t, reader)
+	require.Equal(t, "test-value", receivedHeaders.Get("X-Custom"))
+	require.NoError(t, reader.Close())
 }
 
 func TestNewHttpReader_ConcurrentSafety(t *testing.T) {

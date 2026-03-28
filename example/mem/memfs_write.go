@@ -9,13 +9,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/spf13/afero"
 
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/source/mem"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/writer"
+
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/source/mem"
 )
 
 type Student struct {
@@ -28,10 +28,13 @@ type Student struct {
 }
 
 func main() {
-	// create in-memory ParquetFile with Closer Function
+	// create a dedicated in-memory filesystem for this writer
+	memFs := afero.NewMemMapFs()
+
+	// create in-memory ParquetFile with Closer Function and explicit filesystem
 	// NOTE: closer function can be nil, no action will be
 	// run when the writer is closed.
-	fw, err := mem.NewMemFileWriter("flat.parquet", func(name string, r io.Reader) error {
+	fw, err := mem.NewMemFileWriterWithFs("flat.parquet", func(name string, r io.Reader) error {
 		dat, err := io.ReadAll(r)
 		if err != nil {
 			log.Printf("error reading data: %v", err)
@@ -43,19 +46,17 @@ func main() {
 			log.Printf("error writing result file: %v", err)
 		}
 		return nil
-	})
+	}, memFs)
 	if err != nil {
 		log.Println("Can't create local file", err)
 		return
 	}
 	// write
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
 	}
-	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
 	for i := range num {
 		stu := Student{
@@ -84,7 +85,7 @@ func main() {
 		return
 	}
 
-	pr, err := reader.NewParquetReader(fr, new(Student), 4)
+	pr, err := reader.NewParquetReader(fr, new(Student), reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return
@@ -97,12 +98,12 @@ func main() {
 		}
 		log.Println(stus)
 	}
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 
-	// NOTE: you can access the underlying MemFs using ParquetFile.GetMemFileFs()
+	// Use the dedicated filesystem instance to manage files
 	// EXAMPLE: this will delete the file we created from the in-memory file system
-	if err := mem.GetMemFileFs().Remove("flat.parquet"); err != nil {
+	if err := memFs.Remove("flat.parquet"); err != nil {
 		log.Printf("error removing file from memfs: %v", err)
 		os.Exit(1)
 	}

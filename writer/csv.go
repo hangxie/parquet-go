@@ -4,49 +4,61 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
-	"github.com/hangxie/parquet-go/v2/types"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 type CSVWriter struct {
 	ParquetWriter
 }
 
-func NewCSVWriterFromWriter(md []string, w io.Writer, np int64) (*CSVWriter, error) {
+func NewCSVWriterFromWriter(md []string, w io.Writer, opts ...WriterOption) (*CSVWriter, error) {
 	wf := writerfile.NewWriterFile(w)
-	return NewCSVWriter(md, wf, np)
+	return NewCSVWriter(md, wf, opts...)
 }
 
-// Create CSV writer
-func NewCSVWriter(md []string, pfile source.ParquetFileWriter, np int64) (*CSVWriter, error) {
-	var err error
+// NewCSVWriter creates a CSV writer with functional options.
+func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOption) (*CSVWriter, error) {
+	cfg := defaultWriterConfig()
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return nil, fmt.Errorf("apply writer option: %w", err)
+		}
+	}
+	if cfg.rowGroupSize < cfg.pageSize {
+		return nil, fmt.Errorf("row group size (%d) must be >= page size (%d)", cfg.rowGroupSize, cfg.pageSize)
+	}
+
 	res := new(CSVWriter)
-	res.SchemaHandler, err = schema.NewSchemaHandlerFromMetadata(md)
+	sh, err := schema.NewSchemaHandlerFromMetadata(md)
 	if err != nil {
 		return nil, fmt.Errorf("create schema from metadata: %w", err)
 	}
+	res.SchemaHandler = sh
+
+	applyWriterConfig(&res.ParquetWriter, cfg)
 	res.PFile = pfile
-	res.PageSize = common.DefaultPageSize         // 8K
-	res.RowGroupSize = common.DefaultRowGroupSize // 128M
-	res.CompressionType = parquet.CompressionCodec_SNAPPY
-	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.NP = np
-	res.Footer = parquet.NewFileMetaData()
-	res.Footer.Version = 1
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
-	res.Offset = 4
-	_, err = res.PFile.Write([]byte("PAR1"))
-	if err != nil {
+
+	if err := res.createCompressors(cfg); err != nil {
+		return nil, err
+	}
+
+	res.MarshalFunc = marshal.MarshalCSV
+
+	if err := res.SchemaHandler.ValidateEncodingsForDataPageVersion(res.dataPageVersion); err != nil {
+		return nil, fmt.Errorf("encoding validation: %w", err)
+	}
+
+	if _, err := res.PFile.Write([]byte("PAR1")); err != nil {
 		return nil, fmt.Errorf("write magic header: %w", err)
 	}
-	res.MarshalFunc = marshal.MarshalCSV
 	res.initBloomFilters()
+	res.headerWritten = true
+	res.stopped = false
 	return res, nil
 }
 
@@ -59,7 +71,7 @@ func (w *CSVWriter) WriteString(recsi any) error {
 	for i := range lr {
 		rec[i] = nil
 		if recs[i] != nil {
-			rec[i], err = types.StrToParquetTypeWithLogical(*recs[i],
+			rec[i], err = types.StrToParquetType(*recs[i],
 				w.SchemaHandler.SchemaElements[i+1].Type,
 				w.SchemaHandler.SchemaElements[i+1].ConvertedType,
 				w.SchemaHandler.SchemaElements[i+1].LogicalType,

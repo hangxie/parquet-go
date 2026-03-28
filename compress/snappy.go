@@ -6,13 +6,13 @@ package compress
 import (
 	"github.com/klauspost/compress/snappy"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func init() {
 	compressors[parquet.CompressionCodec_SNAPPY] = &Compressor{
-		Compress: func(buf []byte) []byte {
-			return snappy.Encode(nil, buf)
+		Compress: func(buf []byte) ([]byte, error) {
+			return snappy.Encode(nil, buf), nil
 		},
 		Uncompress: func(buf []byte) (bytes []byte, err error) {
 			return snappy.Decode(nil, buf)

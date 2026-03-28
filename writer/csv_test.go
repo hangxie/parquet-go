@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
 func TestCSVWriter(t *testing.T) {
@@ -27,13 +27,13 @@ func TestCSVWriter(t *testing.T) {
 				var buf bytes.Buffer
 				bw := bufio.NewWriter(&buf)
 				wf := writerfile.NewWriterFile(bw)
-				cw, err := NewCSVWriter(tc.schema, wf, 4)
+				cw, err := NewCSVWriter(tc.schema, wf, WithNP(4))
 				if tc.errMsg == "" {
 					require.NoError(t, err)
-					require.Equal(t, cw.NP, int64(4))
-					require.Equal(t, cw.PageSize, int64(8*1024))
-					require.Equal(t, cw.RowGroupSize, int64(128*1024*1024))
-					require.Equal(t, cw.CompressionType, parquet.CompressionCodec_SNAPPY)
+					require.Equal(t, int64(4), cw.NP())
+					require.Equal(t, int64(8*1024), cw.PageSize())
+					require.Equal(t, int64(128*1024*1024), cw.RowGroupSize())
+					require.Equal(t, parquet.CompressionCodec_SNAPPY, cw.CompressionType())
 				} else {
 					require.Error(t, err)
 					require.Contains(t, err.Error(), tc.errMsg)
@@ -49,12 +49,12 @@ func TestCSVWriter(t *testing.T) {
 		}
 		var buf bytes.Buffer
 		bw := bufio.NewWriter(&buf)
-		cw, err := NewCSVWriterFromWriter(schema, bw, 4)
+		cw, err := NewCSVWriterFromWriter(schema, bw, WithNP(4))
 		require.NoError(t, err)
-		require.Equal(t, cw.NP, int64(4))
-		require.Equal(t, cw.PageSize, int64(8*1024))
-		require.Equal(t, cw.RowGroupSize, int64(128*1024*1024))
-		require.Equal(t, cw.CompressionType, parquet.CompressionCodec_SNAPPY)
+		require.Equal(t, int64(4), cw.NP())
+		require.Equal(t, int64(8*1024), cw.PageSize())
+		require.Equal(t, int64(128*1024*1024), cw.RowGroupSize())
+		require.Equal(t, parquet.CompressionCodec_SNAPPY, cw.CompressionType())
 	})
 
 	t.Run("write_csv", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestCSVWriter(t *testing.T) {
 		}
 		var buf bytes.Buffer
 		bw := bufio.NewWriter(&buf)
-		cw, _ := NewCSVWriterFromWriter(schema, bw, 4)
+		cw, _ := NewCSVWriterFromWriter(schema, bw, WithNP(4))
 
 		for name, tc := range testCases {
 			t.Run(name, func(t *testing.T) {

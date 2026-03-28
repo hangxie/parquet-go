@@ -5,10 +5,10 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/encoding"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/encoding"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
 )
 
 // Chunk stores the ColumnChunk in parquet file
@@ -198,7 +198,7 @@ func DecodeDictChunk(chunk *Chunk) {
 }
 
 // Read one chunk from parquet file (Deprecated)
-func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, chunkHeader *parquet.ColumnChunk, opts ...common.PageReadOptions) (*Chunk, error) {
+func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, chunkHeader *parquet.ColumnChunk, opt PageReadOptions) (*Chunk, error) {
 	if chunkHeader == nil {
 		return nil, fmt.Errorf("chunkHeader is nil")
 	}
@@ -212,7 +212,7 @@ func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sc
 	var readValues int64 = 0
 	var numValues int64 = chunkHeader.MetaData.GetNumValues()
 	for readValues < numValues {
-		page, cnt, _, err := ReadPage(thriftReader, schemaHandler, chunkHeader.GetMetaData(), opts...)
+		page, cnt, _, err := ReadPage(thriftReader, schemaHandler, chunkHeader.GetMetaData(), opt)
 		if err != nil {
 			return nil, err
 		}

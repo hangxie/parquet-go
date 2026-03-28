@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/writer"
 
-	"github.com/hangxie/parquet-go/v2/source/gcs"
+	"github.com/hangxie/parquet-go/v3/source/gcs"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 		log.Println("Can't open file", err)
 		return
 	}
-	pw, err := writer.NewCSVWriter(md, fw, 4)
+	pw, err := writer.NewCSVWriter(md, fw, writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create csv writer", err)
 		return

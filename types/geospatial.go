@@ -28,48 +28,129 @@ const (
 	WKBGeometryCollection uint32 = 7
 )
 
-var (
-	// Defaults: GEOGRAPHY -> GeoJSON, GEOMETRY -> Hex
-	geographyJSONMode = GeospatialModeGeoJSON
-	geometryJSONMode  = GeospatialModeHex
-
-	// Optional reprojection hook used when emitting GeoJSON and CRS != OGC:CRS84
-	geospatialReprojector GeospatialReprojector
-
-	// Controls raw encoding used in Hybrid mode: false => hex, true => base64
-	geospatialHybridUseBase64 bool
-
-	// Controls whether GeoJSON mode emits a Feature wrapper
-	// true => {type: Feature, geometry: {...}, properties: {...}}
-	// false => emit the geometry object directly
-	geospatialGeoJSONAsFeature = true
-
-	// Optional coordinate rounding precision for GeoJSON output.
-	// Default is 6 decimal places. Set to -1 to disable rounding.
-	// See RFC 7946 §11.2 for discussion on coordinate precision:
-	// https://datatracker.ietf.org/doc/html/rfc7946#section-11.2
-	geospatialCoordPrecision = 6
+// Unexported default values for geospatial settings.
+const (
+	defaultGeographyJSONMode GeospatialJSONMode = GeospatialModeHex
+	defaultGeometryJSONMode  GeospatialJSONMode = GeospatialModeHex
+	defaultCoordPrecision    int                = 6
 )
 
-func SetGeographyJSONMode(m GeospatialJSONMode) { geographyJSONMode = m }
-func SetGeometryJSONMode(m GeospatialJSONMode)  { geometryJSONMode = m }
+var (
+	defaultHybridRawBase64  = false
+	defaultGeoJSONAsFeature = false
+)
 
 // GeospatialReprojector transforms a GeoJSON geometry from an input CRS to CRS84 (lon/lat degrees)
 // Return (geojson, true) if reprojection applied; (nil, false) to indicate failure or not supported.
 type GeospatialReprojector func(crs string, geojson map[string]any) (map[string]any, bool)
 
-// SetGeospatialReprojector registers a reprojection function. Pass nil to disable.
-func SetGeospatialReprojector(r GeospatialReprojector) { geospatialReprojector = r }
+// GeospatialOption configures geospatial JSON conversion behavior.
+type GeospatialOption func(*GeospatialConfig)
 
-// SetGeospatialHybridRawBase64 selects base64 (true) or hex (false) for raw WKB in Hybrid mode
-func SetGeospatialHybridRawBase64(useBase64 bool) { geospatialHybridUseBase64 = useBase64 }
+// GeospatialConfig holds resolved geospatial settings. Pointer fields distinguish
+// "not set" (nil = use default) from explicit values.
+// Exported for direct use with types-level WithConfig functions; most callers
+// should use GeospatialOption functions instead.
+type GeospatialConfig struct {
+	geographyJSONMode   *GeospatialJSONMode
+	geometryJSONMode    *GeospatialJSONMode
+	reprojector         *GeospatialReprojector
+	reprojectorSet      bool // true = explicitly set (even if nil, meaning disabled)
+	hybridRawBase64     *bool
+	geoJSONAsFeature    *bool
+	coordinatePrecision *int
+}
 
-// SetGeospatialGeoJSONAsFeature toggles whether GeoJSON mode emits Feature objects
-func SetGeospatialGeoJSONAsFeature(asFeature bool) { geospatialGeoJSONAsFeature = asFeature }
+// NewGeospatialConfig creates a GeospatialConfig from functional options.
+func NewGeospatialConfig(opts ...GeospatialOption) *GeospatialConfig {
+	cfg := &GeospatialConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return cfg
+}
 
-// SetGeospatialCoordinatePrecision sets decimal places to round coordinates for GeoJSON.
-// Default is 6. Use -1 to disable rounding.
-func SetGeospatialCoordinatePrecision(precision int) { geospatialCoordPrecision = precision }
+// WithGeographyJSONMode sets the JSON mode for GEOGRAPHY values in this config.
+func WithGeographyJSONMode(mode GeospatialJSONMode) GeospatialOption {
+	return func(c *GeospatialConfig) { c.geographyJSONMode = &mode }
+}
+
+// WithGeometryJSONMode sets the JSON mode for GEOMETRY values in this config.
+func WithGeometryJSONMode(mode GeospatialJSONMode) GeospatialOption {
+	return func(c *GeospatialConfig) { c.geometryJSONMode = &mode }
+}
+
+// WithReprojector sets the reprojector for geospatial coordinate transformation.
+func WithReprojector(r GeospatialReprojector) GeospatialOption {
+	return func(c *GeospatialConfig) { c.reprojector = &r; c.reprojectorSet = true }
+}
+
+// WithoutReprojector explicitly disables reprojection. This is distinct from
+// not calling WithReprojector (which uses the default of no reprojection).
+func WithoutReprojector() GeospatialOption {
+	return func(c *GeospatialConfig) { c.reprojector = nil; c.reprojectorSet = true }
+}
+
+// WithHybridRawBase64 selects base64 (true) or hex (false) for raw WKB in Hybrid mode.
+func WithHybridRawBase64(v bool) GeospatialOption {
+	return func(c *GeospatialConfig) { c.hybridRawBase64 = &v }
+}
+
+// WithGeoJSONAsFeature toggles whether GeoJSON mode emits Feature objects.
+func WithGeoJSONAsFeature(v bool) GeospatialOption {
+	return func(c *GeospatialConfig) { c.geoJSONAsFeature = &v }
+}
+
+// WithCoordinatePrecision sets decimal places to round coordinates for GeoJSON output.
+func WithCoordinatePrecision(n int) GeospatialOption {
+	return func(c *GeospatialConfig) { c.coordinatePrecision = &n }
+}
+
+// resolveGeographyMode returns the config value or falls back to the default.
+func (c *GeospatialConfig) resolveGeographyMode() GeospatialJSONMode {
+	if c != nil && c.geographyJSONMode != nil {
+		return *c.geographyJSONMode
+	}
+	return defaultGeographyJSONMode
+}
+
+func (c *GeospatialConfig) resolveGeometryMode() GeospatialJSONMode {
+	if c != nil && c.geometryJSONMode != nil {
+		return *c.geometryJSONMode
+	}
+	return defaultGeometryJSONMode
+}
+
+func (c *GeospatialConfig) resolveReprojector() GeospatialReprojector {
+	if c != nil && c.reprojectorSet {
+		if c.reprojector != nil {
+			return *c.reprojector
+		}
+		return nil // explicitly disabled
+	}
+	return nil
+}
+
+func (c *GeospatialConfig) resolveHybridBase64() bool {
+	if c != nil && c.hybridRawBase64 != nil {
+		return *c.hybridRawBase64
+	}
+	return defaultHybridRawBase64
+}
+
+func (c *GeospatialConfig) resolveAsFeature() bool {
+	if c != nil && c.geoJSONAsFeature != nil {
+		return *c.geoJSONAsFeature
+	}
+	return defaultGeoJSONAsFeature
+}
+
+func (c *GeospatialConfig) resolveCoordPrecision() int {
+	if c != nil && c.coordinatePrecision != nil {
+		return *c.coordinatePrecision
+	}
+	return defaultCoordPrecision
+}
 
 // BoundingBoxCalculator accumulates coordinate bounds from geospatial data
 type BoundingBoxCalculator struct {
@@ -133,12 +214,12 @@ func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
 	// gType may contain extended wkbType (https://libgeos.org/specifications/wkb/#iso-wkb)
 	switch gType % 1000 {
 	case WKBPoint:
-		coords, _, ok := parsePoint(wkb, be, off)
+		coords, _, ok := parsePoint(wkb, be, off, defaultCoordPrecision)
 		if ok && len(coords) == 2 {
 			b.AddPoint(coords[0], coords[1])
 		}
 	case WKBLineString:
-		coords, _, ok := parseLineString(wkb, be, off)
+		coords, _, ok := parseLineString(wkb, be, off, defaultCoordPrecision)
 		if ok {
 			for _, point := range coords {
 				if len(point) == 2 {
@@ -147,7 +228,7 @@ func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
 			}
 		}
 	case WKBPolygon:
-		coords, _, ok := parsePolygon(wkb, be, off)
+		coords, _, ok := parsePolygon(wkb, be, off, defaultCoordPrecision)
 		if ok {
 			for _, ring := range coords {
 				for _, point := range ring {
@@ -350,18 +431,22 @@ func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
 	return nil
 }
 
-// roundCoordinate rounds coordinates based on precision setting
-func roundCoordinate(v float64) float64 {
-	if geospatialCoordPrecision < 0 {
+// roundCoordinate rounds a coordinate to the given number of decimal places.
+// A negative precision disables rounding. Precision is capped at 12.
+func roundCoordinate(v float64, precision int) float64 {
+	if precision < 0 {
 		return v
 	}
-	pow := math.Pow(10, float64(geospatialCoordPrecision))
+	if precision > 12 {
+		precision = 12
+	}
+	pow := math.Pow(10, float64(precision))
 	return math.Round(v*pow) / pow
 }
 
-// wkbToGeoJSON converts WKB (2D Point/LineString/Polygon/Multi*) to a GeoJSON geometry map
+// wkbToGeoJSON converts WKB to a GeoJSON geometry map using the specified coordinate precision.
 // Returns (geoJSON, true) on success; (nil, false) on failure
-func wkbToGeoJSON(b []byte) (map[string]any, bool) {
+func wkbToGeoJSON(b []byte, precision int) (map[string]any, bool) {
 	if len(b) < 5 {
 		return nil, false
 	}
@@ -375,37 +460,25 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 	off := 5
 
 	round := func(v float64) float64 {
-		if geospatialCoordPrecision < 0 {
-			return v
-		}
-		// pow10 limited to reasonable range
-		p := geospatialCoordPrecision
-		if p > 12 {
-			p = 12
-		}
-		if p < 0 {
-			p = 0
-		}
-		pow := math.Pow(10, float64(p))
-		return math.Round(v*pow) / pow
+		return roundCoordinate(v, precision)
 	}
 
 	// gType may contain extended wkbType (https://libgeos.org/specifications/wkb/#iso-wkb)
 	switch gType % 1000 {
 	case WKBPoint:
-		coords, _, ok := parsePoint(b, be, off)
+		coords, _, ok := parsePoint(b, be, off, precision)
 		if !ok {
 			return nil, false
 		}
 		return map[string]any{"type": "Point", "coordinates": coords}, true
 	case WKBLineString:
-		coords, _, ok := parseLineString(b, be, off)
+		coords, _, ok := parseLineString(b, be, off, precision)
 		if !ok {
 			return nil, false
 		}
 		return map[string]any{"type": "LineString", "coordinates": coords}, true
 	case WKBPolygon:
-		coords, _, ok := parsePolygon(b, be, off)
+		coords, _, ok := parsePolygon(b, be, off, precision)
 		if !ok {
 			return nil, false
 		}
@@ -620,7 +693,7 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 			geomWKB := b[geomStart:geomEnd]
 
 			// Recursively parse the individual geometry
-			subGeom, ok := wkbToGeoJSON(geomWKB)
+			subGeom, ok := wkbToGeoJSON(geomWKB, precision)
 			if !ok {
 				return nil, false
 			}
@@ -633,8 +706,8 @@ func wkbToGeoJSON(b []byte) (map[string]any, bool) {
 	}
 }
 
-// parsePoint parses a WKB Point and returns the coordinates and bytes consumed
-func parsePoint(b []byte, be bool, off int) ([]float64, int, bool) {
+// parsePoint parses a WKB Point and returns the coordinates rounded to the given precision.
+func parsePoint(b []byte, be bool, off, precision int) ([]float64, int, bool) {
 	if off+16 > len(b) {
 		return nil, 0, false
 	}
@@ -646,11 +719,11 @@ func parsePoint(b []byte, be bool, off int) ([]float64, int, bool) {
 		x = math.Float64frombits(binary.LittleEndian.Uint64(b[off : off+8]))
 		y = math.Float64frombits(binary.LittleEndian.Uint64(b[off+8 : off+16]))
 	}
-	return []float64{roundCoordinate(x), roundCoordinate(y)}, off + 16, true
+	return []float64{roundCoordinate(x, precision), roundCoordinate(y, precision)}, off + 16, true
 }
 
-// parseLineString parses a WKB LineString and returns the coordinates and bytes consumed
-func parseLineString(b []byte, be bool, off int) ([][]float64, int, bool) {
+// parseLineString parses a WKB LineString using the given coordinate precision.
+func parseLineString(b []byte, be bool, off, precision int) ([][]float64, int, bool) {
 	if off+4 > len(b) {
 		return nil, 0, false
 	}
@@ -668,7 +741,7 @@ func parseLineString(b []byte, be bool, off int) ([][]float64, int, bool) {
 
 	coords := make([][]float64, 0, numPoints)
 	for i := uint32(0); i < numPoints; i++ {
-		point, newOff, ok := parsePoint(b, be, off)
+		point, newOff, ok := parsePoint(b, be, off, precision)
 		if !ok {
 			return nil, 0, false
 		}
@@ -678,8 +751,8 @@ func parseLineString(b []byte, be bool, off int) ([][]float64, int, bool) {
 	return coords, off, true
 }
 
-// parsePolygon parses a WKB Polygon and returns the coordinates and bytes consumed
-func parsePolygon(b []byte, be bool, off int) ([][][]float64, int, bool) {
+// parsePolygon parses a WKB Polygon using the given coordinate precision.
+func parsePolygon(b []byte, be bool, off, precision int) ([][][]float64, int, bool) {
 	if off+4 > len(b) {
 		return nil, 0, false
 	}
@@ -710,7 +783,7 @@ func parsePolygon(b []byte, be bool, off int) ([][][]float64, int, bool) {
 
 		ring := make([][]float64, 0, numPoints)
 		for i := uint32(0); i < numPoints; i++ {
-			point, newOff, ok := parsePoint(b, be, off)
+			point, newOff, ok := parsePoint(b, be, off, precision)
 			if !ok {
 				return nil, 0, false
 			}
@@ -744,21 +817,21 @@ func calculateWKBSize(b []byte) (int, bool) {
 	// gType may contain extended wkbType (https://libgeos.org/specifications/wkb/#iso-wkb)
 	switch gType % 1000 {
 	case WKBPoint:
-		_, newOff, ok := parsePoint(b, be, off)
+		_, newOff, ok := parsePoint(b, be, off, defaultCoordPrecision)
 		if !ok {
 			return 0, false
 		}
 		return newOff, true
 
 	case WKBLineString:
-		_, newOff, ok := parseLineString(b, be, off)
+		_, newOff, ok := parseLineString(b, be, off, defaultCoordPrecision)
 		if !ok {
 			return 0, false
 		}
 		return newOff, true
 
 	case WKBPolygon:
-		_, newOff, ok := parsePolygon(b, be, off)
+		_, newOff, ok := parsePolygon(b, be, off, defaultCoordPrecision)
 		if !ok {
 			return 0, false
 		}

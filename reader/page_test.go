@@ -11,11 +11,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/buffer"
-	"github.com/hangxie/parquet-go/v2/source/local"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
+	"github.com/hangxie/parquet-go/v3/source/local"
 )
 
 const (
@@ -81,10 +82,10 @@ func TestGetAllPageHeaders(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	t.Run("valid indices", func(t *testing.T) {
@@ -136,10 +137,10 @@ func TestReadDictionaryPageValues(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	dictCol := pr.Footer.RowGroups[0].Columns[0]
@@ -187,10 +188,10 @@ func TestGetAllPageHeaders_AllPageTypes(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	// Read all page headers from the first column (which should have dictionary)
@@ -212,10 +213,10 @@ func TestReadAllPageHeaders(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	require.NotEmpty(t, pr.Footer.RowGroups)
@@ -239,10 +240,10 @@ func TestReadPageData(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	require.NotEmpty(t, pr.Footer.RowGroups)
@@ -264,7 +265,7 @@ func TestReadPageData(t *testing.T) {
 	pageHeader.CompressedPageSize = firstPage.CompressedSize
 	pageHeader.UncompressedPageSize = firstPage.UncompressedSize
 
-	pageData, err := reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec)
+	pageData, err := reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec, layout.PageReadOptions{})
 	require.NoError(t, err)
 	require.NotEmpty(t, pageData)
 	require.Equal(t, firstPage.UncompressedSize, int32(len(pageData)))
@@ -275,10 +276,10 @@ func TestDecodeDictionaryPage(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		dictCol := pr.Footer.RowGroups[0].Columns[0]
@@ -298,7 +299,7 @@ func TestDecodeDictionaryPage(t *testing.T) {
 		pageHeader.DictionaryPageHeader = dictHeader
 
 		// Read and decode the dictionary page using the building block functions
-		pageData, err := reader.ReadPageData(pr.PFile, dictPageHeader.Offset, pageHeader, dictCol.MetaData.Codec)
+		pageData, err := reader.ReadPageData(pr.PFile, dictPageHeader.Offset, pageHeader, dictCol.MetaData.Codec, layout.PageReadOptions{})
 		require.NoError(t, err)
 		require.NotEmpty(t, pageData)
 
@@ -726,10 +727,10 @@ func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		_, err = pr.GetAllPageHeaders(-1, 0)
@@ -745,10 +746,10 @@ func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		_, err = pr.GetAllPageHeaders(0, -1)
@@ -770,7 +771,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pageHeader.CompressedPageSize = 100
 		pageHeader.UncompressedPageSize = 200
 
-		_, err := reader.ReadPageData(buf, 99999, pageHeader, parquet.CompressionCodec_UNCOMPRESSED)
+		_, err := reader.ReadPageData(buf, 99999, pageHeader, parquet.CompressionCodec_UNCOMPRESSED, layout.PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read page header")
 	})
@@ -780,10 +781,10 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		// Get a valid offset
@@ -800,7 +801,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pageHeader.CompressedPageSize = 999
 		pageHeader.UncompressedPageSize = 999
 
-		_, err = reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec)
+		_, err = reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec, layout.PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "decompress page data")
 	})
@@ -826,7 +827,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pageHeader.UncompressedPageSize = 16384
 
 		// Try to decompress with GZIP (will fail on invalid data)
-		_, err := reader.ReadPageData(buf, 0, pageHeader, parquet.CompressionCodec_GZIP)
+		_, err := reader.ReadPageData(buf, 0, pageHeader, parquet.CompressionCodec_GZIP, layout.PageReadOptions{})
 		require.Error(t, err)
 		// Should fail during reading header or page data
 		require.True(t, err != nil)
@@ -837,10 +838,10 @@ func TestReadDictionaryPageValues_NegativeCases(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	t.Run("invalid offset - cannot read header", func(t *testing.T) {
@@ -893,10 +894,10 @@ func TestGetFirstDataPageHeader(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	t.Run("compare with first data page from GetAllPageHeaders", func(t *testing.T) {
@@ -1045,10 +1046,10 @@ func TestReadFirstDataPageHeader_NegativeCases(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	t.Run("nil column chunk metadata", func(t *testing.T) {
@@ -1081,10 +1082,10 @@ func TestReadAllPageHeaders_ViaGetAllPageHeaders(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	require.NotEmpty(t, pr.Footer.RowGroups)
@@ -1188,10 +1189,10 @@ func TestCRCValidation_ValidFile(t *testing.T) {
 				_ = pf.Close()
 			}()
 
-			pr, err := reader.NewParquetReader(pf, nil, 1,
-				reader.ParquetReaderOptions{CRCMode: tc.mode})
+			pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1),
+				reader.WithCRCMode(tc.mode))
 			require.NoError(t, err)
-			defer func() { _ = pr.ReadStopWithError() }()
+			defer func() { _ = pr.ReadStop() }()
 
 			values, _, _, err := pr.ReadColumnByIndex(0, pr.GetNumRows())
 			require.NoError(t, err)
@@ -1220,10 +1221,10 @@ func TestCRCValidation_CorruptFile(t *testing.T) {
 				_ = pf.Close()
 			}()
 
-			pr, err := reader.NewParquetReader(pf, nil, 1,
-				reader.ParquetReaderOptions{CRCMode: tc.mode})
+			pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1),
+				reader.WithCRCMode(tc.mode))
 			require.NoError(t, err)
-			defer func() { _ = pr.ReadStopWithError() }()
+			defer func() { _ = pr.ReadStop() }()
 
 			_, _, _, err = pr.ReadColumnByIndex(0, pr.GetNumRows())
 			if tc.errMsg == "" {

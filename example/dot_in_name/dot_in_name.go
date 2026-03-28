@@ -5,11 +5,9 @@ package main
 import (
 	"log"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 type A struct {
@@ -31,15 +29,12 @@ func main() {
 	}
 
 	// write
-	pw, err := writer.NewParquetWriter(fw, new(A), 4)
+	pw, err := writer.NewParquetWriter(fw, new(A), writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
 	}
 
-	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
-	pw.PageSize = common.DefaultPageSize         // 8K
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
 	for range num {
 		o := A{
@@ -67,7 +62,7 @@ func main() {
 		return
 	}
 
-	pr, err := reader.NewParquetReader(fr, new(A), 4)
+	pr, err := reader.NewParquetReader(fr, new(A), reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return
@@ -80,7 +75,7 @@ func main() {
 	}
 	log.Println(os)
 
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 
 	///read column by path
@@ -90,7 +85,7 @@ func main() {
 		return
 	}
 
-	pr, err = reader.NewParquetReader(fr, new(A), 4)
+	pr, err = reader.NewParquetReader(fr, new(A), reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return
@@ -101,6 +96,6 @@ func main() {
 	v3, _, _, _ := pr.ReadColumnByPath("parquet_go_root\x01c", cn)
 	log.Println(v1, v2, v3)
 
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }

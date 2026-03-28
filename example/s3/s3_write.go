@@ -9,10 +9,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/writer"
 
-	"github.com/hangxie/parquet-go/v2/source/s3v2"
+	"github.com/hangxie/parquet-go/v3/source/s3v2"
 )
 
 type Student struct {
@@ -37,7 +37,7 @@ func main() {
 		return
 	}
 	// create new parquet file writer
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
@@ -75,7 +75,7 @@ func main() {
 	}
 
 	// create new parquet file reader
-	pr, err := reader.NewParquetReader(fr, new(Student), 4)
+	pr, err := reader.NewParquetReader(fr, new(Student), reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return
@@ -96,7 +96,7 @@ func main() {
 	}
 
 	// close the parquet file
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	err = fr.Close()
 	if err != nil {
 		log.Println("Error closing S3 file reader")

@@ -4,9 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync/atomic"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 // LimitedReadAll reads from r until EOF or until maxSize bytes have been read.
@@ -24,93 +23,56 @@ func LimitedReadAll(r io.Reader, maxSize int64) ([]byte, error) {
 	}
 
 	if int64(len(data)) > maxSize {
-		return nil, fmt.Errorf("decompressed data exceeds maximum size %d", maxSize)
+		return nil, fmt.Errorf("decompressed data exceeds maximum size %d: %w", maxSize, ErrDecompressedSizeExceeded)
 	}
 
 	return data, nil
 }
 
-// DefaultMaxDecompressedSize is the default maximum size for decompressed data (256 MB).
+// MaxDecompressedSize is the default maximum size for decompressed data (256 MB).
 // This helps prevent decompression bomb attacks where a small compressed payload
 // expands to exhaust available memory.
-const DefaultMaxDecompressedSize = 256 * 1024 * 1024
+const MaxDecompressedSize = 256 * 1024 * 1024
 
-// maxDecompressedSize is the configurable maximum decompressed size.
-// Use SetMaxDecompressedSize to change this value.
-var maxDecompressedSize int64 = DefaultMaxDecompressedSize
-
-// SetMaxDecompressedSize sets the maximum allowed size for decompressed data.
-// Set to 0 to disable the limit (not recommended for untrusted input).
-func SetMaxDecompressedSize(size int64) {
-	atomic.StoreInt64(&maxDecompressedSize, size)
-}
-
-// GetMaxDecompressedSize returns the current maximum decompressed size limit.
-func GetMaxDecompressedSize() int64 {
-	return atomic.LoadInt64(&maxDecompressedSize)
-}
-
+// Compressor holds compression and decompression functions for a codec.
+// Both Compress and Uncompress must be safe for concurrent use by multiple
+// goroutines, as a single writer/reader may invoke them from NP parallel
+// goroutines.
 type Compressor struct {
-	Compress   func(buf []byte) []byte
+	Compress   func(buf []byte) ([]byte, error)
 	Uncompress func(buf []byte) ([]byte, error)
 }
 
 var compressors = map[parquet.CompressionCodec]*Compressor{}
 
-// ErrCompressionInUse is returned by SetCompressionLevel when compression has
-// already been used. SetCompressionLevel must be called before any compression.
-var ErrCompressionInUse = errors.New("compression already in use, SetCompressionLevel must be called before any compression")
+// ErrUnsupportedCodec is returned when a codec does not support compression levels.
+var ErrUnsupportedCodec = errors.New("codec does not support compression levels")
 
-// compressionUsed tracks whether any compression has occurred. Once set to true,
-// SetCompressionLevel will refuse to modify compressors.
-var compressionUsed atomic.Bool
+// ErrDecompressedSizeExceeded is returned when decompressed data exceeds the configured limit.
+var ErrDecompressedSizeExceeded = errors.New("decompressed size exceeds limit")
 
 // compressorFactories maps codecs to functions that create a Compressor at a given level.
 // Each codec file registers its factory in init() if it supports levels.
 var compressorFactories = map[parquet.CompressionCodec]func(level int) (*Compressor, error){}
 
-// resetCompressionUsed resets the compressionUsed flag for testing purposes only.
-func resetCompressionUsed() {
-	compressionUsed.Store(false)
-}
-
-// saveCompressor returns the current compressor for a codec, for test cleanup.
-func saveCompressor(codec parquet.CompressionCodec) *Compressor {
-	return compressors[codec]
-}
-
-// restoreCompressor restores a previously saved compressor for a codec.
-func restoreCompressor(codec parquet.CompressionCodec, c *Compressor) {
-	compressors[codec] = c
-}
-
-// SetCompressionLevel sets the compression level for the specified codec.
-// It must be called before any compression occurs. Returns ErrCompressionInUse
-// if compression has already been used, or an error if the codec does not support
-// levels or the level is invalid.
-func SetCompressionLevel(codec parquet.CompressionCodec, level int) error {
-	if compressionUsed.Load() {
-		return ErrCompressionInUse
-	}
+// NewCompressor creates a new Compressor for the given codec at the specified
+// compression level. Returns ErrUnsupportedCodec if the codec does not support
+// levels (e.g., Snappy, UNCOMPRESSED), or an error wrapping the codec-specific
+// validation failure if the level is invalid. The returned Compressor is safe
+// for concurrent use.
+func NewCompressor(codec parquet.CompressionCodec, level int) (*Compressor, error) {
 	factory, ok := compressorFactories[codec]
 	if !ok {
-		return fmt.Errorf("codec %v does not support compression levels", codec)
+		return nil, fmt.Errorf("codec %v: %w", codec, ErrUnsupportedCodec)
 	}
-	c, err := factory(level)
-	if err != nil {
-		return fmt.Errorf("set compression level for %v: %w", codec, err)
-	}
-	compressors[codec] = c
-	return nil
+	return factory(level)
 }
 
-// Uncompress decompresses data using the specified compression method.
-// It validates the output size against the configured maximum to prevent
-// decompression bomb attacks.
-func Uncompress(buf []byte, compressMethod parquet.CompressionCodec) ([]byte, error) {
-	c, ok := compressors[compressMethod]
-	if !ok {
-		return nil, fmt.Errorf("unsupported compress method: %v", compressMethod)
+// Decompress decompresses data using the provided compressor and validates
+// against the given size limit. If limit is 0, falls back to MaxDecompressedSize.
+func Decompress(c *Compressor, buf []byte, limit int64) ([]byte, error) {
+	if c == nil {
+		return nil, fmt.Errorf("no compressor provided")
 	}
 
 	result, err := c.Uncompress(buf)
@@ -118,58 +80,19 @@ func Uncompress(buf []byte, compressMethod parquet.CompressionCodec) ([]byte, er
 		return nil, err
 	}
 
-	// Validate decompressed size
-	maxSize := GetMaxDecompressedSize()
-	if maxSize > 0 && int64(len(result)) > maxSize {
-		return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d", len(result), maxSize)
+	effectiveLimit := limit
+	if effectiveLimit == 0 {
+		effectiveLimit = MaxDecompressedSize
+	}
+	if effectiveLimit > 0 && int64(len(result)) > effectiveLimit {
+		return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d: %w", len(result), effectiveLimit, ErrDecompressedSizeExceeded)
 	}
 
 	return result, nil
 }
 
-// UncompressWithExpectedSize decompresses data and validates that the result
-// matches the expected size. This is useful when the expected size is known
-// from metadata (e.g., Parquet page headers).
-func UncompressWithExpectedSize(buf []byte, compressMethod parquet.CompressionCodec, expectedSize int64) ([]byte, error) {
-	c, ok := compressors[compressMethod]
-	if !ok {
-		return nil, fmt.Errorf("unsupported compress method: %v", compressMethod)
-	}
-
-	// Validate expected size against maximum before decompression
-	maxSize := GetMaxDecompressedSize()
-	if maxSize > 0 && expectedSize > maxSize {
-		return nil, fmt.Errorf("expected decompressed size %d exceeds maximum allowed size %d", expectedSize, maxSize)
-	}
-
-	result, err := c.Uncompress(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate actual size matches expected
-	if int64(len(result)) != expectedSize {
-		return nil, fmt.Errorf("decompressed size %d does not match expected size %d", len(result), expectedSize)
-	}
-
-	return result, nil
-}
-
-// CompressWithError compresses data using the specified compression method.
-// Returns an error if the compression codec is not supported.
-func CompressWithError(buf []byte, compressMethod parquet.CompressionCodec) ([]byte, error) {
-	compressionUsed.Store(true)
-	c, ok := compressors[compressMethod]
-	if !ok {
-		return nil, fmt.Errorf("unsupported compress method: %v", compressMethod)
-	}
-	return c.Compress(buf), nil
-}
-
-// Compress compresses data using the specified compression method.
-// Deprecated: Use CompressWithError instead for proper error handling.
-// This function returns nil if the compression codec is not supported.
-func Compress(buf []byte, compressMethod parquet.CompressionCodec) []byte {
-	result, _ := CompressWithError(buf, compressMethod)
-	return result
+// DefaultCompressor returns the default compressor for the given codec.
+// Returns nil if the codec is not registered.
+func DefaultCompressor(codec parquet.CompressionCodec) *Compressor {
+	return compressors[codec]
 }

@@ -14,18 +14,76 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/hangxie/parquet-go/v2/bloomfilter"
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/bloomfilter"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
-type ParquetReaderOptions struct {
-	CaseInsensitive bool
-	CRCMode         common.CRCMode
+// ReaderOption configures a ParquetReader. Use With* functions to create options.
+type ReaderOption func(*readerConfig) error
+
+// readerConfig holds resolved per-reader configuration.
+type readerConfig struct {
+	np                  int64
+	caseInsensitive     bool
+	crcMode             common.CRCMode
+	maxDecompressedSize int64
+	maxPageSize         int64
+}
+
+// WithCaseInsensitive enables case-insensitive column name matching.
+func WithCaseInsensitive() ReaderOption {
+	return func(c *readerConfig) error {
+		c.caseInsensitive = true
+		return nil
+	}
+}
+
+// WithCRCMode sets the CRC validation mode for page reading.
+func WithCRCMode(mode common.CRCMode) ReaderOption {
+	return func(c *readerConfig) error {
+		c.crcMode = mode
+		return nil
+	}
+}
+
+// WithMaxDecompressedSize sets the maximum allowed decompressed page size.
+// A value of 0 uses the built-in default (256 MB).
+func WithMaxDecompressedSize(n int64) ReaderOption {
+	return func(c *readerConfig) error {
+		if n < 0 {
+			return fmt.Errorf("max decompressed size must be >= 0, got %d", n)
+		}
+		c.maxDecompressedSize = n
+		return nil
+	}
+}
+
+// WithMaxPageSize sets the maximum allowed compressed page size.
+// A value of 0 uses the built-in default (256 MB).
+func WithMaxPageSize(n int64) ReaderOption {
+	return func(c *readerConfig) error {
+		if n < 0 {
+			return fmt.Errorf("max page size must be >= 0, got %d", n)
+		}
+		c.maxPageSize = n
+		return nil
+	}
+}
+
+// WithNP sets the number of goroutines for parallel row reading.
+func WithNP(n int64) ReaderOption {
+	return func(c *readerConfig) error {
+		if n < 1 {
+			return fmt.Errorf("NP must be >= 1, got %d", n)
+		}
+		c.np = n
+		return nil
+	}
 }
 
 type ParquetReader struct {
@@ -45,23 +103,30 @@ type ParquetReader struct {
 
 	// CRCMode controls CRC validation when reading pages
 	CRCMode common.CRCMode
+
+	maxDecompressedSize int64
+	maxPageSize         int64
 }
 
-// Create a parquet reader: obj is a object with schema tags or a JSON schema string
-func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ...ParquetReaderOptions) (*ParquetReader, error) {
-	var caseInsensitive bool
-	var crcMode common.CRCMode
-	if len(opts) > 0 {
-		caseInsensitive = opts[0].CaseInsensitive
-		crcMode = opts[0].CRCMode
+// NewParquetReader creates a parquet reader: obj is an object with schema tags or a JSON schema string.
+// Do not mutate NP, CaseInsensitive, or CRCMode after construction;
+// doing so causes data races and undefined behavior.
+func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOption) (*ParquetReader, error) {
+	cfg := readerConfig{np: 4}
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return nil, fmt.Errorf("reader option: %w", err)
+		}
 	}
 
 	var err error
 	res := new(ParquetReader)
-	res.NP = np
+	res.NP = cfg.np
 	res.PFile = pFile
-	res.CaseInsensitive = caseInsensitive
-	res.CRCMode = crcMode
+	res.CaseInsensitive = cfg.caseInsensitive
+	res.CRCMode = cfg.crcMode
+	res.maxDecompressedSize = cfg.maxDecompressedSize
+	res.maxPageSize = cfg.maxPageSize
 	if err = res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
 	}
@@ -71,7 +136,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 		if sa, ok := obj.(string); ok {
 			err = res.SetSchemaHandlerFromJSON(sa)
 			if err != nil {
-				return res, fmt.Errorf("set schema from JSON: %w", err)
+				return nil, fmt.Errorf("set schema from JSON: %w", err)
 			}
 			return res, nil
 
@@ -79,7 +144,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 			res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
 		} else {
 			if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
-				return res, fmt.Errorf("build schema handler: %w", err)
+				return nil, fmt.Errorf("build schema handler: %w", err)
 			}
 
 			res.ObjType = reflect.TypeOf(obj).Elem()
@@ -96,8 +161,8 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 		}
 		if schema.GetNumChildren() == 0 {
 			if pathStr, exists := res.SchemaHandler.IndexMap[int32(i)]; exists {
-				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: res.CRCMode}); err != nil {
-					return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
+				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: res.CRCMode, MaxDecompressedSize: res.maxDecompressedSize, MaxPageSize: res.maxPageSize}); err != nil {
+					return nil, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 				}
 			}
 		}
@@ -119,7 +184,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 		schemaElement := pr.SchemaHandler.SchemaElements[i]
 		if schemaElement.GetNumChildren() == 0 {
 			pathStr := pr.SchemaHandler.IndexMap[int32(i)]
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: pr.CRCMode}); err != nil {
+			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxDecompressedSize: pr.maxDecompressedSize, MaxPageSize: pr.maxPageSize}); err != nil {
 				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 			}
 		}
@@ -229,7 +294,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 	// Ensure column buffers exist
 	for _, pathStr := range pr.SchemaHandler.ValueColumns {
 		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: pr.CRCMode}); err != nil {
+			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxDecompressedSize: pr.maxDecompressedSize, MaxPageSize: pr.maxPageSize}); err != nil {
 				return fmt.Errorf("create column buffer for %s: %w", pathStr, err)
 			}
 		}
@@ -243,7 +308,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 		sem <- struct{}{}
 		g.Go(func() error {
 			defer func() { <-sem }()
-			if _, err := pr.ColumnBuffers[pathStr].SkipRowsWithError(int64(num)); err != nil && err == io.EOF {
+			if _, err := pr.ColumnBuffers[pathStr].SkipRows(int64(num)); err != nil && err == io.EOF {
 				return nil
 			} else if err != nil {
 				return fmt.Errorf("skip rows for column %s: %w", pathStr, err)
@@ -354,7 +419,7 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 		defer wgCols.Done()
 		for pathStr := range taskChan {
 			cb := pr.ColumnBuffers[pathStr]
-			table, _, rerr := cb.ReadRowsWithError(int64(num))
+			table, _, rerr := cb.ReadRows(int64(num))
 			if rerr != nil {
 				errMu.Lock()
 				if firstErr == nil {
@@ -489,7 +554,7 @@ func (pr *ParquetReader) Reset() error {
 
 	// Recreate all column buffers from scratch
 	for pathStr := range pr.ColumnBuffers {
-		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: pr.CRCMode})
+		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxDecompressedSize: pr.maxDecompressedSize, MaxPageSize: pr.maxPageSize})
 		if err != nil {
 			return fmt.Errorf("recreate column buffer for %s: %w", pathStr, err)
 		}
@@ -499,9 +564,9 @@ func (pr *ParquetReader) Reset() error {
 }
 
 // Stop Read
-// ReadStopWithError closes all column buffer file handles and returns any errors encountered.
+// ReadStop closes all column buffer file handles and returns any errors encountered.
 // This is the error-returning version of ReadStop.
-func (pr *ParquetReader) ReadStopWithError() error {
+func (pr *ParquetReader) ReadStop() error {
 	var errs []error
 	for pathStr, cb := range pr.ColumnBuffers {
 		if cb != nil {
@@ -511,11 +576,6 @@ func (pr *ParquetReader) ReadStopWithError() error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// Deprecated: Use ReadStopWithError instead. This method ignores errors.
-func (pr *ParquetReader) ReadStop() {
-	_ = pr.ReadStopWithError()
 }
 
 // BloomFilterCheck checks if a value might exist in the given column of the given row group.

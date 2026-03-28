@@ -5,7 +5,7 @@ import (
 
 	"github.com/ncw/swift"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *swiftFile implement the source.ParquetFileWriter interface.

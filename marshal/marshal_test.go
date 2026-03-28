@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/types"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 func TestMarshalVariant(t *testing.T) {
@@ -334,4 +334,35 @@ func TestParquetPtrMarshal(t *testing.T) {
 			}
 		})
 	}
+}
+
+type TestListStructIssue struct {
+	List []int32 `parquet:"name=list, type=LIST, valuetype=INT32"`
+}
+
+// TestMarshalPanicListMissingElement verifies that Marshal does not panic
+// when the schema for a LIST is missing the "Element" child (e.g. non-standard or malformed schema).
+func TestMarshalPanicListMissingElement(t *testing.T) {
+	sh, err := schema.NewSchemaHandlerFromStruct(new(TestListStructIssue))
+	require.NoError(t, err)
+	require.NotNil(t, sh.PathMap)
+
+	listField := sh.PathMap.Children["list"]
+	if listField == nil {
+		listField = sh.PathMap.Children["List"]
+	}
+	require.NotNil(t, listField, "list field not found in PathMap")
+
+	// Simulate the issue: Rename "Element" to "Item" so "Element" is missing
+	if l := listField.Children["List"]; l != nil {
+		if e := l.Children["Element"]; e != nil {
+			l.Children["Item"] = e
+			delete(l.Children, "Element")
+		}
+	}
+
+	data := []any{TestListStructIssue{List: []int32{1, 2, 3}}}
+
+	// This should not panic; error is acceptable
+	_, _ = Marshal(data, sh)
 }

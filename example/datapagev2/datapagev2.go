@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 // User represents a simple struct to demonstrate data page V2 writing
@@ -45,13 +45,10 @@ func writeDataPageV2(filename string) error {
 	}
 
 	// Create parquet writer
-	pw, err := writer.NewParquetWriter(fw, new(User), 4)
+	pw, err := writer.NewParquetWriter(fw, new(User), writer.WithNP(4), writer.WithDataPageVersion(2))
 	if err != nil {
 		return fmt.Errorf("create parquet writer: %w", err)
 	}
-
-	// Set data page version to 2 (default is 1)
-	pw.DataPageVersion = 2
 
 	fmt.Println("Writing parquet file with Data Page V2...")
 
@@ -92,12 +89,12 @@ func readParquetFile(filename string) error {
 	}
 
 	// Create parquet reader
-	pr, err := reader.NewParquetReader(fr, new(User), 4)
+	pr, err := reader.NewParquetReader(fr, new(User), reader.WithNP(4))
 	if err != nil {
 		return fmt.Errorf("create parquet reader: %w", err)
 	}
 	defer func() {
-		if stopErr := pr.ReadStopWithError(); stopErr != nil {
+		if stopErr := pr.ReadStop(); stopErr != nil {
 			log.Printf("Warning: stop reader: %v", stopErr)
 		}
 	}()

@@ -5,11 +5,12 @@ package compress
 
 import (
 	"bytes"
+	"io"
 	"sync"
 
 	"github.com/klauspost/compress/gzip"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 var gzipWriterPool sync.Pool
@@ -24,17 +25,17 @@ func init() {
 	compressorFactories[parquet.CompressionCodec_GZIP] = newGZIPCompressor
 
 	compressors[parquet.CompressionCodec_GZIP] = &Compressor{
-		Compress: func(buf []byte) []byte {
+		Compress: func(buf []byte) ([]byte, error) {
 			res := new(bytes.Buffer)
 			gzipWriter := gzipWriterPool.Get().(*gzip.Writer)
 			gzipWriter.Reset(res)
 			if _, err := gzipWriter.Write(buf); err != nil {
-				return nil
+				return nil, err
 			}
 			_ = gzipWriter.Close()
 			gzipWriter.Reset(nil)
 			gzipWriterPool.Put(gzipWriter)
-			return res.Bytes()
+			return res.Bytes(), nil
 		},
 		Uncompress: gzipUncompress,
 	}
@@ -49,7 +50,7 @@ func gzipUncompress(buf []byte) ([]byte, error) {
 	defer func() {
 		_ = gzipReader.Close()
 	}()
-	return LimitedReadAll(gzipReader, GetMaxDecompressedSize())
+	return io.ReadAll(gzipReader)
 }
 
 func newGZIPCompressor(level int) (*Compressor, error) {
@@ -66,17 +67,17 @@ func newGZIPCompressor(level int) (*Compressor, error) {
 	}
 
 	return &Compressor{
-		Compress: func(buf []byte) []byte {
+		Compress: func(buf []byte) ([]byte, error) {
 			res := new(bytes.Buffer)
 			gzipWriter := writerPool.Get().(*gzip.Writer)
 			gzipWriter.Reset(res)
 			if _, err := gzipWriter.Write(buf); err != nil {
-				return nil
+				return nil, err
 			}
 			_ = gzipWriter.Close()
 			gzipWriter.Reset(nil)
 			writerPool.Put(gzipWriter)
-			return res.Bytes()
+			return res.Bytes(), nil
 		},
 		Uncompress: gzipUncompress,
 	}, nil

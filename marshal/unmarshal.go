@@ -6,11 +6,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/types"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 // ShreddedVariantReconstructor handles the reconstruction of shredded VARIANT columns.
@@ -556,10 +556,11 @@ type SliceRecord struct {
 	Index  int
 }
 
-// conversionContext holds cached data for performance optimization
-type conversionContext struct {
-	schemaCache sync.Map // map[string]*parquet.SchemaElement
-	fieldCache  sync.Map // map[reflect.Type]map[string]fieldInfo
+// conversionState holds cached data for performance optimization
+type conversionState struct {
+	schemaCache    sync.Map // map[string]*parquet.SchemaElement
+	fieldCache     sync.Map // map[reflect.Type]map[string]fieldInfo
+	jsonTypeConfig *types.JSONTypeConfig
 }
 
 type fieldInfo struct {
@@ -1115,10 +1116,35 @@ func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *sche
 	return fmt.Errorf("could not set variant value at path end")
 }
 
-// ConvertToJSONFriendly converts parquet data to JSON-friendly format by applying logical type conversions
-func ConvertToJSONFriendly(data any, schemaHandler *schema.SchemaHandler) (any, error) {
-	ctx := &conversionContext{}
-	return convertValueToJSONFriendlyWithContext(reflect.ValueOf(data), schemaHandler, "", ctx)
+// ConvertOption configures ConvertToJSONFriendly behavior.
+type ConvertOption func(*convertConfig)
+
+type convertConfig struct {
+	geospatialOpts []types.GeospatialOption
+}
+
+// WithGeospatialOptions applies geospatial conversion options.
+func WithGeospatialOptions(opts ...types.GeospatialOption) ConvertOption {
+	return func(c *convertConfig) {
+		c.geospatialOpts = opts
+	}
+}
+
+// ConvertToJSONFriendly converts parquet data to JSON-friendly format by
+// applying logical type conversions, with optional configuration.
+func ConvertToJSONFriendly(data any, schemaHandler *schema.SchemaHandler, opts ...ConvertOption) (any, error) {
+	var cfg convertConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	var jsonCfg *types.JSONTypeConfig
+	if len(cfg.geospatialOpts) > 0 {
+		jsonCfg = &types.JSONTypeConfig{
+			Geospatial: types.NewGeospatialConfig(cfg.geospatialOpts...),
+		}
+	}
+	state := &conversionState{jsonTypeConfig: jsonCfg}
+	return convertValueToJSONFriendly(reflect.ValueOf(data), schemaHandler, "", state)
 }
 
 // getFieldNameFromTag extracts the name from JSON tag since the struct from parquet reading uses JSON tags
@@ -1136,8 +1162,8 @@ func getFieldNameFromTag(field reflect.StructField) string {
 	return field.Name
 }
 
-// convertValueToJSONFriendlyWithContext recursively converts a value to JSON-friendly format with caching context
-func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+// convertValueToJSONFriendly recursively converts a value to JSON-friendly format with caching context
+func convertValueToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, state *conversionState) (any, error) {
 	if !val.IsValid() {
 		return nil, nil
 	}
@@ -1147,30 +1173,30 @@ func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *sch
 		if val.IsNil() {
 			return nil, nil
 		}
-		return convertValueToJSONFriendlyWithContext(val.Elem(), schemaHandler, pathPrefix, ctx)
+		return convertValueToJSONFriendly(val.Elem(), schemaHandler, pathPrefix, state)
 
 	case reflect.Pointer:
 		if val.IsNil() {
 			return nil, nil
 		}
-		return convertValueToJSONFriendlyWithContext(val.Elem(), schemaHandler, pathPrefix, ctx)
+		return convertValueToJSONFriendly(val.Elem(), schemaHandler, pathPrefix, state)
 
 	case reflect.Slice:
-		return convertSliceToJSONFriendly(val, schemaHandler, pathPrefix, ctx)
+		return convertSliceToJSONFriendly(val, schemaHandler, pathPrefix, state)
 
 	case reflect.Map:
-		return convertMapToJSONFriendly(val, schemaHandler, pathPrefix, ctx)
+		return convertMapToJSONFriendly(val, schemaHandler, pathPrefix, state)
 
 	case reflect.Struct:
-		return convertStructToJSONFriendly(val, schemaHandler, pathPrefix, ctx)
+		return convertStructToJSONFriendly(val, schemaHandler, pathPrefix, state)
 
 	default:
-		return convertPrimitiveToJSONFriendly(val, schemaHandler, pathPrefix, ctx)
+		return convertPrimitiveToJSONFriendly(val, schemaHandler, pathPrefix, state)
 	}
 }
 
 // convertSliceToJSONFriendly optimized slice conversion
-func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, state *conversionState) (any, error) {
 	result := make([]any, val.Len())
 	var elementPath string
 	if pathPrefix != "" {
@@ -1184,7 +1210,7 @@ func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaH
 	}
 
 	for i := range val.Len() {
-		converted, err := convertValueToJSONFriendlyWithContext(val.Index(i), schemaHandler, elementPath, ctx)
+		converted, err := convertValueToJSONFriendly(val.Index(i), schemaHandler, elementPath, state)
 		if err != nil {
 			return nil, err
 		}
@@ -1194,7 +1220,7 @@ func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaH
 }
 
 // convertMapToJSONFriendly optimized map conversion
-func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, state *conversionState) (any, error) {
 	result := make(map[string]any)
 	var keyPath, valuePath string
 
@@ -1217,13 +1243,13 @@ func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHan
 	}
 
 	for _, key := range val.MapKeys() {
-		converted, err := convertValueToJSONFriendlyWithContext(key, schemaHandler, keyPath, ctx)
+		converted, err := convertValueToJSONFriendly(key, schemaHandler, keyPath, state)
 		if err != nil {
 			return nil, err
 		}
 		keyStr := fmt.Sprint(converted)
 
-		converted, err = convertValueToJSONFriendlyWithContext(val.MapIndex(key), schemaHandler, valuePath, ctx)
+		converted, err = convertValueToJSONFriendly(val.MapIndex(key), schemaHandler, valuePath, state)
 		if err != nil {
 			return nil, err
 		}
@@ -1233,7 +1259,7 @@ func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHan
 }
 
 // convertStructToJSONFriendly optimized struct conversion with field caching
-func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, state *conversionState) (any, error) {
 	valType := val.Type()
 
 	// Special handling for types.Variant: decode the variant binary data
@@ -1256,13 +1282,13 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 		if pathPrefix != "" {
 			fieldPath = pathPrefix + common.ParGoPathDelimiter + fieldPath
 		}
-		return convertValueToJSONFriendlyWithContext(val.Field(0), schemaHandler, fieldPath, ctx)
+		return convertValueToJSONFriendly(val.Field(0), schemaHandler, fieldPath, state)
 	}
 
 	result := make(map[string]any)
 	var fieldMap map[string]fieldInfo
 
-	fieldMapInterface, exists := ctx.fieldCache.Load(valType)
+	fieldMapInterface, exists := state.fieldCache.Load(valType)
 	if !exists {
 		fieldMap = make(map[string]fieldInfo)
 		for i := range val.NumField() {
@@ -1273,7 +1299,7 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 				}
 			}
 		}
-		ctx.fieldCache.Store(valType, fieldMap)
+		state.fieldCache.Store(valType, fieldMap)
 	} else {
 		fieldMap = fieldMapInterface.(map[string]fieldInfo)
 	}
@@ -1296,7 +1322,7 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 			fieldPath = pathPrefix + common.ParGoPathDelimiter + fieldPath
 		}
 
-		converted, err := convertValueToJSONFriendlyWithContext(fieldVal, schemaHandler, fieldPath, ctx)
+		converted, err := convertValueToJSONFriendly(fieldVal, schemaHandler, fieldPath, state)
 		if err != nil {
 			return nil, err
 		}
@@ -1306,7 +1332,7 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 }
 
 // convertPrimitiveToJSONFriendly optimized primitive conversion with schema caching
-func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, ctx *conversionContext) (any, error) {
+func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, state *conversionState) (any, error) {
 	if pathPrefix == "" {
 		return val.Interface(), nil
 	}
@@ -1319,14 +1345,14 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 
 	var schemaElement *parquet.SchemaElement
 
-	schemaElementInterface, cached := ctx.schemaCache.Load(expectedSchemaPath)
+	schemaElementInterface, cached := state.schemaCache.Load(expectedSchemaPath)
 	if !cached {
 		schemaIndex, exists := schemaHandler.MapIndex[expectedSchemaPath]
 		if !exists || int(schemaIndex) >= len(schemaHandler.SchemaElements) {
 			return val.Interface(), nil
 		}
 		schemaElement = schemaHandler.SchemaElements[schemaIndex]
-		ctx.schemaCache.Store(expectedSchemaPath, schemaElement)
+		state.schemaCache.Store(expectedSchemaPath, schemaElement)
 	} else {
 		schemaElement = schemaElementInterface.(*parquet.SchemaElement)
 	}
@@ -1337,7 +1363,7 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 
 	pT, cT, lT := schemaElement.Type, schemaElement.ConvertedType, schemaElement.LogicalType
 	precision, scale := int(schemaElement.GetPrecision()), int(schemaElement.GetScale())
-	converted := types.ParquetTypeToJSONTypeWithLogical(val.Interface(), pT, cT, lT, precision, scale)
+	converted := types.ParquetTypeToJSONType(val.Interface(), pT, cT, lT, precision, scale, state.jsonTypeConfig)
 
 	if converted != val.Interface() {
 		return converted, nil

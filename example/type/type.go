@@ -6,10 +6,10 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/types"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/types"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 type TypeList struct {
@@ -64,7 +64,7 @@ func main() {
 		log.Println("Can't create file", err)
 		return
 	}
-	pw, err := writer.NewParquetWriter(fw, new(TypeList), 4)
+	pw, err := writer.NewParquetWriter(fw, new(TypeList), writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
@@ -123,7 +123,7 @@ func main() {
 		log.Println("Can't create file reader", err)
 		return
 	}
-	pr, err := reader.NewParquetReader(fr, new(TypeList), 10)
+	pr, err := reader.NewParquetReader(fr, new(TypeList), reader.WithNP(10))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return
@@ -138,6 +138,6 @@ func main() {
 		tps[0].Decimal4 = types.DECIMAL_BYTE_ARRAY_ToString([]byte(tps[0].Decimal4), 20, 2)
 		log.Println(tps)
 	}
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }

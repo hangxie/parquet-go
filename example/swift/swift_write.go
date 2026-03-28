@@ -9,10 +9,10 @@ import (
 
 	"github.com/ncw/swift"
 
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/writer"
 
-	swiftsource "github.com/hangxie/parquet-go/v2/source/swift"
+	swiftsource "github.com/hangxie/parquet-go/v3/source/swift"
 )
 
 type Student struct {
@@ -49,7 +49,7 @@ func main() {
 	}
 
 	// write
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
 	if err != nil {
 		log.Println("Failed to create parquet writer: ", err)
 		return
@@ -86,7 +86,7 @@ func main() {
 		return
 	}
 
-	pr, err := reader.NewParquetReader(fr, new(Student), 4)
+	pr, err := reader.NewParquetReader(fr, new(Student), reader.WithNP(4))
 	if err != nil {
 		log.Println("Failed to create parquet reader: ", err)
 		return
@@ -99,7 +99,7 @@ func main() {
 		}
 		log.Println(stus)
 	}
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	if err = fr.Close(); err != nil {
 		log.Println("Failed to close reader: ", err)
 	}

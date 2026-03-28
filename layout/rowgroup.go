@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // RowGroup stores the RowGroup in parquet file
@@ -42,7 +42,7 @@ func (rowGroup *RowGroup) RowGroupToTableMap() *map[string]*Table {
 }
 
 // Read one RowGroup from parquet file (Deprecated)
-func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileReader, schemaHandler *schema.SchemaHandler, NP int64, opts ...common.PageReadOptions) (*RowGroup, error) {
+func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileReader, schemaHandler *schema.SchemaHandler, NP int64, opt PageReadOptions) (*RowGroup, error) {
 	if rowGroupHeader == nil {
 		return nil, fmt.Errorf("rowGroupHeader is nil")
 	}
@@ -88,7 +88,7 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 					return
 				}
 				thriftReader := source.ConvertToThriftReader(pf, offset)
-				chunk, err := ReadChunk(thriftReader, schemaHandler, columnChunks[i], opts...)
+				chunk, err := ReadChunk(thriftReader, schemaHandler, columnChunks[i], opt)
 				if err != nil {
 					_ = pf.Close()
 					errs[index] = fmt.Errorf("column %d: read chunk: %w", i, err)

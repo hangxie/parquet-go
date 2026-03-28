@@ -12,9 +12,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hangxie/parquet-go/v2/reader"
+	"github.com/hangxie/parquet-go/v3/reader"
 
-	source "github.com/hangxie/parquet-go/v2/source/http"
+	source "github.com/hangxie/parquet-go/v3/source/http"
 )
 
 type Student struct {
@@ -62,11 +62,11 @@ func main() {
 
 	// create readers
 	fr := source.NewMultipartFileWrapper(fileHeader, reqFile)
-	pr, err := reader.NewParquetReader(fr, new(Student), 4)
+	pr, err := reader.NewParquetReader(fr, new(Student), reader.WithNP(4))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// read contents
 	num := int(pr.GetNumRows())

@@ -6,11 +6,12 @@ package compress
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/pierrec/lz4/v4"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func init() {
@@ -22,17 +23,17 @@ func init() {
 		},
 	}
 	compressors[parquet.CompressionCodec_LZ4] = &Compressor{
-		Compress: func(buf []byte) []byte {
+		Compress: func(buf []byte) ([]byte, error) {
 			lz4Writer := lz4WriterPool.Get().(*lz4.Writer)
 			res := new(bytes.Buffer)
 			lz4Writer.Reset(res)
 			if _, err := lz4Writer.Write(buf); err != nil {
-				return nil
+				return nil, err
 			}
 			_ = lz4Writer.Close()
 			lz4Writer.Reset(nil)
 			lz4WriterPool.Put(lz4Writer)
-			return res.Bytes()
+			return res.Bytes(), nil
 		},
 		Uncompress: lz4Uncompress,
 	}
@@ -41,7 +42,7 @@ func init() {
 func lz4Uncompress(buf []byte) ([]byte, error) {
 	rbuf := bytes.NewReader(buf)
 	lz4Reader := lz4.NewReader(rbuf)
-	return LimitedReadAll(lz4Reader, GetMaxDecompressedSize())
+	return io.ReadAll(lz4Reader)
 }
 
 func newLZ4Compressor(level int) (*Compressor, error) {
@@ -62,17 +63,17 @@ func newLZ4Compressor(level int) (*Compressor, error) {
 	}
 
 	return &Compressor{
-		Compress: func(buf []byte) []byte {
+		Compress: func(buf []byte) ([]byte, error) {
 			lz4Writer := writerPool.Get().(*lz4.Writer)
 			res := new(bytes.Buffer)
 			lz4Writer.Reset(res)
 			if _, err := lz4Writer.Write(buf); err != nil {
-				return nil
+				return nil, err
 			}
 			_ = lz4Writer.Close()
 			lz4Writer.Reset(nil)
 			writerPool.Put(lz4Writer)
-			return res.Bytes()
+			return res.Bytes(), nil
 		},
 		Uncompress: lz4Uncompress,
 	}, nil

@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Mock ParquetFileReader for testing
@@ -114,7 +114,7 @@ func TestReadRowGroup_Comprehensive(t *testing.T) {
 		}
 
 		// Invalid thrift data causes ReadChunk to fail, which is now propagated
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1, PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read chunk")
 	})
@@ -136,7 +136,7 @@ func TestReadRowGroup_Comprehensive(t *testing.T) {
 			},
 		}
 
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 2)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 2, PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read chunk")
 	})
@@ -156,7 +156,7 @@ func TestReadRowGroup_Comprehensive(t *testing.T) {
 		}
 
 		// Open succeeds (mock returns new reader), but ReadChunk fails on invalid thrift
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1, PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read chunk")
 	})
@@ -175,7 +175,7 @@ func TestReadRowGroup_Comprehensive(t *testing.T) {
 		}
 
 		// Use high parallelism (5) with only 1 column - should not panic
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 5)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 5, PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read chunk")
 	})
@@ -197,7 +197,7 @@ func TestReadRowGroup_Comprehensive(t *testing.T) {
 			},
 		}
 
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 3)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 3, PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read chunk")
 	})
@@ -223,7 +223,7 @@ func TestReadRowGroup_Comprehensive(t *testing.T) {
 		schemaHandler := &schema.SchemaHandler{SchemaElements: schemaElements}
 
 		// Single-threaded - first column fails, returns error immediately
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, schemaHandler, 1, PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read chunk")
 	})
@@ -235,7 +235,7 @@ func TestReadRowGroup_ErrorConditions(t *testing.T) {
 	// we'll test error paths and basic functionality
 
 	t.Run("nil_row_group_header", func(t *testing.T) {
-		_, err := ReadRowGroup(nil, nil, nil, 1)
+		_, err := ReadRowGroup(nil, nil, nil, 1, PageReadOptions{})
 		require.Error(t, err)
 	})
 
@@ -246,7 +246,7 @@ func TestReadRowGroup_ErrorConditions(t *testing.T) {
 		}
 
 		// This should return successfully with empty chunks
-		rowGroup, err := ReadRowGroup(rowGroupHeader, nil, nil, 1)
+		rowGroup, err := ReadRowGroup(rowGroupHeader, nil, nil, 1, PageReadOptions{})
 		require.NoError(t, err)
 		require.NotNil(t, rowGroup)
 		require.Len(t, rowGroup.Chunks, 0)
@@ -262,7 +262,7 @@ func TestReadRowGroup_ErrorConditions(t *testing.T) {
 			},
 		}
 
-		_, err := ReadRowGroup(rowGroupHeader, nil, nil, 0)
+		_, err := ReadRowGroup(rowGroupHeader, nil, nil, 0, PageReadOptions{})
 		require.Error(t, err)
 	})
 
@@ -276,7 +276,7 @@ func TestReadRowGroup_ErrorConditions(t *testing.T) {
 			mockParquetFileReader: *newMockParquetFileReader(make([]byte, 50)),
 			cloneErr:              fmt.Errorf("clone failed"),
 		}
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1, PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "clone failed")
 	})
@@ -292,7 +292,7 @@ func TestReadRowGroup_ErrorConditions(t *testing.T) {
 			mockParquetFileReader: *newMockParquetFileReader(make([]byte, 50)),
 			openErr:               fmt.Errorf("open failed"),
 		}
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1, PageReadOptions{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "open failed")
 	})
@@ -306,7 +306,7 @@ func TestReadRowGroup_ErrorConditions(t *testing.T) {
 			},
 		}
 		mockReader := newMockParquetFileReader(make([]byte, 50))
-		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1)
+		_, err := ReadRowGroup(rowGroupHeader, mockReader, &schema.SchemaHandler{}, 1, PageReadOptions{})
 		require.Error(t, err)
 	})
 }

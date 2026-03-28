@@ -13,12 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/types"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/types"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 type InnerMap struct {
@@ -179,31 +178,12 @@ func main() {
 		return
 	}
 
-	// Output in geojson format
-	// types.SetGeometryJSONMode(types.GeospatialModeGeoJSON)
-	// types.SetGeographyJSONMode(types.GeospatialModeGeoJSON)
-
-	// output in hybrid format, ie geojson + raw
-	types.SetGeometryJSONMode(types.GeospatialModeHybrid)
-	types.SetGeographyJSONMode(types.GeospatialModeHybrid)
-	// raw data can be hex or base64
-	types.SetGeospatialHybridRawBase64(true)
-	// Use default coordinate precision (6 decimals) for GeoJSON
-	types.SetGeospatialCoordinatePrecision(6)
-
-	// output in raw format in base64 encoding
-	// types.SetGeometryJSONMode(types.GeospatialModeBase64)
-	// types.SetGeographyJSONMode(types.GeospatialModeBase64)
-
-	pw, err := writer.NewParquetWriter(fw, new(AllTypes), 4)
+	pw, err := writer.NewParquetWriter(fw, new(AllTypes), writer.WithNP(4))
 	if err != nil {
 		fmt.Println("Can't create parquet writer", err)
 		return
 	}
 
-	pw.RowGroupSize = 128 * 1024 * 1024
-	pw.PageSize = 8 * 1024
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	decimals := []int32{0, 1, 22, 333, 4444, 0, -1, -22, -333, -4444}
 	for i := range 10 {
 		ts, _ := time.Parse("2006-01-02T15:04:05.000000Z", fmt.Sprintf("2022-01-01T%02d:%02d:%02d.%03d%03dZ", i, i, i, i, i))
@@ -331,7 +311,7 @@ func main() {
 		return
 	}
 
-	pr, err := reader.NewParquetReader(fr, nil, 4)
+	pr, err := reader.NewParquetReader(fr, nil, reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return
@@ -344,7 +324,17 @@ func main() {
 		return
 	}
 
-	jsonFriendly, err := marshal.ConvertToJSONFriendly(res, pr.SchemaHandler)
+	jsonFriendly, err := marshal.ConvertToJSONFriendly(res, pr.SchemaHandler,
+		marshal.WithGeospatialOptions(
+			// output in hybrid format, ie geojson + raw
+			types.WithGeometryJSONMode(types.GeospatialModeHybrid),
+			types.WithGeographyJSONMode(types.GeospatialModeHybrid),
+			// raw data can be hex or base64
+			types.WithHybridRawBase64(true),
+			// Use default coordinate precision (6 decimals) for GeoJSON
+			types.WithCoordinatePrecision(6),
+		),
+	)
 	if err != nil {
 		log.Println("Can't to json", err)
 		return
@@ -353,7 +343,7 @@ func main() {
 	jsonBs, _ := json.Marshal(jsonFriendly)
 	log.Println(string(jsonBs))
 
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }
 

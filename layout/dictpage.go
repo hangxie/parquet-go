@@ -1,17 +1,13 @@
 package layout
 
 import (
-	"context"
 	"fmt"
 	"math/bits"
-	"slices"
 
-	"github.com/apache/thrift/lib/go/thrift"
-
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/compress"
-	"github.com/hangxie/parquet-go/v2/encoding"
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/compress"
+	"github.com/hangxie/parquet-go/v3/encoding"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 type DictRecType struct {
@@ -27,16 +23,8 @@ func NewDictRec(pT parquet.Type) *DictRecType {
 	return res
 }
 
-// Deprecated: Use DictRecToDictPageWithOption instead.
-func DictRecToDictPage(dictRec *DictRecType, pageSize int32, compressType parquet.CompressionCodec) (*Page, int64, error) {
-	return DictRecToDictPageWithOption(dictRec, PageWriteOption{
-		PageSize:     pageSize,
-		CompressType: compressType,
-	})
-}
-
-// DictRecToDictPageWithOption converts a dictionary record to a dictionary page using the provided options.
-func DictRecToDictPageWithOption(dictRec *DictRecType, opt PageWriteOption) (*Page, int64, error) {
+// DictRecToDictPage converts a dictionary record to a dictionary page using the provided options.
+func DictRecToDictPage(dictRec *DictRecType, opt PageWriteOption) (*Page, int64, error) {
 	var totSize int64 = 0
 
 	page := NewDataPage()
@@ -52,7 +40,8 @@ func DictRecToDictPageWithOption(dictRec *DictRecType, opt PageWriteOption) (*Pa
 	}
 	page.CompressType = opt.CompressType
 
-	compressedData, err := page.dictPageCompress(opt.CompressType, dictRec.Type)
+	compressor := lookupCompressor(opt.Compressors, opt.CompressType)
+	compressedData, err := page.dictPageCompress(dictRec.Type, compressor)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -63,44 +52,12 @@ func DictRecToDictPageWithOption(dictRec *DictRecType, opt PageWriteOption) (*Pa
 	return page, totSize, nil
 }
 
-// Deprecated: Use DictRecToDictPageWithOption instead.
-//
-// Before (manually build page, compress, then use page.RawData):
-//
-//	page := NewDataPage()
-//	page.DataTable = &Table{Values: dictRec.DictSlice}
-//	// ... set up page fields ...
-//	_, err := page.DictPageCompress(compressType, dictRec.Type)
-//	// serialized data is in page.RawData
-//
-// After (returns a ready-to-use page with RawData already set):
-//
-//	page, size, err := DictRecToDictPageWithOption(dictRec, PageWriteOption{
-//	    PageSize:     pageSize,
-//	    CompressType: compressType,
-//	})
-func (page *Page) DictPageCompress(compressType parquet.CompressionCodec, pT parquet.Type) ([]byte, error) {
-	compressedData, err := page.dictPageCompress(compressType, pT)
-	if err != nil {
-		return nil, err
-	}
-	ts := thrift.NewTSerializer()
-	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
-	if err != nil {
-		return nil, err
-	}
-
-	page.RawData = slices.Concat(pageHeaderBuf, compressedData)
-	return page.RawData, nil
-}
-
-func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT parquet.Type) ([]byte, error) {
+func (page *Page) dictPageCompress(pT parquet.Type, compressor *compress.Compressor) ([]byte, error) {
 	dataBuf, err := encoding.WritePlain(page.DataTable.Values, pT)
 	if err != nil {
 		return nil, err
 	}
-	dataEncodeBuf, err := compress.CompressWithError(dataBuf, compressType)
+	dataEncodeBuf, err := compressPage(dataBuf, compressor, page.CompressType)
 	if err != nil {
 		return nil, err
 	}
@@ -116,16 +73,8 @@ func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT par
 	return dataEncodeBuf, nil
 }
 
-// Deprecated: Use TableToDictDataPagesWithOption instead.
-func TableToDictDataPages(dictRec *DictRecType, table *Table, pageSize, bitWidth int32, compressType parquet.CompressionCodec) ([]*Page, int64, error) {
-	return TableToDictDataPagesWithOption(dictRec, table, bitWidth, PageWriteOption{
-		PageSize:     pageSize,
-		CompressType: compressType,
-	})
-}
-
-// TableToDictDataPagesWithOption converts a table to dictionary-encoded data pages using the provided options.
-func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth int32, opt PageWriteOption) ([]*Page, int64, error) {
+// TableToDictDataPages converts a table to dictionary-encoded data pages using the provided options.
+func TableToDictDataPages(dictRec *DictRecType, table *Table, bitWidth int32, opt PageWriteOption) ([]*Page, int64, error) {
 	var totSize int64 = 0
 	totalLn := len(table.Values)
 	if totalLn == 0 {
@@ -212,7 +161,8 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 
 		page.computeLevelHistograms()
 
-		compressedData, compressErr := page.dictDataPageCompress(opt.CompressType, bitWidth, values)
+		compressor := lookupCompressor(opt.Compressors, opt.CompressType)
+		compressedData, compressErr := page.dictDataPageCompress(bitWidth, values, compressor)
 		if compressErr != nil {
 			return nil, 0, compressErr
 		}
@@ -227,38 +177,7 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 	return res, totSize, nil
 }
 
-// Deprecated: Use TableToDictDataPagesWithOption instead.
-//
-// Before (manually build page, compress, then use page.RawData):
-//
-//	page := NewDataPage()
-//	// ... set up page fields from table ...
-//	_, err := page.DictDataPageCompress(compressType, bitWidth, values)
-//	// serialized data is in page.RawData
-//
-// After (returns ready-to-use pages with RawData already set):
-//
-//	pages, size, err := TableToDictDataPagesWithOption(dictRec, table, bitWidth, PageWriteOption{
-//	    PageSize:     pageSize,
-//	    CompressType: compressType,
-//	})
-func (page *Page) DictDataPageCompress(compressType parquet.CompressionCodec, bitWidth int32, values []int32) ([]byte, error) {
-	compressedData, err := page.dictDataPageCompress(compressType, bitWidth, values)
-	if err != nil {
-		return nil, err
-	}
-	ts := thrift.NewTSerializer()
-	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
-	if err != nil {
-		return nil, err
-	}
-
-	page.RawData = slices.Concat(pageHeaderBuf, compressedData)
-	return page.RawData, nil
-}
-
-func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bitWidth int32, values []int32) ([]byte, error) {
+func (page *Page) dictDataPageCompress(bitWidth int32, values []int32, compressor *compress.Compressor) ([]byte, error) {
 	valuesRawBuf := []byte{byte(bitWidth)}
 	valuesRawBuf = append(valuesRawBuf, encoding.WriteRLEInt32(values, bitWidth)...)
 
@@ -289,7 +208,7 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 	dataBuf = append(dataBuf, definitionLevelBuf...)
 	dataBuf = append(dataBuf, valuesRawBuf...)
 
-	dataEncodeBuf, err := compress.CompressWithError(dataBuf, compressType)
+	dataEncodeBuf, err := compressPage(dataBuf, compressor, page.CompressType)
 	if err != nil {
 		return nil, err
 	}

@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/buffer"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
 func TestJSONWriter(t *testing.T) {
@@ -24,12 +24,12 @@ func TestJSONWriter(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		jw, err := NewJSONWriter(jsonSchema, fw, WithNP(1))
 
 		require.NoError(t, err)
 		require.NotNil(t, jw)
 		require.NotNil(t, jw.SchemaHandler)
-		require.Equal(t, int64(1), jw.NP)
+		require.Equal(t, int64(1), jw.NP())
 
 		// Clean up
 		err = jw.WriteStop()
@@ -41,19 +41,19 @@ func TestJSONWriter(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(invalidSchema, fw, 1)
+		jw, err := NewJSONWriter(invalidSchema, fw, WithNP(1))
 
 		require.Error(t, err)
-		require.NotNil(t, jw) // Function returns struct even on error
+		require.Nil(t, jw)
 	})
 
 	t.Run("new_json_writer/empty_schema", func(t *testing.T) {
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter("", fw, 1)
+		jw, err := NewJSONWriter("", fw, WithNP(1))
 
 		require.Error(t, err)
-		require.NotNil(t, jw) // Function returns struct even on error
+		require.Nil(t, jw)
 	})
 
 	t.Run("new_json_writer/malformed_schema", func(t *testing.T) {
@@ -66,10 +66,10 @@ func TestJSONWriter(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(malformedSchema, fw, 1)
+		jw, err := NewJSONWriter(malformedSchema, fw, WithNP(1))
 
 		require.Error(t, err)
-		require.NotNil(t, jw) // Function returns struct even on error
+		require.Nil(t, jw)
 	})
 
 	t.Run("new_json_writer_from_writer/successful_creation", func(t *testing.T) {
@@ -82,11 +82,11 @@ func TestJSONWriter(t *testing.T) {
 		}`
 
 		var buf bytes.Buffer
-		jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, 2)
+		jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(2))
 
 		require.NoError(t, err)
 		require.NotNil(t, jw)
-		require.Equal(t, int64(2), jw.NP)
+		require.Equal(t, int64(2), jw.NP())
 
 		// Clean up
 		err = jw.WriteStop()
@@ -97,10 +97,10 @@ func TestJSONWriter(t *testing.T) {
 		invalidSchema := `not valid json`
 
 		var buf bytes.Buffer
-		jw, err := NewJSONWriterFromWriter(invalidSchema, &buf, 1)
+		jw, err := NewJSONWriterFromWriter(invalidSchema, &buf, WithNP(1))
 
 		require.Error(t, err)
-		require.NotNil(t, jw) // Function returns struct even on error
+		require.Nil(t, jw)
 	})
 
 	t.Run("write", func(t *testing.T) {
@@ -259,7 +259,7 @@ func TestJSONWriter(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				var buf bytes.Buffer
-				jw, err := NewJSONWriterFromWriter(tt.jsonSchema, &buf, 1)
+				jw, err := NewJSONWriterFromWriter(tt.jsonSchema, &buf, WithNP(1))
 				require.NoError(t, err)
 
 				// Handle custom test cases
@@ -297,13 +297,13 @@ func TestJSONWriter(t *testing.T) {
 				// Verify row count if specified
 				if tt.expectRows != nil {
 					pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-					pr, err := reader.NewParquetReader(pf, nil, 1)
+					pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 					require.NoError(t, err)
 
 					numRows := pr.GetNumRows()
 					require.Equal(t, *tt.expectRows, numRows)
 
-					_ = pr.ReadStopWithError()
+					_ = pr.ReadStop()
 					_ = pf.Close()
 				}
 			})
@@ -330,7 +330,7 @@ func TestJSONWriter(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(jsonSchema, fw, 4)
+		jw, err := NewJSONWriter(jsonSchema, fw, WithNP(4))
 		require.NoError(t, err)
 
 		for name, tc := range testCases {
@@ -363,7 +363,7 @@ func TestJSONWriter(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		jw, err := NewJSONWriter(jsonSchema, fw, WithNP(1))
 		require.NoError(t, err)
 
 		data := []*string{
@@ -385,11 +385,11 @@ func TestJSONWriter(t *testing.T) {
 
 		// Verify the written data can be read back
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, nil, 1)
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
 		require.Equal(t, int64(1), pr.GetNumRows())
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 		_ = pf.Close()
 	})
 
@@ -403,7 +403,7 @@ func TestJSONWriter(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		jw, err := NewJSONWriter(jsonSchema, fw, WithNP(1))
 		require.NoError(t, err)
 
 		// "Hello World" encoded in base64

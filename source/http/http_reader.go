@@ -8,18 +8,19 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *httpReader implement the source.ParquetFileReader interface.
 var _ source.ParquetFileReader = (*httpReader)(nil)
 
 type httpReader struct {
-	url          string
-	size         int64
-	offset       int64
-	httpClient   *http.Client
-	extraHeaders map[string]string
+	url            string
+	size           int64
+	offset         int64
+	httpClient     *http.Client
+	extraHeaders   map[string]string
+	ignoreTLSError bool
 
 	dedicatedTransport bool
 }
@@ -30,29 +31,18 @@ const (
 	contentRangeHeader = "Content-Range"
 )
 
-var defaultClient *http.Client
-
-func SetDefaultClient(client *http.Client) {
-	defaultClient = client
-}
-
 func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHeaders map[string]string) (source.ParquetFileReader, error) {
-	var client *http.Client
-	if defaultClient != nil {
-		client = defaultClient
+	// make sure remote support range
+	var transport *http.Transport
+	if dedicatedTransport {
+		transport = &http.Transport{}
 	} else {
-		// make sure remote support range
-		var transport *http.Transport
-		if dedicatedTransport {
-			transport = &http.Transport{}
-		} else {
-			// Clone the default transport to avoid race conditions
-			defaultTransport := http.DefaultTransport.(*http.Transport)
-			transport = defaultTransport.Clone()
-		}
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: ignoreTLSError}
-		client = &http.Client{Transport: transport}
+		// Clone the default transport to avoid race conditions
+		defaultTransport := http.DefaultTransport.(*http.Transport)
+		transport = defaultTransport.Clone()
 	}
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: ignoreTLSError}
+	client := &http.Client{Transport: transport}
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
@@ -92,17 +82,84 @@ func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHea
 		offset:             0,
 		httpClient:         client,
 		extraHeaders:       extraHeaders,
+		ignoreTLSError:     ignoreTLSError,
 		dedicatedTransport: dedicatedTransport,
 	}, nil
 }
 
+// NewHttpReaderWithClient creates an HTTP-based parquet file reader using the
+// provided *http.Client. The caller owns the client lifecycle — this function
+// does not close the client or its transport when the reader is closed.
+// Callers must configure timeouts on the provided client (e.g., http.Client.Timeout
+// or per-request context deadlines) and may need to call
+// Transport.CloseIdleConnections() when done to release resources.
+//
+// Example with custom timeouts:
+//
+//	client := &http.Client{
+//	    Timeout: 30 * time.Second,
+//	    Transport: &http.Transport{
+//	        MaxIdleConns:          100,
+//	        IdleConnTimeout:       90 * time.Second,
+//	        TLSHandshakeTimeout:   10 * time.Second,
+//	        ExpectContinueTimeout: 1 * time.Second,
+//	    },
+//	}
+//	reader, err := NewHttpReaderWithClient(uri, client, headers)
+//
+// Skip TLS verification (e.g., for AWS S3 wildcard cert issues):
+//
+//	client := &http.Client{
+//	    Transport: &http.Transport{
+//	        TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+//	    },
+//	}
+func NewHttpReaderWithClient(uri string, client *http.Client, extraHeaders map[string]string) (source.ParquetFileReader, error) {
+	req, err := http.NewRequest(http.MethodGet, uri, nil)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range extraHeaders {
+		req.Header.Add(k, v)
+	}
+	req.Header.Add(rangeHeader, fmt.Sprintf(rangeFormat, 0, 0))
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	contentRange := resp.Header.Values(contentRangeHeader)
+	if len(contentRange) == 0 {
+		return nil, fmt.Errorf("remote [%s] does not support range", uri)
+	}
+	tmp := strings.Split(contentRange[0], "/")
+	if len(tmp) != 2 {
+		return nil, fmt.Errorf("%s format is unknown: %s", contentRangeHeader, contentRange[0])
+	}
+	size, err := strconv.ParseInt(tmp[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse data size from %s: %s", contentRangeHeader, contentRange[0])
+	}
+
+	// Extract ignoreTLSError from the client's transport if possible.
+	var ignoreTLS bool
+	if t, ok := client.Transport.(*http.Transport); ok && t.TLSClientConfig != nil {
+		ignoreTLS = t.TLSClientConfig.InsecureSkipVerify
+	}
+
+	return &httpReader{
+		url:            uri,
+		size:           size,
+		offset:         0,
+		httpClient:     client,
+		extraHeaders:   extraHeaders,
+		ignoreTLSError: ignoreTLS,
+	}, nil
+}
+
 func (r *httpReader) Open(_ string) (source.ParquetFileReader, error) {
-	return NewHttpReader(
-		r.url,
-		r.dedicatedTransport,
-		r.httpClient.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify,
-		r.extraHeaders,
-	)
+	return NewHttpReaderWithClient(r.url, r.httpClient, r.extraHeaders)
 }
 
 func (r httpReader) Clone() (source.ParquetFileReader, error) {
@@ -114,6 +171,7 @@ func (r httpReader) Clone() (source.ParquetFileReader, error) {
 		offset:             0,
 		httpClient:         r.httpClient,
 		extraHeaders:       r.extraHeaders,
+		ignoreTLSError:     r.ignoreTLSError,
 		dedicatedTransport: r.dedicatedTransport,
 	}, nil
 }

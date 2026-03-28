@@ -5,10 +5,10 @@ package main
 import (
 	"log"
 
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/writer"
 
-	"github.com/hangxie/parquet-go/v2/source/hdfs"
+	"github.com/hangxie/parquet-go/v3/source/hdfs"
 )
 
 type Student struct {
@@ -27,7 +27,7 @@ func main() {
 		log.Println("Can't create hdfs file", err)
 		return
 	}
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
@@ -58,7 +58,7 @@ func main() {
 		log.Println("Can't open hdfs file", err)
 		return
 	}
-	pr, err := reader.NewParquetReader(fr, new(Student), 4)
+	pr, err := reader.NewParquetReader(fr, new(Student), reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return
@@ -71,6 +71,6 @@ func main() {
 		}
 		log.Println(stus)
 	}
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }

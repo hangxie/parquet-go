@@ -6,11 +6,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 type Student struct {
@@ -32,15 +31,12 @@ func main() {
 	}
 
 	// write
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
 	}
 
-	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
-	pw.PageSize = common.DefaultPageSize         // 8K
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
 	for i := range num {
 		stu := Student{
@@ -99,7 +95,7 @@ func main() {
 		return
 	}
 
-	pr, err := reader.NewParquetReader(fr, new(Student), 4)
+	pr, err := reader.NewParquetReader(fr, new(Student), reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return
@@ -113,6 +109,6 @@ func main() {
 		log.Println(stus)
 	}
 
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }

@@ -3,23 +3,34 @@ package reader
 import (
 	"fmt"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
-// NewParquetColumnReader creates a parquet column reader
-func NewParquetColumnReader(pFile source.ParquetFileReader, np int64) (*ParquetReader, error) {
+// NewParquetColumnReader creates a parquet column reader.
+func NewParquetColumnReader(pFile source.ParquetFileReader, opts ...ReaderOption) (*ParquetReader, error) {
+	cfg := readerConfig{np: 4}
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return nil, fmt.Errorf("reader option: %w", err)
+		}
+	}
+
 	res := new(ParquetReader)
-	res.NP = np
+	res.NP = cfg.np
 	res.PFile = pFile
+	res.CaseInsensitive = cfg.caseInsensitive
+	res.CRCMode = cfg.crcMode
+	res.maxDecompressedSize = cfg.maxDecompressedSize
+	res.maxPageSize = cfg.maxPageSize
 	if err := res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
 	}
 	res.ColumnBuffers = make(map[string]*ColumnBufferType)
 	res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(res.Footer.GetSchema())
 	res.RenameSchema()
-
+	res.detectBloomFilters()
 	return res, nil
 }
 
@@ -48,23 +59,22 @@ func (pr *ParquetReader) SkipRowsByPath(pathStr string, num int64) error {
 
 	if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 		var err error
-		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: pr.CRCMode}); err != nil {
+		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxDecompressedSize: pr.maxDecompressedSize, MaxPageSize: pr.maxPageSize}); err != nil {
 			return fmt.Errorf("init column buffer for %v: %w", pathStr, err)
 		}
 	}
 
 	if cb, ok := pr.ColumnBuffers[pathStr]; !ok {
 		return errPathNotFound
-	} else if _, err := cb.SkipRowsWithError(int64(num)); err != nil {
+	} else if _, err := cb.SkipRows(int64(num)); err != nil {
 		return fmt.Errorf("skip rows by path %v: %w", pathStr, err)
 	}
 
 	return nil
 }
 
-// SkipRowsByIndexWithError skips rows by index and returns any errors encountered.
-// This is the error-returning version of SkipRowsByIndex.
-func (pr *ParquetReader) SkipRowsByIndexWithError(index, num int64) error {
+// SkipRowsByIndex skips rows by index and returns any errors encountered.
+func (pr *ParquetReader) SkipRowsByIndex(index, num int64) error {
 	if pr.SchemaHandler == nil {
 		return fmt.Errorf("SchemaHandler is nil")
 	}
@@ -79,11 +89,6 @@ func (pr *ParquetReader) SkipRowsByIndexWithError(index, num int64) error {
 		return fmt.Errorf("skip rows by path %s: %w", pathStr, err)
 	}
 	return nil
-}
-
-// Deprecated: Use SkipRowsByIndexWithError instead. This method ignores errors.
-func (pr *ParquetReader) SkipRowsByIndex(index, num int64) {
-	_ = pr.SkipRowsByIndexWithError(index, num)
 }
 
 // ReadColumnByPath reads column by path in schema.
@@ -104,13 +109,13 @@ func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []a
 
 	if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 		var err error
-		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, common.PageReadOptions{CRCMode: pr.CRCMode}); err != nil {
+		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxDecompressedSize: pr.maxDecompressedSize, MaxPageSize: pr.maxPageSize}); err != nil {
 			return []any{}, []int32{}, []int32{}, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 		}
 	}
 
 	if cb, ok := pr.ColumnBuffers[pathStr]; ok {
-		table, _, rerr := cb.ReadRowsWithError(int64(num))
+		table, _, rerr := cb.ReadRows(int64(num))
 		if rerr != nil {
 			return []any{}, []int32{}, []int32{}, fmt.Errorf("read rows %v: %w", pathStr, rerr)
 		}

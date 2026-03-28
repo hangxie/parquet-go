@@ -5,57 +5,58 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
-const (
-	pageSize      = common.DefaultPageSize
-	rowGroupSize  = common.DefaultRowGroupSize
-	footerVersion = 1
-	offset        = 4
-)
-
-// ArrowWriter extending the base ParqueWriter
+// ArrowWriter extending the base ParquetWriter
 type ArrowWriter struct {
 	ParquetWriter
 }
 
 // NewArrowWriter creates arrow schema parquet writer given the native
 // arrow schema, parquet file writer which contains the parquet file in
-// which we will write the record along with the number of parallel threads
-// which will write in the file.
-func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter,
-	np int64,
-) (*ArrowWriter, error) {
-	var err error
-	res := new(ArrowWriter)
-	res.SchemaHandler, err = schema.NewSchemaHandlerFromArrow(arrowSchema)
-	if err != nil {
-		return res, fmt.Errorf("create schema from arrow definition: %w", err)
+// which we will write the record.
+func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, opts ...WriterOption) (*ArrowWriter, error) {
+	cfg := defaultWriterConfig()
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return nil, fmt.Errorf("apply writer option: %w", err)
+		}
+	}
+	if cfg.rowGroupSize < cfg.pageSize {
+		return nil, fmt.Errorf("row group size (%d) must be >= page size (%d)", cfg.rowGroupSize, cfg.pageSize)
 	}
 
-	res.PFile = pfile
-	res.PageSize = pageSize
-	res.RowGroupSize = rowGroupSize
-	// Compression type is by default: parquet.CompressionCodec_SNAPPY
-	res.CompressionType = parquet.CompressionCodec_GZIP
-	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.NP = np
-	res.Footer = parquet.NewFileMetaData()
-	res.Footer.Version = footerVersion
-	res.Footer.Schema = append(res.Footer.Schema,
-		res.SchemaHandler.SchemaElements...)
-	res.Offset = offset
-	_, err = res.PFile.Write([]byte("PAR1"))
+	res := new(ArrowWriter)
+	sh, err := schema.NewSchemaHandlerFromArrow(arrowSchema)
 	if err != nil {
-		return res, fmt.Errorf("write magic header: %w", err)
+		return nil, fmt.Errorf("create schema from arrow definition: %w", err)
 	}
+	res.SchemaHandler = sh
+
+	applyWriterConfig(&res.ParquetWriter, cfg)
+	res.PFile = pfile
+	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
+
+	if err := res.createCompressors(cfg); err != nil {
+		return nil, err
+	}
+
 	res.MarshalFunc = marshal.MarshalArrow
+
+	if err := res.SchemaHandler.ValidateEncodingsForDataPageVersion(res.dataPageVersion); err != nil {
+		return nil, fmt.Errorf("encoding validation: %w", err)
+	}
+
+	if _, err := res.PFile.Write([]byte("PAR1")); err != nil {
+		return nil, fmt.Errorf("write magic header: %w", err)
+	}
+	res.initBloomFilters()
+	res.headerWritten = true
+	res.stopped = false
 	return res, nil
 }
 

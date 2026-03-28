@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func TestDecodeDictChunk(t *testing.T) {
@@ -295,7 +295,7 @@ func TestReadChunk_ErrorConditions(t *testing.T) {
 			chunkHeader := tt.setupChunk()
 
 			if tt.expectPanic {
-				_, err := ReadChunk(nil, nil, chunkHeader)
+				_, err := ReadChunk(nil, nil, chunkHeader, PageReadOptions{})
 				require.Error(t, err)
 			}
 		})

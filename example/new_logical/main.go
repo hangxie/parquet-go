@@ -8,11 +8,10 @@ import (
 	"log"
 	"math"
 
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 // Row showcases newly added logical types
@@ -34,12 +33,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw, err := writer.NewParquetWriter(fw, new(Row), 1)
+	pw, err := writer.NewParquetWriter(fw, new(Row), writer.WithNP(1))
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
-
 	// 3 sample rows
 	rows := []Row{
 		{F16: f32ToF16Bytes(0.5), I8: -10, U16: 1000, UUID: hexToFixed16("0123456789abcdef0123456789abcdef")},
@@ -61,7 +58,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pr, err := reader.NewParquetReader(fr, nil, 1)
+	pr, err := reader.NewParquetReader(fr, nil, reader.WithNP(1))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -75,7 +72,7 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("%v\n", converted)
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }
 

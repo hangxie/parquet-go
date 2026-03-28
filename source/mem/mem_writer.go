@@ -7,24 +7,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
-
-// desclare unexported in-memory file-system
-var memFs afero.Fs
-
-// SetInMemFileFs - overrides local in-memory fileSystem
-// NOTE: this is set by NewMemFileWriter is created
-// and memFs is still nil
-func SetInMemFileFs(fs *afero.Fs) {
-	memFs = *fs
-}
-
-// GetMemFileFs - returns the current memory file-system
-// being used by ParquetFile
-func GetMemFileFs() afero.Fs {
-	return memFs
-}
 
 // OnCloseFunc function type, handles what to do
 // after converted file is closed in-memory.
@@ -43,20 +27,36 @@ var _ source.ParquetFileWriter = (*memWriter)(nil)
 // memWriter - ParquetFileWriter type for in-memory file operations
 type memWriter struct {
 	memFile
+	fs afero.Fs
 }
 
-// NewMemFileWriter - intiates and creates an instance of MemFiles
+// NewMemFileWriter initiates and creates an instance of MemFiles.
 // NOTE: there is no NewMemFileReader as this particular type was written
 // to handle in-memory conversions and offloading. The results of
 // conversion can then be stored and read via HDFS, LocalFS, etc without
 // the need for loading the file back into memory directly
 func NewMemFileWriter(name string, f OnCloseFunc) (source.ParquetFileWriter, error) {
-	if memFs == nil {
-		memFs = afero.NewMemMapFs()
-	}
+	fs := afero.NewMemMapFs()
 
 	var m memWriter
 	m.onClose = f
+	m.fs = fs
+	w, err := m.Create(name)
+	if err != nil {
+		return nil, fmt.Errorf("create mem file: %w", err)
+	}
+	return w, nil
+}
+
+// NewMemFileWriterWithFs creates an in-memory file writer using the provided
+// filesystem instance, enabling isolation between writers.
+func NewMemFileWriterWithFs(name string, f OnCloseFunc, fs afero.Fs) (source.ParquetFileWriter, error) {
+	if fs == nil {
+		return nil, fmt.Errorf("filesystem must not be nil")
+	}
+	var m memWriter
+	m.onClose = f
+	m.fs = fs
 	w, err := m.Create(name)
 	if err != nil {
 		return nil, fmt.Errorf("create mem file: %w", err)
@@ -65,30 +65,33 @@ func NewMemFileWriter(name string, f OnCloseFunc) (source.ParquetFileWriter, err
 }
 
 // Create - create in-memory file
-func (fs *memWriter) Create(name string) (source.ParquetFileWriter, error) {
-	file, err := memFs.Create(name)
+func (w *memWriter) Create(name string) (source.ParquetFileWriter, error) {
+	file, err := w.fs.Create(name)
 	if err != nil {
-		return fs, fmt.Errorf("memfs create: %w", err)
+		return w, fmt.Errorf("memfs create: %w", err)
 	}
 
-	fs.file = file
-	fs.filePath = name
-	return fs, nil
+	w.file = file
+	w.filePath = name
+	return w, nil
 }
 
 // Write - write file in-memory
-func (fs *memWriter) Write(b []byte) (n int, err error) {
-	return fs.file.Write(b)
+func (w *memWriter) Write(b []byte) (n int, err error) {
+	return w.file.Write(b)
 }
 
 // Close - close file and execute OnCloseFunc
-func (fs *memWriter) Close() error {
-	if err := fs.file.Close(); err != nil {
+func (w *memWriter) Close() error {
+	if err := w.file.Close(); err != nil {
 		return fmt.Errorf("close mem file: %w", err)
 	}
-	if fs.onClose != nil {
-		f, _ := memFs.Open(fs.filePath)
-		if err := fs.onClose(filepath.Base(fs.filePath), f); err != nil {
+	if w.onClose != nil {
+		f, err := w.fs.Open(w.filePath)
+		if err != nil {
+			return fmt.Errorf("reopen mem file for onClose: %w", err)
+		}
+		if err := w.onClose(filepath.Base(w.filePath), f); err != nil {
 			return fmt.Errorf("execute onClose callback: %w", err)
 		}
 	}

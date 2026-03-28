@@ -8,10 +8,11 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/compress"
-	"github.com/hangxie/parquet-go/v2/encoding"
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/compress"
+	"github.com/hangxie/parquet-go/v3/encoding"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 // PageHeaderInfo contains metadata about a page extracted from its header
@@ -161,15 +162,6 @@ func ExtractPageHeaderInfo(pageHeader *parquet.PageHeader, offset int64, index i
 	return info
 }
 
-// ReadAllPageHeaders reads all page headers from a column chunk
-// Returns a slice of PageHeaderInfo containing metadata about each page
-//
-// Deprecated: Use ParquetReader.GetAllPageHeaders instead, which provides proper validation
-// and uses row group/column indices rather than requiring direct access to internal fields.
-func ReadAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) ([]PageHeaderInfo, error) {
-	return readAllPageHeaders(pFile, columnChunk)
-}
-
 // readAllPageHeaders reads all page headers from a column chunk
 // Returns a slice of PageHeaderInfo containing metadata about each page
 func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) ([]PageHeaderInfo, error) {
@@ -254,11 +246,7 @@ func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChu
 
 // ReadPageData reads and decompresses the data from a page at the given offset
 // Returns the uncompressed page data
-func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, opts ...common.PageReadOptions) ([]byte, error) {
-	var opt common.PageReadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, opt layout.PageReadOptions) ([]byte, error) {
 	// Re-read the header to get exact header size
 	_, headerSize, err := readPageHeader(pFile, offset)
 	if err != nil {
@@ -270,6 +258,11 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 	_, err = pFile.Seek(dataOffset, io.SeekStart)
 	if err != nil {
 		return nil, fmt.Errorf("seek to page data: %w", err)
+	}
+
+	// Validate compressed page size before allocating buffer
+	if opt.MaxPageSize > 0 && int64(pageHeader.CompressedPageSize) > opt.MaxPageSize {
+		return nil, fmt.Errorf("compressed page size %d exceeds limit %d: %w", pageHeader.CompressedPageSize, opt.MaxPageSize, layout.ErrPageSizeExceeded)
 	}
 
 	// Read compressed page data
@@ -284,7 +277,7 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 	}
 
 	// Decompress the data
-	uncompressedData, err := compress.Uncompress(compressedData, codec)
+	uncompressedData, err := compress.Decompress(compress.DefaultCompressor(codec), compressedData, opt.MaxDecompressedSize)
 	if err != nil {
 		return nil, fmt.Errorf("decompress page data: %w", err)
 	}
@@ -362,7 +355,7 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	}
 
 	// Read and decode the page data
-	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, common.PageReadOptions{CRCMode: pr.CRCMode})
+	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxDecompressedSize: pr.maxDecompressedSize, MaxPageSize: pr.maxPageSize})
 	if err != nil {
 		return nil, fmt.Errorf("read page data: %w", err)
 	}

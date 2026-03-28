@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/types"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 // VariantSchemaInfo contains information about a VARIANT schema, including

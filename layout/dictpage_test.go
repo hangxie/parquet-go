@@ -5,8 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/compress"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func TestDictDataPageCompress(t *testing.T) {
@@ -28,9 +29,9 @@ func TestDictDataPageCompress(t *testing.T) {
 	// Test values representing dictionary indices
 	values := []int32{0, 1, 0, 2}
 
-	data, err := page.DictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, values)
+	compressedData, err := page.dictDataPageCompress(2, values, compress.DefaultCompressor(parquet.CompressionCodec_UNCOMPRESSED))
 	require.NoError(t, err)
-	require.NotZero(t, len(data))
+	require.NotZero(t, len(compressedData))
 }
 
 func TestDictDataPageCompressWithEmptyValues(t *testing.T) {
@@ -52,9 +53,9 @@ func TestDictDataPageCompressWithEmptyValues(t *testing.T) {
 	// Test with empty values slice
 	values := []int32{}
 
-	data, err := page.DictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 1, values)
+	compressedData, err := page.dictDataPageCompress(1, values, compress.DefaultCompressor(parquet.CompressionCodec_UNCOMPRESSED))
 	require.NoError(t, err)
-	require.NotZero(t, len(data))
+	require.NotZero(t, len(compressedData))
 }
 
 func TestDictPageCompress(t *testing.T) {
@@ -70,9 +71,9 @@ func TestDictPageCompress(t *testing.T) {
 		Values: []any{int32(1), int32(2), int32(3)},
 	}
 
-	data, err := page.DictPageCompress(parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
+	compressedData, err := page.dictPageCompress(parquet.Type_INT32, compress.DefaultCompressor(parquet.CompressionCodec_UNCOMPRESSED))
 	require.NoError(t, err)
-	require.NotZero(t, len(data))
+	require.NotZero(t, len(compressedData))
 }
 
 func TestDictPageCompressWithEmptyDataTable(t *testing.T) {
@@ -86,9 +87,11 @@ func TestDictPageCompressWithEmptyDataTable(t *testing.T) {
 		Values: []any{}, // empty values slice
 	}
 
-	data, err := page.DictPageCompress(parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
+	compressedData, err := page.dictPageCompress(parquet.Type_INT32, compress.DefaultCompressor(parquet.CompressionCodec_UNCOMPRESSED))
 	require.NoError(t, err)
-	require.NotZero(t, len(data))
+	// Empty dictionary produces zero-length compressed data
+	require.NotNil(t, compressedData)
+	require.Equal(t, parquet.PageType_DICTIONARY_PAGE, page.Header.Type)
 }
 
 func TestDictPageCompress_ReturnsCompressedData(t *testing.T) {
@@ -100,7 +103,7 @@ func TestDictPageCompress_ReturnsCompressedData(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 	}
 
-	compressedData, err := page.dictPageCompress(parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
+	compressedData, err := page.dictPageCompress(parquet.Type_INT32, compress.DefaultCompressor(parquet.CompressionCodec_UNCOMPRESSED))
 	require.NoError(t, err)
 	require.NotEmpty(t, compressedData)
 
@@ -124,7 +127,7 @@ func TestDictDataPageCompress_ReturnsCompressedData(t *testing.T) {
 	page.MaxVal = int32(3)
 	page.MinVal = int32(1)
 
-	compressedData, err := page.dictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, []int32{0, 1, 2})
+	compressedData, err := page.dictDataPageCompress(2, []int32{0, 1, 2}, compress.DefaultCompressor(parquet.CompressionCodec_UNCOMPRESSED))
 	require.NoError(t, err)
 	require.NotEmpty(t, compressedData)
 
@@ -182,7 +185,10 @@ func TestDictRecToDictPage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dictRec := tt.setupDictRec()
 
-			page, totalSize, err := DictRecToDictPage(dictRec, tt.pageSize, tt.compression)
+			page, totalSize, err := DictRecToDictPage(dictRec, PageWriteOption{
+				PageSize:     tt.pageSize,
+				CompressType: tt.compression,
+			})
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -229,7 +235,10 @@ func TestTableToDictDataPages(t *testing.T) {
 		Info:             &common.Tag{},
 	}
 
-	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 2, parquet.CompressionCodec_UNCOMPRESSED)
+	pages, totalSize, err := TableToDictDataPages(dictRec, table, 2, PageWriteOption{
+		PageSize:     1024,
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
 	require.NoError(t, err)
 	require.NotZero(t, len(pages))
 	require.Positive(t, totalSize)
@@ -250,7 +259,10 @@ func TestTableToDictDataPagesWithEmptyTable(t *testing.T) {
 		Info:             &common.Tag{},
 	}
 
-	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 1, parquet.CompressionCodec_UNCOMPRESSED)
+	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1, PageWriteOption{
+		PageSize:     1024,
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
 	require.NoError(t, err)
 	require.Len(t, pages, 0)
 	require.Equal(t, int64(0), totalSize)
@@ -271,7 +283,10 @@ func TestTableToDictDataPagesWithInvalidType(t *testing.T) {
 		Info:             &common.Tag{},
 	}
 
-	_, _, err := TableToDictDataPages(dictRec, table, 1024, 1, parquet.CompressionCodec_UNCOMPRESSED)
+	_, _, err := TableToDictDataPages(dictRec, table, 1, PageWriteOption{
+		PageSize:     1024,
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
 	require.Error(t, err)
 }
 
@@ -296,9 +311,9 @@ func TestDictDataPageCompress_WithLevelsAndStatistics(t *testing.T) {
 
 	values := []int32{0, 1, 2}
 
-	data, err := page.DictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, values)
+	compressedData, err := page.dictDataPageCompress(2, values, compress.DefaultCompressor(parquet.CompressionCodec_UNCOMPRESSED))
 	require.NoError(t, err)
-	require.NotEmpty(t, data)
+	require.NotEmpty(t, compressedData)
 
 	require.NotNil(t, page.Header.DataPageHeader.Statistics)
 	require.NotNil(t, page.Header.DataPageHeader.Statistics.Max)
@@ -329,7 +344,10 @@ func TestTableToDictDataPages_WithNulls(t *testing.T) {
 		Info:               &common.Tag{},
 	}
 
-	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 2, parquet.CompressionCodec_UNCOMPRESSED)
+	pages, totalSize, err := TableToDictDataPages(dictRec, table, 2, PageWriteOption{
+		PageSize:     1024,
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
 	require.NoError(t, err)
 	require.NotEmpty(t, pages)
 	require.Positive(t, totalSize)
@@ -361,7 +379,10 @@ func TestTableToDictDataPages_MultiplePages(t *testing.T) {
 	}
 
 	// Use tiny pageSize (4 bytes) to force multiple pages
-	pages, totalSize, err := TableToDictDataPages(dictRec, table, 4, 2, parquet.CompressionCodec_UNCOMPRESSED)
+	pages, totalSize, err := TableToDictDataPages(dictRec, table, 2, PageWriteOption{
+		PageSize:     4,
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
 	require.NoError(t, err)
 	require.Greater(t, len(pages), 1)
 	require.Positive(t, totalSize)
@@ -389,7 +410,10 @@ func TestTableToDictDataPages_OmitStats(t *testing.T) {
 		Info:               info,
 	}
 
-	pages, totalSize, err := TableToDictDataPages(dictRec, table, 1024, 2, parquet.CompressionCodec_UNCOMPRESSED)
+	pages, totalSize, err := TableToDictDataPages(dictRec, table, 2, PageWriteOption{
+		PageSize:     1024,
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
 	require.NoError(t, err)
 	require.NotEmpty(t, pages)
 	require.Positive(t, totalSize)
@@ -400,7 +424,7 @@ func TestTableToDictDataPages_OmitStats(t *testing.T) {
 	require.Nil(t, pages[0].NullCount)
 }
 
-func TestTableToDictDataPagesWithOption(t *testing.T) {
+func TestTableToDictDataPages_CRC(t *testing.T) {
 	testCases := []struct {
 		name      string
 		writeCRC  bool
@@ -439,7 +463,7 @@ func TestTableToDictDataPagesWithOption(t *testing.T) {
 				WriteCRC:     tc.writeCRC,
 			}
 
-			pages, totalSize, err := TableToDictDataPagesWithOption(dictRec, table, 2, opt)
+			pages, totalSize, err := TableToDictDataPages(dictRec, table, 2, opt)
 			require.NoError(t, err)
 			require.NotEmpty(t, pages)
 			require.Positive(t, totalSize)
@@ -456,7 +480,7 @@ func TestTableToDictDataPagesWithOption(t *testing.T) {
 	}
 }
 
-func TestDictRecToDictPageWithOption(t *testing.T) {
+func TestDictRecToDictPage_CRC(t *testing.T) {
 	dictRec := NewDictRec(parquet.Type_INT32)
 	dictRec.DictSlice = []any{int32(1), int32(2), int32(3)}
 	dictRec.DictMap = map[any]int32{int32(1): 0, int32(2): 1, int32(3): 2}
@@ -477,7 +501,7 @@ func TestDictRecToDictPageWithOption(t *testing.T) {
 				CompressType: parquet.CompressionCodec_UNCOMPRESSED,
 				WriteCRC:     tc.writeCRC,
 			}
-			page, totalSize, err := DictRecToDictPageWithOption(dictRec, opt)
+			page, totalSize, err := DictRecToDictPage(dictRec, opt)
 			require.NoError(t, err)
 			require.NotNil(t, page)
 			require.Positive(t, totalSize)

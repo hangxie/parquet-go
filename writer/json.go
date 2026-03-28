@@ -4,48 +4,62 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
-	"github.com/hangxie/parquet-go/v2/types"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 type JSONWriter struct {
 	ParquetWriter
 }
 
-func NewJSONWriterFromWriter(jsonSchema string, w io.Writer, np int64) (*JSONWriter, error) {
+func NewJSONWriterFromWriter(jsonSchema string, w io.Writer, opts ...WriterOption) (*JSONWriter, error) {
 	wf := writerfile.NewWriterFile(w)
-	return NewJSONWriter(jsonSchema, wf, np)
+	return NewJSONWriter(jsonSchema, wf, opts...)
 }
 
-// Create JSON writer
-func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, np int64) (*JSONWriter, error) {
-	var err error
-	res := new(JSONWriter)
-	res.SchemaHandler, err = schema.NewSchemaHandlerFromJSON(jsonSchema)
-	if err != nil {
-		return res, err
+// NewJSONWriter creates a JSON writer with functional options.
+func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, opts ...WriterOption) (*JSONWriter, error) {
+	cfg := defaultWriterConfig()
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return nil, fmt.Errorf("apply writer option: %w", err)
+		}
+	}
+	if cfg.rowGroupSize < cfg.pageSize {
+		return nil, fmt.Errorf("row group size (%d) must be >= page size (%d)", cfg.rowGroupSize, cfg.pageSize)
 	}
 
+	res := new(JSONWriter)
+	sh, err := schema.NewSchemaHandlerFromJSON(jsonSchema)
+	if err != nil {
+		return nil, fmt.Errorf("create schema from JSON: %w", err)
+	}
+	res.SchemaHandler = sh
+
+	applyWriterConfig(&res.ParquetWriter, cfg)
 	res.PFile = pfile
-	res.PageSize = common.DefaultPageSize         // 8K
-	res.RowGroupSize = common.DefaultRowGroupSize // 128M
-	res.CompressionType = parquet.CompressionCodec_SNAPPY
-	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.NP = np
-	res.Footer = parquet.NewFileMetaData()
-	res.Footer.Version = 1
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
-	res.Offset = 4
-	_, err = res.PFile.Write([]byte("PAR1"))
+
+	if err := res.createCompressors(cfg); err != nil {
+		return nil, err
+	}
+
 	res.MarshalFunc = marshal.MarshalJSON
+
+	if err := res.SchemaHandler.ValidateEncodingsForDataPageVersion(res.dataPageVersion); err != nil {
+		return nil, fmt.Errorf("encoding validation: %w", err)
+	}
+
+	if _, err := res.PFile.Write([]byte("PAR1")); err != nil {
+		return nil, fmt.Errorf("write magic header: %w", err)
+	}
 	res.initBloomFilters()
-	return res, err
+	res.headerWritten = true
+	res.stopped = false
+	return res, nil
 }
 
 // WriteString writes string values to parquet file
@@ -60,7 +74,7 @@ func (w *JSONWriter) WriteString(recsi any) error {
 	for i := range lr {
 		rec[i] = nil
 		if recs[i] != nil {
-			rec[i], err = types.StrToParquetTypeWithLogical(*recs[i],
+			rec[i], err = types.StrToParquetType(*recs[i],
 				w.SchemaHandler.SchemaElements[i+1].Type,
 				w.SchemaHandler.SchemaElements[i+1].ConvertedType,
 				w.SchemaHandler.SchemaElements[i+1].LogicalType,

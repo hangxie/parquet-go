@@ -7,11 +7,11 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 type ColumnBufferType struct {
@@ -32,10 +32,10 @@ type ColumnBufferType struct {
 	DataTable        *layout.Table
 	DataTableNumRows int64
 
-	PageReadOptions common.PageReadOptions
+	PageReadOptions layout.PageReadOptions
 }
 
-func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts ...common.PageReadOptions) (*ColumnBufferType, error) {
+func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opt layout.PageReadOptions) (*ColumnBufferType, error) {
 	if pFile == nil {
 		return nil, fmt.Errorf("pFile is nil")
 	}
@@ -58,10 +58,6 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	newPFile, err := pFile.Clone()
 	if err != nil {
 		return nil, err
-	}
-	var opt common.PageReadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
 	}
 	res := &ColumnBufferType{
 		PFile:            newPFile,
@@ -198,13 +194,13 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 			return nil, err
 		}
 
-		numValues, numRows, err := page.GetRLDLFromRawData(cbt.SchemaHandler)
+		numValues, numRows, err := page.GetRLDLFromRawData(cbt.SchemaHandler, cbt.PageReadOptions.MaxDecompressedSize)
 		if err != nil {
 			return nil, err
 		}
 
 		if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
-			if err := page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
+			if err := page.GetValueFromRawData(cbt.SchemaHandler, cbt.PageReadOptions.MaxDecompressedSize); err != nil {
 				return nil, err
 			}
 			cbt.DictPage = page
@@ -229,11 +225,11 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 	}
 }
 
-// SkipRowsWithError skips up to num rows and returns how many were skipped.
+// SkipRows skips up to num rows and returns how many were skipped.
 // It propagates underlying read/decoding errors rather than hiding them.
 // This function is optimized to skip entire row groups when possible, making it
 // efficient for large skip distances.
-func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
+func (cbt *ColumnBufferType) SkipRows(num int64) (int64, error) {
 	if num <= 0 {
 		return 0, nil
 	}
@@ -337,7 +333,7 @@ func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
 	}
 
 	if page != nil {
-		if err = page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
+		if err = page.GetValueFromRawData(cbt.SchemaHandler, cbt.PageReadOptions.MaxDecompressedSize); err != nil {
 			return 0, err
 		}
 
@@ -360,15 +356,8 @@ func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
 	return originalNum - num, nil
 }
 
-// Deprecated: Use SkipRowsWithError instead. This method ignores underlying
-// read/decoding errors and will be removed in a future major release.
-func (cbt *ColumnBufferType) SkipRows(num int64) int64 {
-	n, _ := cbt.SkipRowsWithError(num)
-	return n
-}
-
-// ReadRowsWithError reads up to num rows into a table and returns any non-EOF error.
-func (cbt *ColumnBufferType) ReadRowsWithError(num int64) (*layout.Table, int64, error) {
+// ReadRows reads up to num rows into a table and returns any non-EOF error.
+func (cbt *ColumnBufferType) ReadRows(num int64) (*layout.Table, int64, error) {
 	if cbt.Footer.NumRows == 0 {
 		return &layout.Table{}, 0, nil
 	}
@@ -401,11 +390,4 @@ func (cbt *ColumnBufferType) ReadRowsWithError(num int64) (*layout.Table, int64,
 		return res, num, err
 	}
 	return res, num, nil
-}
-
-// Deprecated: Use ReadRowsWithError instead. This method ignores underlying
-// read/decoding errors and will be removed in a future major release.
-func (cbt *ColumnBufferType) ReadRows(num int64) (*layout.Table, int64) {
-	tbl, n, _ := cbt.ReadRowsWithError(num)
-	return tbl, n
 }

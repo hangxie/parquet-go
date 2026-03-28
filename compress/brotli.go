@@ -6,11 +6,12 @@ package compress
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/andybalholm/brotli"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 var brotliWriterPool sync.Pool
@@ -25,16 +26,16 @@ func init() {
 	compressorFactories[parquet.CompressionCodec_BROTLI] = newBrotliCompressor
 
 	compressors[parquet.CompressionCodec_BROTLI] = &Compressor{
-		Compress: func(buf []byte) []byte {
+		Compress: func(buf []byte) ([]byte, error) {
 			res := new(bytes.Buffer)
 			brotliWriter := brotliWriterPool.Get().(*brotli.Writer)
 			brotliWriter.Reset(res)
 			if _, err := brotliWriter.Write(buf); err != nil {
-				return nil
+				return nil, err
 			}
 			_ = brotliWriter.Close()
 			brotliWriterPool.Put(brotliWriter)
-			return res.Bytes()
+			return res.Bytes(), nil
 		},
 		Uncompress: brotliUncompress,
 	}
@@ -43,7 +44,7 @@ func init() {
 func brotliUncompress(buf []byte) ([]byte, error) {
 	rbuf := bytes.NewReader(buf)
 	brotliReader := brotli.NewReader(rbuf)
-	return LimitedReadAll(brotliReader, GetMaxDecompressedSize())
+	return io.ReadAll(brotliReader)
 }
 
 func newBrotliCompressor(level int) (*Compressor, error) {
@@ -65,16 +66,16 @@ func newBrotliCompressor(level int) (*Compressor, error) {
 	}
 
 	return &Compressor{
-		Compress: func(buf []byte) []byte {
+		Compress: func(buf []byte) ([]byte, error) {
 			res := new(bytes.Buffer)
 			brotliWriter := writerPool.Get().(*brotli.Writer)
 			brotliWriter.Reset(res)
 			if _, err := brotliWriter.Write(buf); err != nil {
-				return nil
+				return nil, err
 			}
 			_ = brotliWriter.Close()
 			writerPool.Put(brotliWriter)
-			return res.Bytes()
+			return res.Bytes(), nil
 		},
 		Uncompress: brotliUncompress,
 	}, nil

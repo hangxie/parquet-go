@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 const (
@@ -15,9 +15,6 @@ const (
 	DefaultPageSize     = 8 * 1024
 	DefaultRowGroupSize = 128 * 1024 * 1024
 )
-
-// Deprecated: Use ParGoPathDelimiter instead.
-const PAR_GO_PATH_DELIMITER = ParGoPathDelimiter
 
 type fieldAttr struct {
 	Type            string

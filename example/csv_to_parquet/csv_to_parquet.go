@@ -9,10 +9,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 type Shoe struct {
@@ -29,14 +27,11 @@ func main() {
 		return
 	}
 
-	pw, err := writer.NewParquetWriter(fw, new(Shoe), 2)
+	pw, err := writer.NewParquetWriter(fw, new(Shoe), writer.WithNP(2))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
 	}
-
-	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	csvFile, _ := os.Open("shoes.csv")
 	reader := csv.NewReader(bufio.NewReader(csvFile))

@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func TestInterfaceToParquetType(t *testing.T) {
@@ -196,185 +196,144 @@ func TestInterfaceToParquetType(t *testing.T) {
 }
 
 func TestJSONTypeToParquetType(t *testing.T) {
+	int32Ptr := func(v int32) *int32 { return &v }
 	tests := []struct {
 		name        string
 		value       any
-		pT          *parquet.Type
-		cT          *parquet.ConvertedType
-		length      int
-		scale       int
+		schema      *parquet.SchemaElement
 		expected    any
 		expectError bool
 	}{
 		{
 			name:   "json_boolean_true",
 			value:  true,
-			pT:     parquet.TypePtr(parquet.Type_BOOLEAN),
-			length: 0,
-			scale:  0,
+			schema: &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BOOLEAN)},
 		},
 		{
 			name:   "json_number_int32",
 			value:  float64(42), // JSON numbers are float64
-			pT:     parquet.TypePtr(parquet.Type_INT32),
-			length: 0,
-			scale:  0,
+			schema: &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32)},
 		},
 		{
 			name:   "json_number_int64",
 			value:  float64(42),
-			pT:     parquet.TypePtr(parquet.Type_INT64),
-			length: 0,
-			scale:  0,
+			schema: &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT64)},
 		},
 		{
 			name:   "json_number_float",
 			value:  float64(3.14),
-			pT:     parquet.TypePtr(parquet.Type_FLOAT),
-			length: 0,
-			scale:  0,
+			schema: &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_FLOAT)},
 		},
 		{
 			name:   "json_number_double",
 			value:  float64(3.14),
-			pT:     parquet.TypePtr(parquet.Type_DOUBLE),
-			length: 0,
-			scale:  0,
+			schema: &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)},
 		},
 		{
 			name:   "json_string",
 			value:  "hello",
-			pT:     parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-			length: 0,
-			scale:  0,
+			schema: &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY)},
 		},
 		{
 			name:        "invalid_json_type",
 			value:       make(map[string]any), // Unsupported type
-			pT:          parquet.TypePtr(parquet.Type_BOOLEAN),
+			schema:      &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BOOLEAN)},
 			expectError: false, // Actually doesn't error, just returns the value
 		},
-		// Comprehensive decimal tests with all numeric types
 		{
 			name:     "nil_interface_value",
 			value:    (*interface{})(nil),
-			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY)},
 			expected: "<nil>",
 		},
 		{
 			name:     "decimal_float32",
 			value:    float32(123.45),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    2,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(2)},
 			expected: int32(12345),
 		},
 		{
 			name:     "decimal_float64",
 			value:    123.456,
-			pT:       parquet.TypePtr(parquet.Type_INT64),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    3,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT64), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(3)},
 			expected: int64(123456),
 		},
 		{
 			name:     "decimal_int",
 			value:    int(12345),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    2,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(2)},
 			expected: int32(1234500),
 		},
 		{
 			name:     "decimal_int8",
 			value:    int8(123),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    1,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(1)},
 			expected: int32(1230),
 		},
 		{
 			name:     "decimal_int16",
 			value:    int16(1234),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    1,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(1)},
 			expected: int32(12340),
 		},
 		{
 			name:     "decimal_int32",
 			value:    int32(12345),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    2,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(2)},
 			expected: int32(1234500),
 		},
 		{
 			name:     "decimal_int64",
 			value:    int64(123456789),
-			pT:       parquet.TypePtr(parquet.Type_INT64),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    3,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT64), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(3)},
 			expected: int64(123456789000),
 		},
 		{
 			name:     "decimal_uint",
 			value:    uint(12345),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    2,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(2)},
 			expected: int32(1234500),
 		},
 		{
 			name:     "decimal_uint8",
 			value:    uint8(123),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    1,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(1)},
 			expected: int32(1230),
 		},
 		{
 			name:     "decimal_uint16",
 			value:    uint16(1234),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    1,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(1)},
 			expected: int32(12340),
 		},
 		{
 			name:     "decimal_uint32",
 			value:    uint32(12345),
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    2,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(2)},
 			expected: int32(1234500),
 		},
 		{
 			name:     "decimal_uint64",
 			value:    uint64(123456789),
-			pT:       parquet.TypePtr(parquet.Type_INT64),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    3,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT64), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(3)},
 			expected: int64(123456789000),
 		},
 		{
 			name:     "decimal_string",
 			value:    "123.45",
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
-			scale:    2,
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), Scale: int32Ptr(2)},
 			expected: int32(12345),
 		},
 		{
 			name:     "non_decimal_string",
 			value:    "hello world",
-			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY)},
 			expected: "hello world",
 		},
 		{
 			name:     "non_decimal_boolean",
 			value:    true,
-			pT:       parquet.TypePtr(parquet.Type_BOOLEAN),
+			schema:   &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BOOLEAN)},
 			expected: true,
 		},
 	}
@@ -386,7 +345,7 @@ func TestJSONTypeToParquetType(t *testing.T) {
 				val = reflect.ValueOf((*interface{})(nil))
 			}
 
-			result, err := JSONTypeToParquetType(val, tt.pT, tt.cT, tt.length, tt.scale)
+			result, err := JSONTypeToParquetType(val, tt.schema)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -950,6 +909,7 @@ func TestStrToParquetType(t *testing.T) {
 				testCase.inputStr,
 				testCase.parquetType,
 				testCase.convertedType,
+				nil,
 				testCase.length,
 				testCase.scale,
 			)
@@ -1120,8 +1080,10 @@ func TestParquetTypeToJSONType(t *testing.T) {
 		value     any
 		pT        *parquet.Type
 		cT        *parquet.ConvertedType
+		lT        *parquet.LogicalType
 		precision int
 		scale     int
+		cfg       *JSONTypeConfig
 		expected  any
 	}{
 		{
@@ -1364,23 +1326,15 @@ func TestParquetTypeToJSONType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ParquetTypeToJSONType(tt.value, tt.pT, tt.cT, tt.precision, tt.scale)
+			result := ParquetTypeToJSONType(tt.value, tt.pT, tt.cT, tt.lT, tt.precision, tt.scale, tt.cfg)
 
 			require.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestParquetTypeToJSONTypeWithLogical(t *testing.T) {
-	// Save and restore global geospatial settings to ensure test isolation
-	origGeometryMode := geometryJSONMode
-	origGeographyMode := geographyJSONMode
-	defer func() {
-		geometryJSONMode = origGeometryMode
-		geographyJSONMode = origGeographyMode
-	}()
-	SetGeometryJSONMode(GeospatialModeHex)
-	SetGeographyJSONMode(GeospatialModeHex)
+func TestParquetTypeToJSONType_LogicalType(t *testing.T) {
+	// Default geospatial modes are Hex, matching the expected test outputs.
 
 	tests := []struct {
 		name      string
@@ -1867,7 +1821,7 @@ func TestParquetTypeToJSONTypeWithLogical(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ParquetTypeToJSONTypeWithLogical(tt.value, tt.pT, tt.cT, tt.lT, tt.precision, tt.scale)
+			result := ParquetTypeToJSONType(tt.value, tt.pT, tt.cT, tt.lT, tt.precision, tt.scale, nil)
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -2618,8 +2572,10 @@ func TestParquetTypeToJSONType_Comprehensive(t *testing.T) {
 		value     any
 		pT        *parquet.Type
 		cT        *parquet.ConvertedType
+		lT        *parquet.LogicalType
 		precision int
 		scale     int
+		cfg       *JSONTypeConfig
 		expected  any
 	}{
 		// Nil values
@@ -2882,7 +2838,7 @@ func TestParquetTypeToJSONType_Comprehensive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ParquetTypeToJSONType(tt.value, tt.pT, tt.cT, tt.precision, tt.scale)
+			result := ParquetTypeToJSONType(tt.value, tt.pT, tt.cT, tt.lT, tt.precision, tt.scale, tt.cfg)
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -2978,7 +2934,7 @@ func TestConvertTimeLogicalValue(t *testing.T) {
 	}
 }
 
-func TestStrToParquetTypeWithLogical(t *testing.T) {
+func TestStrToParquetType_LogicalType(t *testing.T) {
 	tests := []struct {
 		name     string
 		s        string
@@ -3093,7 +3049,7 @@ func TestStrToParquetTypeWithLogical(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := StrToParquetTypeWithLogical(tt.s, tt.pT, tt.cT, tt.lT, tt.length, tt.scale)
+			result, err := StrToParquetType(tt.s, tt.pT, tt.cT, tt.lT, tt.length, tt.scale)
 			require.NoError(t, err)
 			if tt.expected != nil {
 				require.Equal(t, tt.expected, result)
@@ -3206,7 +3162,7 @@ func TestStrToParquetType_HumanReadable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pT := tt.pT
 			cT := tt.cT
-			result, err := StrToParquetType(tt.s, &pT, &cT, 0, 0)
+			result, err := StrToParquetType(tt.s, &pT, &cT, nil, 0, 0)
 			require.NoError(t, err)
 			if tt.expected != nil {
 				require.Equal(t, tt.expected, result)
@@ -3220,13 +3176,13 @@ func TestStrToParquetType_HumanReadable(t *testing.T) {
 func TestStrToParquetType_INT96(t *testing.T) {
 	// INT96 human readable
 	pT := parquet.Type_INT96
-	result, err := StrToParquetType("2024-01-15T10:30:00Z", &pT, nil, 0, 0)
+	result, err := StrToParquetType("2024-01-15T10:30:00Z", &pT, nil, nil, 0, 0)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 12, len(result.(string)))
 
 	// INT96 raw integer fallback
-	result2, err := StrToParquetType("123456789", &pT, nil, 0, 0)
+	result2, err := StrToParquetType("123456789", &pT, nil, nil, 0, 0)
 	require.NoError(t, err)
 	require.NotNil(t, result2)
 }
@@ -3412,7 +3368,7 @@ func TestJSONValueToParquetDirect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			val := reflect.ValueOf(tt.value)
-			result, err := JSONTypeToParquetType(val, tt.pT, tt.cT, 0, 0)
+			result, err := JSONTypeToParquetType(val, &parquet.SchemaElement{Type: tt.pT, ConvertedType: tt.cT})
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, result)
 		})
@@ -3420,48 +3376,48 @@ func TestJSONValueToParquetDirect(t *testing.T) {
 }
 
 func BenchmarkJSONTypeToParquetType_DirectConversion(b *testing.B) {
-	pT := parquet.TypePtr(parquet.Type_INT32)
+	schema := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32)}
 	val := reflect.ValueOf(float64(42))
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+		_, _ = JSONTypeToParquetType(val, schema)
 	}
 }
 
 func BenchmarkJSONTypeToParquetType_Boolean(b *testing.B) {
-	pT := parquet.TypePtr(parquet.Type_BOOLEAN)
+	schema := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BOOLEAN)}
 	val := reflect.ValueOf(true)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+		_, _ = JSONTypeToParquetType(val, schema)
 	}
 }
 
 func BenchmarkJSONTypeToParquetType_String(b *testing.B) {
-	pT := parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+	schema := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY)}
 	val := reflect.ValueOf("hello world")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+		_, _ = JSONTypeToParquetType(val, schema)
 	}
 }
 
 // stringBasedConversion simulates the old string-based approach for benchmarking
 func stringBasedConversion(val reflect.Value, pT *parquet.Type) (any, error) {
 	s := fmt.Sprintf("%v", val)
-	return StrToParquetType(s, pT, nil, 0, 0)
+	return StrToParquetType(s, pT, nil, nil, 0, 0)
 }
 
 func BenchmarkComparison_Int32_Direct(b *testing.B) {
-	pT := parquet.TypePtr(parquet.Type_INT32)
+	schema := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT32)}
 	val := reflect.ValueOf(float64(42))
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+		_, _ = JSONTypeToParquetType(val, schema)
 	}
 }
 
@@ -3476,12 +3432,12 @@ func BenchmarkComparison_Int32_StringBased(b *testing.B) {
 }
 
 func BenchmarkComparison_Bool_Direct(b *testing.B) {
-	pT := parquet.TypePtr(parquet.Type_BOOLEAN)
+	schema := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BOOLEAN)}
 	val := reflect.ValueOf(true)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+		_, _ = JSONTypeToParquetType(val, schema)
 	}
 }
 
@@ -3496,12 +3452,12 @@ func BenchmarkComparison_Bool_StringBased(b *testing.B) {
 }
 
 func BenchmarkComparison_Double_Direct(b *testing.B) {
-	pT := parquet.TypePtr(parquet.Type_DOUBLE)
+	schema := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)}
 	val := reflect.ValueOf(float64(3.14159265359))
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+		_, _ = JSONTypeToParquetType(val, schema)
 	}
 }
 
@@ -3516,12 +3472,12 @@ func BenchmarkComparison_Double_StringBased(b *testing.B) {
 }
 
 func BenchmarkComparison_String_Direct(b *testing.B) {
-	pT := parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+	schema := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY)}
 	val := reflect.ValueOf("hello world")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = JSONTypeToParquetType(val, pT, nil, 0, 0)
+		_, _ = JSONTypeToParquetType(val, schema)
 	}
 }
 
@@ -3535,7 +3491,7 @@ func BenchmarkComparison_String_StringBased(b *testing.B) {
 	}
 }
 
-func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
+func TestStrToParquetType_LogicalType_Comprehensive(t *testing.T) {
 	tests := []struct {
 		name     string
 		s        string
@@ -3722,7 +3678,7 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := StrToParquetTypeWithLogical(tt.s, tt.pT, nil, tt.lT, 12, 0)
+			result, err := StrToParquetType(tt.s, tt.pT, nil, tt.lT, 12, 0)
 			require.NoError(t, err)
 
 			switch exp := tt.expected.(type) {

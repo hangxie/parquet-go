@@ -6,11 +6,11 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/types"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 // ss is []string
@@ -222,8 +222,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 
 			default:
 				table := res[node.PathMap.Path]
-				pT, cT, lT := schema.Type, schema.ConvertedType, schema.LogicalType
-				val, err := types.JSONTypeToParquetTypeWithLogical(node.Val, pT, cT, lT, int(schema.GetTypeLength()), int(schema.GetScale()))
+				val, err := types.JSONTypeToParquetType(node.Val, schema)
 				if err != nil {
 					return nil, err
 				}

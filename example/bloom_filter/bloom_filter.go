@@ -8,10 +8,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 // Student represents our data model with parquet tags.
@@ -32,7 +32,7 @@ func main() {
 		log.Fatalf("Failed to create local file writer: %v", err)
 	}
 
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
 	if err != nil {
 		log.Fatalf("Failed to create parquet writer: %v", err)
 	}
@@ -63,11 +63,11 @@ func main() {
 	}
 	defer fr.Close()
 
-	pr, err := reader.NewParquetReader(fr, nil, 4)
+	pr, err := reader.NewParquetReader(fr, nil, reader.WithNP(4))
 	if err != nil {
 		log.Fatalf("Failed to create parquet reader: %v", err)
 	}
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	fmt.Println("\nDetected Schema Attributes:")
 	for _, info := range pr.SchemaHandler.Infos {

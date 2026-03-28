@@ -11,9 +11,9 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/buffer"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
 // testSchema is schema for the testint table which covers all
@@ -264,7 +264,7 @@ func TestWriteArrow_EmptyRecord(t *testing.T) {
 
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
-	aw, err := NewArrowWriter(schema, fw, 1)
+	aw, err := NewArrowWriter(schema, fw, WithNP(1))
 	require.NoError(t, err)
 
 	err = aw.WriteArrow(record)
@@ -275,10 +275,10 @@ func TestWriteArrow_EmptyRecord(t *testing.T) {
 
 	// Verify the file is valid with 0 rows
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	pr, err := reader.NewParquetReader(pf, nil, 1)
+	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 	require.NoError(t, err)
 	require.Equal(t, int64(0), pr.GetNumRows())
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	require.NoError(t, pf.Close())
 }
 
@@ -571,7 +571,7 @@ func TestArrowWriter(t *testing.T) {
 		fw := writerfile.NewWriterFile(buf)
 		require.Nil(t, err)
 
-		w, err := NewArrowWriter(ts, fw, 4)
+		w, err := NewArrowWriter(ts, fw, WithNP(4))
 		require.Nil(t, err)
 
 		mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
@@ -585,7 +585,7 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, 1)
+		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())
@@ -600,7 +600,7 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStopWithError()
+		err = pr.ReadStop()
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)
@@ -614,7 +614,7 @@ func TestArrowWriter(t *testing.T) {
 		fw := writerfile.NewWriterFile(buf)
 		require.Nil(t, err)
 
-		w, err := NewArrowWriter(ts, fw, 1)
+		w, err := NewArrowWriter(ts, fw, WithNP(1))
 		require.Nil(t, err)
 
 		mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
@@ -628,7 +628,7 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, 1)
+		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())
@@ -671,7 +671,7 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStopWithError()
+		err = pr.ReadStop()
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)
@@ -685,7 +685,7 @@ func TestArrowWriter(t *testing.T) {
 		fw := writerfile.NewWriterFile(buf)
 		require.Nil(t, err)
 
-		w, err := NewArrowWriter(ts, fw, 1)
+		w, err := NewArrowWriter(ts, fw, WithNP(1))
 		require.Nil(t, err)
 
 		mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
@@ -699,7 +699,7 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, 1)
+		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())
@@ -714,9 +714,21 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStopWithError()
+		err = pr.ReadStop()
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)
 	})
+}
+
+func TestArrowWriterBloomFilterInit(t *testing.T) {
+	arrowSchema := arrow.NewSchema([]arrow.Field{
+		{Name: "name", Type: arrow.BinaryTypes.String},
+	}, nil)
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	aw, err := NewArrowWriter(arrowSchema, fw, WithNP(1))
+	require.NoError(t, err)
+	require.NotNil(t, aw.BloomFilters)
+	require.NoError(t, aw.WriteStop())
 }

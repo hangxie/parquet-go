@@ -1819,7 +1819,7 @@ func TestEncodeGoValueAsVariant(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			encoded, err := EncodeGoValueAsVariant(tc.input)
+			encoded, err := EncodeGoValueAsVariant(tc.input, nil)
 			if err != nil {
 				t.Fatalf("encode error: %v", err)
 			}
@@ -1839,7 +1839,7 @@ func TestEncodeGoValueAsVariant_UnsupportedType(t *testing.T) {
 	type MyStruct struct {
 		Field int
 	}
-	_, err := EncodeGoValueAsVariant(MyStruct{Field: 1})
+	_, err := EncodeGoValueAsVariant(MyStruct{Field: 1}, nil)
 	if err == nil {
 		t.Error("expected error for unsupported type")
 	}
@@ -1849,7 +1849,7 @@ func TestEncodeGoValueAsVariant_Binary(t *testing.T) {
 	meta := &variantMetadata{dictionary: []string{}}
 	input := []byte{0x01, 0x02, 0x03, 0x04}
 
-	encoded, err := EncodeGoValueAsVariant(input)
+	encoded, err := EncodeGoValueAsVariant(input, nil)
 	if err != nil {
 		t.Fatalf("encode error: %v", err)
 	}
@@ -1865,7 +1865,7 @@ func TestEncodeGoValueAsVariant_Binary(t *testing.T) {
 	}
 }
 
-func TestEncodeGoValueAsVariantWithMetadata(t *testing.T) {
+func TestEncodeGoValueAsVariant_WithMetadata(t *testing.T) {
 	// Create metadata with dictionary
 	dictionary := []string{"age", "name"}
 	metadata := EncodeVariantMetadata(dictionary)
@@ -1876,7 +1876,7 @@ func TestEncodeGoValueAsVariantWithMetadata(t *testing.T) {
 		"age":  int32(42),
 	}
 
-	encoded, err := EncodeGoValueAsVariantWithMetadata(obj, metadata)
+	encoded, err := EncodeGoValueAsVariant(obj, metadata)
 	if err != nil {
 		t.Fatalf("encode error: %v", err)
 	}
@@ -1900,10 +1900,10 @@ func TestEncodeGoValueAsVariantWithMetadata(t *testing.T) {
 	}
 }
 
-func TestEncodeGoValueAsVariantWithMetadata_Nil(t *testing.T) {
+func TestEncodeGoValueAsVariant_Metadata_Nil(t *testing.T) {
 	metadata := EncodeVariantMetadata([]string{})
 
-	encoded, err := EncodeGoValueAsVariantWithMetadata(nil, metadata)
+	encoded, err := EncodeGoValueAsVariant(nil, metadata)
 	if err != nil {
 		t.Fatalf("encode error: %v", err)
 	}
@@ -1919,7 +1919,7 @@ func TestEncodeGoValueAsVariantWithMetadata_Nil(t *testing.T) {
 	}
 }
 
-func TestEncodeGoValueAsVariantWithMetadata_MissingField(t *testing.T) {
+func TestEncodeGoValueAsVariant_Metadata_MissingField(t *testing.T) {
 	// Create metadata without "missing" field
 	dictionary := []string{"age", "name"}
 	metadata := EncodeVariantMetadata(dictionary)
@@ -1928,7 +1928,7 @@ func TestEncodeGoValueAsVariantWithMetadata_MissingField(t *testing.T) {
 		"missing": "value", // Not in dictionary
 	}
 
-	_, err := EncodeGoValueAsVariantWithMetadata(obj, metadata)
+	_, err := EncodeGoValueAsVariant(obj, metadata)
 	if err == nil {
 		t.Error("expected error for missing field in dictionary")
 	}
@@ -2182,7 +2182,7 @@ func TestReconstructVariant_NullVariant(t *testing.T) {
 	}
 }
 
-func TestEncodeGoValueAsVariantWithMetadata_ArrayOfObjects(t *testing.T) {
+func TestEncodeGoValueAsVariant_Metadata_ArrayOfObjects(t *testing.T) {
 	// Dictionary for objects
 	dictionary := []string{"id"}
 	metadata := EncodeVariantMetadata(dictionary)
@@ -2193,7 +2193,7 @@ func TestEncodeGoValueAsVariantWithMetadata_ArrayOfObjects(t *testing.T) {
 		map[string]any{"id": int32(2)},
 	}
 
-	encoded, err := EncodeGoValueAsVariantWithMetadata(arr, metadata)
+	encoded, err := EncodeGoValueAsVariant(arr, metadata)
 	if err != nil {
 		t.Fatalf("encode error: %v", err)
 	}

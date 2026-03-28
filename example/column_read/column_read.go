@@ -6,10 +6,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 type Student struct {
@@ -31,7 +31,7 @@ func main() {
 		log.Println("Can't create file", err)
 		return
 	}
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet writer")
 		return
@@ -67,7 +67,7 @@ func main() {
 		log.Println("Can't open file", err)
 		return
 	}
-	pr, err := reader.NewParquetColumnReader(fr, 4)
+	pr, err := reader.NewParquetColumnReader(fr, reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create column reader", err)
 		return
@@ -87,10 +87,10 @@ func main() {
 	log.Println("parquet_go_root.scores_key", scores_key, err)
 	log.Println("parquet_go_root.scores_value", scores_value, err)
 
-	_ = pr.SkipRowsByIndexWithError(2, 5) // skip the first five rows
+	_ = pr.SkipRowsByIndex(2, 5) // skip the first five rows
 	ids, _, _, _ = pr.ReadColumnByIndex(2, num)
 	log.Println(ids)
 
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }

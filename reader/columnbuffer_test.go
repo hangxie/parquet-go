@@ -9,11 +9,11 @@ import (
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Mock ParquetFileReader for testing NewColumnBuffer
@@ -420,7 +420,7 @@ func TestNewColumnBuffer(t *testing.T) {
 			footer := tt.setupFooter()
 			schemaHandler := tt.setupSchema()
 
-			result, err := NewColumnBuffer(pFile, footer, schemaHandler, tt.pathStr)
+			result, err := NewColumnBuffer(pFile, footer, schemaHandler, tt.pathStr, layout.PageReadOptions{})
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -465,7 +465,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		}
 		schemaHandler := newMockSchemaHandler()
 
-		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.nested.deep.field")
+		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.nested.deep.field", layout.PageReadOptions{})
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Equal(t, "root.nested.deep.field", result.PathStr)
@@ -491,7 +491,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		}
 		schemaHandler := newMockSchemaHandler()
 
-		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.external_field")
+		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.external_field", layout.PageReadOptions{})
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		// When FilePath is specified, the function should handle opening the external file
@@ -509,7 +509,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		sh := newSchemaHandlerWithPath("bogus") // MapIndex includes root.bogus
 		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: "root.bogus", DataTableNumRows: -1}
 
-		_, _, err := cb.ReadRowsWithError(1)
+		_, _, err := cb.ReadRows(1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Column not found")
 	})
@@ -524,7 +524,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		sh := newSchemaHandlerWithPath("bogus")
 		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: "root.bogus", DataTableNumRows: -1}
 
-		_, err := cb.SkipRowsWithError(1)
+		_, err := cb.SkipRows(1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Column not found")
 	})
@@ -537,7 +537,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 			MapIndex:       map[string]int32{"root.badfield": 1},
 		}
 
-		cb, err := NewColumnBuffer(mockFile, footer, sh, "root.badfield")
+		cb, err := NewColumnBuffer(mockFile, footer, sh, "root.badfield", layout.PageReadOptions{})
 		require.Error(t, err)
 		require.Nil(t, cb)
 	})
@@ -558,7 +558,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 	})
 }
 
-func TestReadRowsWithError(t *testing.T) {
+func TestReadRows(t *testing.T) {
 	tests := []struct {
 		name           string
 		setup          func() *ColumnBufferType
@@ -611,7 +611,7 @@ func TestReadRowsWithError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cb := tt.setup()
-			tbl, n, err := cb.ReadRowsWithError(tt.numRows)
+			tbl, n, err := cb.ReadRows(tt.numRows)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -626,7 +626,7 @@ func TestReadRowsWithError(t *testing.T) {
 	}
 }
 
-func TestSkipRowsWithError(t *testing.T) {
+func TestSkipRows(t *testing.T) {
 	tests := []struct {
 		name         string
 		setup        func() *ColumnBufferType
@@ -720,7 +720,7 @@ func TestSkipRowsWithError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cb := tt.setup()
-			n, err := cb.SkipRowsWithError(tt.numRows)
+			n, err := cb.SkipRows(tt.numRows)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -755,7 +755,7 @@ func TestNewColumnBuffer_FilePathOpenError(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf")
+	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf", layout.PageReadOptions{})
 	require.Error(t, err)
 	require.Nil(t, cb)
 }
@@ -775,11 +775,11 @@ func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf")
+	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf", layout.PageReadOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 
-	n, _ := cb.SkipRowsWithError(1)
+	n, _ := cb.SkipRows(1)
 	require.Equal(t, int64(0), n)
 }
 
@@ -892,7 +892,7 @@ func TestReadPageForSkip_Conditions(t *testing.T) {
 	}
 }
 
-func TestSkipRowsWithError_RowGroupSkipping(t *testing.T) {
+func TestSkipRows_RowGroupSkipping(t *testing.T) {
 	// Test skipping entire row groups
 	mockFile := newMockColumnBufferFileReader([]byte{})
 	footer := &parquet.FileMetaData{
@@ -917,7 +917,7 @@ func TestSkipRowsWithError_RowGroupSkipping(t *testing.T) {
 	}
 
 	// Skip across row groups
-	n, err := cb.SkipRowsWithError(150)
+	n, err := cb.SkipRows(150)
 	// This will fail because we can't actually read pages, but it exercises the row group skipping logic
 	if err == nil || n > 0 {
 		// Some rows were skipped
@@ -957,7 +957,7 @@ func TestReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(pFile, footer, sh, "root.leaf")
+	cb, err := NewColumnBuffer(pFile, footer, sh, "root.leaf", layout.PageReadOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 

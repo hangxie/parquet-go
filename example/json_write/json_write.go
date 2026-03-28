@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 func main() {
@@ -60,7 +60,7 @@ func main() {
 		log.Println("Can't create file", err)
 		return
 	}
-	pw, err := writer.NewJSONWriter(md, fw, 4)
+	pw, err := writer.NewJSONWriter(md, fw, writer.WithNP(4))
 	if err != nil {
 		log.Println("Can't create json writer", err)
 		return

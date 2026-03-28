@@ -9,11 +9,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/types"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 type Student struct {
@@ -486,7 +486,7 @@ func TestGetFieldNameFromTag(t *testing.T) {
 	}
 }
 
-func TestConvertValueToJSONFriendlyWithContext(t *testing.T) {
+func TestConvertValueToJSONFriendly(t *testing.T) {
 	type TestStruct struct {
 		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 		Value int32  `parquet:"name=value, type=INT32, convertedtype=DECIMAL, scale=2, precision=9"`
@@ -495,7 +495,7 @@ func TestConvertValueToJSONFriendlyWithContext(t *testing.T) {
 	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(TestStruct))
 	require.NoError(t, err)
 
-	ctx := &conversionContext{}
+	state := &conversionState{}
 
 	tests := []struct {
 		name          string
@@ -596,7 +596,7 @@ func TestConvertValueToJSONFriendlyWithContext(t *testing.T) {
 				val = reflect.ValueOf(tt.input)
 			}
 
-			result, err := convertValueToJSONFriendlyWithContext(val, schemaHandler, tt.pathPrefix, ctx)
+			result, err := convertValueToJSONFriendly(val, schemaHandler, tt.pathPrefix, state)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -660,11 +660,11 @@ func TestConvertToJSONFriendly_NonDefaultRootName(t *testing.T) {
 	require.Equal(t, expected, result)
 }
 
-func TestConvertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
+func TestConvertValueToJSONFriendly_NilCases(t *testing.T) {
 	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(struct{}))
 	require.NoError(t, err)
 
-	ctx := &conversionContext{}
+	state := &conversionState{}
 
 	tests := []struct {
 		name        string
@@ -695,7 +695,7 @@ func TestConvertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			val := tt.setupValue()
-			result, err := convertValueToJSONFriendlyWithContext(val, schemaHandler, "", ctx)
+			result, err := convertValueToJSONFriendly(val, schemaHandler, "", state)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -981,9 +981,9 @@ func createOldListTable(path []string, values []any, repetitionLevels, definitio
 	}
 }
 
-// createConversionContext creates a standard conversion context for JSON conversion tests
-func createConversionContext() *conversionContext {
-	return &conversionContext{
+// createConversionState creates a standard conversion context for JSON conversion tests
+func createConversionState() *conversionState {
+	return &conversionState{
 		fieldCache: sync.Map{},
 	}
 }
@@ -1035,9 +1035,9 @@ func TestOldStyleList(t *testing.T) {
 		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(OldListTestStruct))
 		require.NoError(t, err)
 
-		ctx := createConversionContext()
+		state := createConversionState()
 
-		result, err := convertStructToJSONFriendly(val, schemaHandler, "", ctx)
+		result, err := convertStructToJSONFriendly(val, schemaHandler, "", state)
 		require.NoError(t, err)
 
 		// Should return the slice content directly, not wrapped in a map
@@ -1051,9 +1051,9 @@ func TestOldStyleList(t *testing.T) {
 		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(OldListTestStruct))
 		require.NoError(t, err)
 
-		ctx := createConversionContext()
+		state := createConversionState()
 
-		result, err := convertStructToJSONFriendly(val, schemaHandler, "root.nested", ctx)
+		result, err := convertStructToJSONFriendly(val, schemaHandler, "root.nested", state)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 	})
@@ -1085,8 +1085,8 @@ func TestOldStyleList(t *testing.T) {
 
 		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(MixedFieldStruct))
 		require.NoError(t, err)
-		ctx := createConversionContext()
-		result, err := convertStructToJSONFriendly(val, schemaHandler, "", ctx)
+		state := createConversionState()
+		result, err := convertStructToJSONFriendly(val, schemaHandler, "", state)
 		require.NoError(t, err)
 
 		resultMap, ok := result.(map[string]interface{})
@@ -2474,4 +2474,37 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		val2, _ := types.ConvertVariantValue(v2)
 		require.Equal(t, int32(222), val2)
 	})
+}
+
+func TestConvertToJSONFriendly_NoOptions(t *testing.T) {
+	type Simple struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8" json:"name"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Simple))
+	require.NoError(t, err)
+
+	input := Simple{Name: "test"}
+	result1, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+	result2, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+	require.Equal(t, result1, result2)
+}
+
+func TestConvertToJSONFriendly_WithGeospatialOptions(t *testing.T) {
+	type Simple struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8" json:"name"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Simple))
+	require.NoError(t, err)
+
+	// Even with geospatial options, non-geospatial fields should convert normally
+	input := Simple{Name: "hello"}
+	result, err := ConvertToJSONFriendly(input, sh,
+		WithGeospatialOptions(types.WithGeometryJSONMode(types.GeospatialModeBase64)),
+	)
+	require.NoError(t, err)
+	resultMap, ok := result.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "hello", resultMap["name"])
 }
