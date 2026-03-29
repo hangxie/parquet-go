@@ -22,31 +22,37 @@ func init() {
 		},
 	}
 
-	compressorFactories[parquet.CompressionCodec_BROTLI] = newBrotliCompressor
+	codecFactories[parquet.CompressionCodec_BROTLI] = newBrotliCompressor
 
-	compressors[parquet.CompressionCodec_BROTLI] = &Compressor{
-		Compress: func(buf []byte) []byte {
-			res := new(bytes.Buffer)
-			brotliWriter := brotliWriterPool.Get().(*brotli.Writer)
-			brotliWriter.Reset(res)
-			if _, err := brotliWriter.Write(buf); err != nil {
-				return nil
-			}
-			_ = brotliWriter.Close()
-			brotliWriterPool.Put(brotliWriter)
-			return res.Bytes()
-		},
-		Uncompress: brotliUncompress,
+	defaultCodecs[parquet.CompressionCodec_BROTLI] = &codec{
+		compress:   brotliCompress(&brotliWriterPool),
+		uncompress: brotliUncompress,
 	}
 }
 
-func brotliUncompress(buf []byte) ([]byte, error) {
-	rbuf := bytes.NewReader(buf)
-	brotliReader := brotli.NewReader(rbuf)
-	return LimitedReadAll(brotliReader, GetMaxDecompressedSize())
+func brotliCompress(pool *sync.Pool) func([]byte) ([]byte, error) {
+	return func(buf []byte) ([]byte, error) {
+		res := new(bytes.Buffer)
+		brotliWriter := pool.Get().(*brotli.Writer)
+		brotliWriter.Reset(res)
+		if _, err := brotliWriter.Write(buf); err != nil {
+			return nil, fmt.Errorf("brotli compress: %w", err)
+		}
+		if err := brotliWriter.Close(); err != nil {
+			return nil, fmt.Errorf("brotli compress close: %w", err)
+		}
+		pool.Put(brotliWriter)
+		return res.Bytes(), nil
+	}
 }
 
-func newBrotliCompressor(level int) (*Compressor, error) {
+func brotliUncompress(buf []byte, maxSize int64) ([]byte, error) {
+	rbuf := bytes.NewReader(buf)
+	brotliReader := brotli.NewReader(rbuf)
+	return limitedReadAll(brotliReader, maxSize)
+}
+
+func newBrotliCompressor(level int) (*codec, error) {
 	// brotli.NewWriterLevel does not return an error, so validate via test encode
 	w := brotli.NewWriterLevel(nil, level)
 	var testBuf bytes.Buffer
@@ -64,18 +70,8 @@ func newBrotliCompressor(level int) (*Compressor, error) {
 		},
 	}
 
-	return &Compressor{
-		Compress: func(buf []byte) []byte {
-			res := new(bytes.Buffer)
-			brotliWriter := writerPool.Get().(*brotli.Writer)
-			brotliWriter.Reset(res)
-			if _, err := brotliWriter.Write(buf); err != nil {
-				return nil
-			}
-			_ = brotliWriter.Close()
-			writerPool.Put(brotliWriter)
-			return res.Bytes()
-		},
-		Uncompress: brotliUncompress,
+	return &codec{
+		compress:   brotliCompress(&writerPool),
+		uncompress: brotliUncompress,
 	}, nil
 }

@@ -5,6 +5,7 @@ package compress
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 
 	"github.com/klauspost/compress/gzip"
@@ -21,26 +22,32 @@ func init() {
 		},
 	}
 
-	compressorFactories[parquet.CompressionCodec_GZIP] = newGZIPCompressor
+	codecFactories[parquet.CompressionCodec_GZIP] = newGZIPCompressor
 
-	compressors[parquet.CompressionCodec_GZIP] = &Compressor{
-		Compress: func(buf []byte) []byte {
-			res := new(bytes.Buffer)
-			gzipWriter := gzipWriterPool.Get().(*gzip.Writer)
-			gzipWriter.Reset(res)
-			if _, err := gzipWriter.Write(buf); err != nil {
-				return nil
-			}
-			_ = gzipWriter.Close()
-			gzipWriter.Reset(nil)
-			gzipWriterPool.Put(gzipWriter)
-			return res.Bytes()
-		},
-		Uncompress: gzipUncompress,
+	defaultCodecs[parquet.CompressionCodec_GZIP] = &codec{
+		compress:   gzipCompress(&gzipWriterPool),
+		uncompress: gzipUncompress,
 	}
 }
 
-func gzipUncompress(buf []byte) ([]byte, error) {
+func gzipCompress(pool *sync.Pool) func([]byte) ([]byte, error) {
+	return func(buf []byte) ([]byte, error) {
+		res := new(bytes.Buffer)
+		gzipWriter := pool.Get().(*gzip.Writer)
+		gzipWriter.Reset(res)
+		if _, err := gzipWriter.Write(buf); err != nil {
+			return nil, fmt.Errorf("gzip compress: %w", err)
+		}
+		if err := gzipWriter.Close(); err != nil {
+			return nil, fmt.Errorf("gzip compress close: %w", err)
+		}
+		gzipWriter.Reset(nil)
+		pool.Put(gzipWriter)
+		return res.Bytes(), nil
+	}
+}
+
+func gzipUncompress(buf []byte, maxSize int64) ([]byte, error) {
 	rbuf := bytes.NewReader(buf)
 	gzipReader, err := gzip.NewReader(rbuf)
 	if err != nil {
@@ -49,11 +56,10 @@ func gzipUncompress(buf []byte) ([]byte, error) {
 	defer func() {
 		_ = gzipReader.Close()
 	}()
-	return LimitedReadAll(gzipReader, GetMaxDecompressedSize())
+	return limitedReadAll(gzipReader, maxSize)
 }
 
-func newGZIPCompressor(level int) (*Compressor, error) {
-	// Validate level by attempting to create a writer — library returns error if invalid
+func newGZIPCompressor(level int) (*codec, error) {
 	if _, err := gzip.NewWriterLevel(nil, level); err != nil {
 		return nil, err
 	}
@@ -65,19 +71,8 @@ func newGZIPCompressor(level int) (*Compressor, error) {
 		},
 	}
 
-	return &Compressor{
-		Compress: func(buf []byte) []byte {
-			res := new(bytes.Buffer)
-			gzipWriter := writerPool.Get().(*gzip.Writer)
-			gzipWriter.Reset(res)
-			if _, err := gzipWriter.Write(buf); err != nil {
-				return nil
-			}
-			_ = gzipWriter.Close()
-			gzipWriter.Reset(nil)
-			writerPool.Put(gzipWriter)
-			return res.Bytes()
-		},
-		Uncompress: gzipUncompress,
+	return &codec{
+		compress:   gzipCompress(&writerPool),
+		uncompress: gzipUncompress,
 	}, nil
 }

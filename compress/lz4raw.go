@@ -13,24 +13,28 @@ import (
 )
 
 func init() {
-	compressorFactories[parquet.CompressionCodec_LZ4_RAW] = newLZ4RawCompressor
+	codecFactories[parquet.CompressionCodec_LZ4_RAW] = newLZ4RawCompressor
 
-	compressors[parquet.CompressionCodec_LZ4_RAW] = &Compressor{
-		Compress: func(buf []byte) []byte {
-			lz4hc := lz4.CompressorHC{
-				Level: lz4.CompressionLevel(9),
-			}
-			res := make([]byte, lz4.CompressBlockBound(len(buf)))
-			count, _ := lz4hc.CompressBlock(buf, res)
-			return res[:count]
-		},
-		Uncompress: lz4RawUncompress,
+	defaultCodecs[parquet.CompressionCodec_LZ4_RAW] = &codec{
+		compress:   lz4RawCompress(lz4.CompressionLevel(9)),
+		uncompress: lz4RawUncompress,
 	}
 }
 
-func lz4RawUncompress(buf []byte) ([]byte, error) {
-	maxSize := GetMaxDecompressedSize()
+func lz4RawCompress(level lz4.CompressionLevel) func([]byte) ([]byte, error) {
+	return func(buf []byte) ([]byte, error) {
+		// CompressorHC is NOT thread-safe — must create per call
+		lz4hc := lz4.CompressorHC{Level: level}
+		res := make([]byte, lz4.CompressBlockBound(len(buf)))
+		count, err := lz4hc.CompressBlock(buf, res)
+		if err != nil {
+			return nil, fmt.Errorf("lz4 raw compress: %w", err)
+		}
+		return res[:count], nil
+	}
+}
 
+func lz4RawUncompress(buf []byte, maxSize int64) ([]byte, error) {
 	estimatedSize := int64(len(buf)) * 10
 	if estimatedSize < 1024 {
 		estimatedSize = 1024
@@ -48,7 +52,8 @@ func lz4RawUncompress(buf []byte) ([]byte, error) {
 		if err != nil && strings.Contains(err.Error(), "too short") {
 			estimatedSize *= 2
 			if maxSize > 0 && estimatedSize > maxSize {
-				return nil, fmt.Errorf("lz4 decompression would exceed maximum size %d", maxSize)
+				return nil, fmt.Errorf("lz4 decompression would exceed maximum size %d: %w",
+					maxSize, ErrDecompressedSizeExceeded)
 			}
 			continue
 		}
@@ -59,7 +64,7 @@ func lz4RawUncompress(buf []byte) ([]byte, error) {
 	}
 }
 
-func newLZ4RawCompressor(level int) (*Compressor, error) {
+func newLZ4RawCompressor(level int) (*codec, error) {
 	cl := lz4.CompressionLevel(level)
 	// Validate via test encode — CompressorHC does not validate level on construction
 	testHC := lz4.CompressorHC{Level: cl}
@@ -69,14 +74,8 @@ func newLZ4RawCompressor(level int) (*Compressor, error) {
 		return nil, fmt.Errorf("invalid lz4 raw compression level %d: %w", level, err)
 	}
 
-	return &Compressor{
-		Compress: func(buf []byte) []byte {
-			// CompressorHC is NOT thread-safe — must create per call
-			lz4hc := lz4.CompressorHC{Level: cl}
-			res := make([]byte, lz4.CompressBlockBound(len(buf)))
-			count, _ := lz4hc.CompressBlock(buf, res)
-			return res[:count]
-		},
-		Uncompress: lz4RawUncompress,
+	return &codec{
+		compress:   lz4RawCompress(cl),
+		uncompress: lz4RawUncompress,
 	}, nil
 }

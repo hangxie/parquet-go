@@ -4,27 +4,36 @@
 package compress
 
 import (
+	"fmt"
+
 	"github.com/klauspost/compress/zstd"
 
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func init() {
-	// Create encoder/decoder with default parameters.
 	enc, _ := zstd.NewWriter(nil, zstd.WithZeroFrames(true))
 	dec, _ := zstd.NewReader(nil)
-	compressors[parquet.CompressionCodec_ZSTD] = &Compressor{
-		Compress: func(buf []byte) []byte {
-			return enc.EncodeAll(buf, nil)
+	defaultCodecs[parquet.CompressionCodec_ZSTD] = &codec{
+		compress: func(buf []byte) ([]byte, error) {
+			return enc.EncodeAll(buf, nil), nil
 		},
-		Uncompress: func(buf []byte) (bytes []byte, err error) {
-			return dec.DecodeAll(buf, nil)
+		uncompress: func(buf []byte, maxSize int64) ([]byte, error) {
+			result, err := dec.DecodeAll(buf, nil)
+			if err != nil {
+				return nil, err
+			}
+			if maxSize > 0 && int64(len(result)) > maxSize {
+				return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d: %w",
+					len(result), maxSize, ErrDecompressedSizeExceeded)
+			}
+			return result, nil
 		},
 	}
-	compressorFactories[parquet.CompressionCodec_ZSTD] = newZSTDCompressor
+	codecFactories[parquet.CompressionCodec_ZSTD] = newZSTDCompressor
 }
 
-func newZSTDCompressor(level int) (*Compressor, error) {
+func newZSTDCompressor(level int) (*codec, error) {
 	enc, err := zstd.NewWriter(nil,
 		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(level)),
 		zstd.WithZeroFrames(true),
@@ -33,12 +42,20 @@ func newZSTDCompressor(level int) (*Compressor, error) {
 		return nil, err
 	}
 	dec, _ := zstd.NewReader(nil)
-	return &Compressor{
-		Compress: func(buf []byte) []byte {
-			return enc.EncodeAll(buf, nil)
+	return &codec{
+		compress: func(buf []byte) ([]byte, error) {
+			return enc.EncodeAll(buf, nil), nil
 		},
-		Uncompress: func(buf []byte) ([]byte, error) {
-			return dec.DecodeAll(buf, nil)
+		uncompress: func(buf []byte, maxSize int64) ([]byte, error) {
+			result, err := dec.DecodeAll(buf, nil)
+			if err != nil {
+				return nil, err
+			}
+			if maxSize > 0 && int64(len(result)) > maxSize {
+				return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d: %w",
+					len(result), maxSize, ErrDecompressedSizeExceeded)
+			}
+			return result, nil
 		},
 	}, nil
 }
