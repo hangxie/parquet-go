@@ -8,7 +8,7 @@ import (
 	"github.com/ncw/swift"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 func TestSwiftFileInterfaceCompliance(t *testing.T) {

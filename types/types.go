@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func ParquetTypeToGoReflectType(pT *parquet.Type, rT *parquet.FieldRepetitionType) reflect.Type {

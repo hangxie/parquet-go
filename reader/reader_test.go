@@ -11,15 +11,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/bloomfilter"
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
-	"github.com/hangxie/parquet-go/v2/source/buffer"
-	phttp "github.com/hangxie/parquet-go/v2/source/http"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/bloomfilter"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
+	phttp "github.com/hangxie/parquet-go/v3/source/http"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 type Record struct {

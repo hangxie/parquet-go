@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Mock ParquetFileReader for testing

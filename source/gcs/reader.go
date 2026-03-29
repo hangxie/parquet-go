@@ -7,7 +7,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/bobg/gcsobj"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *gcsFile implement the source.ParquetFileReader interface.

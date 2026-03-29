@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 // User represents a simple struct to demonstrate data page V2 writing

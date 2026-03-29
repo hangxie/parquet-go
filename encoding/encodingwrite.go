@@ -8,7 +8,7 @@ import (
 	"math/bits"
 	"reflect"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func ToInt64(nums []any) []int64 { // convert bool/int values to int64 values

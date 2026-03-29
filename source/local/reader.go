@@ -3,7 +3,7 @@ package local
 import (
 	"os"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *localFile implement the source.ParquetFileReader interface.

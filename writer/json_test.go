@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/buffer"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
 func TestJSONWriter(t *testing.T) {

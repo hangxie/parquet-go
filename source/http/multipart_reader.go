@@ -3,7 +3,7 @@ package http
 import (
 	"mime/multipart"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *multipartFileWrapper implement the source.ParquetFileReader interface.

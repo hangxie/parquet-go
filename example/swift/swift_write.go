@@ -9,10 +9,10 @@ import (
 
 	"github.com/ncw/swift"
 
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/writer"
 
-	swiftsource "github.com/hangxie/parquet-go/v2/source/swift"
+	swiftsource "github.com/hangxie/parquet-go/v3/source/swift"
 )
 
 type Student struct {

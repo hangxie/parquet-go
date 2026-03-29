@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hangxie/parquet-go/v2/reader"
+	"github.com/hangxie/parquet-go/v3/reader"
 
-	"github.com/hangxie/parquet-go/v2/source/http"
+	"github.com/hangxie/parquet-go/v3/source/http"
 )
 
 func main() {

@@ -3,9 +3,9 @@ package reader
 import (
 	"fmt"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // NewParquetColumnReader creates a parquet column reader

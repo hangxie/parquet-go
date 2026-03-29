@@ -1,4 +1,4 @@
-module github.com/hangxie/parquet-go/v2
+module github.com/hangxie/parquet-go/v3
 
 go 1.24.11
 
