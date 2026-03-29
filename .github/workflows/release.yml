@@ -33,7 +33,8 @@ jobs:
         run: |
           gh release create $(cat ./VERSION) \
               --title $(cat ./VERSION) \
-              --notes-file ./CHANGELOG
+              --notes-file ./CHANGELOG \
+              --latest=false
   coverage-report:
     runs-on: ubuntu-latest
     permissions:
