@@ -24,3 +24,23 @@ func TestCodec_SNAPPY(t *testing.T) {
 	_, err = c.Uncompress([]byte{1}, parquet.CompressionCodec_SNAPPY)
 	require.Contains(t, err.Error(), "corrupt input")
 }
+
+func TestSnappySizeLimitBeforeDecode(t *testing.T) {
+	// Compress data large enough to exceed a small limit
+	input := make([]byte, 5000)
+	for i := range input {
+		input[i] = byte(i % 10)
+	}
+
+	compressed, err := DefaultCompressor().Compress(input, parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
+
+	// Snappy header declares the uncompressed size — the check should
+	// reject it before allocating the full decode buffer
+	smallLimit, err := NewCompressor(WithMaxDecompressedSize(100))
+	require.NoError(t, err)
+
+	_, err = smallLimit.Uncompress(compressed, parquet.CompressionCodec_SNAPPY)
+	require.ErrorIs(t, err, ErrDecompressedSizeExceeded)
+	require.Contains(t, err.Error(), "snappy decoded length")
+}

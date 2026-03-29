@@ -55,3 +55,23 @@ func TestZstdCompressionLevel(t *testing.T) {
 		}
 	})
 }
+
+func TestZstdSizeLimitBeforeDecode(t *testing.T) {
+	// Compress data large enough to exceed a small limit
+	input := make([]byte, 5000)
+	for i := range input {
+		input[i] = byte(i % 10)
+	}
+
+	compressed, err := DefaultCompressor().Compress(input, parquet.CompressionCodec_ZSTD)
+	require.NoError(t, err)
+
+	// Zstd frame header declares frame content size — the check should
+	// reject it before decoding
+	smallLimit, err := NewCompressor(WithMaxDecompressedSize(100))
+	require.NoError(t, err)
+
+	_, err = smallLimit.Uncompress(compressed, parquet.CompressionCodec_ZSTD)
+	require.ErrorIs(t, err, ErrDecompressedSizeExceeded)
+	require.Contains(t, err.Error(), "zstd frame content size")
+}
