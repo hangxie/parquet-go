@@ -31,7 +31,8 @@ to the parquet-go library project.
 - Tests typically use in-memory buffers (`bytes.Buffer`) and inline test data rather than external test files.
 - Use **round-trip testing** (write data, read back, compare) for encoding, compression, and reader/writer validation.
 - Use `github.com/stretchr/testify/require` for assertions.
-- Validate changes with `make all` (format, lint, test, example, build) and maintain/improve coverage.
+- `make all` (format, lint, test, example, build) MUST pass before any commit.
+- Maintain and improve coverage.
 - Contributors are expected to follow **TDD principles**:
   - Design tests before implementation.
   - Ensure tests fail before implementing the feature.
@@ -50,7 +51,7 @@ to the parquet-go library project.
 
 ## Contribution Workflow Norms
 
-- **Always commit after completing a task.** Once `make all` passes, create a commit immediately — do not wait to be asked.
+- **Always commit after completing a task.** `make all` MUST pass before any commit. Once it passes, create a commit immediately — do not wait to be asked.
 - Commit messages should follow **Conventional Commits**.
 - **Do not** add the agent's name as a commit co-author (e.g., no `Co-Authored-By` trailers).
 - Avoid breaking backward compatibility without clear migration notes.
@@ -61,7 +62,7 @@ to the parquet-go library project.
 ## Quality Gates
 
 - Test coverage must be maintained or improved on significant logic changes.
-- Code must pass formatting, linting, testing, and build checks (`make all`) before merging.
+- Code MUST pass formatting, linting, testing, and build checks (`make all`) before any commit.
 - Refactoring and cleanup must preserve behavior and pass validation.
 
 ---
