@@ -14,37 +14,43 @@ import (
 )
 
 func init() {
-	compressorFactories[parquet.CompressionCodec_LZ4] = newLZ4Compressor
+	codecFactories[parquet.CompressionCodec_LZ4] = newLZ4Compressor
 
 	lz4WriterPool := sync.Pool{
 		New: func() any {
 			return lz4.NewWriter(nil)
 		},
 	}
-	compressors[parquet.CompressionCodec_LZ4] = &Compressor{
-		Compress: func(buf []byte) []byte {
-			lz4Writer := lz4WriterPool.Get().(*lz4.Writer)
-			res := new(bytes.Buffer)
-			lz4Writer.Reset(res)
-			if _, err := lz4Writer.Write(buf); err != nil {
-				return nil
-			}
-			_ = lz4Writer.Close()
-			lz4Writer.Reset(nil)
-			lz4WriterPool.Put(lz4Writer)
-			return res.Bytes()
-		},
-		Uncompress: lz4Uncompress,
+	defaultCodecs[parquet.CompressionCodec_LZ4] = &codec{
+		compress:   lz4Compress(&lz4WriterPool),
+		uncompress: lz4Uncompress,
 	}
 }
 
-func lz4Uncompress(buf []byte) ([]byte, error) {
-	rbuf := bytes.NewReader(buf)
-	lz4Reader := lz4.NewReader(rbuf)
-	return LimitedReadAll(lz4Reader, GetMaxDecompressedSize())
+func lz4Compress(pool *sync.Pool) func([]byte) ([]byte, error) {
+	return func(buf []byte) ([]byte, error) {
+		lz4Writer := pool.Get().(*lz4.Writer)
+		res := new(bytes.Buffer)
+		lz4Writer.Reset(res)
+		if _, err := lz4Writer.Write(buf); err != nil {
+			return nil, fmt.Errorf("lz4 compress: %w", err)
+		}
+		if err := lz4Writer.Close(); err != nil {
+			return nil, fmt.Errorf("lz4 compress close: %w", err)
+		}
+		lz4Writer.Reset(nil)
+		pool.Put(lz4Writer)
+		return res.Bytes(), nil
+	}
 }
 
-func newLZ4Compressor(level int) (*Compressor, error) {
+func lz4Uncompress(buf []byte, maxSize int64) ([]byte, error) {
+	rbuf := bytes.NewReader(buf)
+	lz4Reader := lz4.NewReader(rbuf)
+	return limitedReadAll(lz4Reader, maxSize)
+}
+
+func newLZ4Compressor(level int) (*codec, error) {
 	cl := lz4.CompressionLevel(1 << (8 + level))
 
 	// Validate by creating a writer and applying the option
@@ -61,19 +67,8 @@ func newLZ4Compressor(level int) (*Compressor, error) {
 		},
 	}
 
-	return &Compressor{
-		Compress: func(buf []byte) []byte {
-			lz4Writer := writerPool.Get().(*lz4.Writer)
-			res := new(bytes.Buffer)
-			lz4Writer.Reset(res)
-			if _, err := lz4Writer.Write(buf); err != nil {
-				return nil
-			}
-			_ = lz4Writer.Close()
-			lz4Writer.Reset(nil)
-			writerPool.Put(lz4Writer)
-			return res.Bytes()
-		},
-		Uncompress: lz4Uncompress,
+	return &codec{
+		compress:   lz4Compress(&writerPool),
+		uncompress: lz4Uncompress,
 	}, nil
 }

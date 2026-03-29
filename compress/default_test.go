@@ -9,11 +9,13 @@ import (
 )
 
 func TestCodec_UNCOMPRESSED(t *testing.T) {
+	c := DefaultCompressor()
 	raw := []byte{1, 2, 3}
-	compressed := compressors[parquet.CompressionCodec_UNCOMPRESSED].Compress(raw)
+	compressed, err := c.Compress(raw, parquet.CompressionCodec_UNCOMPRESSED)
+	require.NoError(t, err)
 	require.Equal(t, raw, compressed)
 
-	uncompressed, err := compressors[parquet.CompressionCodec_UNCOMPRESSED].Uncompress(compressed)
+	uncompressed, err := c.Uncompress(compressed, parquet.CompressionCodec_UNCOMPRESSED)
 	require.NoError(t, err)
 	require.Equal(t, raw, uncompressed)
 }

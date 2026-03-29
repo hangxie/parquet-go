@@ -10,7 +10,7 @@ import (
 )
 
 func TestLz4RawCompress(t *testing.T) {
-	lz4RawCompressor := compressors[parquet.CompressionCodec_LZ4_RAW]
+	c := DefaultCompressor()
 	input := []byte("Peter Parker")
 	compressed := []byte{
 		0xc0, 0x50, 0x65, 0x74, 0x65, 0x72, 0x20, 0x50, 0x61, 0x72, 0x6b, 0x65, 0x72,
@@ -22,25 +22,21 @@ func TestLz4RawCompress(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			output := lz4RawCompressor.Compress(input)
+			output, err := c.Compress(input, parquet.CompressionCodec_LZ4_RAW)
+			require.NoError(t, err)
 			require.Equal(t, compressed, output)
 		}()
 	}
 	wg.Wait()
 
 	// uncompression
-	output, err := lz4RawCompressor.Uncompress(compressed)
+	output, err := c.Uncompress(compressed, parquet.CompressionCodec_LZ4_RAW)
 	require.NoError(t, err)
 	require.Equal(t, input, output)
 }
 
 func TestLz4RawUncompressLargeData(t *testing.T) {
-	// Save original setting and restore after test
-	originalMaxSize := GetMaxDecompressedSize()
-	defer SetMaxDecompressedSize(originalMaxSize)
-	SetMaxDecompressedSize(DefaultMaxDecompressedSize)
-
-	lz4RawCompressor := compressors[parquet.CompressionCodec_LZ4_RAW]
+	c := DefaultCompressor()
 
 	// Test with larger data that requires buffer growth
 	largeInput := make([]byte, 10000)
@@ -48,20 +44,17 @@ func TestLz4RawUncompressLargeData(t *testing.T) {
 		largeInput[i] = byte(i % 256)
 	}
 
-	compressed := lz4RawCompressor.Compress(largeInput)
+	compressed, err := c.Compress(largeInput, parquet.CompressionCodec_LZ4_RAW)
+	require.NoError(t, err)
 	require.NotNil(t, compressed)
 
-	output, err := lz4RawCompressor.Uncompress(compressed)
+	output, err := c.Uncompress(compressed, parquet.CompressionCodec_LZ4_RAW)
 	require.NoError(t, err)
 	require.Equal(t, largeInput, output)
 }
 
 func TestLz4RawUncompressSizeLimit(t *testing.T) {
-	// Save original setting and restore after test
-	originalMaxSize := GetMaxDecompressedSize()
-	defer SetMaxDecompressedSize(originalMaxSize)
-
-	lz4RawCompressor := compressors[parquet.CompressionCodec_LZ4_RAW]
+	c := DefaultCompressor()
 
 	// Create compressible data
 	input := make([]byte, 5000)
@@ -69,45 +62,36 @@ func TestLz4RawUncompressSizeLimit(t *testing.T) {
 		input[i] = byte(i % 10) // Repeating pattern
 	}
 
-	compressed := lz4RawCompressor.Compress(input)
+	compressed, err := c.Compress(input, parquet.CompressionCodec_LZ4_RAW)
+	require.NoError(t, err)
 	require.NotNil(t, compressed)
 
 	// Set a small limit that will be exceeded
-	SetMaxDecompressedSize(100)
+	smallLimit, err := NewCompressor(WithMaxDecompressedSize(100))
+	require.NoError(t, err)
 
-	_, err := lz4RawCompressor.Uncompress(compressed)
+	_, err = smallLimit.Uncompress(compressed, parquet.CompressionCodec_LZ4_RAW)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceed")
+	require.ErrorIs(t, err, ErrDecompressedSizeExceeded)
 }
 
 func TestLz4RawCompressionLevel(t *testing.T) {
-	saved := saveCompressor(parquet.CompressionCodec_LZ4_RAW)
-	resetCompressionUsed()
-	defer func() {
-		restoreCompressor(parquet.CompressionCodec_LZ4_RAW, saved)
-		resetCompressionUsed()
-	}()
-
 	t.Run("valid level round-trip", func(t *testing.T) {
-		restoreCompressor(parquet.CompressionCodec_LZ4_RAW, saved)
-		resetCompressionUsed()
-		err := SetCompressionLevel(parquet.CompressionCodec_LZ4_RAW, 4)
+		c, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_LZ4_RAW, 4))
 		require.NoError(t, err)
 
 		input := []byte("test data for lz4 raw level testing, needs enough data to compress")
-		compressed, err := CompressWithError(input, parquet.CompressionCodec_LZ4_RAW)
+		compressed, err := c.Compress(input, parquet.CompressionCodec_LZ4_RAW)
 		require.NoError(t, err)
 		require.NotNil(t, compressed)
 
-		output, err := Uncompress(compressed, parquet.CompressionCodec_LZ4_RAW)
+		output, err := c.Uncompress(compressed, parquet.CompressionCodec_LZ4_RAW)
 		require.NoError(t, err)
 		require.Equal(t, input, output)
 	})
 
 	t.Run("concurrent compression with custom level", func(t *testing.T) {
-		restoreCompressor(parquet.CompressionCodec_LZ4_RAW, saved)
-		resetCompressionUsed()
-		err := SetCompressionLevel(parquet.CompressionCodec_LZ4_RAW, 4)
+		c, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_LZ4_RAW, 4))
 		require.NoError(t, err)
 
 		input := []byte("Peter Parker")
@@ -116,7 +100,7 @@ func TestLz4RawCompressionLevel(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				compressed, compErr := CompressWithError(input, parquet.CompressionCodec_LZ4_RAW)
+				compressed, compErr := c.Compress(input, parquet.CompressionCodec_LZ4_RAW)
 				require.NoError(t, compErr)
 				require.NotNil(t, compressed)
 			}()
@@ -126,15 +110,10 @@ func TestLz4RawCompressionLevel(t *testing.T) {
 }
 
 func TestLz4RawUncompressInvalidData(t *testing.T) {
-	// Save original setting and restore after test
-	originalMaxSize := GetMaxDecompressedSize()
-	defer SetMaxDecompressedSize(originalMaxSize)
-	SetMaxDecompressedSize(DefaultMaxDecompressedSize)
-
-	lz4RawCompressor := compressors[parquet.CompressionCodec_LZ4_RAW]
+	c := DefaultCompressor()
 
 	// Test with invalid/corrupt data
 	invalidData := []byte{0xFF, 0xFF, 0xFF, 0xFF}
-	_, err := lz4RawCompressor.Uncompress(invalidData)
+	_, err := c.Uncompress(invalidData, parquet.CompressionCodec_LZ4_RAW)
 	require.Error(t, err)
 }
