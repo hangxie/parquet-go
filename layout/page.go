@@ -38,14 +38,6 @@ func resolveCompressor(c *compress.Compressor) *compress.Compressor {
 	return compress.DefaultCompressor()
 }
 
-// resolveMaxPageSize returns maxPageSize if positive, otherwise returns DefaultMaxPageSize.
-func resolveMaxPageSize(maxPageSize int64) int64 {
-	if maxPageSize > 0 {
-		return maxPageSize
-	}
-	return DefaultMaxPageSize
-}
-
 // Page is used to store the page data
 type Page struct {
 	// Header of a page
@@ -688,6 +680,9 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+	if opt.MaxPageSize <= 0 {
+		opt.MaxPageSize = DefaultMaxPageSize
+	}
 	var err error
 
 	pageHeader, err := ReadPageHeader(thriftReader)
@@ -705,8 +700,8 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	}
 
 	compressedPageSize := pageHeader.GetCompressedPageSize()
-	if maxPS := resolveMaxPageSize(opt.MaxPageSize); compressedPageSize < 0 || int64(compressedPageSize) > maxPS {
-		return nil, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, maxPS)
+	if compressedPageSize < 0 || int64(compressedPageSize) > opt.MaxPageSize {
+		return nil, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, opt.MaxPageSize)
 	}
 	buf := make([]byte, compressedPageSize)
 	if _, err := io.ReadFull(thriftReader, buf); err != nil {
@@ -1111,6 +1106,9 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+	if opt.MaxPageSize <= 0 {
+		opt.MaxPageSize = DefaultMaxPageSize
+	}
 	c := resolveCompressor(opt.Compressor)
 	var err error
 
@@ -1123,8 +1121,8 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 
 	var page *Page
 	compressedPageSize := pageHeader.GetCompressedPageSize()
-	if maxPS := resolveMaxPageSize(opt.MaxPageSize); compressedPageSize < 0 || int64(compressedPageSize) > maxPS {
-		return nil, 0, 0, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, maxPS)
+	if compressedPageSize < 0 || int64(compressedPageSize) > opt.MaxPageSize {
+		return nil, 0, 0, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, opt.MaxPageSize)
 	}
 
 	if pageHeader.GetType() == parquet.PageType_DATA_PAGE_V2 {
