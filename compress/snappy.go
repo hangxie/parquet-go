@@ -17,13 +17,19 @@ func init() {
 			return snappy.Encode(nil, buf), nil
 		},
 		uncompress: func(buf []byte, maxSize int64) ([]byte, error) {
+			if maxSize > 0 {
+				n, err := snappy.DecodedLen(buf)
+				if err != nil {
+					return nil, fmt.Errorf("snappy decoded length: %w", err)
+				}
+				if int64(n) > maxSize {
+					return nil, fmt.Errorf("snappy decoded length %d exceeds maximum allowed size %d: %w",
+						n, maxSize, ErrDecompressedSizeExceeded)
+				}
+			}
 			result, err := snappy.Decode(nil, buf)
 			if err != nil {
 				return nil, err
-			}
-			if maxSize > 0 && int64(len(result)) > maxSize {
-				return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d: %w",
-					len(result), maxSize, ErrDecompressedSizeExceeded)
 			}
 			return result, nil
 		},

@@ -18,19 +18,36 @@ func init() {
 		compress: func(buf []byte) ([]byte, error) {
 			return enc.EncodeAll(buf, nil), nil
 		},
-		uncompress: func(buf []byte, maxSize int64) ([]byte, error) {
-			result, err := dec.DecodeAll(buf, nil)
-			if err != nil {
-				return nil, err
-			}
-			if maxSize > 0 && int64(len(result)) > maxSize {
-				return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d: %w",
-					len(result), maxSize, ErrDecompressedSizeExceeded)
-			}
-			return result, nil
-		},
+		uncompress: zstdUncompress(dec),
 	}
 	codecFactories[parquet.CompressionCodec_ZSTD] = newZSTDCompressor
+}
+
+func zstdUncompress(dec *zstd.Decoder) func([]byte, int64) ([]byte, error) {
+	return func(buf []byte, maxSize int64) ([]byte, error) {
+		if maxSize <= 0 {
+			return dec.DecodeAll(buf, nil)
+		}
+
+		// Reject before decoding if frame header declares an oversized payload
+		var h zstd.Header
+		if err := h.Decode(buf); err == nil && h.HasFCS && h.FrameContentSize > uint64(maxSize) {
+			return nil, fmt.Errorf("zstd frame content size %d exceeds maximum allowed size %d: %w",
+				h.FrameContentSize, maxSize, ErrDecompressedSizeExceeded)
+		}
+
+		result, err := dec.DecodeAll(buf, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		// Fallback for frames without content size in header (HasFCS=false)
+		if int64(len(result)) > maxSize {
+			return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d: %w",
+				len(result), maxSize, ErrDecompressedSizeExceeded)
+		}
+		return result, nil
+	}
 }
 
 func newZSTDCompressor(level int) (*codec, error) {
@@ -46,16 +63,6 @@ func newZSTDCompressor(level int) (*codec, error) {
 		compress: func(buf []byte) ([]byte, error) {
 			return enc.EncodeAll(buf, nil), nil
 		},
-		uncompress: func(buf []byte, maxSize int64) ([]byte, error) {
-			result, err := dec.DecodeAll(buf, nil)
-			if err != nil {
-				return nil, err
-			}
-			if maxSize > 0 && int64(len(result)) > maxSize {
-				return nil, fmt.Errorf("decompressed size %d exceeds maximum allowed size %d: %w",
-					len(result), maxSize, ErrDecompressedSizeExceeded)
-			}
-			return result, nil
-		},
+		uncompress: zstdUncompress(dec),
 	}, nil
 }
