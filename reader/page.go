@@ -11,6 +11,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/compress"
 	"github.com/hangxie/parquet-go/v3/encoding"
+	"github.com/hangxie/parquet-go/v3/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
@@ -140,7 +141,8 @@ func ExtractPageHeaderInfo(pageHeader *parquet.PageHeader, offset int64, index i
 			info.Encoding = dph2.Encoding
 			info.DefLevelBytes = dph2.DefinitionLevelsByteLength
 			info.RepLevelBytes = dph2.RepetitionLevelsByteLength
-			info.IsCompressed = &dph2.IsCompressed
+			isCompressed := dph2.IsCompressed
+			info.IsCompressed = &isCompressed
 			info.HasStatistics = dph2.IsSetStatistics()
 			if info.HasStatistics {
 				info.Statistics = dph2.Statistics
@@ -193,7 +195,7 @@ func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) (
 	for totalValuesRead < meta.NumValues {
 		pageHeader, headerSize, err := readPageHeader(pFile, currentOffset)
 		if err != nil {
-			break // Can't read more pages, we're done
+			return nil, fmt.Errorf("read page header at offset %d: %w", currentOffset, err)
 		}
 
 		headerInfo := ExtractPageHeaderInfo(pageHeader, currentOffset, pageIndex)
@@ -254,8 +256,8 @@ func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChu
 
 // ReadPageData reads and decompresses the data from a page at the given offset
 // Returns the uncompressed page data
-func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, opts ...common.PageReadOptions) ([]byte, error) {
-	var opt common.PageReadOptions
+func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, opts ...layout.PageReadOptions) ([]byte, error) {
+	var opt layout.PageReadOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
@@ -362,7 +364,7 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	}
 
 	// Read and decode the page data
-	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, common.PageReadOptions{CRCMode: pr.CRCMode})
+	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, layout.PageReadOptions{CRCMode: pr.CRCMode})
 	if err != nil {
 		return nil, fmt.Errorf("read page data: %w", err)
 	}

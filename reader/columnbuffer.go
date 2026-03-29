@@ -32,10 +32,10 @@ type ColumnBufferType struct {
 	DataTable        *layout.Table
 	DataTableNumRows int64
 
-	PageReadOptions common.PageReadOptions
+	PageReadOptions layout.PageReadOptions
 }
 
-func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts ...common.PageReadOptions) (*ColumnBufferType, error) {
+func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts ...layout.PageReadOptions) (*ColumnBufferType, error) {
 	if pFile == nil {
 		return nil, fmt.Errorf("pFile is nil")
 	}
@@ -59,7 +59,7 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	if err != nil {
 		return nil, err
 	}
-	var opt common.PageReadOptions
+	var opt layout.PageReadOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}

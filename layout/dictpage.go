@@ -52,7 +52,7 @@ func DictRecToDictPageWithOption(dictRec *DictRecType, opt PageWriteOption) (*Pa
 	}
 	page.CompressType = opt.CompressType
 
-	compressedData, err := page.dictPageCompress(opt.CompressType, dictRec.Type)
+	compressedData, err := page.dictPageCompress(opt.CompressType, dictRec.Type, opt.Compressor)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -80,7 +80,7 @@ func DictRecToDictPageWithOption(dictRec *DictRecType, opt PageWriteOption) (*Pa
 //	    CompressType: compressType,
 //	})
 func (page *Page) DictPageCompress(compressType parquet.CompressionCodec, pT parquet.Type) ([]byte, error) {
-	compressedData, err := page.dictPageCompress(compressType, pT)
+	compressedData, err := page.dictPageCompress(compressType, pT, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -95,12 +95,12 @@ func (page *Page) DictPageCompress(compressType parquet.CompressionCodec, pT par
 	return page.RawData, nil
 }
 
-func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT parquet.Type) ([]byte, error) {
+func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT parquet.Type, c *compress.Compressor) ([]byte, error) {
 	dataBuf, err := encoding.WritePlain(page.DataTable.Values, pT)
 	if err != nil {
 		return nil, err
 	}
-	dataEncodeBuf, err := compress.CompressWithError(dataBuf, compressType)
+	dataEncodeBuf, err := resolveCompressor(c).Compress(dataBuf, compressType)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +212,7 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 
 		page.computeLevelHistograms()
 
-		compressedData, compressErr := page.dictDataPageCompress(opt.CompressType, bitWidth, values)
+		compressedData, compressErr := page.dictDataPageCompress(opt.CompressType, bitWidth, values, opt.Compressor)
 		if compressErr != nil {
 			return nil, 0, compressErr
 		}
@@ -243,7 +243,7 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 //	    CompressType: compressType,
 //	})
 func (page *Page) DictDataPageCompress(compressType parquet.CompressionCodec, bitWidth int32, values []int32) ([]byte, error) {
-	compressedData, err := page.dictDataPageCompress(compressType, bitWidth, values)
+	compressedData, err := page.dictDataPageCompress(compressType, bitWidth, values, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +258,7 @@ func (page *Page) DictDataPageCompress(compressType parquet.CompressionCodec, bi
 	return page.RawData, nil
 }
 
-func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bitWidth int32, values []int32) ([]byte, error) {
+func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bitWidth int32, values []int32, c *compress.Compressor) ([]byte, error) {
 	valuesRawBuf := []byte{byte(bitWidth)}
 	valuesRawBuf = append(valuesRawBuf, encoding.WriteRLEInt32(values, bitWidth)...)
 
@@ -289,7 +289,7 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 	dataBuf = append(dataBuf, definitionLevelBuf...)
 	dataBuf = append(dataBuf, valuesRawBuf...)
 
-	dataEncodeBuf, err := compress.CompressWithError(dataBuf, compressType)
+	dataEncodeBuf, err := resolveCompressor(c).Compress(dataBuf, compressType)
 	if err != nil {
 		return nil, err
 	}
