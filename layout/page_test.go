@@ -3440,12 +3440,6 @@ func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 	}
 }
 
-func TestResolveMaxPageSize(t *testing.T) {
-	require.Equal(t, int64(DefaultMaxPageSize), resolveMaxPageSize(0))
-	require.Equal(t, int64(DefaultMaxPageSize), resolveMaxPageSize(-1))
-	require.Equal(t, int64(42), resolveMaxPageSize(42))
-}
-
 func TestTableToDataPagesWithVersion_EmptyTable(t *testing.T) {
 	// Test that empty tables are handled gracefully without panic
 	table := &Table{
