@@ -6,7 +6,7 @@ import (
 	"github.com/colinmarc/hdfs/v2"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 func TestHdfsFileInterfaceCompliance(t *testing.T) {

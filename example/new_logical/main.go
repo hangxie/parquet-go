@@ -8,11 +8,11 @@ import (
 	"log"
 	"math"
 
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 // Row showcases newly added logical types

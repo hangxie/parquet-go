@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *bufferFile implement the source.ParquetFileReader interface.

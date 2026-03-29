@@ -9,7 +9,7 @@ import (
 
 	"github.com/klauspost/compress/gzip"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 var gzipWriterPool sync.Pool

@@ -14,13 +14,13 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/hangxie/parquet-go/v2/bloomfilter"
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/layout"
-	"github.com/hangxie/parquet-go/v2/marshal"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/schema"
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/bloomfilter"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/marshal"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 type ParquetReaderOptions struct {

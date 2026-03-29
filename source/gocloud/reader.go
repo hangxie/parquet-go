@@ -7,7 +7,7 @@ import (
 
 	"gocloud.dev/blob"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *blobFile implement the source.ParquetFileReader interface.

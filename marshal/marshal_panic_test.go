@@ -3,7 +3,7 @@ package marshal
 import (
 	"testing"
 
-	"github.com/hangxie/parquet-go/v2/schema"
+	"github.com/hangxie/parquet-go/v3/schema"
 )
 
 type TestListStructIssue struct {

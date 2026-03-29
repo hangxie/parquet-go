@@ -6,7 +6,7 @@ import (
 	"io"
 	"sync/atomic"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 // LimitedReadAll reads from r until EOF or until maxSize bytes have been read.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/pierrec/lz4/v4"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func init() {

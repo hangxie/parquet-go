@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // mockMultipartFile implements multipart.File for testing

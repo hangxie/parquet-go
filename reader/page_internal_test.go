@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/source/buffer"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
 )
 
 func TestReadAllPageHeaders_NilMetadata(t *testing.T) {

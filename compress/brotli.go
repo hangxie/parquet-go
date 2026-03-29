@@ -10,7 +10,7 @@ import (
 
 	"github.com/andybalholm/brotli"
 
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 var brotliWriterPool sync.Pool

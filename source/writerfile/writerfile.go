@@ -3,7 +3,7 @@ package writerfile
 import (
 	"io"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *writerFile implement the source.ParquetFileWriter interface.

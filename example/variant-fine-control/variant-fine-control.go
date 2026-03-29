@@ -5,8 +5,8 @@ package main
 import (
 	"log"
 
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 // VariantRaw allows fine-grained control over the underlying physical columns

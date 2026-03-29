@@ -9,13 +9,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/reader"
-	"github.com/hangxie/parquet-go/v2/writer"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/writer"
 
-	"github.com/hangxie/parquet-go/v2/source/local"
-	"github.com/hangxie/parquet-go/v2/source/mem"
+	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/source/mem"
 )
 
 type Student struct {

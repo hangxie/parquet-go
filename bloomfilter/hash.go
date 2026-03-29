@@ -5,8 +5,8 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 
-	"github.com/hangxie/parquet-go/v2/encoding"
-	"github.com/hangxie/parquet-go/v2/parquet"
+	"github.com/hangxie/parquet-go/v3/encoding"
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 // HashValue encodes a value using Parquet plain encoding and hashes it with xxHash.

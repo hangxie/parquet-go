@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hangxie/parquet-go/v2/common"
-	"github.com/hangxie/parquet-go/v2/parquet"
-	"github.com/hangxie/parquet-go/v2/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
 func TestCSVWriter(t *testing.T) {

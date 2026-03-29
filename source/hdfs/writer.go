@@ -5,7 +5,7 @@ import (
 
 	"github.com/colinmarc/hdfs/v2"
 
-	"github.com/hangxie/parquet-go/v2/source"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // Compile time check that *hdfsFile implement the source.ParquetFileWriter interface.
