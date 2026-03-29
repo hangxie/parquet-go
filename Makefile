@@ -57,7 +57,7 @@ tools:  ## Install build tools
 		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
 		go install github.com/jstemmer/go-junit-report/v2@latest; \
 		go install mvdan.cc/gofumpt@latest; \
-		go install golang.org/x/tools/cmd/goimports@latest; \
+		go install golang.org/x/tools/cmd/goimports@v0.42.0; \
 	)
 
 .PHONY: clean
