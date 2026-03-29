@@ -455,7 +455,7 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				return page
 			},
 			expectError:  true,
-			errorMessage: "unsupported compress method",
+			errorMessage: "uncompress data page",
 		},
 	}
 
@@ -2167,109 +2167,6 @@ func TestProcessDataPageV2IsCompressedFalse(t *testing.T) {
 	require.Equal(t, int32(84), page.DataTable.Values[1])
 }
 
-func TestReadPage2(t *testing.T) {
-	// Create schema handler
-	schemaElements := []*parquet.SchemaElement{
-		{
-			Name:           "parquet_go_root",
-			NumChildren:    common.ToPtr(int32(1)),
-			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
-		},
-		{
-			Name:           "test_col",
-			Type:           common.ToPtr(parquet.Type_INT32),
-			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
-		},
-	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
-
-	testCases := []struct {
-		name        string
-		setupData   func() []byte
-		colMetadata *parquet.ColumnMetaData
-		expectError bool
-		expectPanic bool
-	}{
-		{
-			name: "dictionary_page",
-			setupData: func() []byte {
-				// Create dictionary page header
-				header := &parquet.PageHeader{
-					Type:                 parquet.PageType_DICTIONARY_PAGE,
-					UncompressedPageSize: 8,
-					CompressedPageSize:   8,
-					DictionaryPageHeader: &parquet.DictionaryPageHeader{
-						NumValues: int32(2),
-						Encoding:  parquet.Encoding_PLAIN,
-					},
-				}
-
-				// Serialize header
-				transport := thrift.NewTMemoryBufferLen(1024)
-				protocol := thrift.NewTCompactProtocolConf(transport, nil)
-				if err := header.Write(context.Background(), protocol); err != nil {
-					return nil
-				}
-				if err := protocol.Flush(context.Background()); err != nil {
-					return nil
-				}
-
-				headerBytes := transport.Buffer.Bytes()
-
-				// Create dictionary data
-				dictValues := []any{int32(100), int32(200)}
-				dictData, _ := encoding.WritePlainINT32(dictValues)
-
-				// Combine header and data
-				result := make([]byte, len(headerBytes)+len(dictData))
-				copy(result, headerBytes)
-				copy(result[len(headerBytes):], dictData)
-				return result
-			},
-			colMetadata: &parquet.ColumnMetaData{
-				Type:         parquet.Type_INT32,
-				Encodings:    []parquet.Encoding{parquet.Encoding_PLAIN},
-				PathInSchema: []string{"test_col"},
-				Codec:        parquet.CompressionCodec_UNCOMPRESSED,
-			},
-			expectError: true,
-		},
-		{
-			name: "empty_data",
-			setupData: func() []byte {
-				return []byte{}
-			},
-			colMetadata: &parquet.ColumnMetaData{
-				Type:         parquet.Type_INT32,
-				Encodings:    []parquet.Encoding{parquet.Encoding_PLAIN},
-				PathInSchema: []string{"test_col"},
-				Codec:        parquet.CompressionCodec_UNCOMPRESSED,
-			},
-			expectError: true,
-			expectPanic: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			data := tc.setupData()
-			transport := thrift.NewTMemoryBufferLen(len(data))
-			transport.Buffer.Write(data)
-			bufferedTransport := thrift.NewTBufferedTransport(transport, 1024)
-
-			page, numValues, numRows, err := ReadPage2(bufferedTransport, schemaHandler, tc.colMetadata)
-			if tc.expectError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, page)
-				require.GreaterOrEqual(t, numValues, int64(0))
-				require.GreaterOrEqual(t, numRows, int64(0))
-			}
-		})
-	}
-}
-
 func TestReadPageErrorCases(t *testing.T) {
 	// Create schema handler
 	schemaElements := []*parquet.SchemaElement{
@@ -3543,61 +3440,10 @@ func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 	}
 }
 
-func TestValidatePageSize(t *testing.T) {
-	// Save original setting and restore after test
-	originalMaxSize := GetMaxPageSize()
-	defer SetMaxPageSize(originalMaxSize)
-
-	t.Run("valid sizes", func(t *testing.T) {
-		SetMaxPageSize(DefaultMaxPageSize)
-
-		err := validatePageSize(0, "test")
-		require.NoError(t, err)
-
-		err = validatePageSize(1024, "test")
-		require.NoError(t, err)
-
-		err = validatePageSize(1024*1024, "test")
-		require.NoError(t, err)
-	})
-
-	t.Run("negative size", func(t *testing.T) {
-		SetMaxPageSize(DefaultMaxPageSize)
-
-		err := validatePageSize(-1, "test")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid negative page size")
-	})
-
-	t.Run("exceeds maximum", func(t *testing.T) {
-		SetMaxPageSize(1000) // Set small limit
-
-		err := validatePageSize(1001, "test")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "exceeds maximum allowed size")
-	})
-
-	t.Run("zero limit disables check", func(t *testing.T) {
-		SetMaxPageSize(0) // Disable limit
-
-		err := validatePageSize(1<<30, "test") // 1 GB
-		require.NoError(t, err)
-	})
-}
-
-func TestSetGetMaxPageSize(t *testing.T) {
-	// Save original setting and restore after test
-	originalMaxSize := GetMaxPageSize()
-	defer SetMaxPageSize(originalMaxSize)
-
-	SetMaxPageSize(12345678)
-	require.Equal(t, int64(12345678), GetMaxPageSize())
-
-	SetMaxPageSize(0)
-	require.Equal(t, int64(0), GetMaxPageSize())
-
-	SetMaxPageSize(DefaultMaxPageSize)
-	require.Equal(t, int64(DefaultMaxPageSize), GetMaxPageSize())
+func TestResolveMaxPageSize(t *testing.T) {
+	require.Equal(t, int64(DefaultMaxPageSize), resolveMaxPageSize(0))
+	require.Equal(t, int64(DefaultMaxPageSize), resolveMaxPageSize(-1))
+	require.Equal(t, int64(42), resolveMaxPageSize(42))
 }
 
 func TestTableToDataPagesWithVersion_EmptyTable(t *testing.T) {
@@ -3925,7 +3771,7 @@ func TestDataPageCompress_ReturnsCompressedData(t *testing.T) {
 	page.Schema = table.Schema
 	page.Info = &common.Tag{}
 
-	compressedData, err := page.dataPageCompress(parquet.CompressionCodec_UNCOMPRESSED)
+	compressedData, err := page.dataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, compressedData)
 
@@ -3954,7 +3800,7 @@ func TestDataPageV2Compress_ReturnsCompressedBuffers(t *testing.T) {
 	page.Schema = table.Schema
 	page.Info = &common.Tag{}
 
-	repLevels, defLevels, compressedValues, err := page.dataPageV2Compress(parquet.CompressionCodec_UNCOMPRESSED)
+	repLevels, defLevels, compressedValues, err := page.dataPageV2Compress(parquet.CompressionCodec_UNCOMPRESSED, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, compressedValues)
 	_ = repLevels
@@ -3987,7 +3833,7 @@ func TestDataPageV2Compress_SkipsCompressionWhenNoGain(t *testing.T) {
 	page.Schema = table.Schema
 	page.Info = &common.Tag{}
 
-	_, _, _, err := page.dataPageV2Compress(parquet.CompressionCodec_SNAPPY)
+	_, _, _, err := page.dataPageV2Compress(parquet.CompressionCodec_SNAPPY, nil)
 	require.NoError(t, err)
 
 	// With only 3 small INT32 values, Snappy compression won't reduce size.

@@ -17,11 +17,6 @@ const (
 	CRCStrict
 )
 
-// PageReadOptions controls optional behavior when reading pages.
-type PageReadOptions struct {
-	CRCMode CRCMode
-}
-
 // ValidatePageCRC validates a page's CRC32 checksum against page data.
 // The CRC uses the IEEE polynomial (CRC-32/ISO 3309).
 // Multiple byte slices are hashed incrementally without concatenation.

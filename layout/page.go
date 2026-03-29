@@ -7,7 +7,6 @@ import (
 	"io"
 	"math/bits"
 	"slices"
-	"sync/atomic"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -19,37 +18,32 @@ import (
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
+// PageReadOptions controls optional behavior when reading pages.
+type PageReadOptions struct {
+	CRCMode     common.CRCMode
+	Compressor  *compress.Compressor
+	MaxPageSize int64
+}
+
 // DefaultMaxPageSize is the default maximum size for page data (256 MB).
 // This helps prevent memory exhaustion from maliciously crafted files with
 // extremely large page sizes specified in headers.
 const DefaultMaxPageSize = 256 * 1024 * 1024
 
-// maxPageSize is the configurable maximum page size.
-// Use SetMaxPageSize to change this value.
-var maxPageSize int64 = DefaultMaxPageSize
-
-// SetMaxPageSize sets the maximum allowed page size for reading.
-// Set to 0 to disable the limit (not recommended for untrusted input).
-func SetMaxPageSize(size int64) {
-	atomic.StoreInt64(&maxPageSize, size)
+// resolveCompressor returns c if non-nil, otherwise returns the DefaultCompressor.
+func resolveCompressor(c *compress.Compressor) *compress.Compressor {
+	if c != nil {
+		return c
+	}
+	return compress.DefaultCompressor()
 }
 
-// GetMaxPageSize returns the current maximum page size limit.
-func GetMaxPageSize() int64 {
-	return atomic.LoadInt64(&maxPageSize)
-}
-
-// validatePageSize checks if the page size is within acceptable limits.
-// Returns an error if the size is negative or exceeds the configured maximum.
-func validatePageSize(size int32, context string) error {
-	if size < 0 {
-		return fmt.Errorf("%s: invalid negative page size %d", context, size)
+// resolveMaxPageSize returns maxPageSize if positive, otherwise returns DefaultMaxPageSize.
+func resolveMaxPageSize(maxPageSize int64) int64 {
+	if maxPageSize > 0 {
+		return maxPageSize
 	}
-	maxSize := GetMaxPageSize()
-	if maxSize > 0 && int64(size) > maxSize {
-		return fmt.Errorf("%s: page size %d exceeds maximum allowed size %d", context, size, maxSize)
-	}
-	return nil
+	return DefaultMaxPageSize
 }
 
 // Page is used to store the page data
@@ -90,6 +84,11 @@ type Page struct {
 	// data values (excluding 4-byte length prefixes) for SizeStatistics.
 	// Only set for BYTE_ARRAY physical type columns; nil otherwise.
 	UnencodedByteArrayDataBytes *int64
+
+	// compressor is set during page reading so that subsequent operations
+	// (GetRLDLFromRawData, GetValueFromRawData) can decompress using
+	// the same per-instance compressor. Nil means use DefaultCompressor.
+	compressor *compress.Compressor
 }
 
 // Create a new page
@@ -125,6 +124,7 @@ type PageWriteOption struct {
 	CompressType    parquet.CompressionCodec
 	DataPageVersion int32
 	WriteCRC        bool
+	Compressor      *compress.Compressor
 }
 
 // serializePage applies optional CRC, serializes the page header via Thrift,
@@ -259,7 +259,7 @@ func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int
 		page.computeLevelHistograms()
 
 		if opt.DataPageVersion == 2 {
-			repLevels, defLevels, compressedValues, compressErr := page.dataPageV2Compress(opt.CompressType)
+			repLevels, defLevels, compressedValues, compressErr := page.dataPageV2Compress(opt.CompressType, opt.Compressor)
 			if compressErr != nil {
 				return nil, 0, compressErr
 			}
@@ -267,7 +267,7 @@ func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int
 				return nil, 0, err
 			}
 		} else {
-			compressedData, compressErr := page.dataPageCompress(opt.CompressType)
+			compressedData, compressErr := page.dataPageCompress(opt.CompressType, opt.Compressor)
 			if compressErr != nil {
 				return nil, 0, compressErr
 			}
@@ -455,7 +455,7 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 //	    CompressType: compressType,
 //	})
 func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byte, error) {
-	compressedData, err := page.dataPageCompress(compressType)
+	compressedData, err := page.dataPageCompress(compressType, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +470,7 @@ func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byt
 	return page.RawData, nil
 }
 
-func (page *Page) dataPageCompress(compressType parquet.CompressionCodec) ([]byte, error) {
+func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *compress.Compressor) ([]byte, error) {
 	ln := len(page.DataTable.DefinitionLevels)
 
 	// valuesBuf == nil means "up to i, every item in DefinitionLevels was
@@ -529,7 +529,7 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec) ([]byt
 	}
 
 	dataBuf := slices.Concat(repetitionLevelBuf, definitionLevelBuf, valuesRawBuf)
-	dataEncodeBuf, err := compress.CompressWithError(dataBuf, compressType)
+	dataEncodeBuf, err := resolveCompressor(c).Compress(dataBuf, compressType)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +569,7 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec) ([]byt
 //	    DataPageVersion: 2,
 //	})
 func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]byte, error) {
-	repLevels, defLevels, compressedValues, err := page.dataPageV2Compress(compressType)
+	repLevels, defLevels, compressedValues, err := page.dataPageV2Compress(compressType, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +586,7 @@ func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 
 // dataPageV2Compress compresses a data page v2 and populates the page header.
 // Returns (repetitionLevels, definitionLevels, compressedValues, error).
-func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec) ([]byte, []byte, []byte, error) {
+func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec, c *compress.Compressor) ([]byte, []byte, []byte, error) {
 	ln := len(page.DataTable.DefinitionLevels)
 
 	valuesBuf := make([]any, 0)
@@ -625,7 +625,7 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 		}
 	}
 
-	r0Num := int32(0)
+	var r0Num int32
 	var repetitionLevelBuf []byte
 	if page.DataTable.MaxRepetitionLevel > 0 {
 		numInterfaces := make([]any, ln)
@@ -641,9 +641,12 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 		if err != nil {
 			return nil, nil, nil, err
 		}
+	} else {
+		// When MaxRepetitionLevel is 0, every entry is a top-level row
+		r0Num = int32(ln)
 	}
 
-	dataEncodeBuf, err := compress.CompressWithError(valuesRawBuf, compressType)
+	dataEncodeBuf, err := resolveCompressor(c).Compress(valuesRawBuf, compressType)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -679,26 +682,9 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec) ([]b
 	return repetitionLevelBuf, definitionLevelBuf, dataEncodeBuf, nil
 }
 
-// This is a test function
-func ReadPage2(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...common.PageReadOptions) (*Page, int64, int64, error) {
-	var err error
-	page, err := ReadPageRawData(thriftReader, schemaHandler, colMetaData, opts...)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-	numValues, numRows, err := page.GetRLDLFromRawData(schemaHandler)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-	if err = page.GetValueFromRawData(schemaHandler); err != nil {
-		return page, 0, 0, err
-	}
-	return page, numValues, numRows, nil
-}
-
 // Read page RawData
-func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...common.PageReadOptions) (*Page, error) {
-	var opt common.PageReadOptions
+func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...PageReadOptions) (*Page, error) {
+	var opt PageReadOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
@@ -719,8 +705,8 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	}
 
 	compressedPageSize := pageHeader.GetCompressedPageSize()
-	if err := validatePageSize(compressedPageSize, "ReadPageRawData"); err != nil {
-		return nil, err
+	if maxPS := resolveMaxPageSize(opt.MaxPageSize); compressedPageSize < 0 || int64(compressedPageSize) > maxPS {
+		return nil, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, maxPS)
 	}
 	buf := make([]byte, compressedPageSize)
 	if _, err := io.ReadFull(thriftReader, buf); err != nil {
@@ -734,6 +720,7 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	page.Header = pageHeader
 	page.CompressType = colMetaData.GetCodec()
 	page.RawData = buf
+	page.compressor = opt.Compressor
 	page.Path = make([]string, 0)
 	page.Path = append(page.Path, schemaHandler.GetRootInName())
 	page.Path = append(page.Path, colMetaData.GetPathInSchema()...)
@@ -796,8 +783,8 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 		buf = append(buf, dataBuf...)
 
 	} else {
-		if buf, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
-			return 0, 0, fmt.Errorf("unsupported compress method: %v", p.CompressType)
+		if buf, err = resolveCompressor(p.compressor).Uncompress(p.RawData, p.CompressType); err != nil {
+			return 0, 0, fmt.Errorf("uncompress data page: %w", err)
 		}
 	}
 
@@ -942,7 +929,7 @@ func (p *Page) processDictionaryPage() error {
 func (p *Page) processDataPageV2(schemaHandler *schema.SchemaHandler) error {
 	if p.Header.DataPageHeaderV2.GetIsCompressed() {
 		var err error
-		if p.RawData, err = compress.Uncompress(p.RawData, p.CompressType); err != nil {
+		if p.RawData, err = resolveCompressor(p.compressor).Uncompress(p.RawData, p.CompressType); err != nil {
 			return fmt.Errorf("uncompress data page v2: %w", err)
 		}
 	}
@@ -1119,11 +1106,12 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 }
 
 // Read page from parquet file
-func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...common.PageReadOptions) (*Page, int64, int64, error) {
-	var opt common.PageReadOptions
+func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...PageReadOptions) (*Page, int64, int64, error) {
+	var opt PageReadOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+	c := resolveCompressor(opt.Compressor)
 	var err error
 
 	pageHeader, err := ReadPageHeader(thriftReader)
@@ -1135,10 +1123,8 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 
 	var page *Page
 	compressedPageSize := pageHeader.GetCompressedPageSize()
-
-	// Validate page size before allocation
-	if err := validatePageSize(compressedPageSize, "ReadPage"); err != nil {
-		return nil, 0, 0, err
+	if maxPS := resolveMaxPageSize(opt.MaxPageSize); compressedPageSize < 0 || int64(compressedPageSize) > maxPS {
+		return nil, 0, 0, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, maxPS)
 	}
 
 	if pageHeader.GetType() == parquet.PageType_DATA_PAGE_V2 {
@@ -1178,7 +1164,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 		if pageHeader.DataPageHeaderV2.GetIsCompressed() {
 			codec := colMetaData.GetCodec()
 			if len(dataBuf) > 0 {
-				if dataBuf, err = compress.Uncompress(dataBuf, codec); err != nil {
+				if dataBuf, err = c.Uncompress(dataBuf, codec); err != nil {
 					return nil, 0, 0, err
 				}
 			}
@@ -1214,7 +1200,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 			return nil, 0, 0, fmt.Errorf("CRC validation failed: %w", err)
 		}
 		codec := colMetaData.GetCodec()
-		if buf, err = compress.Uncompress(buf, codec); err != nil {
+		if buf, err = c.Uncompress(buf, codec); err != nil {
 			return nil, 0, 0, err
 		}
 	}

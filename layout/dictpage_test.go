@@ -100,7 +100,7 @@ func TestDictPageCompress_ReturnsCompressedData(t *testing.T) {
 		Type: common.ToPtr(parquet.Type_INT32),
 	}
 
-	compressedData, err := page.dictPageCompress(parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
+	compressedData, err := page.dictPageCompress(parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, compressedData)
 
@@ -124,7 +124,7 @@ func TestDictDataPageCompress_ReturnsCompressedData(t *testing.T) {
 	page.MaxVal = int32(3)
 	page.MinVal = int32(1)
 
-	compressedData, err := page.dictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, []int32{0, 1, 2})
+	compressedData, err := page.dictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, []int32{0, 1, 2}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, compressedData)
 
