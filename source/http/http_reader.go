@@ -20,8 +20,6 @@ type httpReader struct {
 	offset       int64
 	httpClient   *http.Client
 	extraHeaders map[string]string
-
-	dedicatedTransport bool
 }
 
 const (
@@ -30,28 +28,10 @@ const (
 	contentRangeHeader = "Content-Range"
 )
 
-var defaultClient *http.Client
-
-func SetDefaultClient(client *http.Client) {
-	defaultClient = client
-}
-
-func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHeaders map[string]string) (source.ParquetFileReader, error) {
-	var client *http.Client
-	if defaultClient != nil {
-		client = defaultClient
-	} else {
-		// make sure remote support range
-		var transport *http.Transport
-		if dedicatedTransport {
-			transport = &http.Transport{}
-		} else {
-			// Clone the default transport to avoid race conditions
-			defaultTransport := http.DefaultTransport.(*http.Transport)
-			transport = defaultTransport.Clone()
-		}
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: ignoreTLSError}
-		client = &http.Client{Transport: transport}
+// NewHttpReaderWithClient creates an HTTP-based ParquetFileReader using the provided client.
+func NewHttpReaderWithClient(uri string, client *http.Client, extraHeaders map[string]string) (source.ParquetFileReader, error) {
+	if client == nil {
+		return nil, fmt.Errorf("client must not be nil")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
@@ -87,34 +67,43 @@ func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHea
 	}
 
 	return &httpReader{
-		url:                uri,
-		size:               size,
-		offset:             0,
-		httpClient:         client,
-		extraHeaders:       extraHeaders,
-		dedicatedTransport: dedicatedTransport,
+		url:          uri,
+		size:         size,
+		offset:       0,
+		httpClient:   client,
+		extraHeaders: extraHeaders,
 	}, nil
 }
 
+// NewHttpReader creates an HTTP-based ParquetFileReader.
+func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHeaders map[string]string) (source.ParquetFileReader, error) {
+	var transport *http.Transport
+	if dedicatedTransport {
+		transport = &http.Transport{}
+	} else {
+		// Clone the default transport to avoid race conditions
+		defaultTransport := http.DefaultTransport.(*http.Transport)
+		transport = defaultTransport.Clone()
+	}
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: ignoreTLSError}
+	client := &http.Client{Transport: transport}
+
+	return NewHttpReaderWithClient(uri, client, extraHeaders)
+}
+
 func (r *httpReader) Open(_ string) (source.ParquetFileReader, error) {
-	return NewHttpReader(
-		r.url,
-		r.dedicatedTransport,
-		r.httpClient.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify,
-		r.extraHeaders,
-	)
+	return NewHttpReaderWithClient(r.url, r.httpClient, r.extraHeaders)
 }
 
 func (r httpReader) Clone() (source.ParquetFileReader, error) {
 	// Create a new instance without making an HTTP request
 	// since we already have all the necessary information
 	return &httpReader{
-		url:                r.url,
-		size:               r.size,
-		offset:             0,
-		httpClient:         r.httpClient,
-		extraHeaders:       r.extraHeaders,
-		dedicatedTransport: r.dedicatedTransport,
+		url:          r.url,
+		size:         r.size,
+		offset:       0,
+		httpClient:   r.httpClient,
+		extraHeaders: r.extraHeaders,
 	}, nil
 }
 
@@ -157,15 +146,13 @@ func (r *httpReader) Read(b []byte) (int, error) {
 		_ = resp.Body.Close()
 	}()
 
-	buf, err := io.ReadAll(resp.Body)
-	bytesRead := len(buf)
-	copy(b, buf)
+	n, err := io.ReadFull(resp.Body, b)
 
-	r.offset += int64(bytesRead)
+	r.offset += int64(n)
 	if r.offset > r.size {
 		r.offset = r.size
 	}
-	return bytesRead, err
+	return n, err
 }
 
 func (r *httpReader) Close() error {

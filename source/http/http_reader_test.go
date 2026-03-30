@@ -513,30 +513,54 @@ func TestNewHttpReader(t *testing.T) {
 	}
 }
 
-func TestSetDefaultClient(t *testing.T) {
-	// Save original client
-	originalClient := defaultClient
-	defer func() {
-		defaultClient = originalClient
-	}()
-
-	// Create a custom client
-	customClient := &http.Client{}
-
-	// Set as default
-	SetDefaultClient(customClient)
-
-	require.Equal(t, customClient, defaultClient)
-
-	// Test that NewHttpReader uses the default client
+func TestNewHttpReaderWithClient(t *testing.T) {
 	server := createTestServer()
 	defer server.Close()
 
-	reader, err := NewHttpReader(server.URL, false, false, nil)
+	customClient := &http.Client{}
+	reader, err := NewHttpReaderWithClient(server.URL, customClient, nil)
 	require.NoError(t, err)
+	require.NotNil(t, reader)
 
-	httpReader := reader.(*httpReader)
-	require.Equal(t, customClient, httpReader.httpClient)
+	// Verify the custom client was used
+	hr := reader.(*httpReader)
+	require.Equal(t, customClient, hr.httpClient)
+
+	// Verify reading works
+	buf := make([]byte, 10)
+	n, err := reader.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, 10, n)
+	require.Equal(t, testData[:10], buf)
+}
+
+func TestNewHttpReaderWithClient_NilClient(t *testing.T) {
+	_, err := NewHttpReaderWithClient("http://example.com", nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "client must not be nil")
+}
+
+func TestNewHttpReaderWithClient_ExtraHeaders(t *testing.T) {
+	var receivedHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header.Clone()
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-0/%d", len(testData)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(testData[:1])
+	}))
+	defer server.Close()
+
+	headers := map[string]string{
+		"X-Custom-Header": "custom-value",
+		"Authorization":   "Bearer test-token",
+	}
+	reader, err := NewHttpReaderWithClient(server.URL, &http.Client{}, headers)
+	require.NoError(t, err)
+	require.NotNil(t, reader)
+
+	// Verify extra headers were sent during creation
+	require.Equal(t, "custom-value", receivedHeaders.Get("X-Custom-Header"))
+	require.Equal(t, "Bearer test-token", receivedHeaders.Get("Authorization"))
 }
 
 // Integration test with real-world HTTP endpoints
@@ -605,10 +629,10 @@ func TestHttpReader_ReadBeyondSize(t *testing.T) {
 	_, err = reader.Seek(4, io.SeekStart)
 	require.NoError(t, err)
 
-	// Read: server returns 3 bytes, so offset would become 4+3=7 > size(5)
+	// Read: server returns 3 bytes into a 10-byte buffer, io.ReadFull returns ErrUnexpectedEOF
 	buf := make([]byte, 10)
 	n, err := reader.Read(buf)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	require.Equal(t, 3, n)
 
 	// Verify offset was clamped to size (5)
@@ -674,4 +698,21 @@ func TestNewHttpReader_ConcurrentSafety(t *testing.T) {
 		err := <-results
 		require.NoError(t, err)
 	}
+}
+
+func TestHttpReader_ReadUsesReadFull(t *testing.T) {
+	// Server that sends data in a way that might cause short reads
+	// by closing the connection after partial write
+	server := createTestServer()
+	defer server.Close()
+
+	reader, err := NewHttpReader(server.URL, false, false, nil)
+	require.NoError(t, err)
+
+	// Read exactly the number of bytes available in the range
+	buf := make([]byte, 10)
+	n, err := reader.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, 10, n)
+	require.Equal(t, testData[:10], buf)
 }
