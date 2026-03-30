@@ -1372,16 +1372,6 @@ func TestParquetTypeToJSONType(t *testing.T) {
 }
 
 func TestParquetTypeToJSONTypeWithLogical(t *testing.T) {
-	// Save and restore global geospatial settings to ensure test isolation
-	origGeometryMode := geometryJSONMode
-	origGeographyMode := geographyJSONMode
-	defer func() {
-		geometryJSONMode = origGeometryMode
-		geographyJSONMode = origGeographyMode
-	}()
-	SetGeometryJSONMode(GeospatialModeHex)
-	SetGeographyJSONMode(GeospatialModeHex)
-
 	tests := []struct {
 		name      string
 		value     any

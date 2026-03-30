@@ -12,7 +12,6 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/source/local"
-	"github.com/hangxie/parquet-go/v3/types"
 	"github.com/hangxie/parquet-go/v3/writer"
 )
 
@@ -26,14 +25,9 @@ type Row struct {
 }
 
 func main() {
-	// Configure JSON output: GeoJSON + include hex alongside for Geometry
-	types.SetGeometryJSONMode(types.GeospatialModeHybrid)
-	types.SetGeographyJSONMode(types.GeospatialModeGeoJSON)
-	// Example reprojection hook: (no-op) here for demo; plug in your own
-	types.SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
-		// Implement CRS->CRS84 reprojection here if needed
-		return nil, false
-	})
+	// Geospatial JSON rendering is configured per-instance via GeospatialConfig.
+	// The default config uses Hex mode for GEOMETRY and GeoJSON for GEOGRAPHY.
+	// Custom configs can be created with NewGeospatialConfig(opts...).
 
 	// Write a few rows
 	fw, err := local.NewLocalFileWriter("/tmp/geospatial.parquet")
