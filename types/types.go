@@ -815,10 +815,10 @@ func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.Con
 			return ConvertUUIDValue(val)
 		}
 		if lT.IsSetGEOMETRY() {
-			return ConvertGeometryLogicalValue(val, lT.GetGEOMETRY())
+			return ConvertGeometryLogicalValue(val, lT.GetGEOMETRY(), defaultGeospatialConfig)
 		}
 		if lT.IsSetGEOGRAPHY() {
-			return ConvertGeographyLogicalValue(val, lT.GetGEOGRAPHY())
+			return ConvertGeographyLogicalValue(val, lT.GetGEOGRAPHY(), defaultGeospatialConfig)
 		}
 		if lT.IsSetBSON() {
 			return ConvertBSONLogicalValue(val)
@@ -1206,8 +1206,8 @@ func ConvertUUIDValue(val any) any {
 		uint64(bytes[10])<<40|uint64(bytes[11])<<32|uint64(bytes[12])<<24|uint64(bytes[13])<<16|uint64(bytes[14])<<8|uint64(bytes[15]))
 }
 
-// ConvertGeometryLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex and CRS
-func ConvertGeometryLogicalValue(val any, geom *parquet.GeometryType) any {
+// ConvertGeometryLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex and CRS.
+func ConvertGeometryLogicalValue(val any, geom *parquet.GeometryType, cfg *GeospatialConfig) any {
 	if val == nil {
 		return nil
 	}
@@ -1224,15 +1224,15 @@ func ConvertGeometryLogicalValue(val any, geom *parquet.GeometryType) any {
 	if geom != nil && geom.CRS != nil && *geom.CRS != "" {
 		crs = *geom.CRS
 	}
-	switch geometryJSONMode {
+	switch cfg.GeometryJSONMode {
 	case GeospatialModeGeoJSON:
-		if gj, ok := wkbToGeoJSON(b); ok {
-			if crs != "OGC:CRS84" && geospatialReprojector != nil {
-				if rj, ok2 := geospatialReprojector(crs, gj); ok2 {
+		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
+			if crs != "OGC:CRS84" && cfg.Reprojector != nil {
+				if rj, ok2 := cfg.Reprojector(crs, gj); ok2 {
 					gj = rj
 				}
 			}
-			if geospatialGeoJSONAsFeature {
+			if cfg.GeoJSONAsFeature {
 				return makeGeoJSONFeature(gj, map[string]any{"crs": crs})
 			}
 			return gj
@@ -1242,8 +1242,8 @@ func ConvertGeometryLogicalValue(val any, geom *parquet.GeometryType) any {
 	case GeospatialModeBase64:
 		return map[string]any{"wkb_b64": base64.StdEncoding.EncodeToString(b), "crs": crs}
 	case GeospatialModeHybrid:
-		if gj, ok := wkbToGeoJSON(b); ok {
-			m := wrapGeoJSONHybrid(gj, b, geospatialHybridUseBase64, true)
+		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
+			m := wrapGeoJSONHybrid(gj, b, cfg.HybridUseBase64, true)
 			m["crs"] = crs
 			return m
 		}
@@ -1253,8 +1253,8 @@ func ConvertGeometryLogicalValue(val any, geom *parquet.GeometryType) any {
 	}
 }
 
-// ConvertGeographyLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex, CRS and algorithm
-func ConvertGeographyLogicalValue(val any, geo *parquet.GeographyType) any {
+// ConvertGeographyLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex, CRS and algorithm.
+func ConvertGeographyLogicalValue(val any, geo *parquet.GeographyType, cfg *GeospatialConfig) any {
 	if val == nil {
 		return nil
 	}
@@ -1275,15 +1275,15 @@ func ConvertGeographyLogicalValue(val any, geo *parquet.GeographyType) any {
 	if geo != nil && geo.Algorithm != nil {
 		algo = geo.Algorithm.String()
 	}
-	switch geographyJSONMode {
+	switch cfg.GeographyJSONMode {
 	case GeospatialModeGeoJSON:
-		if gj, ok := wkbToGeoJSON(b); ok {
-			if crs != "OGC:CRS84" && geospatialReprojector != nil {
-				if rj, ok2 := geospatialReprojector(crs, gj); ok2 {
+		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
+			if crs != "OGC:CRS84" && cfg.Reprojector != nil {
+				if rj, ok2 := cfg.Reprojector(crs, gj); ok2 {
 					gj = rj
 				}
 			}
-			if geospatialGeoJSONAsFeature {
+			if cfg.GeoJSONAsFeature {
 				return makeGeoJSONFeature(gj, map[string]any{"crs": crs, "algorithm": algo})
 			}
 			return gj
@@ -1293,13 +1293,13 @@ func ConvertGeographyLogicalValue(val any, geo *parquet.GeographyType) any {
 	case GeospatialModeBase64:
 		return map[string]any{"wkb_b64": base64.StdEncoding.EncodeToString(b), "crs": crs, "algorithm": algo}
 	case GeospatialModeHybrid:
-		if gj, ok := wkbToGeoJSON(b); ok {
-			if crs != "OGC:CRS84" && geospatialReprojector != nil {
-				if rj, ok2 := geospatialReprojector(crs, gj); ok2 {
+		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
+			if crs != "OGC:CRS84" && cfg.Reprojector != nil {
+				if rj, ok2 := cfg.Reprojector(crs, gj); ok2 {
 					gj = rj
 				}
 			}
-			m := wrapGeoJSONHybrid(gj, b, geospatialHybridUseBase64, true)
+			m := wrapGeoJSONHybrid(gj, b, cfg.HybridUseBase64, true)
 			m["crs"], m["algorithm"] = crs, algo
 			return m
 		}

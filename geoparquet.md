@@ -40,32 +40,41 @@ Defaults:
 
 ## Configuration API
 
+Geospatial JSON rendering is configured per-instance via `types.GeospatialConfig` using functional options:
+
 ```go
-// Select per‑type JSON output mode
-types.SetGeographyJSONMode(types.GeospatialModeGeoJSON) // or Hex, Base64, Hybrid
-types.SetGeometryJSONMode(types.GeospatialModeHex)
+cfg := types.NewGeospatialConfig(
+    // Select per‑type JSON output mode
+    types.WithGeographyJSONMode(types.GeospatialModeGeoJSON), // or Hex, Base64, Hybrid
+    types.WithGeometryJSONMode(types.GeospatialModeHex),
 
-// In Hybrid mode, choose raw encoding: false → hex (default), true → base64
-types.SetGeospatialHybridRawBase64(true)
+    // In Hybrid mode, choose raw encoding: false → hex (default), true → base64
+    types.WithGeospatialHybridRawBase64(true),
 
-// Optional reprojection to CRS84
-// Applied for:
-// - GEOGRAPHY in GeoJSON and Hybrid modes when input CRS != "OGC:CRS84"
-// - GEOMETRY in GeoJSON mode when input CRS != "OGC:CRS84"
-// Note: GEOMETRY Hybrid currently does not apply reprojection.
-types.SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
-    // Implement CRS→CRS84 reprojection here and return (updated, true)
-    // Return (nil, false) to skip/indicate failure
-    return nil, false
-})
+    // Optional: emit GeoJSON geometry object instead of Feature in GeoJSON mode
+    types.WithGeospatialGeoJSONAsFeature(false), // default is true
 
-// Optional: emit GeoJSON geometry object instead of Feature in GeoJSON mode
-types.SetGeospatialGeoJSONAsFeature(false) // default is true
+    // Optional: round coordinates to a fixed number of decimals in GeoJSON
+    // (RFC 7946 §11.2 discusses precision considerations)
+    types.WithGeospatialCoordinatePrecision(6), // default is 6; set -1 to disable
 
-// Optional: round coordinates to a fixed number of decimals in GeoJSON
-// (RFC 7946 §11.2 discusses precision considerations)
-types.SetGeospatialCoordinatePrecision(6) // default is 6; set -1 to disable
+    // Optional reprojection to CRS84
+    // Applied for:
+    // - GEOGRAPHY in GeoJSON and Hybrid modes when input CRS != "OGC:CRS84"
+    // - GEOMETRY in GeoJSON mode when input CRS != "OGC:CRS84"
+    // Note: GEOMETRY Hybrid currently does not apply reprojection.
+    types.WithGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+        // Implement CRS→CRS84 reprojection here and return (updated, true)
+        // Return (nil, false) to skip/indicate failure
+        return nil, false
+    }),
+)
+
+// Then pass cfg to ConvertGeometryLogicalValue / ConvertGeographyLogicalValue
+result := types.ConvertGeographyLogicalValue(wkbBytes, geogType, cfg)
 ```
+
+The default config (`types.DefaultGeospatialConfig()`) uses Hex mode for GEOMETRY, GeoJSON mode for GEOGRAPHY, Feature wrapping enabled, and 6-decimal coordinate precision.
 
 ## Output Examples
 
@@ -94,14 +103,16 @@ Given a WKB Point in CRS84 (hex `0101000000000000000000F03F0000000000000040` →
 If your `GEOMETRY` provides a non‑CRS84 CRS (e.g., `EPSG:3857`), you can register a reprojection callback to emit GeoJSON in CRS84:
 
 ```go
-types.SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
-    if crs == "EPSG:3857" {
-        // Convert geometry coordinates from EPSG:3857 to CRS84 (lon/lat degrees)
-        // using your preferred library; return the updated GeoJSON
-        return gj, true
-    }
-    return nil, false
-})
+cfg := types.NewGeospatialConfig(
+    types.WithGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+        if crs == "EPSG:3857" {
+            // Convert geometry coordinates from EPSG:3857 to CRS84 (lon/lat degrees)
+            // using your preferred library; return the updated GeoJSON
+            return gj, true
+        }
+        return nil, false
+    }),
+)
 ```
 
 Notes:

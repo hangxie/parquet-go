@@ -84,8 +84,8 @@ func TestConvertGeometryAndGeographyLogicalValue(t *testing.T) {
 	geom := parquet.NewGeometryType()
 	crs := "EPSG:3857"
 	geom.CRS = &crs
-	SetGeometryJSONMode(GeospatialModeGeoJSON)
-	gRes := ConvertGeometryLogicalValue(sample, geom)
+	cfgGeoJSON := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeGeoJSON))
+	gRes := ConvertGeometryLogicalValue(sample, geom, cfgGeoJSON)
 	feat, ok := gRes.(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "Feature", feat["type"])
@@ -101,8 +101,8 @@ func TestConvertGeometryAndGeographyLogicalValue(t *testing.T) {
 	geog.CRS = &crs2
 	algo := parquet.EdgeInterpolationAlgorithm_VINCENTY
 	geog.Algorithm = &algo
-	SetGeographyJSONMode(GeospatialModeGeoJSON)
-	gaRes := ConvertGeographyLogicalValue(sample, geog)
+	cfgGeogGeoJSON := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeGeoJSON))
+	gaRes := ConvertGeographyLogicalValue(sample, geog, cfgGeogGeoJSON)
 	feat2, ok := gaRes.(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "Feature", feat2["type"])
@@ -114,49 +114,55 @@ func TestConvertGeometryAndGeographyLogicalValue(t *testing.T) {
 	require.Equal(t, "VINCENTY", props2["algorithm"])
 
 	// nil/empty safety
-	require.Nil(t, ConvertGeometryLogicalValue(nil, geom))
-	require.Nil(t, ConvertGeographyLogicalValue(nil, geog))
+	require.Nil(t, ConvertGeometryLogicalValue(nil, geom, cfgGeoJSON))
+	require.Nil(t, ConvertGeographyLogicalValue(nil, geog, cfgGeogGeoJSON))
 
 	// Reprojection hook test: fake reprojection that adds +1 to coords
-	SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
-		if crs == "EPSG:3857" && gj["type"] == "Point" {
-			coords := gj["coordinates"].([]float64)
-			return map[string]any{"type": "Point", "coordinates": []float64{coords[0] + 1, coords[1] + 1}}, true
-		}
-		return nil, false
-	})
-	gRes2 := ConvertGeometryLogicalValue(sample, geom).(map[string]any)
+	cfgReproj := NewGeospatialConfig(
+		WithGeometryJSONMode(GeospatialModeGeoJSON),
+		WithGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+			if crs == "EPSG:3857" && gj["type"] == "Point" {
+				coords := gj["coordinates"].([]float64)
+				return map[string]any{"type": "Point", "coordinates": []float64{coords[0] + 1, coords[1] + 1}}, true
+			}
+			return nil, false
+		}),
+	)
+	cfgReprojGeog := NewGeospatialConfig(
+		WithGeographyJSONMode(GeospatialModeGeoJSON),
+		WithGeospatialReprojector(cfgReproj.Reprojector),
+	)
+	gRes2 := ConvertGeometryLogicalValue(sample, geom, cfgReproj).(map[string]any)
 	ggeom2 := gRes2["geometry"].(map[string]any)
 	require.Equal(t, []float64{2, 3}, ggeom2["coordinates"]) // reprojected
-	gaRes2 := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	gaRes2 := ConvertGeographyLogicalValue(sample, geog, cfgReprojGeog).(map[string]any)
 	g3 := gaRes2["geometry"].(map[string]any)
 	require.Equal(t, []float64{1, 2}, g3["coordinates"]) // unchanged for CRS84
-	SetGeospatialReprojector(nil)
 
 	// LineString and Polygon parsing
 	ls := buildWKBLineString([][]float64{{0, 0}, {1, 1}})
-	SetGeometryJSONMode(GeospatialModeGeoJSON)
-	gLS := ConvertGeometryLogicalValue(ls, geom).(map[string]any)
+	gLS := ConvertGeometryLogicalValue(ls, geom, cfgGeoJSON).(map[string]any)
 	ggLS := gLS["geometry"].(map[string]any)
 	require.Equal(t, "LineString", ggLS["type"])
 	require.Equal(t, [][]float64{{0, 0}, {1, 1}}, ggLS["coordinates"])
 
 	poly := buildWKBPolygon([][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}})
-	gPoly := ConvertGeometryLogicalValue(poly, geom).(map[string]any)
+	gPoly := ConvertGeometryLogicalValue(poly, geom, cfgGeoJSON).(map[string]any)
 	gPolyGeo := gPoly["geometry"].(map[string]any)
 	require.Equal(t, "Polygon", gPolyGeo["type"])
 	require.Equal(t, [][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}}, gPolyGeo["coordinates"])
 
 	// Hybrid raw selection: base64 vs hex
-	SetGeographyJSONMode(GeospatialModeHybrid)
-	SetGeospatialHybridRawBase64(true)
-	gaHybrid := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	cfgHybridB64 := NewGeospatialConfig(
+		WithGeographyJSONMode(GeospatialModeHybrid),
+		WithGeospatialHybridRawBase64(true),
+	)
+	gaHybrid := ConvertGeographyLogicalValue(sample, geog, cfgHybridB64).(map[string]any)
 	_, hasHex := gaHybrid["wkb_hex"]
 	b64, hasB64 := gaHybrid["wkb_b64"].(string)
 	require.False(t, hasHex)
 	require.True(t, hasB64)
 	require.NotEmpty(t, b64)
-	SetGeospatialHybridRawBase64(false)
 }
 
 func TestGeometryAndGeography_AdditionalBranches(t *testing.T) {
@@ -164,18 +170,18 @@ func TestGeometryAndGeography_AdditionalBranches(t *testing.T) {
 	geom := parquet.NewGeometryType()
 	crs := "EPSG:4326"
 	geom.CRS = &crs
-	SetGeometryJSONMode(GeospatialModeGeoJSON)
-	g := ConvertGeometryLogicalValue(invalid, geom).(map[string]any)
+	cfgGeoJSON := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeGeoJSON))
+	g := ConvertGeometryLogicalValue(invalid, geom, cfgGeoJSON).(map[string]any)
 	require.Equal(t, crs, g["crs"])
 	require.NotEmpty(t, g["wkb_hex"].(string))
 
-	SetGeometryJSONMode(GeospatialModeBase64)
-	g2 := ConvertGeometryLogicalValue(string(invalid), geom).(map[string]any)
+	cfgBase64 := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeBase64))
+	g2 := ConvertGeometryLogicalValue(string(invalid), geom, cfgBase64).(map[string]any)
 	require.Equal(t, base64.StdEncoding.EncodeToString(invalid), g2["wkb_b64"])
 	require.Equal(t, crs, g2["crs"])
 
-	SetGeometryJSONMode(GeospatialModeHybrid)
-	g3 := ConvertGeometryLogicalValue(invalid, geom).(map[string]any)
+	cfgHybrid := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeHybrid))
+	g3 := ConvertGeometryLogicalValue(invalid, geom, cfgHybrid).(map[string]any)
 	require.Equal(t, crs, g3["crs"])
 	require.NotEmpty(t, g3["wkb_hex"]) // hex fallback
 
@@ -183,8 +189,8 @@ func TestGeometryAndGeography_AdditionalBranches(t *testing.T) {
 	crs2 := "OGC:CRS84"
 	geog.CRS = &crs2
 	geog.Algorithm = nil
-	SetGeographyJSONMode(GeospatialModeBase64)
-	ga := ConvertGeographyLogicalValue(invalid, geog).(map[string]any)
+	cfgGeogBase64 := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeBase64))
+	ga := ConvertGeographyLogicalValue(invalid, geog, cfgGeogBase64).(map[string]any)
 	require.Equal(t, "SPHERICAL", ga["algorithm"]) // default
 	require.Equal(t, crs2, ga["crs"])
 	require.Equal(t, base64.StdEncoding.EncodeToString(invalid), ga["wkb_b64"])
@@ -194,17 +200,18 @@ func TestGeometryAndGeography_AdditionalBranches(t *testing.T) {
 	geog2.CRS = &crs3
 	algo := parquet.EdgeInterpolationAlgorithm_VINCENTY
 	geog2.Algorithm = &algo
-	SetGeographyJSONMode(GeospatialModeHybrid)
 	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
-	SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
-		if crs == crs3 {
-			coords := gj["coordinates"].([]float64)
-			return map[string]any{"type": "Point", "coordinates": []float64{coords[0] + 0.5, coords[1] + 0.5}}, true
-		}
-		return nil, false
-	})
-	defer SetGeospatialReprojector(nil)
-	out := ConvertGeographyLogicalValue(sample, geog2).(map[string]any)
+	cfgGeogHybridReproj := NewGeospatialConfig(
+		WithGeographyJSONMode(GeospatialModeHybrid),
+		WithGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+			if crs == crs3 {
+				coords := gj["coordinates"].([]float64)
+				return map[string]any{"type": "Point", "coordinates": []float64{coords[0] + 0.5, coords[1] + 0.5}}, true
+			}
+			return nil, false
+		}),
+	)
+	out := ConvertGeographyLogicalValue(sample, geog2, cfgGeogHybridReproj).(map[string]any)
 	require.Equal(t, crs3, out["crs"])
 	require.Equal(t, "VINCENTY", out["algorithm"])
 	gj := out["geojson"].(map[string]any)
@@ -214,48 +221,50 @@ func TestGeometryAndGeography_AdditionalBranches(t *testing.T) {
 
 func TestGeometryAndGeography_MoreModes(t *testing.T) {
 	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
-	SetGeometryJSONMode(GeospatialModeHex)
 	geom := parquet.NewGeometryType()
 	crs := "OGC:CRS84"
 	geom.CRS = &crs
-	g := ConvertGeometryLogicalValue(sample, geom).(map[string]any)
+	cfgHex := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeHex))
+	g := ConvertGeometryLogicalValue(sample, geom, cfgHex).(map[string]any)
 	require.Equal(t, crs, g["crs"])
 	require.NotEmpty(t, g["wkb_hex"]) // raw hex
 
-	SetGeometryJSONMode(GeospatialModeHybrid)
-	SetGeospatialHybridRawBase64(true)
-	gh := ConvertGeometryLogicalValue(sample, geom).(map[string]any)
+	cfgHybridB64 := NewGeospatialConfig(
+		WithGeometryJSONMode(GeospatialModeHybrid),
+		WithGeospatialHybridRawBase64(true),
+	)
+	gh := ConvertGeometryLogicalValue(sample, geom, cfgHybridB64).(map[string]any)
 	require.Equal(t, crs, gh["crs"])
 	require.NotNil(t, gh["geojson"]) // includes parsed geojson
 	require.NotEmpty(t, gh["wkb_b64"])
 	require.NotContains(t, gh, "wkb_hex")
-	SetGeospatialHybridRawBase64(false)
 
-	SetGeographyJSONMode(GeospatialModeGeoJSON)
+	cfgGeogGeoJSON := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeGeoJSON))
 	invalid := []byte{1, 99, 0, 0, 0}
 	geog := parquet.NewGeographyType()
 	crs2 := "OGC:CRS84"
 	geog.CRS = &crs2
-	out := ConvertGeographyLogicalValue(invalid, geog).(map[string]any)
+	out := ConvertGeographyLogicalValue(invalid, geog, cfgGeogGeoJSON).(map[string]any)
 	require.Equal(t, crs2, out["crs"])
 	require.Equal(t, "SPHERICAL", out["algorithm"]) // default
 	require.NotEmpty(t, out["wkb_hex"])             // fallback hex
 
-	SetGeographyJSONMode(GeospatialModeHex)
-	out2 := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	cfgGeogHex := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeHex))
+	out2 := ConvertGeographyLogicalValue(sample, geog, cfgGeogHex).(map[string]any)
 	require.Equal(t, crs2, out2["crs"])
 	require.Equal(t, "SPHERICAL", out2["algorithm"]) // still default
 	require.NotEmpty(t, out2["wkb_hex"])             // hex
 
-	SetGeographyJSONMode(GeospatialModeHybrid)
-	SetGeospatialHybridRawBase64(true)
-	out3 := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	cfgGeogHybridB64 := NewGeospatialConfig(
+		WithGeographyJSONMode(GeospatialModeHybrid),
+		WithGeospatialHybridRawBase64(true),
+	)
+	out3 := ConvertGeographyLogicalValue(sample, geog, cfgGeogHybridB64).(map[string]any)
 	require.Equal(t, crs2, out3["crs"])
 	require.Equal(t, "SPHERICAL", out3["algorithm"]) // default
 	require.NotNil(t, out3["geojson"])
 	require.NotEmpty(t, out3["wkb_b64"]) // base64 chosen
 	require.NotContains(t, out3, "wkb_hex")
-	SetGeospatialHybridRawBase64(false)
 }
 
 func TestGeography_HybridFallbackAndStringInput(t *testing.T) {
@@ -263,22 +272,25 @@ func TestGeography_HybridFallbackAndStringInput(t *testing.T) {
 	geog := parquet.NewGeographyType()
 	crs := "OGC:CRS84"
 	geog.CRS = &crs
-	SetGeographyJSONMode(GeospatialModeHybrid)
-	SetGeospatialHybridRawBase64(true)
-	out := ConvertGeographyLogicalValue(invalid, geog).(map[string]any)
+	cfgHybridB64 := NewGeospatialConfig(
+		WithGeographyJSONMode(GeospatialModeHybrid),
+		WithGeospatialHybridRawBase64(true),
+	)
+	out := ConvertGeographyLogicalValue(invalid, geog, cfgHybridB64).(map[string]any)
 	require.Equal(t, crs, out["crs"])
 	require.NotEmpty(t, out["wkb_hex"]) // fallback is hex regardless
-	SetGeospatialHybridRawBase64(false)
 
-	SetGeographyJSONMode(GeospatialModeHex)
+	cfgHex := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeHex))
 	sample := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}
-	out2 := ConvertGeographyLogicalValue(string(sample), geog).(map[string]any)
+	out2 := ConvertGeographyLogicalValue(string(sample), geog, cfgHex).(map[string]any)
 	require.Equal(t, crs, out2["crs"])
 	require.NotEmpty(t, out2["wkb_hex"]) // hex
 
-	SetGeographyJSONMode(GeospatialModeHybrid)
-	SetGeospatialHybridRawBase64(false)
-	out3 := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	cfgHybridHex := NewGeospatialConfig(
+		WithGeographyJSONMode(GeospatialModeHybrid),
+		WithGeospatialHybridRawBase64(false),
+	)
+	out3 := ConvertGeographyLogicalValue(sample, geog, cfgHybridHex).(map[string]any)
 	require.Equal(t, crs, out3["crs"])
 	require.NotNil(t, out3["geojson"])   // include geojson
 	require.NotEmpty(t, out3["wkb_hex"]) // hex raw selected
@@ -290,12 +302,13 @@ func TestConvertGeography_ReprojectorNoOp(t *testing.T) {
 	geog := parquet.NewGeographyType()
 	crs := "EPSG:3857"
 	geog.CRS = &crs
-	SetGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
-		return nil, false
-	})
-	defer SetGeospatialReprojector(nil)
-	SetGeographyJSONMode(GeospatialModeGeoJSON)
-	out := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	cfg := NewGeospatialConfig(
+		WithGeographyJSONMode(GeospatialModeGeoJSON),
+		WithGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+			return nil, false
+		}),
+	)
+	out := ConvertGeographyLogicalValue(sample, geog, cfg).(map[string]any)
 	g := out["geometry"].(map[string]any)
 	require.Equal(t, []float64{1, 2}, g["coordinates"]) // unchanged
 }
@@ -305,17 +318,16 @@ func TestConvertGeography_GeoJSON_NoReproject(t *testing.T) {
 	geog := parquet.NewGeographyType()
 	crs := "EPSG:4326"
 	geog.CRS = &crs
-	SetGeospatialReprojector(nil)
-	SetGeographyJSONMode(GeospatialModeGeoJSON)
-	out := ConvertGeographyLogicalValue(sample, geog).(map[string]any)
+	cfg := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeGeoJSON))
+	out := ConvertGeographyLogicalValue(sample, geog, cfg).(map[string]any)
 	g := out["geometry"].(map[string]any)
 	require.Equal(t, []float64{1, 2}, g["coordinates"]) // unchanged geometry only
 }
 
 func TestConvertGeography_Defaults_NilGeoPointer(t *testing.T) {
 	invalid := []byte{1, 99, 0, 0, 0}
-	SetGeographyJSONMode(GeospatialModeBase64)
-	out := ConvertGeographyLogicalValue(invalid, nil).(map[string]any)
+	cfg := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeBase64))
+	out := ConvertGeographyLogicalValue(invalid, nil, cfg).(map[string]any)
 	require.Equal(t, "OGC:CRS84", out["crs"])       // default CRS
 	require.Equal(t, "SPHERICAL", out["algorithm"]) // default algorithm
 	require.Equal(t, base64.StdEncoding.EncodeToString(invalid), out["wkb_b64"])
@@ -368,12 +380,6 @@ func wkbPolygonLE(rings [][][]float64) []byte {
 
 // Test roundCoordinate function edge cases
 func TestRoundCoordinate(t *testing.T) {
-	// Save original precision setting
-	originalPrecision := geospatialCoordPrecision
-	defer func() {
-		geospatialCoordPrecision = originalPrecision
-	}()
-
 	tests := []struct {
 		name      string
 		precision int
@@ -405,10 +411,10 @@ func TestRoundCoordinate(t *testing.T) {
 			expected:  1.123456789012,
 		},
 		{
-			name:      "very_high_precision_20",
-			precision: 20, // No clamping in roundCoordinate, unlike inline round function
+			name:      "very_high_precision_clamped_to_12",
+			precision: 20, // clamped to maxCoordPrecision (12)
 			input:     1.123456789012345,
-			expected:  1.123456789012345, // No change due to floating point precision limits
+			expected:  1.123456789012,
 		},
 		{
 			name:      "negative_input",
@@ -426,8 +432,7 @@ func TestRoundCoordinate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			geospatialCoordPrecision = tt.precision
-			result := roundCoordinate(tt.input)
+			result := roundCoordinate(tt.input, tt.precision)
 			require.Equal(t, tt.expected, result, "roundCoordinate failed for %s", tt.name)
 		})
 	}
@@ -435,13 +440,13 @@ func TestRoundCoordinate(t *testing.T) {
 
 func TestWkbToGeoJSON_LineStringAndPolygon(t *testing.T) {
 	ls := wkbLineStringLE([][]float64{{0, 0}, {1, 1.2}, {2, -3.4}})
-	gj, ok := wkbToGeoJSON(ls)
+	gj, ok := wkbToGeoJSON(ls, 6)
 	require.True(t, ok)
 	require.Equal(t, "LineString", gj["type"])
 	require.Equal(t, [][]float64{{0, 0}, {1, 1.2}, {2, -3.4}}, gj["coordinates"])
 
 	poly := wkbPolygonLE([][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}})
-	gj2, ok := wkbToGeoJSON(poly)
+	gj2, ok := wkbToGeoJSON(poly, 6)
 	require.True(t, ok)
 	require.Equal(t, "Polygon", gj2["type"])
 	require.Equal(t, [][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}}, gj2["coordinates"])
@@ -449,14 +454,14 @@ func TestWkbToGeoJSON_LineStringAndPolygon(t *testing.T) {
 
 func TestWkbToGeoJSON_InvalidInputs(t *testing.T) {
 	// too short
-	if _, ok := wkbToGeoJSON([]byte{1, 1, 0}); ok {
+	if _, ok := wkbToGeoJSON([]byte{1, 1, 0}, 6); ok {
 		t.Fatal("expected failure for too short header")
 	}
 	// unknown type
 	unk := make([]byte, 5)
 	unk[0] = 1 // little-endian
 	binary.LittleEndian.PutUint32(unk[1:5], 99)
-	if _, ok := wkbToGeoJSON(unk); ok {
+	if _, ok := wkbToGeoJSON(unk, 6); ok {
 		t.Fatal("expected failure for unknown type")
 	}
 	// truncated LineString: declares 2 points but provides 1
@@ -475,7 +480,7 @@ func TestWkbToGeoJSON_InvalidInputs(t *testing.T) {
 	binary.LittleEndian.PutUint64(yb, math.Float64bits(0))
 	trunc = append(trunc, xb...)
 	trunc = append(trunc, yb...)
-	if _, ok := wkbToGeoJSON(trunc); ok {
+	if _, ok := wkbToGeoJSON(trunc, 6); ok {
 		t.Fatal("expected failure for truncated LineString")
 	}
 	// truncated Point: only X present, missing Y
@@ -487,7 +492,7 @@ func TestWkbToGeoJSON_InvalidInputs(t *testing.T) {
 	xb2 := make([]byte, 8)
 	binary.LittleEndian.PutUint64(xb2, math.Float64bits(123.0))
 	ptTrunc = append(ptTrunc, xb2...)
-	if _, ok := wkbToGeoJSON(ptTrunc); ok {
+	if _, ok := wkbToGeoJSON(ptTrunc, 6); ok {
 		t.Fatal("expected failure for truncated Point missing Y")
 	}
 
@@ -502,7 +507,7 @@ func TestWkbToGeoJSON_InvalidInputs(t *testing.T) {
 	binary.LittleEndian.PutUint32(rn, 1)
 	polyTrunc = append(polyTrunc, rn...) // ringsN=1
 	// No further bytes -> should fail when reading first ring's point count
-	if _, ok := wkbToGeoJSON(polyTrunc); ok {
+	if _, ok := wkbToGeoJSON(polyTrunc, 6); ok {
 		t.Fatal("expected failure for truncated Polygon ring count")
 	}
 
@@ -520,7 +525,7 @@ func TestWkbToGeoJSON_InvalidInputs(t *testing.T) {
 	polyCoordsTrunc = append(polyCoordsTrunc, pn...)
 	// only 8 bytes for X, missing Y
 	polyCoordsTrunc = append(polyCoordsTrunc, xb...)
-	if _, ok := wkbToGeoJSON(polyCoordsTrunc); ok {
+	if _, ok := wkbToGeoJSON(polyCoordsTrunc, 6); ok {
 		t.Fatal("expected failure for truncated Polygon coordinate")
 	}
 }
@@ -546,21 +551,16 @@ func TestWrapGeoJSONHybrid(t *testing.T) {
 	require.NotContains(t, outB64, "wkb_hex")
 }
 
-func TestSetGeospatialGeoJSONAsFeature(t *testing.T) {
-	// Save original setting
-	orig := geospatialGeoJSONAsFeature
-	defer func() { geospatialGeoJSONAsFeature = orig }()
-
+func TestWithGeospatialGeoJSONAsFeature(t *testing.T) {
 	// Test setting to true
-	SetGeospatialGeoJSONAsFeature(true)
-	require.True(t, geospatialGeoJSONAsFeature)
+	cfg := NewGeospatialConfig(WithGeospatialGeoJSONAsFeature(true))
+	require.True(t, cfg.GeoJSONAsFeature)
 
 	// Test setting to false
-	SetGeospatialGeoJSONAsFeature(false)
-	require.False(t, geospatialGeoJSONAsFeature)
+	cfg2 := NewGeospatialConfig(WithGeospatialGeoJSONAsFeature(false))
+	require.False(t, cfg2.GeoJSONAsFeature)
 
-	// Test makeGeoJSONFeature function is called when flag is true
-	SetGeospatialGeoJSONAsFeature(true)
+	// Test makeGeoJSONFeature function
 	geo := map[string]any{"type": "Point", "coordinates": []float64{1, 2}}
 	props := map[string]any{"name": "test"}
 
@@ -570,26 +570,21 @@ func TestSetGeospatialGeoJSONAsFeature(t *testing.T) {
 	require.Equal(t, props, feature["properties"])
 }
 
-func TestSetGeospatialCoordinatePrecision(t *testing.T) {
-	// Save original setting
-	orig := geospatialCoordPrecision
-	defer func() { geospatialCoordPrecision = orig }()
-
+func TestWithGeospatialCoordinatePrecision(t *testing.T) {
 	// Test setting precision to 3
-	SetGeospatialCoordinatePrecision(3)
-	require.Equal(t, 3, geospatialCoordPrecision)
+	cfg := NewGeospatialConfig(WithGeospatialCoordinatePrecision(3))
+	require.Equal(t, 3, cfg.CoordPrecision)
 
 	// Test setting precision to 8
-	SetGeospatialCoordinatePrecision(8)
-	require.Equal(t, 8, geospatialCoordPrecision)
+	cfg2 := NewGeospatialConfig(WithGeospatialCoordinatePrecision(8))
+	require.Equal(t, 8, cfg2.CoordPrecision)
 
 	// Test precision affects coordinate rounding
 	// Create a point with high precision coordinates
 	wkb := []byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x36, 0x96, 0x73, 0xd3, 0xad, 0xf9, 0xf1, 0x3f, 0xae, 0x95, 0x03, 0x4f, 0xb7, 0xe6, 0x07, 0x40}
 
 	// Set precision to 2 decimal places
-	SetGeospatialCoordinatePrecision(2)
-	gj, ok := wkbToGeoJSON(wkb)
+	gj, ok := wkbToGeoJSON(wkb, 2)
 	require.True(t, ok)
 	coords := gj["coordinates"].([]float64)
 
@@ -598,8 +593,7 @@ func TestSetGeospatialCoordinatePrecision(t *testing.T) {
 	require.InDelta(t, 2.99, coords[1], 0.001)
 
 	// Test with precision 0 (integers only)
-	SetGeospatialCoordinatePrecision(0)
-	gj2, ok := wkbToGeoJSON(wkb)
+	gj2, ok := wkbToGeoJSON(wkb, 0)
 	require.True(t, ok)
 	coords2 := gj2["coordinates"].([]float64)
 
@@ -798,7 +792,7 @@ func TestWkbToGeoJSON_MultiGeometries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gj, ok := wkbToGeoJSON(tt.wkb)
+			gj, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.True(t, ok)
 			require.Equal(t, tt.expectedType, gj["type"])
 			tt.validateCoords(t, gj["coordinates"])
@@ -807,10 +801,6 @@ func TestWkbToGeoJSON_MultiGeometries(t *testing.T) {
 }
 
 func TestWkbToGeoJSON_PrecisionHandling(t *testing.T) {
-	// Save original precision
-	orig := geospatialCoordPrecision
-	defer func() { geospatialCoordPrecision = orig }()
-
 	tests := []struct {
 		name           string
 		precision      int
@@ -872,8 +862,7 @@ func TestWkbToGeoJSON_PrecisionHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			SetGeospatialCoordinatePrecision(tt.precision)
-			gj, ok := wkbToGeoJSON(tt.wkb)
+			gj, ok := wkbToGeoJSON(tt.wkb, tt.precision)
 			require.True(t, ok)
 			require.Equal(t, tt.expectedType, gj["type"])
 			tt.validateCoords(t, gj["coordinates"])
@@ -954,7 +943,7 @@ func TestWkbToGeoJSON_Endianness(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gj, ok := wkbToGeoJSON(tt.wkb)
+			gj, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.True(t, ok)
 			require.Equal(t, tt.expectedType, gj["type"])
 			tt.validateCoords(t, gj["coordinates"])
@@ -980,17 +969,9 @@ func TestSPHERICAL_GeoJSON_Encoding(t *testing.T) {
 	crs := "OGC:CRS84"
 	geog.CRS = &crs
 
-	// Save original modes to restore later
-	origGeogMode := geographyJSONMode
-	origAsFeature := geospatialGeoJSONAsFeature
-	defer func() {
-		geographyJSONMode = origGeogMode
-		geospatialGeoJSONAsFeature = origAsFeature
-	}()
-
 	t.Run("SPHERICAL in Hex mode", func(t *testing.T) {
-		SetGeographyJSONMode(GeospatialModeHex)
-		result := ConvertGeographyLogicalValue(wkbPoint, geog).(map[string]any)
+		cfg := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeHex))
+		result := ConvertGeographyLogicalValue(wkbPoint, geog, cfg).(map[string]any)
 
 		require.Equal(t, "SPHERICAL", result["algorithm"])
 		require.Equal(t, crs, result["crs"])
@@ -1007,8 +988,8 @@ func TestSPHERICAL_GeoJSON_Encoding(t *testing.T) {
 	})
 
 	t.Run("SPHERICAL in Base64 mode", func(t *testing.T) {
-		SetGeographyJSONMode(GeospatialModeBase64)
-		result := ConvertGeographyLogicalValue(wkbPoint, geog).(map[string]any)
+		cfg := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeBase64))
+		result := ConvertGeographyLogicalValue(wkbPoint, geog, cfg).(map[string]any)
 
 		require.Equal(t, "SPHERICAL", result["algorithm"])
 		require.Equal(t, crs, result["crs"])
@@ -1025,9 +1006,11 @@ func TestSPHERICAL_GeoJSON_Encoding(t *testing.T) {
 	})
 
 	t.Run("SPHERICAL in GeoJSON mode", func(t *testing.T) {
-		SetGeographyJSONMode(GeospatialModeGeoJSON)
-		SetGeospatialGeoJSONAsFeature(true)
-		result := ConvertGeographyLogicalValue(wkbPoint, geog).(map[string]any)
+		cfg := NewGeospatialConfig(
+			WithGeographyJSONMode(GeospatialModeGeoJSON),
+			WithGeospatialGeoJSONAsFeature(true),
+		)
+		result := ConvertGeographyLogicalValue(wkbPoint, geog, cfg).(map[string]any)
 
 		// Verify Feature structure
 		require.Equal(t, "Feature", result["type"])
@@ -1058,8 +1041,8 @@ func TestSPHERICAL_GeoJSON_Encoding(t *testing.T) {
 	})
 
 	t.Run("SPHERICAL in Hybrid mode", func(t *testing.T) {
-		SetGeographyJSONMode(GeospatialModeHybrid)
-		result := ConvertGeographyLogicalValue(wkbPoint, geog).(map[string]any)
+		cfg := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeHybrid))
+		result := ConvertGeographyLogicalValue(wkbPoint, geog, cfg).(map[string]any)
 
 		require.Equal(t, "SPHERICAL", result["algorithm"])
 		require.Equal(t, crs, result["crs"])
@@ -1086,8 +1069,8 @@ func TestSPHERICAL_GeoJSON_Encoding(t *testing.T) {
 		geogDefault.CRS = &crs
 		geogDefault.Algorithm = nil // nil should default to SPHERICAL
 
-		SetGeographyJSONMode(GeospatialModeGeoJSON)
-		result := ConvertGeographyLogicalValue(wkbPoint, geogDefault).(map[string]any)
+		cfg := NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeGeoJSON))
+		result := ConvertGeographyLogicalValue(wkbPoint, geogDefault, cfg).(map[string]any)
 
 		properties := result["properties"].(map[string]any)
 		require.Equal(t, "SPHERICAL", properties["algorithm"])
@@ -1178,7 +1161,7 @@ func TestWkbToGeoJSON_MultiGeometries_EdgeCases(t *testing.T) {
 	binary.LittleEndian.PutUint32(lst, 99) // Invalid type (not 2 for LineString)
 	wkb = append(wkb, lst...)
 
-	_, ok := wkbToGeoJSON(wkb)
+	_, ok := wkbToGeoJSON(wkb, 6)
 	require.False(t, ok, "Should fail for MultiLineString with invalid linestring type")
 
 	// Test MultiPolygon with invalid Polygon type
@@ -1193,7 +1176,7 @@ func TestWkbToGeoJSON_MultiGeometries_EdgeCases(t *testing.T) {
 	binary.LittleEndian.PutUint32(pt, 99) // Invalid type (not 3 for Polygon)
 	wkb = append(wkb, pt...)
 
-	_, ok = wkbToGeoJSON(wkb)
+	_, ok = wkbToGeoJSON(wkb, 6)
 	require.False(t, ok, "Should fail for MultiPolygon with invalid polygon type")
 
 	// Test MultiLineString with truncated linestring point count
@@ -1208,7 +1191,7 @@ func TestWkbToGeoJSON_MultiGeometries_EdgeCases(t *testing.T) {
 	wkb = append(wkb, lst...)
 	// Missing point count
 
-	_, ok = wkbToGeoJSON(wkb)
+	_, ok = wkbToGeoJSON(wkb, 6)
 	require.False(t, ok, "Should fail for MultiLineString with truncated point count")
 
 	// Test completely empty multi-geometry headers
@@ -1219,7 +1202,7 @@ func TestWkbToGeoJSON_MultiGeometries_EdgeCases(t *testing.T) {
 		wkb = append(wkb, typeBuf...)
 		// Missing count entirely
 
-		_, ok = wkbToGeoJSON(wkb)
+		_, ok = wkbToGeoJSON(wkb, 6)
 		require.False(t, ok, "Should fail for truncated multi-geometry type %d", geomType)
 	}
 }
@@ -1245,7 +1228,7 @@ func TestWkbToGeoJSON_GeometryCollection(t *testing.T) {
 	lineWKB := wkbLineStringLE([][]float64{{0, 0}, {1, 1}})
 
 	wkb := buildWKBGeometryCollection([][]byte{pointWKB, lineWKB})
-	gj, ok := wkbToGeoJSON(wkb)
+	gj, ok := wkbToGeoJSON(wkb, 6)
 	require.True(t, ok)
 	require.Equal(t, "GeometryCollection", gj["type"])
 
@@ -1268,7 +1251,7 @@ func TestWkbToGeoJSON_GeometryCollection_Complex(t *testing.T) {
 	polygonWKB := wkbPolygonLE([][][]float64{{{0, 0}, {2, 0}, {2, 2}, {0, 2}, {0, 0}}})
 
 	wkb := buildWKBGeometryCollection([][]byte{pointWKB, multiPointWKB, polygonWKB})
-	gj, ok := wkbToGeoJSON(wkb)
+	gj, ok := wkbToGeoJSON(wkb, 6)
 	require.True(t, ok)
 	require.Equal(t, "GeometryCollection", gj["type"])
 
@@ -1296,7 +1279,7 @@ func TestWkbToGeoJSON_GeometryCollection_Complex(t *testing.T) {
 func TestWkbToGeoJSON_GeometryCollection_Empty(t *testing.T) {
 	// Test empty GeometryCollection
 	wkb := buildWKBGeometryCollection([][]byte{})
-	gj, ok := wkbToGeoJSON(wkb)
+	gj, ok := wkbToGeoJSON(wkb, 6)
 	require.True(t, ok)
 	require.Equal(t, "GeometryCollection", gj["type"])
 
@@ -1316,13 +1299,13 @@ func TestWkbToGeoJSON_GeometryCollection_Errors(t *testing.T) {
 	wkb = append(wkb, n...)
 	// Missing geometry data
 
-	_, ok := wkbToGeoJSON(wkb)
+	_, ok := wkbToGeoJSON(wkb, 6)
 	require.False(t, ok, "Should fail for GeometryCollection with missing geometry data")
 
 	// Test GeometryCollection with invalid geometry
 	invalidGeom := []byte{1, 99, 0, 0, 0} // invalid geometry type 99
 	wkb2 := buildWKBGeometryCollection([][]byte{invalidGeom})
-	_, ok = wkbToGeoJSON(wkb2)
+	_, ok = wkbToGeoJSON(wkb2, 6)
 	require.False(t, ok, "Should fail for GeometryCollection with invalid geometry")
 }
 
@@ -1420,7 +1403,7 @@ func TestWkbToGeoJSON_GeometryCollection_BigEndian(t *testing.T) {
 	wkb = append(wkb, pointWKB...)
 	wkb = append(wkb, lineWKB...)
 
-	gj, ok := wkbToGeoJSON(wkb)
+	gj, ok := wkbToGeoJSON(wkb, 6)
 	require.True(t, ok)
 	require.Equal(t, "GeometryCollection", gj["type"])
 
@@ -1471,7 +1454,7 @@ func TestParseLineString_ErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, ok := parseLineString(tt.buffer, tt.be, tt.off)
+			_, _, ok := parseLineString(tt.buffer, tt.be, tt.off, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -1518,7 +1501,7 @@ func TestParsePolygon_ErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off)
+			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -1657,47 +1640,35 @@ func TestWkbToGeoJSON_ComprehensiveErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, ok := wkbToGeoJSON(tt.wkb)
+			_, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
 }
 
-// Test SetGeospatialHybridRawBase64 configuration function
-func TestSetGeospatialHybridRawBase64(t *testing.T) {
-	// Save original setting
-	originalSetting := geospatialHybridUseBase64
-	defer func() {
-		geospatialHybridUseBase64 = originalSetting
-	}()
-
+// Test WithGeospatialHybridRawBase64 configuration option
+func TestWithGeospatialHybridRawBase64(t *testing.T) {
 	// Test setting to true
-	SetGeospatialHybridRawBase64(true)
-	require.True(t, geospatialHybridUseBase64)
+	cfg := NewGeospatialConfig(WithGeospatialHybridRawBase64(true))
+	require.True(t, cfg.HybridUseBase64)
 
 	// Test setting to false
-	SetGeospatialHybridRawBase64(false)
-	require.False(t, geospatialHybridUseBase64)
+	cfg2 := NewGeospatialConfig(WithGeospatialHybridRawBase64(false))
+	require.False(t, cfg2.HybridUseBase64)
 }
 
-// Test SetGeospatialReprojector configuration function
-func TestSetGeospatialReprojector(t *testing.T) {
-	// Save original reprojector
-	originalReprojector := geospatialReprojector
-	defer func() {
-		geospatialReprojector = originalReprojector
-	}()
-
+// Test WithGeospatialReprojector configuration option
+func TestWithGeospatialReprojector(t *testing.T) {
 	// Test setting a custom reprojector
 	customReprojector := func(crs string, geojson map[string]any) (map[string]any, bool) {
 		return map[string]any{"transformed": true}, true
 	}
-	SetGeospatialReprojector(customReprojector)
-	require.NotNil(t, geospatialReprojector)
+	cfg := NewGeospatialConfig(WithGeospatialReprojector(customReprojector))
+	require.NotNil(t, cfg.Reprojector)
 
 	// Test setting nil reprojector
-	SetGeospatialReprojector(nil)
-	require.Nil(t, geospatialReprojector)
+	cfg2 := NewGeospatialConfig(WithGeospatialReprojector(nil))
+	require.Nil(t, cfg2.Reprojector)
 }
 
 // Test edge cases for wkbToGeoJSON with big-endian byte order issues
@@ -1722,7 +1693,7 @@ func TestWkbToGeoJSON_BigEndian_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, ok := wkbToGeoJSON(tt.wkb)
+			_, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -1799,12 +1770,6 @@ func TestCalculateWKBSize_ValidGeometries(t *testing.T) {
 
 // Test inline round function edge cases within wkbToGeoJSON
 func TestWkbToGeoJSON_InlineRoundFunction(t *testing.T) {
-	// Save original precision setting
-	originalPrecision := geospatialCoordPrecision
-	defer func() {
-		geospatialCoordPrecision = originalPrecision
-	}()
-
 	tests := []struct {
 		name      string
 		precision int
@@ -1830,8 +1795,7 @@ func TestWkbToGeoJSON_InlineRoundFunction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			geospatialCoordPrecision = tt.precision
-			result, ok := wkbToGeoJSON(tt.wkb)
+			result, ok := wkbToGeoJSON(tt.wkb, tt.precision)
 			require.True(t, ok)
 			require.Equal(t, "Point", result["type"])
 
@@ -1917,7 +1881,7 @@ func TestWkbToGeoJSON_AdvancedErrorPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, ok := wkbToGeoJSON(tt.wkb)
+			_, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -1956,14 +1920,14 @@ func TestParseGeometry_BoundaryConditions(t *testing.T) {
 	t.Run("parseLineString_point_count_at_boundary", func(t *testing.T) {
 		// Buffer with exactly enough space for point count but no coordinates
 		buffer := []byte{1, 0, 0, 0} // 1 point
-		_, _, ok := parseLineString(buffer, false, 0)
+		_, _, ok := parseLineString(buffer, false, 0, 6)
 		require.False(t, ok) // Should fail because no space for coordinates
 	})
 
 	t.Run("parsePolygon_ring_count_at_boundary", func(t *testing.T) {
 		// Buffer with exactly enough space for ring count but no ring data
 		buffer := []byte{1, 0, 0, 0} // 1 ring
-		_, _, ok := parsePolygon(buffer, false, 0)
+		_, _, ok := parsePolygon(buffer, false, 0, 6)
 		require.False(t, ok) // Should fail because no space for ring data
 	})
 }
@@ -2002,7 +1966,7 @@ func TestParsePolygon_UncoveredPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off)
+			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -2034,7 +1998,7 @@ func TestWkbToGeoJSON_MultiLineString_UncoveredPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, ok := wkbToGeoJSON(tt.wkb)
+			_, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -2042,17 +2006,10 @@ func TestWkbToGeoJSON_MultiLineString_UncoveredPaths(t *testing.T) {
 
 // Test very specific boundary conditions for maximum coverage
 func TestWkbToGeoJSON_PrecisionBoundaryConditions(t *testing.T) {
-	// Save original precision setting
-	originalPrecision := geospatialCoordPrecision
-	defer func() {
-		geospatialCoordPrecision = originalPrecision
-	}()
-
 	t.Run("inline_round_exactly_12_precision", func(t *testing.T) {
 		// Test the p > 12 branch and p = 12 assignment in inline round function
-		geospatialCoordPrecision = 12 // Exactly at the boundary
 		wkb := wkbPoint(1, 1.123456789012345, 2.0)
-		result, ok := wkbToGeoJSON(wkb)
+		result, ok := wkbToGeoJSON(wkb, 12)
 		require.True(t, ok)
 		require.Equal(t, "Point", result["type"])
 
@@ -2063,9 +2020,8 @@ func TestWkbToGeoJSON_PrecisionBoundaryConditions(t *testing.T) {
 
 	t.Run("inline_round_exactly_0_precision", func(t *testing.T) {
 		// Test the p < 0 branch and p = 0 assignment
-		geospatialCoordPrecision = 0 // Exactly at the boundary
 		wkb := wkbPoint(1, 1.7, 2.3)
-		result, ok := wkbToGeoJSON(wkb)
+		result, ok := wkbToGeoJSON(wkb, 0)
 		require.True(t, ok)
 		require.Equal(t, "Point", result["type"])
 
@@ -2107,7 +2063,7 @@ func TestWkbToGeoJSON_u32_ErrorPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, ok := wkbToGeoJSON(tt.wkb)
+			_, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -2134,7 +2090,7 @@ func TestWkbToGeoJSON_MaximumCoverage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, ok := wkbToGeoJSON(tt.wkb)
+			_, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -2149,8 +2105,8 @@ func TestParsePolygon_MaximumCoverage(t *testing.T) {
 		binary.BigEndian.PutUint32(buffer[4:8], 2) // numPoints = 2 (big-endian)
 		// Not enough coordinate data will cause failure
 
-		_, _, ok := parsePolygon(buffer, true, 0) // be = true to trigger big-endian path
-		require.False(t, ok)                      // Should fail due to insufficient coordinate data
+		_, _, ok := parsePolygon(buffer, true, 0, 6) // be = true to trigger big-endian path
+		require.False(t, ok)                         // Should fail due to insufficient coordinate data
 	})
 
 	t.Run("parsePolygon_little_endian_ring_point_count", func(t *testing.T) {
@@ -2160,8 +2116,8 @@ func TestParsePolygon_MaximumCoverage(t *testing.T) {
 		binary.LittleEndian.PutUint32(buffer[4:8], 2) // numPoints = 2 (little-endian)
 		// Not enough coordinate data will cause failure
 
-		_, _, ok := parsePolygon(buffer, false, 0) // be = false to trigger little-endian path
-		require.False(t, ok)                       // Should fail due to insufficient coordinate data
+		_, _, ok := parsePolygon(buffer, false, 0, 6) // be = false to trigger little-endian path
+		require.False(t, ok)                          // Should fail due to insufficient coordinate data
 	})
 }
 
@@ -2170,7 +2126,7 @@ func TestWkbToGeoJSON_GeometryCollection_BufferBoundary(t *testing.T) {
 	t.Run("geometrycollection_buffer_ends_at_geometry_boundary", func(t *testing.T) {
 		wkb := []byte{1, 7, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0}
 
-		_, ok := wkbToGeoJSON(wkb)
+		_, ok := wkbToGeoJSON(wkb, 6)
 		require.False(t, ok) // Should fail when calculateWKBSize fails
 	})
 }

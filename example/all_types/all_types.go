@@ -179,21 +179,13 @@ func main() {
 		return
 	}
 
-	// Output in geojson format
-	// types.SetGeometryJSONMode(types.GeospatialModeGeoJSON)
-	// types.SetGeographyJSONMode(types.GeospatialModeGeoJSON)
-
-	// output in hybrid format, ie geojson + raw
-	types.SetGeometryJSONMode(types.GeospatialModeHybrid)
-	types.SetGeographyJSONMode(types.GeospatialModeHybrid)
-	// raw data can be hex or base64
-	types.SetGeospatialHybridRawBase64(true)
-	// Use default coordinate precision (6 decimals) for GeoJSON
-	types.SetGeospatialCoordinatePrecision(6)
-
-	// output in raw format in base64 encoding
-	// types.SetGeometryJSONMode(types.GeospatialModeBase64)
-	// types.SetGeographyJSONMode(types.GeospatialModeBase64)
+	// Geospatial JSON rendering is configured per-instance via types.GeospatialConfig.
+	// Example: types.NewGeospatialConfig(
+	//   types.WithGeometryJSONMode(types.GeospatialModeHybrid),
+	//   types.WithGeographyJSONMode(types.GeospatialModeHybrid),
+	//   types.WithGeospatialHybridRawBase64(true),
+	//   types.WithGeospatialCoordinatePrecision(6),
+	// )
 
 	pw, err := writer.NewParquetWriter(fw, new(AllTypes), 4)
 	if err != nil {
