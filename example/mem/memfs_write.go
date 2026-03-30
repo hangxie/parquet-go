@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/afero"
+
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/reader"
@@ -28,10 +30,11 @@ type Student struct {
 }
 
 func main() {
-	// create in-memory ParquetFile with Closer Function
+	// create an in-memory filesystem and ParquetFile with Closer Function
 	// NOTE: closer function can be nil, no action will be
 	// run when the writer is closed.
-	fw, err := mem.NewMemFileWriter("flat.parquet", func(name string, r io.Reader) error {
+	memFs := afero.NewMemMapFs()
+	fw, err := mem.NewMemFileWriterWithFs("flat.parquet", memFs, func(name string, r io.Reader) error {
 		dat, err := io.ReadAll(r)
 		if err != nil {
 			log.Printf("error reading data: %v", err)
@@ -100,9 +103,8 @@ func main() {
 	_ = pr.ReadStopWithError()
 	_ = fr.Close()
 
-	// NOTE: you can access the underlying MemFs using ParquetFile.GetMemFileFs()
-	// EXAMPLE: this will delete the file we created from the in-memory file system
-	if err := mem.GetMemFileFs().Remove("flat.parquet"); err != nil {
+	// Delete the file from the in-memory file system
+	if err := memFs.Remove("flat.parquet"); err != nil {
 		log.Printf("error removing file from memfs: %v", err)
 		os.Exit(1)
 	}

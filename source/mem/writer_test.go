@@ -10,47 +10,45 @@ import (
 )
 
 func TestMemWriter_CloseWithoutOnCloseFunc(t *testing.T) {
-	memFs = afero.NewMemMapFs()
+	fs := afero.NewMemMapFs()
 
-	writer := &memWriter{}
-	created, err := writer.Create("no_onclose.parquet")
+	writer, err := NewMemFileWriterWithFs("no_onclose.parquet", fs, nil)
 	require.NoError(t, err)
 
 	// Write some data
 	testData := []byte("No onClose test")
-	_, err = created.Write(testData)
+	_, err = writer.Write(testData)
 	require.NoError(t, err)
 
 	// Close without onClose function - should not error
-	err = created.Close()
+	err = writer.Close()
 	require.NoError(t, err)
 }
 
 func TestMemWriter_Create(t *testing.T) {
-	memFs = afero.NewMemMapFs()
+	fs := afero.NewMemMapFs()
 
-	writer := &memWriter{}
-	created, err := writer.Create("created.parquet")
+	writer, err := NewMemFileWriterWithFs("created.parquet", fs, nil)
 	require.NoError(t, err)
-	require.NotNil(t, created)
+	require.NotNil(t, writer)
 
 	// Cast back to memWriter to check internal state
-	memWriter := created.(*memWriter)
-	require.Equal(t, "created.parquet", memWriter.filePath)
-	require.NotNil(t, memWriter.file)
+	mw := writer.(*memWriter)
+	require.Equal(t, "created.parquet", mw.filePath)
+	require.NotNil(t, mw.file)
 
-	err = created.Close()
+	err = writer.Close()
 	require.NoError(t, err)
 }
 
 func TestMemWriter_OnCloseError(t *testing.T) {
-	memFs = afero.NewMemMapFs()
+	fs := afero.NewMemMapFs()
 
 	onCloseError := func(filename string, reader io.Reader) error {
 		return io.ErrUnexpectedEOF
 	}
 
-	writer, err := NewMemFileWriter("error_test.parquet", onCloseError)
+	writer, err := NewMemFileWriterWithFs("error_test.parquet", fs, onCloseError)
 	require.NoError(t, err)
 
 	_, err = writer.Write([]byte("test"))
@@ -62,7 +60,7 @@ func TestMemWriter_OnCloseError(t *testing.T) {
 }
 
 func TestMemWriter_WithSubdirectoryPath(t *testing.T) {
-	memFs = afero.NewMemMapFs()
+	fs := afero.NewMemMapFs()
 
 	onCloseCalled := false
 	var closedFilename string
@@ -74,7 +72,7 @@ func TestMemWriter_WithSubdirectoryPath(t *testing.T) {
 	}
 
 	// Create writer with subdirectory path
-	writer, err := NewMemFileWriter("subdir/test.parquet", onCloseFunc)
+	writer, err := NewMemFileWriterWithFs("subdir/test.parquet", fs, onCloseFunc)
 	require.NoError(t, err)
 
 	_, err = writer.Write([]byte("subdir test"))
@@ -88,33 +86,25 @@ func TestMemWriter_WithSubdirectoryPath(t *testing.T) {
 }
 
 func TestMemWriter_Write(t *testing.T) {
-	memFs = afero.NewMemMapFs()
+	fs := afero.NewMemMapFs()
 
-	writer := &memWriter{}
-	created, err := writer.Create("write_test.parquet")
+	writer, err := NewMemFileWriterWithFs("write_test.parquet", fs, nil)
 	require.NoError(t, err)
-	defer func() {
-		if err := created.Close(); err != nil {
-			require.NoError(t, err)
-		}
-	}()
 
 	testData := []byte("Test write data")
-	n, err := created.Write(testData)
+	n, err := writer.Write(testData)
 	require.NoError(t, err)
 	require.Equal(t, len(testData), n)
 
 	// Close and verify the data was written
-	err = created.Close()
+	err = writer.Close()
 	require.NoError(t, err)
 
 	// Read back from the file system
-	file, err := memFs.Open("write_test.parquet")
+	file, err := fs.Open("write_test.parquet")
 	require.NoError(t, err)
 	defer func() {
-		if err := file.Close(); err != nil {
-			require.NoError(t, err)
-		}
+		_ = file.Close()
 	}()
 
 	content, err := io.ReadAll(file)
@@ -123,9 +113,6 @@ func TestMemWriter_Write(t *testing.T) {
 }
 
 func TestNewMemFileWriter(t *testing.T) {
-	// Reset memFs to nil to test initialization
-	memFs = nil
-
 	onCloseCalled := false
 	var closedFilename string
 	var closedReader io.Reader
@@ -140,9 +127,6 @@ func TestNewMemFileWriter(t *testing.T) {
 	writer, err := NewMemFileWriter("test.parquet", onCloseFunc)
 	require.NoError(t, err)
 	require.NotNil(t, writer)
-
-	// Test that memFs was initialized
-	require.NotNil(t, memFs)
 
 	// Write some data
 	testData := []byte("Hello, Mem Writer!")
@@ -167,56 +151,68 @@ func TestNewMemFileWriter(t *testing.T) {
 	}
 }
 
-func TestNewMemFileWriterWithExistingFs(t *testing.T) {
-	// Set up an existing file system
-	existingFs := afero.NewMemMapFs()
-	memFs = existingFs
+func TestNewMemFileWriterWithFs(t *testing.T) {
+	fs := afero.NewMemMapFs()
 
-	writer, err := NewMemFileWriter("test2.parquet", nil)
+	writer, err := NewMemFileWriterWithFs("test.parquet", fs, nil)
 	require.NoError(t, err)
+	require.NotNil(t, writer)
 
-	// Should use the existing file system, not create a new one
-	require.Equal(t, existingFs, memFs)
-
+	// Verify data is written to the provided fs
+	_, err = writer.Write([]byte("data"))
+	require.NoError(t, err)
 	err = writer.Close()
 	require.NoError(t, err)
+
+	file, err := fs.Open("test.parquet")
+	require.NoError(t, err)
+	content, err := io.ReadAll(file)
+	require.NoError(t, err)
+	require.Equal(t, "data", string(content))
+	_ = file.Close()
 }
 
-func TestNewMemFileWriter_CreateError(t *testing.T) {
-	// Use a read-only filesystem to trigger a Create error
-	memFs = afero.NewReadOnlyFs(afero.NewMemMapFs())
+func TestNewMemFileWriterWithFs_NilFs(t *testing.T) {
+	_, err := NewMemFileWriterWithFs("test.parquet", nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "filesystem must not be nil")
+}
 
-	_, err := NewMemFileWriter("test.parquet", nil)
+func TestNewMemFileWriterWithFs_CreateError(t *testing.T) {
+	// Use a read-only filesystem to trigger a Create error
+	fs := afero.NewReadOnlyFs(afero.NewMemMapFs())
+
+	_, err := NewMemFileWriterWithFs("test.parquet", fs, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "create mem file")
 }
 
-func TestSetAndGetInMemFileFs(t *testing.T) {
-	// Reset memFs to nil first
-	memFs = nil
+func TestMemWriterWithFs_IsolatedFilesystems(t *testing.T) {
+	fs1 := afero.NewMemMapFs()
+	fs2 := afero.NewMemMapFs()
 
-	// Create a new file system
-	newFs := afero.NewMemMapFs()
-	SetInMemFileFs(&newFs)
+	w1, err := NewMemFileWriterWithFs("file.parquet", fs1, nil)
+	require.NoError(t, err)
+	_, err = w1.Write([]byte("fs1 data"))
+	require.NoError(t, err)
+	require.NoError(t, w1.Close())
 
-	// Test that it was set correctly
-	retrievedFs := GetMemFileFs()
-	require.NotNil(t, retrievedFs)
+	w2, err := NewMemFileWriterWithFs("file.parquet", fs2, nil)
+	require.NoError(t, err)
+	_, err = w2.Write([]byte("fs2 data"))
+	require.NoError(t, err)
+	require.NoError(t, w2.Close())
 
-	// Test that it's the same file system by creating a file in one and reading from the other
-	testFile, err := newFs.Create("test.txt")
+	// Verify each fs has its own data
+	f1, err := fs1.Open("file.parquet")
 	require.NoError(t, err)
-	_, err = testFile.WriteString("test content")
-	require.NoError(t, err)
-	err = testFile.Close()
-	require.NoError(t, err)
+	c1, _ := io.ReadAll(f1)
+	require.Equal(t, "fs1 data", string(c1))
+	_ = f1.Close()
 
-	// Check if we can read from retrieved fs
-	readFile, err := retrievedFs.Open("test.txt")
+	f2, err := fs2.Open("file.parquet")
 	require.NoError(t, err)
-	content, err := io.ReadAll(readFile)
-	require.NoError(t, err)
-	require.Equal(t, "test content", string(content))
-	err = readFile.Close()
-	require.NoError(t, err)
+	c2, _ := io.ReadAll(f2)
+	require.Equal(t, "fs2 data", string(c2))
+	_ = f2.Close()
 }
