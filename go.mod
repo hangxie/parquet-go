@@ -9,7 +9,7 @@ require (
 	github.com/andybalholm/brotli v1.2.0
 	github.com/apache/arrow-go/v18 v18.5.1
 	github.com/apache/thrift v0.22.0
-	github.com/aws/aws-sdk-go-v2 v1.41.2
+	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.10
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.1.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.2
