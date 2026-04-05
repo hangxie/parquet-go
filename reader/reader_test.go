@@ -958,6 +958,11 @@ func TestNewParquetReader_OptionValidation(t *testing.T) {
 			opts:   []ReaderOption{WithNP(-1)},
 			errMsg: "WithNP: value must be positive, got -1",
 		},
+		{
+			name:   "crc_mode_invalid",
+			opts:   []ReaderOption{WithCRCMode(common.CRCMode(99))},
+			errMsg: "WithCRCMode: unsupported mode 99",
+		},
 	}
 
 	for _, tt := range tests {
@@ -990,6 +995,11 @@ func TestNewParquetColumnReader_OptionValidation(t *testing.T) {
 			name:   "np_negative",
 			opts:   []ReaderOption{WithNP(-1)},
 			errMsg: "WithNP: value must be positive, got -1",
+		},
+		{
+			name:   "crc_mode_invalid",
+			opts:   []ReaderOption{WithCRCMode(common.CRCMode(99))},
+			errMsg: "WithCRCMode: unsupported mode 99",
 		},
 	}
 
