@@ -67,7 +67,7 @@ func main() {
 		log.Println("Can't open file", err)
 		return
 	}
-	pr, err := reader.NewParquetColumnReader(fr, 4)
+	pr, err := reader.NewParquetColumnReader(fr, reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create column reader", err)
 		return

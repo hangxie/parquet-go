@@ -81,7 +81,7 @@ func TestGetAllPageHeaders(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -136,7 +136,7 @@ func TestReadDictionaryPageValues(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -187,7 +187,7 @@ func TestGetAllPageHeaders_AllPageTypes(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -212,7 +212,7 @@ func TestReadAllPageHeaders(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -239,7 +239,7 @@ func TestReadPageData(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -275,7 +275,7 @@ func TestDecodeDictionaryPage(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 		require.NoError(t, err)
 		defer func() {
 			_ = pr.ReadStopWithError()
@@ -726,7 +726,7 @@ func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 		require.NoError(t, err)
 		defer func() {
 			_ = pr.ReadStopWithError()
@@ -745,7 +745,7 @@ func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 		require.NoError(t, err)
 		defer func() {
 			_ = pr.ReadStopWithError()
@@ -780,7 +780,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		testFile := getTestParquetFile(t)
 		buf, err := local.NewLocalFileReader(testFile)
 		require.NoError(t, err)
-		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 		require.NoError(t, err)
 		defer func() {
 			_ = pr.ReadStopWithError()
@@ -837,7 +837,7 @@ func TestReadDictionaryPageValues_NegativeCases(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -893,7 +893,7 @@ func TestGetFirstDataPageHeader(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -1045,7 +1045,7 @@ func TestReadFirstDataPageHeader_NegativeCases(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -1081,7 +1081,7 @@ func TestReadAllPageHeaders_ViaGetAllPageHeaders(t *testing.T) {
 	testFile := getTestParquetFile(t)
 	buf, err := local.NewLocalFileReader(testFile)
 	require.NoError(t, err)
-	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), 4)
+	pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
 	require.NoError(t, err)
 	defer func() {
 		_ = pr.ReadStopWithError()
@@ -1188,8 +1188,8 @@ func TestCRCValidation_ValidFile(t *testing.T) {
 				_ = pf.Close()
 			}()
 
-			pr, err := reader.NewParquetReader(pf, nil, 1,
-				reader.ParquetReaderOptions{CRCMode: tc.mode})
+			pr, err := reader.NewParquetReader(pf, nil,
+				reader.WithNP(1), reader.WithCRCMode(tc.mode))
 			require.NoError(t, err)
 			defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1220,8 +1220,8 @@ func TestCRCValidation_CorruptFile(t *testing.T) {
 				_ = pf.Close()
 			}()
 
-			pr, err := reader.NewParquetReader(pf, nil, 1,
-				reader.ParquetReaderOptions{CRCMode: tc.mode})
+			pr, err := reader.NewParquetReader(pf, nil,
+				reader.WithNP(1), reader.WithCRCMode(tc.mode))
 			require.NoError(t, err)
 			defer func() { _ = pr.ReadStopWithError() }()
 

@@ -89,7 +89,7 @@ func readParquetFile(filename string) error {
 	}
 
 	// Create parquet reader
-	pr, err := reader.NewParquetReader(fr, new(User), 4)
+	pr, err := reader.NewParquetReader(fr, new(User), reader.WithNP(4))
 	if err != nil {
 		return fmt.Errorf("create parquet reader: %w", err)
 	}

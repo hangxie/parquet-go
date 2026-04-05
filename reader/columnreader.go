@@ -8,11 +8,19 @@ import (
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
-// NewParquetColumnReader creates a parquet column reader
-func NewParquetColumnReader(pFile source.ParquetFileReader, np int64) (*ParquetReader, error) {
+// NewParquetColumnReader creates a parquet column reader.
+func NewParquetColumnReader(pFile source.ParquetFileReader, opts ...ReaderOption) (*ParquetReader, error) {
 	res := new(ParquetReader)
-	res.NP = np
+	res.np = 4 // default parallel number
 	res.PFile = pFile
+
+	for _, opt := range opts {
+		opt(res)
+	}
+
+	if res.np <= 0 {
+		return nil, fmt.Errorf("WithNP: value must be positive, got %d", res.np)
+	}
 	if err := res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
 	}
@@ -48,7 +56,7 @@ func (pr *ParquetReader) SkipRowsByPath(pathStr string, num int64) error {
 
 	if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 		var err error
-		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 			return fmt.Errorf("init column buffer for %v: %w", pathStr, err)
 		}
 	}
@@ -104,7 +112,7 @@ func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []a
 
 	if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 		var err error
-		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 			return []any{}, []int32{}, []int32{}, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 		}
 	}

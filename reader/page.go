@@ -364,7 +364,7 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	}
 
 	// Read and decode the page data
-	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxPageSize: layout.DefaultMaxPageSize})
+	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
 	if err != nil {
 		return nil, fmt.Errorf("read page data: %w", err)
 	}

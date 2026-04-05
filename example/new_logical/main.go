@@ -63,7 +63,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pr, err := reader.NewParquetReader(fr, nil, 1)
+	pr, err := reader.NewParquetReader(fr, nil, reader.WithNP(1))
 	if err != nil {
 		log.Fatal(err)
 	}

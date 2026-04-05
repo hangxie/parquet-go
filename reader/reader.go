@@ -23,14 +23,28 @@ import (
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
-type ParquetReaderOptions struct {
-	CaseInsensitive bool
-	CRCMode         common.CRCMode
+// ReaderOption configures a ParquetReader.
+type ReaderOption func(*ParquetReader)
+
+// WithNP sets the number of goroutines for parallel processing. Default is 4.
+func WithNP(np int64) ReaderOption {
+	return func(pr *ParquetReader) { pr.np = np }
 }
 
+// WithCaseInsensitive enables case-insensitive schema matching.
+func WithCaseInsensitive(enabled bool) ReaderOption {
+	return func(pr *ParquetReader) { pr.caseInsensitive = enabled }
+}
+
+// WithCRCMode sets the CRC validation mode when reading pages.
+func WithCRCMode(mode common.CRCMode) ReaderOption {
+	return func(pr *ParquetReader) { pr.crcMode = mode }
+}
+
+// ParquetReader is a reader for parquet files.
 type ParquetReader struct {
 	SchemaHandler *schema.SchemaHandler
-	NP            int64 // parallel number
+	np            int64 // parallel number
 	Footer        *parquet.FileMetaData
 	PFile         source.ParquetFileReader
 
@@ -40,28 +54,26 @@ type ParquetReader struct {
 	ObjType        reflect.Type
 	ObjPartialType reflect.Type
 
-	// Determines whether case sensitivity is enabled
-	CaseInsensitive bool
-
-	// CRCMode controls CRC validation when reading pages
-	CRCMode common.CRCMode
+	caseInsensitive bool           // case-insensitive schema matching
+	crcMode         common.CRCMode // CRC validation when reading pages
 }
 
-// Create a parquet reader: obj is a object with schema tags or a JSON schema string
-func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ...ParquetReaderOptions) (*ParquetReader, error) {
-	var caseInsensitive bool
-	var crcMode common.CRCMode
-	if len(opts) > 0 {
-		caseInsensitive = opts[0].CaseInsensitive
-		crcMode = opts[0].CRCMode
-	}
-
+// NewParquetReader creates a parquet reader. obj is an object with schema tags or a JSON schema string.
+func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOption) (*ParquetReader, error) {
 	var err error
 	res := new(ParquetReader)
-	res.NP = np
+	res.np = 4 // default parallel number
 	res.PFile = pFile
-	res.CaseInsensitive = caseInsensitive
-	res.CRCMode = crcMode
+
+	// Apply functional options
+	for _, opt := range opts {
+		opt(res)
+	}
+
+	// Validate options
+	if res.np <= 0 {
+		return nil, fmt.Errorf("WithNP: value must be positive, got %d", res.np)
+	}
 	if err = res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
 	}
@@ -96,7 +108,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, np int64, opts ..
 		}
 		if schema.GetNumChildren() == 0 {
 			if pathStr, exists := res.SchemaHandler.IndexMap[int32(i)]; exists {
-				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: res.CRCMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: res.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 					return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 				}
 			}
@@ -119,7 +131,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 		schemaElement := pr.SchemaHandler.SchemaElements[i]
 		if schemaElement.GetNumChildren() == 0 {
 			pathStr := pr.SchemaHandler.IndexMap[int32(i)]
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 			}
 		}
@@ -141,7 +153,7 @@ func (pr *ParquetReader) RenameSchema() {
 	}
 
 	exPathToInPath := make(map[string]string)
-	if pr.CaseInsensitive {
+	if pr.caseInsensitive {
 		for exPath, inPath := range pr.SchemaHandler.ExPathToInPath {
 			lowerCaseKey := strings.ToLower(exPath)
 			exPathToInPath[lowerCaseKey] = inPath
@@ -165,7 +177,7 @@ func (pr *ParquetReader) RenameSchema() {
 			exPath := append([]string{pr.SchemaHandler.GetRootExName()}, chunk.MetaData.GetPathInSchema()...)
 			exPathStr := common.PathToStr(exPath)
 
-			if pr.CaseInsensitive {
+			if pr.caseInsensitive {
 				exPathStr = strings.ToLower(exPathStr)
 			}
 
@@ -229,15 +241,15 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 	// Ensure column buffers exist
 	for _, pathStr := range pr.SchemaHandler.ValueColumns {
 		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 				return fmt.Errorf("create column buffer for %s: %w", pathStr, err)
 			}
 		}
 	}
 
-	// Use errgroup with a semaphore to cap concurrency at pr.NP
+	// Use errgroup with a semaphore to cap concurrency at pr.np
 	g, _ := errgroup.WithContext(context.Background())
-	sem := make(chan struct{}, max(1, int(pr.NP)))
+	sem := make(chan struct{}, max(1, int(pr.np)))
 	for key := range pr.ColumnBuffers {
 		pathStr := key
 		sem <- struct{}{}
@@ -377,7 +389,7 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 		}
 	}
 
-	for i := int64(0); i < pr.NP; i++ {
+	for i := int64(0); i < pr.np; i++ {
 		wgCols.Add(1)
 		go worker()
 	}
@@ -390,11 +402,11 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	close(taskChan)
 	wgCols.Wait()
 
-	dstList := make([]any, pr.NP)
-	delta := (int64(num) + pr.NP - 1) / pr.NP
+	dstList := make([]any, pr.np)
+	delta := (int64(num) + pr.np - 1) / pr.np
 
 	var wg sync.WaitGroup
-	for c := range pr.NP {
+	for c := range pr.np {
 		bgn := c * delta
 		end := bgn + delta
 		if end > int64(num) {
@@ -489,7 +501,7 @@ func (pr *ParquetReader) Reset() error {
 
 	// Recreate all column buffers from scratch
 	for pathStr := range pr.ColumnBuffers {
-		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.CRCMode, MaxPageSize: layout.DefaultMaxPageSize})
+		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
 		if err != nil {
 			return fmt.Errorf("recreate column buffer for %s: %w", pathStr, err)
 		}

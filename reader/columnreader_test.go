@@ -103,7 +103,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupReader func() source.ParquetFileReader
-		np          int64
+		opts        []ReaderOption
 		expectError bool
 		expectPanic bool
 	}{
@@ -112,7 +112,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 			setupReader: func() source.ParquetFileReader {
 				return nil
 			},
-			np:          1,
+			opts:        []ReaderOption{WithNP(1)},
 			expectError: true,
 			expectPanic: true,
 		},
@@ -123,7 +123,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 				mockReader.SetShouldFail(true)
 				return mockReader
 			},
-			np:          1,
+			opts:        []ReaderOption{WithNP(1)},
 			expectError: true,
 			expectPanic: false,
 		},
@@ -135,7 +135,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 				copy(invalidData[len(invalidData)-4:], []byte{0, 0, 0, 0}) // Invalid length
 				return newMockParquetFileReader(invalidData)
 			},
-			np:          1,
+			opts:        []ReaderOption{WithNP(1)},
 			expectError: true,
 			expectPanic: false,
 		},
@@ -147,7 +147,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 				mockData := createMinimalValidParquetData()
 				return newMockParquetFileReader(mockData)
 			},
-			np:          1,
+			opts:        []ReaderOption{WithNP(1)},
 			expectError: true, // We expect this to fail with invalid data, but it exercises the code path
 			expectPanic: false,
 		},
@@ -156,12 +156,12 @@ func TestNewParquetColumnReader(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.expectPanic {
-				_, err := NewParquetColumnReader(tt.setupReader(), tt.np)
+				_, err := NewParquetColumnReader(tt.setupReader(), tt.opts...)
 				require.Error(t, err)
 				return
 			}
 
-			reader, err := NewParquetColumnReader(tt.setupReader(), tt.np)
+			reader, err := NewParquetColumnReader(tt.setupReader(), tt.opts...)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -515,10 +515,10 @@ func TestNewParquetColumnReader_Success(t *testing.T) {
 	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Now test NewParquetColumnReader with a real parquet file
-	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
 	require.NoError(t, err)
 	require.NotNil(t, columnReader)
-	require.Equal(t, int64(1), columnReader.NP)
+	require.Equal(t, int64(1), columnReader.np)
 	require.NotNil(t, columnReader.PFile)
 	require.NotNil(t, columnReader.SchemaHandler)
 	require.NotNil(t, columnReader.ColumnBuffers)
@@ -533,7 +533,7 @@ func TestParquetReader_SkipRowsByPath_WithValidData(t *testing.T) {
 	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Create column reader to test the successful path
-	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
 	require.NoError(t, err)
 	defer func() { _ = columnReader.ReadStopWithError() }()
 
@@ -552,7 +552,7 @@ func TestParquetReader_SkipRowsByIndex_Success(t *testing.T) {
 	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Create column reader
-	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
 	require.NoError(t, err)
 	defer func() { _ = columnReader.ReadStopWithError() }()
 
@@ -578,7 +578,7 @@ func TestParquetReader_SkipRowsByIndexWithError_Success(t *testing.T) {
 	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Create column reader
-	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
 	require.NoError(t, err)
 	defer func() { _ = columnReader.ReadStopWithError() }()
 
@@ -606,7 +606,7 @@ func TestParquetReader_ReadColumnByPath_WithValidData(t *testing.T) {
 	defer func() { _ = pr.ReadStopWithError() }()
 
 	// Create column reader
-	columnReader, err := NewParquetColumnReader(pr.PFile, 1)
+	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
 	require.NoError(t, err)
 	defer func() { _ = columnReader.ReadStopWithError() }()
 
