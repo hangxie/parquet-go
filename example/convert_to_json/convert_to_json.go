@@ -75,7 +75,7 @@ func main() {
 		return
 	}
 
-	pr, err := reader.NewParquetReader(fr, nil, 4)
+	pr, err := reader.NewParquetReader(fr, nil, reader.WithNP(4))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return

@@ -22,7 +22,7 @@ func main() {
 		fmt.Println("failed to create HTTP reader:", err.Error())
 		os.Exit(1)
 	}
-	parquetReader, err := reader.NewParquetReader(httpReader, nil, 4)
+	parquetReader, err := reader.NewParquetReader(httpReader, nil, reader.WithNP(4))
 	if err != nil {
 		fmt.Println("failed to create Parquet reader:", err.Error())
 		os.Exit(1)

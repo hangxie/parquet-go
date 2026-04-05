@@ -65,7 +65,7 @@ func parquetReader() (*ParquetReader, error) {
 		return nil, err
 	}
 	buf := buffer.NewBufferReaderFromBytesNoAlloc(parquetBuf)
-	return NewParquetReader(buf, new(Record), int64(runtime.NumCPU()))
+	return NewParquetReader(buf, new(Record), WithNP(int64(runtime.NumCPU())))
 }
 
 func rowsLeft(pr *ParquetReader) (int64, error) {
@@ -145,7 +145,7 @@ func TestParquetReader_ReadPartial(t *testing.T) {
 	require.NoError(t, err)
 
 	buf := buffer.NewBufferReaderFromBytesNoAlloc(data)
-	pr, err := NewParquetReader(buf, new(NestedRecord), 1)
+	pr, err := NewParquetReader(buf, new(NestedRecord), WithNP(1))
 	require.NoError(t, err)
 	defer func() { _ = pr.ReadStopWithError() }()
 
@@ -181,7 +181,7 @@ func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	buf := buffer.NewBufferReaderFromBytesNoAlloc(data)
-	pr, err := NewParquetReader(buf, new(NestedRecord), 1)
+	pr, err := NewParquetReader(buf, new(NestedRecord), WithNP(1))
 	require.NoError(t, err)
 	defer func() { _ = pr.ReadStopWithError() }()
 
@@ -913,18 +913,16 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	parquetBuffer := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
 	// Test with CaseInsensitive option set to true
-	opts := ParquetReaderOptions{CaseInsensitive: true}
-	pr, err := NewParquetReader(parquetBuffer, new(Record), 1, opts)
+	pr, err := NewParquetReader(parquetBuffer, new(Record), WithNP(1), WithCaseInsensitive(true))
 	require.NoError(t, err)
-	require.True(t, pr.CaseInsensitive)
+	require.True(t, pr.caseInsensitive)
 	_ = pr.ReadStopWithError()
 
 	// Test with CaseInsensitive option set to false
 	parquetBuffer2 := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	opts2 := ParquetReaderOptions{CaseInsensitive: false}
-	pr2, err := NewParquetReader(parquetBuffer2, new(Record), 1, opts2)
+	pr2, err := NewParquetReader(parquetBuffer2, new(Record), WithNP(1), WithCaseInsensitive(false))
 	require.NoError(t, err)
-	require.False(t, pr2.CaseInsensitive)
+	require.False(t, pr2.caseInsensitive)
 	_ = pr2.ReadStopWithError()
 }
 
@@ -1198,7 +1196,7 @@ func TestNestedListWithEmptyStrings(t *testing.T) {
 
 			// Read back from buffer
 			fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-			pr, err := NewParquetReader(fr, jsonSchema, 1)
+			pr, err := NewParquetReader(fr, jsonSchema, WithNP(1))
 			require.NoError(t, err)
 
 			numRows := pr.GetNumRows()
@@ -1237,7 +1235,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1272,7 +1270,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1304,7 +1302,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1327,7 +1325,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1353,7 +1351,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1382,7 +1380,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1418,7 +1416,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1451,7 +1449,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1474,7 +1472,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1498,7 +1496,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1638,7 +1636,7 @@ func TestDetectBloomFilters(t *testing.T) {
 		_ = fw.Close()
 
 		fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := NewParquetReader(fr, nil, 1)
+		pr, err := NewParquetReader(fr, nil, WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1670,7 +1668,7 @@ func TestBloomFilterInterop(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = httpReader.Close() }()
 
-		pr, err := NewParquetReader(httpReader, nil, 1)
+		pr, err := NewParquetReader(httpReader, nil, WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1703,7 +1701,7 @@ func TestBloomFilterInterop(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = httpReader.Close() }()
 
-		pr, err := NewParquetReader(httpReader, nil, 1)
+		pr, err := NewParquetReader(httpReader, nil, WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 

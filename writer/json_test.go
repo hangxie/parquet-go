@@ -320,7 +320,7 @@ func TestJSONWriter(t *testing.T) {
 				// Verify row count if specified
 				if tt.expectRows != nil {
 					pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-					pr, err := reader.NewParquetReader(pf, nil, 1)
+					pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 					require.NoError(t, err)
 
 					numRows := pr.GetNumRows()

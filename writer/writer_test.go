@@ -40,9 +40,9 @@ func createTestParquetWriter(schema any, opts ...WriterOption) (*ParquetWriter, 
 }
 
 // Helper function to create a parquet reader from buffer
-func createTestParquetReader(buf []byte, schema any, parallelNumber int64) (*reader.ParquetReader, source.ParquetFileReader, error) {
+func createTestParquetReader(buf []byte, schema any, opts ...reader.ReaderOption) (*reader.ParquetReader, source.ParquetFileReader, error) {
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf)
-	pr, err := reader.NewParquetReader(pf, schema, parallelNumber)
+	pr, err := reader.NewParquetReader(pf, schema, opts...)
 	return pr, pf, err
 }
 
@@ -90,7 +90,7 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
-		pr, err := reader.NewParquetReader(pf, nil, 1)
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		require.Nil(t, pr.ReadFooter())
@@ -143,7 +143,7 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
-		pr, err := reader.NewParquetReader(pf, nil, 1)
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		require.Nil(t, pr.ReadFooter())
@@ -193,7 +193,7 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
-		pr, err := reader.NewParquetReader(pf, nil, 1)
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pr.ReadFooter())
 
@@ -236,7 +236,7 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
-		pr, err := reader.NewParquetReader(pf, nil, 1)
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pr.ReadFooter())
 
@@ -269,7 +269,7 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
-		pr, err := reader.NewParquetReader(pf, nil, 1)
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pr.ReadFooter())
 
@@ -299,7 +299,7 @@ func TestSizeStatistics(t *testing.T) {
 		require.NoError(t, pw.Write(Entry{S: "f"}))
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -325,7 +325,7 @@ func TestSizeStatistics(t *testing.T) {
 		require.NoError(t, pw.Write(Entry{X: 42}))
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -347,7 +347,7 @@ func TestSizeStatistics(t *testing.T) {
 		require.NoError(t, pw.Write(Entry{X: common.ToPtr(int64(42))}))
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -376,7 +376,7 @@ func TestSizeStatistics(t *testing.T) {
 		require.NoError(t, pw.Write(Entry{X: common.ToPtr(int64(3))}))
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -403,7 +403,7 @@ func TestSizeStatistics(t *testing.T) {
 		require.NoError(t, pw.Write(Entry{X: 42}))
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -430,7 +430,7 @@ func TestSizeStatistics(t *testing.T) {
 		require.NoError(t, pw.Write(Entry{S: &s2}))
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -470,7 +470,7 @@ func TestParquetWriter(t *testing.T) {
 		err = pw.WriteStop()
 		require.NoError(t, err)
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(test), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(test), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -575,7 +575,7 @@ func TestParquetWriter(t *testing.T) {
 		err = pw.WriteStop()
 		require.NoError(t, err)
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestSchema), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestSchema), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -684,7 +684,7 @@ func TestColumnOrders(t *testing.T) {
 		require.NoError(t, pw.Write(Entry{Name: "alice", Age: 30, Score: 100}))
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -708,7 +708,7 @@ func TestColumnOrders(t *testing.T) {
 
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -734,7 +734,7 @@ func TestColumnOrders(t *testing.T) {
 		require.NoError(t, pw.Write(Outer{Name: "test", Inner: Inner{A: 1, B: 2}}))
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Outer), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Outer), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() {
 			require.NoError(t, pf.Close())
@@ -765,7 +765,7 @@ func TestColumnOrders(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
-		pr, err := reader.NewParquetReader(pf, nil, 1)
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
 
 		require.NotNil(t, pr.Footer.ColumnOrders)
@@ -793,7 +793,7 @@ func TestColumnOrders(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
-		pr, err := reader.NewParquetReader(pf, nil, 1)
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
 
 		require.NotNil(t, pr.Footer.ColumnOrders)
@@ -897,7 +897,7 @@ func TestPerColumnCompression(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		// Read back and verify
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -948,7 +948,7 @@ func TestPerColumnCompression(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -988,7 +988,7 @@ func TestPerColumnCompression(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1019,7 +1019,7 @@ func TestPerColumnCompression(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1058,7 +1058,7 @@ func TestPerColumnCompression(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1091,7 +1091,7 @@ func TestPerColumnCompression(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1124,7 +1124,7 @@ func TestPerColumnCompression(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1169,7 +1169,7 @@ func TestDataPageVersion(t *testing.T) {
 
 		require.Greater(t, buf.Len(), 0)
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1216,7 +1216,7 @@ func TestDataPageVersion(t *testing.T) {
 
 		require.Greater(t, buf.Len(), 0)
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1252,7 +1252,7 @@ func TestDataPageVersion(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(SimpleStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(SimpleStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1283,7 +1283,7 @@ func TestDataPageVersion(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(ValueStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(ValueStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1314,7 +1314,7 @@ func TestDataPageVersion(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		defer func() { _ = pf.Close() }()
 
-		pr, err := reader.NewParquetReader(pf, new(ValueStruct), 1)
+		pr, err := reader.NewParquetReader(pf, new(ValueStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pr.ReadStopWithError() }()
 
@@ -1352,7 +1352,7 @@ func TestDataPageVersion(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1405,7 +1405,7 @@ func TestDataPageVersion(t *testing.T) {
 		type MyStruct struct {
 			Val any `parquet:"name=val, type=VARIANT, repetitiontype=OPTIONAL"`
 		}
-		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), 1)
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
 		defer func() { _ = pr.ReadStopWithError() }()
@@ -1529,7 +1529,7 @@ func TestBloomFilter(t *testing.T) {
 
 		// Read footer and verify bloom filter metadata
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		require.Len(t, pr.Footer.RowGroups, 1)
@@ -1564,7 +1564,7 @@ func TestBloomFilter(t *testing.T) {
 
 		// Read the bloom filter data and verify it works
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		rg := pr.Footer.RowGroups[0]
@@ -1605,7 +1605,7 @@ func TestBloomFilter(t *testing.T) {
 
 		// Read and verify bloom filter works for dict-encoded column
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		rg := pr.Footer.RowGroups[0]
@@ -1640,7 +1640,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		rg := pr.Footer.RowGroups[0]
@@ -1669,7 +1669,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		rg := pr.Footer.RowGroups[0]
@@ -1713,7 +1713,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), 1)
+		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		require.Greater(t, len(pr.Footer.RowGroups), 1)
@@ -1740,7 +1740,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(NoBloomRecord), 1)
+		pr, err := reader.NewParquetReader(pf, new(NoBloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		for _, col := range pr.Footer.RowGroups[0].Columns {
@@ -1795,8 +1795,8 @@ func TestWriteCRC_RoundTrip(t *testing.T) {
 
 			// Read
 			pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-			pr, err := reader.NewParquetReader(pf, new(testRecord), 1,
-				reader.ParquetReaderOptions{CRCMode: tc.crcMode})
+			pr, err := reader.NewParquetReader(pf, new(testRecord),
+				reader.WithNP(1), reader.WithCRCMode(tc.crcMode))
 			require.NoError(t, err)
 
 			results := make([]testRecord, 10)
@@ -1831,8 +1831,8 @@ func TestWriteCRC_DictEncoding_RoundTrip(t *testing.T) {
 
 	// Read with strict CRC
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	pr, err := reader.NewParquetReader(pf, new(testRecord), 1,
-		reader.ParquetReaderOptions{CRCMode: common.CRCStrict})
+	pr, err := reader.NewParquetReader(pf, new(testRecord),
+		reader.WithNP(1), reader.WithCRCMode(common.CRCStrict))
 	require.NoError(t, err)
 
 	results := make([]testRecord, 20)

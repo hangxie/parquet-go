@@ -123,7 +123,7 @@ func main() {
 		log.Println("Can't create file reader", err)
 		return
 	}
-	pr, err := reader.NewParquetReader(fr, new(TypeList), 10)
+	pr, err := reader.NewParquetReader(fr, new(TypeList), reader.WithNP(10))
 	if err != nil {
 		log.Println("Can't create parquet reader", err)
 		return

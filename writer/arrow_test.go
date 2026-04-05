@@ -276,7 +276,7 @@ func TestWriteArrow_EmptyRecord(t *testing.T) {
 
 	// Verify the file is valid with 0 rows
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	pr, err := reader.NewParquetReader(pf, nil, 1)
+	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 	require.NoError(t, err)
 	require.Equal(t, int64(0), pr.GetNumRows())
 	_ = pr.ReadStopWithError()
@@ -605,7 +605,7 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, 1)
+		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())
@@ -648,7 +648,7 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, 1)
+		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())
@@ -719,7 +719,7 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, 1)
+		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())

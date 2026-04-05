@@ -63,7 +63,7 @@ func main() {
 	}
 	defer fr.Close()
 
-	pr, err := reader.NewParquetReader(fr, nil, 4)
+	pr, err := reader.NewParquetReader(fr, nil, reader.WithNP(4))
 	if err != nil {
 		log.Fatalf("Failed to create parquet reader: %v", err)
 	}
