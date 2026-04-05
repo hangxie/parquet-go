@@ -912,18 +912,34 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 
 	parquetBuffer := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-	// Test with CaseInsensitive option set to true
+	// Test with CaseInsensitive enabled
 	pr, err := NewParquetReader(parquetBuffer, new(Record), WithNP(1), WithCaseInsensitive(true))
 	require.NoError(t, err)
 	require.True(t, pr.caseInsensitive)
 	_ = pr.ReadStopWithError()
 
-	// Test with CaseInsensitive option set to false
+	// Test that WithCaseInsensitive(true) then (false) resets to false
 	parquetBuffer2 := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	pr2, err := NewParquetReader(parquetBuffer2, new(Record), WithNP(1), WithCaseInsensitive(false))
+	pr2, err := NewParquetReader(parquetBuffer2, new(Record), WithNP(1), WithCaseInsensitive(true), WithCaseInsensitive(false))
 	require.NoError(t, err)
 	require.False(t, pr2.caseInsensitive)
 	_ = pr2.ReadStopWithError()
+
+	// Test with CRCMode option
+	parquetBuffer3 := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr3, err := NewParquetReader(parquetBuffer3, new(Record), WithNP(1), WithCRCMode(common.CRCStrict))
+	require.NoError(t, err)
+	require.Equal(t, common.CRCStrict, pr3.crcMode)
+	_ = pr3.ReadStopWithError()
+}
+
+func TestNewParquetReader_DefaultNP(t *testing.T) {
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(parquetBuf)
+	pr, err := NewParquetReader(pf, new(Record))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithError() }()
+
+	require.Equal(t, int64(4), pr.np)
 }
 
 func TestNewParquetReader_OptionValidation(t *testing.T) {

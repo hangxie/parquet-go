@@ -11,15 +11,10 @@ import (
 // NewParquetColumnReader creates a parquet column reader.
 func NewParquetColumnReader(pFile source.ParquetFileReader, opts ...ReaderOption) (*ParquetReader, error) {
 	res := new(ParquetReader)
-	res.np = 4 // default parallel number
 	res.PFile = pFile
 
-	for _, opt := range opts {
-		opt(res)
-	}
-
-	if res.np <= 0 {
-		return nil, fmt.Errorf("WithNP: value must be positive, got %d", res.np)
+	if err := applyReaderDefaults(res, opts); err != nil {
+		return nil, err
 	}
 	if err := res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)

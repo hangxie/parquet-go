@@ -58,21 +58,28 @@ type ParquetReader struct {
 	crcMode         common.CRCMode // CRC validation when reading pages
 }
 
+// applyReaderDefaults sets defaults, applies functional options, and validates them.
+func applyReaderDefaults(pr *ParquetReader, opts []ReaderOption) error {
+	pr.np = 4 // default parallel number
+
+	for _, opt := range opts {
+		opt(pr)
+	}
+
+	if pr.np <= 0 {
+		return fmt.Errorf("WithNP: value must be positive, got %d", pr.np)
+	}
+	return nil
+}
+
 // NewParquetReader creates a parquet reader. obj is an object with schema tags or a JSON schema string.
 func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOption) (*ParquetReader, error) {
 	var err error
 	res := new(ParquetReader)
-	res.np = 4 // default parallel number
 	res.PFile = pFile
 
-	// Apply functional options
-	for _, opt := range opts {
-		opt(res)
-	}
-
-	// Validate options
-	if res.np <= 0 {
-		return nil, fmt.Errorf("WithNP: value must be positive, got %d", res.np)
+	if err = applyReaderDefaults(res, opts); err != nil {
+		return nil, err
 	}
 	if err = res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
