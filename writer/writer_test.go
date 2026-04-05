@@ -553,7 +553,7 @@ func TestParquetWriter(t *testing.T) {
 	t.Run("write_stop_race_condition_on_error", func(t *testing.T) {
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := NewJSONWriter(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=x, type=INT64"}]}`, fw, 4)
+		pw, err := NewJSONWriter(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=x, type=INT64"}]}`, fw)
 		require.NoError(t, err)
 
 		for i := range 10 {
@@ -753,7 +753,7 @@ func TestColumnOrders(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		cw, err := NewCSVWriter(md, fw, 1)
+		cw, err := NewCSVWriter(md, fw, WithNP(1))
 		require.NoError(t, err)
 
 		name := "alice"
@@ -783,7 +783,7 @@ func TestColumnOrders(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		jw, err := NewJSONWriter(jsonSchema, fw, WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, jw.Write(`{"name":"alice","age":30}`))
@@ -850,6 +850,27 @@ func TestNewParquetWriterFromWriter(t *testing.T) {
 			require.NotNil(t, pw)
 		}
 	})
+}
+
+func TestOptionValidation_NoPartialOutput(t *testing.T) {
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	_, err := NewParquetWriter(fw, new(test), WithNP(0))
+	require.Error(t, err)
+	// Invalid option must not produce any output (no PAR1 header written)
+	require.Equal(t, 0, buf.Len())
+}
+
+func TestWrite_NilSchemaHandler(t *testing.T) {
+	var buf bytes.Buffer
+	pw, err := NewParquetWriterFromWriter(&buf, nil, WithNP(1))
+	require.NoError(t, err)
+	require.NotNil(t, pw)
+
+	// Write should return an error, not panic, when SchemaHandler is nil
+	err = pw.Write("some data")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "schema handler not initialized")
 }
 
 func TestPerColumnCompression(t *testing.T) {
@@ -1368,7 +1389,7 @@ func TestDataPageVersion(t *testing.T) {
 		jsonSchema := `{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=val, type=VARIANT, repetitiontype=OPTIONAL"}]}`
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(jsonSchema, fw, 1)
+		jw, err := NewJSONWriter(jsonSchema, fw, WithNP(1))
 		require.NoError(t, err)
 
 		records := []string{

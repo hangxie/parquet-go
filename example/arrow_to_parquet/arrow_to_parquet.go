@@ -64,7 +64,7 @@ func main() {
 	}
 	rec := b.NewRecordBatch()
 
-	w, err := writer.NewArrowWriter(schema, fw, 1)
+	w, err := writer.NewArrowWriter(schema, fw, writer.WithNP(1))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
