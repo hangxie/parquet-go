@@ -926,6 +926,67 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	_ = pr2.ReadStopWithError()
 }
 
+func TestNewParquetReader_OptionValidation(t *testing.T) {
+	tests := []struct {
+		name   string
+		opts   []ReaderOption
+		errMsg string
+	}{
+		{
+			name:   "np_zero",
+			opts:   []ReaderOption{WithNP(0)},
+			errMsg: "WithNP: value must be positive, got 0",
+		},
+		{
+			name:   "np_negative",
+			opts:   []ReaderOption{WithNP(-1)},
+			errMsg: "WithNP: value must be positive, got -1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pf := buffer.NewBufferReaderFromBytesNoAlloc(parquetBuf)
+			pr, err := NewParquetReader(pf, new(Record), tt.opts...)
+			require.Error(t, err)
+			require.Nil(t, pr)
+			require.Contains(t, err.Error(), tt.errMsg)
+		})
+	}
+}
+
+func TestNewParquetColumnReader_OptionValidation(t *testing.T) {
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithError() }()
+
+	tests := []struct {
+		name   string
+		opts   []ReaderOption
+		errMsg string
+	}{
+		{
+			name:   "np_zero",
+			opts:   []ReaderOption{WithNP(0)},
+			errMsg: "WithNP: value must be positive, got 0",
+		},
+		{
+			name:   "np_negative",
+			opts:   []ReaderOption{WithNP(-1)},
+			errMsg: "WithNP: value must be positive, got -1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cr, err := NewParquetColumnReader(pr.PFile, tt.opts...)
+			require.Error(t, err)
+			require.Nil(t, cr)
+			require.Contains(t, err.Error(), tt.errMsg)
+		})
+	}
+}
+
 func TestParquetReader_Reset(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
