@@ -44,12 +44,10 @@ func parquetReader() (*ParquetReader, error) {
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
 		var pw *writer.ParquetWriter
-		pw, err = writer.NewParquetWriter(fw, new(Record), 1)
+		pw, err = writer.NewParquetWriter(fw, new(Record), writer.WithNP(1), writer.WithRowGroupSize(1*1024*1024), writer.WithPageSize(4*1024))
 		if err != nil {
 			return
 		}
-		pw.RowGroupSize = 1 * 1024 * 1024 // 1M
-		pw.PageSize = 4 * 1024            // 4K
 		for i := range numRecord {
 			strVal := strconv.FormatInt(i, 10)
 			err = pw.Write(Record{strVal, strVal, strVal, strVal, i, i, i, i})
@@ -95,7 +93,7 @@ type NestedRecord struct {
 func createNestedParquetData() ([]byte, error) {
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
-	pw, err := writer.NewParquetWriter(fw, new(NestedRecord), 1)
+	pw, err := writer.NewParquetWriter(fw, new(NestedRecord), writer.WithNP(1))
 	if err != nil {
 		return nil, err
 	}
@@ -899,7 +897,7 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	// Create a simple parquet file buffer using the existing pattern
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
-	pw, err := writer.NewParquetWriter(fw, new(Record), 1)
+	pw, err := writer.NewParquetWriter(fw, new(Record), writer.WithNP(1))
 	require.NoError(t, err)
 
 	// Write a few records
@@ -1188,9 +1186,8 @@ func TestNestedListWithEmptyStrings(t *testing.T) {
 			// Write to buffer
 			var buf bytes.Buffer
 			fw := writerfile.NewWriterFile(&buf)
-			pw, err := writer.NewParquetWriter(fw, jsonSchema, 1)
+			pw, err := writer.NewParquetWriter(fw, jsonSchema, writer.WithNP(1), writer.WithCompressionType(parquet.CompressionCodec_UNCOMPRESSED))
 			require.NoError(t, err)
-			pw.CompressionType = parquet.CompressionCodec_UNCOMPRESSED
 
 			for _, rec := range tc.records {
 				err = pw.Write(rec)
@@ -1228,7 +1225,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 
 		for i := range 100 {
@@ -1265,7 +1262,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 
 		// Write specific values
@@ -1301,7 +1298,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pw.Write(BloomRecord{ID: 42, Name: "test"}))
 		require.NoError(t, pw.WriteStop())
@@ -1324,7 +1321,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
 		require.NoError(t, pw.WriteStop())
@@ -1350,7 +1347,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
 		require.NoError(t, pw.WriteStop())
@@ -1373,7 +1370,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 
 		for i := range 50 {
@@ -1409,10 +1406,8 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1), writer.WithRowGroupSize(256), writer.WithPageSize(64))
 		require.NoError(t, err)
-		pw.RowGroupSize = 256
-		pw.PageSize = 64
 
 		for i := range 1000 {
 			require.NoError(t, pw.Write(BloomRecord{
@@ -1450,7 +1445,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
 		require.NoError(t, pw.WriteStop())
@@ -1473,7 +1468,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
 		require.NoError(t, pw.WriteStop())
@@ -1497,7 +1492,7 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
 		require.NoError(t, pw.WriteStop())
@@ -1636,7 +1631,7 @@ func TestDetectBloomFilters(t *testing.T) {
 		}
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), 1)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 		require.NoError(t, pw.Write(BloomRecord{Name: "test"}))
 		require.NoError(t, pw.WriteStop())

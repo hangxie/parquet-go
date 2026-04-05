@@ -32,10 +32,10 @@ func readColumnIndex(pf source.ParquetFileReader, offset int64) (*parquet.Column
 }
 
 // Helper function to create a parquet writer with buffer for testing
-func createTestParquetWriter(schema any, parallelNumber int64) (*ParquetWriter, *bytes.Buffer, error) {
+func createTestParquetWriter(schema any, opts ...WriterOption) (*ParquetWriter, *bytes.Buffer, error) {
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
-	pw, err := NewParquetWriter(fw, schema, parallelNumber)
+	pw, err := NewParquetWriter(fw, schema, opts...)
 	return pw, &buf, err
 }
 
@@ -70,7 +70,7 @@ func TestColumnIndex(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := NewParquetWriter(fw, new(Entry), 1)
+		pw, err := NewParquetWriter(fw, new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		entries := []Entry{
@@ -126,7 +126,7 @@ func TestColumnIndex(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := NewParquetWriter(fw, new(Entry), 1)
+		pw, err := NewParquetWriter(fw, new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		entries := []Entry{
@@ -176,7 +176,7 @@ func TestColumnIndex(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := NewParquetWriter(fw, new(Entry), 1)
+		pw, err := NewParquetWriter(fw, new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		entries := []Entry{
@@ -219,7 +219,7 @@ func TestColumnIndex(t *testing.T) {
 			X *int64 `parquet:"name=x, type=INT64"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		entries := []Entry{
@@ -259,7 +259,7 @@ func TestColumnIndex(t *testing.T) {
 			X int64 `parquet:"name=x, type=INT64"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(Entry{X: 42}))
@@ -291,7 +291,7 @@ func TestSizeStatistics(t *testing.T) {
 			S string `parquet:"name=s, type=BYTE_ARRAY, convertedtype=UTF8"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(Entry{S: "ab"}))
@@ -319,7 +319,7 @@ func TestSizeStatistics(t *testing.T) {
 			X int64 `parquet:"name=x, type=INT64"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(Entry{X: 42}))
@@ -341,7 +341,7 @@ func TestSizeStatistics(t *testing.T) {
 			X *int64 `parquet:"name=x, type=INT64"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(Entry{X: common.ToPtr(int64(42))}))
@@ -368,7 +368,7 @@ func TestSizeStatistics(t *testing.T) {
 			X *int64 `parquet:"name=x, type=INT64"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(Entry{X: common.ToPtr(int64(1))}))
@@ -397,7 +397,7 @@ func TestSizeStatistics(t *testing.T) {
 			X int64 `parquet:"name=x, type=INT64"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(Entry{X: 42}))
@@ -421,7 +421,7 @@ func TestSizeStatistics(t *testing.T) {
 			S *string `parquet:"name=s, type=BYTE_ARRAY, convertedtype=UTF8"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		s1, s2 := "hello", "go"
@@ -450,7 +450,7 @@ func TestSizeStatistics(t *testing.T) {
 
 func TestParquetWriter(t *testing.T) {
 	t.Run("double_write_stop", func(t *testing.T) {
-		pw, buf, err := createTestParquetWriter(new(test), 1)
+		pw, buf, err := createTestParquetWriter(new(test), WithNP(1))
 		require.NoError(t, err)
 
 		testData := []test{
@@ -489,7 +489,7 @@ func TestParquetWriter(t *testing.T) {
 	t.Run("set_schema_handler_from_json_valid", func(t *testing.T) {
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := NewParquetWriter(fw, new(struct{}), 1)
+		pw, err := NewParquetWriter(fw, new(struct{}), WithNP(1))
 		require.NoError(t, err)
 
 		jsonSchema := `{
@@ -507,10 +507,32 @@ func TestParquetWriter(t *testing.T) {
 		require.Greater(t, len(pw.Footer.Schema), 0)
 	})
 
+	t.Run("set_schema_handler_from_json_resets_state", func(t *testing.T) {
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(struct{}), WithNP(1))
+		require.NoError(t, err)
+
+		// Simulate that encoding validation has already run
+		pw.encodingsValidated = true
+
+		jsonSchema := `{
+			"Tag": "name=parquet-go-root",
+			"Fields": [
+				{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"}
+			]
+		}`
+		err = pw.SetSchemaHandlerFromJSON(jsonSchema)
+		require.NoError(t, err)
+
+		// encodingsValidated must be reset so the new schema gets validated on next Write
+		require.False(t, pw.encodingsValidated)
+	})
+
 	t.Run("set_schema_handler_from_json_invalid", func(t *testing.T) {
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := NewParquetWriter(fw, new(struct{}), 1)
+		pw, err := NewParquetWriter(fw, new(struct{}), WithNP(1))
 		require.NoError(t, err)
 
 		invalidJSON := `{"invalid": json}`
@@ -521,7 +543,7 @@ func TestParquetWriter(t *testing.T) {
 	t.Run("set_schema_handler_from_json_empty", func(t *testing.T) {
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := NewParquetWriter(fw, new(struct{}), 1)
+		pw, err := NewParquetWriter(fw, new(struct{}), WithNP(1))
 		require.NoError(t, err)
 
 		err = pw.SetSchemaHandlerFromJSON("")
@@ -547,7 +569,7 @@ func TestParquetWriter(t *testing.T) {
 			ColB string `parquet:"name=col_b, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestSchema), 1)
+		pw, buf, err := createTestParquetWriter(new(TestSchema), WithNP(1))
 		require.NoError(t, err)
 
 		err = pw.WriteStop()
@@ -560,12 +582,12 @@ func TestParquetWriter(t *testing.T) {
 		}()
 
 		require.Equal(t, int64(0), pr.GetNumRows())
-		require.Equal(t, int32(2), pr.Footer.Version)
-		require.Equal(t, "github.com/hangxie/parquet-go v2 latest", *pr.Footer.CreatedBy)
+		require.Equal(t, int32(1), pr.Footer.Version)
+		require.Equal(t, "github.com/hangxie/parquet-go/v3", *pr.Footer.CreatedBy)
 	})
 
 	t.Run("invalid_file", func(t *testing.T) {
-		pw, err := NewParquetWriter(&invalidFileWriter{}, new(test), 1)
+		pw, err := NewParquetWriter(&invalidFileWriter{}, new(test), WithNP(1))
 		require.Nil(t, pw)
 		require.ErrorIs(t, err, errWrite)
 	})
@@ -600,9 +622,46 @@ func TestNewParquetWriter_SchemaVariants(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
 			fw := writerfile.NewWriterFile(&buf)
-			pw, err := NewParquetWriter(fw, tt.obj, 1)
+			pw, err := NewParquetWriter(fw, tt.obj, WithNP(1))
 			if tt.wantErr {
 				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, pw)
+			}
+		})
+	}
+}
+
+func TestOptionValidation(t *testing.T) {
+	type S struct {
+		ID int32 `parquet:"name=id, type=INT32"`
+	}
+
+	tests := map[string]struct {
+		opts   []WriterOption
+		errMsg string
+	}{
+		"np_zero":              {[]WriterOption{WithNP(0)}, "WithNP: value must be positive"},
+		"np_negative":          {[]WriterOption{WithNP(-1)}, "WithNP: value must be positive"},
+		"page_size_zero":       {[]WriterOption{WithPageSize(0)}, "WithPageSize: value must be positive"},
+		"page_size_negative":   {[]WriterOption{WithPageSize(-100)}, "WithPageSize: value must be positive"},
+		"row_group_size_zero":  {[]WriterOption{WithRowGroupSize(0)}, "WithRowGroupSize: value must be positive"},
+		"data_page_version_0":  {[]WriterOption{WithDataPageVersion(0)}, "WithDataPageVersion: value must be 1 or 2"},
+		"data_page_version_3":  {[]WriterOption{WithDataPageVersion(3)}, "WithDataPageVersion: value must be 1 or 2"},
+		"data_page_version_-1": {[]WriterOption{WithDataPageVersion(-1)}, "WithDataPageVersion: value must be 1 or 2"},
+		"valid_defaults":       {nil, ""},
+		"valid_custom":         {[]WriterOption{WithNP(2), WithPageSize(4096), WithRowGroupSize(1024), WithDataPageVersion(2)}, ""},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			fw := writerfile.NewWriterFile(&buf)
+			pw, err := NewParquetWriter(fw, new(S), tt.opts...)
+			if tt.errMsg != "" {
+				require.Nil(t, pw)
+				require.ErrorContains(t, err, tt.errMsg)
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, pw)
@@ -619,7 +678,7 @@ func TestColumnOrders(t *testing.T) {
 			Score int64  `parquet:"name=score, type=INT64"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(Entry{Name: "alice", Age: 30, Score: 100}))
@@ -644,7 +703,7 @@ func TestColumnOrders(t *testing.T) {
 			Y string `parquet:"name=y, type=BYTE_ARRAY, convertedtype=UTF8"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), 1)
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.WriteStop())
@@ -669,7 +728,7 @@ func TestColumnOrders(t *testing.T) {
 			Inner Inner  `parquet:"name=inner"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Outer), 1)
+		pw, buf, err := createTestParquetWriter(new(Outer), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(Outer{Name: "test", Inner: Inner{A: 1, B: 2}}))
@@ -747,7 +806,7 @@ func TestWrite_AfterStop(t *testing.T) {
 		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 	}
 
-	pw, _, err := createTestParquetWriter(new(SimpleStruct), 1)
+	pw, _, err := createTestParquetWriter(new(SimpleStruct), WithNP(1))
 	require.NoError(t, err)
 
 	require.NoError(t, pw.Write(SimpleStruct{Name: "test"}))
@@ -767,7 +826,7 @@ func TestNewParquetWriterFromWriter(t *testing.T) {
 
 	t.Run("successful_creation", func(t *testing.T) {
 		var buf bytes.Buffer
-		pw, err := NewParquetWriterFromWriter(&buf, new(TestStruct), 1)
+		pw, err := NewParquetWriterFromWriter(&buf, new(TestStruct), WithNP(1))
 		require.NoError(t, err)
 		require.NotNil(t, pw)
 
@@ -783,7 +842,7 @@ func TestNewParquetWriterFromWriter(t *testing.T) {
 
 	t.Run("invalid_object", func(t *testing.T) {
 		var buf bytes.Buffer
-		pw, err := NewParquetWriterFromWriter(&buf, nil, 1)
+		pw, err := NewParquetWriterFromWriter(&buf, nil, WithNP(1))
 		if err != nil {
 			require.Error(t, err)
 			require.Nil(t, pw)
@@ -802,11 +861,8 @@ func TestPerColumnCompression(t *testing.T) {
 			Score int64  `parquet:"name=score, type=INT64"` // No compression specified - should use file default
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_ZSTD))
 		require.NoError(t, err)
-
-		// Set file-level compression to ZSTD
-		pw.CompressionType = parquet.CompressionCodec_ZSTD
 
 		testData := []TestStruct{
 			{Name: "Alice", Age: 25, Score: 100},
@@ -856,11 +912,8 @@ func TestPerColumnCompression(t *testing.T) {
 			Value    int32  `parquet:"name=value, type=INT32, compression=SNAPPY"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(DictStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(DictStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_ZSTD))
 		require.NoError(t, err)
-
-		// Set file-level compression to ZSTD
-		pw.CompressionType = parquet.CompressionCodec_ZSTD
 
 		testData := []DictStruct{
 			{Category: "A", Value: 1},
@@ -901,10 +954,8 @@ func TestPerColumnCompression(t *testing.T) {
 			Age  int32  `parquet:"name=age, type=INT32"` // Should use file default
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_SNAPPY))
 		require.NoError(t, err)
-
-		pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 		testData := []TestStruct{
 			{Name: "Alice", Age: 25},
@@ -934,11 +985,8 @@ func TestPerColumnCompression(t *testing.T) {
 			ColC int64  `parquet:"name=col_c, type=INT64"`                          // No compression tag
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_GZIP))
 		require.NoError(t, err)
-
-		// Set file-level compression to GZIP
-		pw.CompressionType = parquet.CompressionCodec_GZIP
 
 		testData := []TestStruct{
 			{ColA: "test1", ColB: 1, ColC: 100},
@@ -976,11 +1024,8 @@ func TestPerColumnCompression(t *testing.T) {
 			Data map[string]int32 `parquet:"name=data, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, keycompression=GZIP, valuetype=INT32, valuecompression=ZSTD"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_SNAPPY))
 		require.NoError(t, err)
-
-		// Set file-level compression to SNAPPY
-		pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 		testData := []TestStruct{
 			{Data: map[string]int32{"a": 1, "b": 2}},
@@ -1012,11 +1057,8 @@ func TestPerColumnCompression(t *testing.T) {
 			Items []string `parquet:"name=items, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8, valuecompression=GZIP"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_SNAPPY))
 		require.NoError(t, err)
-
-		// Set file-level compression to SNAPPY
-		pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 		testData := []TestStruct{
 			{Items: []string{"a", "b", "c"}},
@@ -1048,7 +1090,7 @@ func TestPerColumnCompression(t *testing.T) {
 			ColD string `parquet:"name=col_d, type=BYTE_ARRAY, convertedtype=UTF8, compression=LZ4_RAW"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1))
 		require.NoError(t, err)
 
 		testData := []TestStruct{
@@ -1089,10 +1131,8 @@ func TestDataPageVersion(t *testing.T) {
 	}
 
 	t.Run("v2_basic", func(t *testing.T) {
-		pw, buf, err := createTestParquetWriter(new(TestStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithDataPageVersion(2))
 		require.NoError(t, err)
-
-		pw.DataPageVersion = 2
 
 		testData := []TestStruct{
 			{Name: "Alice", Age: 25, Score: common.ToPtr(int64(100))},
@@ -1136,10 +1176,8 @@ func TestDataPageVersion(t *testing.T) {
 			Value    int32  `parquet:"name=value, type=INT32"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(DictStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(DictStruct), WithNP(1), WithDataPageVersion(2))
 		require.NoError(t, err)
-
-		pw.DataPageVersion = 2
 
 		testData := []DictStruct{
 			{Category: "A", Value: 1},
@@ -1178,10 +1216,10 @@ func TestDataPageVersion(t *testing.T) {
 			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(SimpleStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(SimpleStruct), WithNP(1))
 		require.NoError(t, err)
 
-		require.Equal(t, int32(1), pw.DataPageVersion)
+		require.Equal(t, int32(1), pw.dataPageVersion)
 
 		testData := []SimpleStruct{
 			{Name: "Test1"},
@@ -1206,12 +1244,12 @@ func TestDataPageVersion(t *testing.T) {
 			Value int32 `parquet:"name=value, type=INT32"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(ValueStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(ValueStruct), WithNP(1))
 		require.NoError(t, err)
 
-		require.Equal(t, int32(1), pw.DataPageVersion)
+		require.Equal(t, int32(1), pw.dataPageVersion)
 
-		pw.DataPageVersion = 2
+		pw.dataPageVersion = 2
 
 		testData := []ValueStruct{
 			{Value: 1},
@@ -1244,10 +1282,8 @@ func TestDataPageVersion(t *testing.T) {
 			Value int32 `parquet:"name=value, type=INT32"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(ValueStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(ValueStruct), WithNP(1), WithDataPageVersion(2))
 		require.NoError(t, err)
-
-		pw.DataPageVersion = 2
 
 		for i := 0; i < 100; i++ {
 			require.NoError(t, pw.Write(ValueStruct{Value: int32(i)}))
@@ -1280,7 +1316,7 @@ func TestDataPageVersion(t *testing.T) {
 			Val any `parquet:"name=val, type=VARIANT, repetitiontype=OPTIONAL"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(MyStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(MyStruct), WithNP(1))
 		require.NoError(t, err)
 
 		records := []MyStruct{
@@ -1369,10 +1405,8 @@ func TestDataPageVersion(t *testing.T) {
 		type PlainDictStruct struct {
 			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=PLAIN_DICTIONARY"`
 		}
-		pw, _, err := createTestParquetWriter(new(PlainDictStruct), 1)
+		pw, _, err := createTestParquetWriter(new(PlainDictStruct), WithNP(1), WithDataPageVersion(2))
 		require.NoError(t, err)
-
-		pw.DataPageVersion = 2
 
 		err = pw.Write(PlainDictStruct{Field: "test"})
 		require.Error(t, err)
@@ -1384,11 +1418,11 @@ func TestDataPageVersion(t *testing.T) {
 		type DeltaStruct struct {
 			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
 		}
-		pw, _, err := createTestParquetWriter(new(DeltaStruct), 1)
+		pw, _, err := createTestParquetWriter(new(DeltaStruct), WithNP(1))
 		require.NoError(t, err)
 
 		// Default is v1
-		require.Equal(t, int32(1), pw.DataPageVersion)
+		require.Equal(t, int32(1), pw.dataPageVersion)
 
 		err = pw.Write(DeltaStruct{Field: "test"})
 		require.Error(t, err)
@@ -1400,7 +1434,7 @@ func TestDataPageVersion(t *testing.T) {
 		type DeltaIntStruct struct {
 			Value int32 `parquet:"name=value, type=INT32, encoding=DELTA_BINARY_PACKED"`
 		}
-		pw, _, err := createTestParquetWriter(new(DeltaIntStruct), 1)
+		pw, _, err := createTestParquetWriter(new(DeltaIntStruct), WithNP(1))
 		require.NoError(t, err)
 
 		// Default is v1
@@ -1414,7 +1448,7 @@ func TestDataPageVersion(t *testing.T) {
 		type SimpleStruct struct {
 			Value int32 `parquet:"name=value, type=INT32"`
 		}
-		pw, buf, err := createTestParquetWriter(new(SimpleStruct), 1)
+		pw, buf, err := createTestParquetWriter(new(SimpleStruct), WithNP(1))
 		require.NoError(t, err)
 
 		// Write multiple records - validation should only happen on first write
@@ -1464,7 +1498,7 @@ func TestBloomFilter(t *testing.T) {
 			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 
 		for i := range 100 {
@@ -1499,7 +1533,7 @@ func TestBloomFilter(t *testing.T) {
 			ID int64 `parquet:"name=id, type=INT64, bloomfilter=true"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 
 		for i := range 50 {
@@ -1539,7 +1573,7 @@ func TestBloomFilter(t *testing.T) {
 			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY, bloomfilter=true"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 
 		names := []string{"alice", "bob", "charlie", "alice", "bob"}
@@ -1578,7 +1612,7 @@ func TestBloomFilter(t *testing.T) {
 			ID int64 `parquet:"name=id, type=INT64, bloomfilter=true, bloomfiltersize=2048"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
@@ -1603,7 +1637,7 @@ func TestBloomFilter(t *testing.T) {
 			ID *int64 `parquet:"name=id, type=INT64, repetitiontype=OPTIONAL, bloomfilter=true"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
 
 		v1 := int64(100)
@@ -1645,10 +1679,8 @@ func TestBloomFilter(t *testing.T) {
 			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(BloomRecord), 1)
+		pw, buf, err := createTestParquetWriter(new(BloomRecord), WithNP(1), WithRowGroupSize(256), WithPageSize(64))
 		require.NoError(t, err)
-		pw.RowGroupSize = 256 // force small row groups
-		pw.PageSize = 64      // smaller pages to trigger flushes
 
 		// Write enough data to force multiple row groups
 		for i := range 1000 {
@@ -1680,7 +1712,7 @@ func TestBloomFilter(t *testing.T) {
 			Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(NoBloomRecord), 1)
+		pw, buf, err := createTestParquetWriter(new(NoBloomRecord), WithNP(1))
 		require.NoError(t, err)
 
 		require.NoError(t, pw.Write(NoBloomRecord{ID: 1, Name: "test"}))
@@ -1729,9 +1761,8 @@ func TestWriteCRC_RoundTrip(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Write
-			pw, buf, err := createTestParquetWriter(new(testRecord), 1)
+			pw, buf, err := createTestParquetWriter(new(testRecord), WithNP(1), WithWriteCRC(tc.writeCRC))
 			require.NoError(t, err)
-			pw.WriteCRC = tc.writeCRC
 
 			for i := range 10 {
 				require.NoError(t, pw.Write(testRecord{
@@ -1767,9 +1798,8 @@ func TestWriteCRC_DictEncoding_RoundTrip(t *testing.T) {
 	}
 
 	// Write with CRC
-	pw, buf, err := createTestParquetWriter(new(testRecord), 1)
+	pw, buf, err := createTestParquetWriter(new(testRecord), WithNP(1), WithWriteCRC(true))
 	require.NoError(t, err)
-	pw.WriteCRC = true
 
 	for i := range 20 {
 		require.NoError(t, pw.Write(testRecord{

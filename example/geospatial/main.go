@@ -34,11 +34,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw, err := writer.NewParquetWriter(fw, new(Row), 1)
+	pw, err := writer.NewParquetWriter(fw, new(Row),
+		writer.WithNP(1),
+		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	rows := []Row{
 		{Geom: wkbPoint(1, 2), Geog: wkbLineString([][2]float64{{-122.4, 37.8}, {-122.41, 37.81}}), GeomType: "Point"},

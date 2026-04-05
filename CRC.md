@@ -40,8 +40,7 @@ polynomial) over the compressed page data and sets `PageHeader.Crc`
 before serialization. The default is `false` (no CRC written).
 
 ```go
-pw, _ := writer.NewParquetWriter(pFile, obj, np)
-pw.WriteCRC = true
+pw, _ := writer.NewParquetWriter(pFile, obj, writer.WithWriteCRC(true))
 ```
 
 CRC is computed on all page types: data pages (v1 and v2),

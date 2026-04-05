@@ -46,7 +46,7 @@ func main() {
 		},
 	}
 
-	pw, err := writer.NewParquetWriter(fw, new(Record), 1)
+	pw, err := writer.NewParquetWriter(fw, new(Record), writer.WithNP(1))
 	if err != nil {
 		log.Fatal(err)
 	}

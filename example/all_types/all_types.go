@@ -187,15 +187,15 @@ func main() {
 	//   types.WithGeospatialCoordinatePrecision(6),
 	// )
 
-	pw, err := writer.NewParquetWriter(fw, new(AllTypes), 4)
+	pw, err := writer.NewParquetWriter(fw, new(AllTypes),
+		writer.WithRowGroupSize(128*1024*1024),
+		writer.WithPageSize(8*1024),
+		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+	)
 	if err != nil {
 		fmt.Println("Can't create parquet writer", err)
 		return
 	}
-
-	pw.RowGroupSize = 128 * 1024 * 1024
-	pw.PageSize = 8 * 1024
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	decimals := []int32{0, 1, 22, 333, 4444, 0, -1, -22, -333, -4444}
 	for i := range 10 {
 		ts, _ := time.Parse("2006-01-02T15:04:05.000000Z", fmt.Sprintf("2022-01-01T%02d:%02d:%02d.%03d%03dZ", i, i, i, i, i))

@@ -32,7 +32,7 @@ func main() {
 		log.Fatalf("Failed to create local file writer: %v", err)
 	}
 
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student))
 	if err != nil {
 		log.Fatalf("Failed to create parquet writer: %v", err)
 	}

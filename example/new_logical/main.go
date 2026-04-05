@@ -34,11 +34,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw, err := writer.NewParquetWriter(fw, new(Row), 1)
+	pw, err := writer.NewParquetWriter(fw, new(Row),
+		writer.WithNP(1),
+		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	// 3 sample rows
 	rows := []Row{

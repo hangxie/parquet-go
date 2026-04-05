@@ -44,14 +44,11 @@ func writeDataPageV2(filename string) error {
 		return fmt.Errorf("create file writer: %w", err)
 	}
 
-	// Create parquet writer
-	pw, err := writer.NewParquetWriter(fw, new(User), 4)
+	// Create parquet writer with Data Page V2
+	pw, err := writer.NewParquetWriter(fw, new(User), writer.WithDataPageVersion(2))
 	if err != nil {
 		return fmt.Errorf("create parquet writer: %w", err)
 	}
-
-	// Set data page version to 2 (default is 1)
-	pw.DataPageVersion = 2
 
 	fmt.Println("Writing parquet file with Data Page V2...")
 

@@ -20,84 +20,138 @@ import (
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
+// WriterOption configures a ParquetWriter.
+type WriterOption func(*ParquetWriter)
+
+// WithNP sets the number of goroutines for parallel processing. Default is 4.
+func WithNP(np int64) WriterOption {
+	return func(pw *ParquetWriter) { pw.np = np }
+}
+
+// WithPageSize sets the page size in bytes. Default is 8KB.
+func WithPageSize(size int64) WriterOption {
+	return func(pw *ParquetWriter) { pw.pageSize = size }
+}
+
+// WithRowGroupSize sets the row group size in bytes. Default is 128MB.
+func WithRowGroupSize(size int64) WriterOption {
+	return func(pw *ParquetWriter) { pw.rowGroupSize = size }
+}
+
+// WithCompressionType sets the compression codec. Default is SNAPPY.
+func WithCompressionType(ct parquet.CompressionCodec) WriterOption {
+	return func(pw *ParquetWriter) { pw.compressionType = ct }
+}
+
+// WithDataPageVersion sets the data page version (1 or 2). Default is 1.
+func WithDataPageVersion(v int32) WriterOption {
+	return func(pw *ParquetWriter) { pw.dataPageVersion = v }
+}
+
+// WithWriteCRC enables or disables CRC32 page checksums. Default is false.
+func WithWriteCRC(enabled bool) WriterOption {
+	return func(pw *ParquetWriter) { pw.writeCRC = enabled }
+}
+
 // ParquetWriter is a writer  parquet file
 type ParquetWriter struct {
 	SchemaHandler *schema.SchemaHandler
-	NP            int64 // parallel number
 	Footer        *parquet.FileMetaData
 	PFile         source.ParquetFileWriter
 
-	PageSize        int64
-	RowGroupSize    int64
-	CompressionType parquet.CompressionCodec
-	DataPageVersion int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
-	WriteCRC        bool  // compute and write CRC32 checksums on pages (default false)
-	Offset          int64
+	np              int64 // parallel number
+	pageSize        int64
+	rowGroupSize    int64
+	compressionType parquet.CompressionCodec
+	dataPageVersion int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
+	writeCRC        bool  // compute and write CRC32 checksums on pages (default false)
+	offset          int64
 
-	Objs              []any
-	ObjsSize          int64
-	ObjSize           int64
-	CheckSizeCritical int64
+	objs              []any
+	objsSize          int64
+	objSize           int64
+	checkSizeCritical int64
 
-	PagesMapBuf map[string][]*layout.Page
-	Size        int64
-	NumRows     int64
+	pagesMapBuf map[string][]*layout.Page
+	size        int64
+	numRows     int64
 
 	// DictRecs stores dictionary recorders per column path
 	// key: path string, value: *layout.DictRecType
 	DictRecs sync.Map
 
-	ColumnIndexes []*parquet.ColumnIndex
-	OffsetIndexes []*parquet.OffsetIndex
+	columnIndexes []*parquet.ColumnIndex
+	offsetIndexes []*parquet.OffsetIndex
 
-	// BloomFilters holds the active bloom filters being built for the current row group.
+	// bloomFilters holds the active bloom filters being built for the current row group.
 	// Key is the column path string (e.g. common.ParGoRootInName + "\x01Name").
-	BloomFilters map[string]*bloomfilter.Filter
-	// BloomFilterData holds serialized (header+bitset) per column chunk, parallel to ColumnIndexes/OffsetIndexes.
-	BloomFilterData [][]byte
+	bloomFilters map[string]*bloomfilter.Filter
+	// bloomFilterData holds serialized (header+bitset) per column chunk, parallel to ColumnIndexes/OffsetIndexes.
+	bloomFilterData [][]byte
 
-	MarshalFunc func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error)
+	marshalFunc func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error)
 
 	stopped            bool
 	encodingsValidated bool // tracks if encoding/version validation has been done
 }
 
-func NewParquetWriterFromWriter(w io.Writer, obj any, np int64) (*ParquetWriter, error) {
+// NewParquetWriterFromWriter creates a ParquetWriter from an io.Writer.
+func NewParquetWriterFromWriter(w io.Writer, obj any, opts ...WriterOption) (*ParquetWriter, error) {
 	wf := writerfile.NewWriterFile(w)
-	return NewParquetWriter(wf, obj, np)
+	return NewParquetWriter(wf, obj, opts...)
 }
 
-// Create a parquet handler. Obj is a object with tags or JSON schema string.
-func NewParquetWriter(pFile source.ParquetFileWriter, obj any, np int64) (*ParquetWriter, error) {
+// NewParquetWriter creates a parquet handler. Obj is a object with tags or JSON schema string.
+func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error) {
 	var err error
 
 	res := new(ParquetWriter)
-	res.NP = np
-	res.PageSize = common.DefaultPageSize         // 8K
-	res.RowGroupSize = common.DefaultRowGroupSize // 128M
-	res.CompressionType = parquet.CompressionCodec_SNAPPY
-	res.DataPageVersion = 1 // default to DATA_PAGE (V1)
-	res.ObjsSize = 0
-	res.CheckSizeCritical = 0
-	res.Size = 0
-	res.NumRows = 0
-	res.Offset = 4
+	res.np = 4                                    // default parallel number
+	res.pageSize = common.DefaultPageSize         // 8K
+	res.rowGroupSize = common.DefaultRowGroupSize // 128M
+	res.compressionType = parquet.CompressionCodec_SNAPPY
+	res.dataPageVersion = 1 // default to DATA_PAGE (V1)
+	res.objsSize = 0
+	res.checkSizeCritical = 0
+	res.size = 0
+	res.numRows = 0
+	res.offset = 4
 	res.PFile = pFile
-	res.PagesMapBuf = make(map[string][]*layout.Page)
+	res.pagesMapBuf = make(map[string][]*layout.Page)
 	// DictRecs sync.Map zero value is ready to use
 	res.Footer = parquet.NewFileMetaData()
-	res.Footer.Version = 2
-	res.ColumnIndexes = make([]*parquet.ColumnIndex, 0)
-	res.OffsetIndexes = make([]*parquet.OffsetIndex, 0)
+	res.Footer.Version = 1
+	res.columnIndexes = make([]*parquet.ColumnIndex, 0)
+	res.offsetIndexes = make([]*parquet.OffsetIndex, 0)
 	// include the createdBy to avoid
 	// WARN  CorruptStatistics:118 - Ignoring statistics because created_by is null or empty! See PARQUET-251 and PARQUET-297
-	res.Footer.CreatedBy = common.ToPtr("github.com/hangxie/parquet-go v2 latest")
+	res.Footer.CreatedBy = common.ToPtr("github.com/hangxie/parquet-go/v3")
+	res.marshalFunc = marshal.Marshal
+	res.stopped = true
+
+	// Apply functional options
+	for _, opt := range opts {
+		opt(res)
+	}
+
+	// Validate options
+	if res.np <= 0 {
+		return nil, fmt.Errorf("WithNP: value must be positive, got %d", res.np)
+	}
+	if res.pageSize <= 0 {
+		return nil, fmt.Errorf("WithPageSize: value must be positive, got %d", res.pageSize)
+	}
+	if res.rowGroupSize <= 0 {
+		return nil, fmt.Errorf("WithRowGroupSize: value must be positive, got %d", res.rowGroupSize)
+	}
+	if res.dataPageVersion != 1 && res.dataPageVersion != 2 {
+		return nil, fmt.Errorf("WithDataPageVersion: value must be 1 or 2, got %d", res.dataPageVersion)
+	}
+
 	_, err = res.PFile.Write([]byte("PAR1"))
 	if err != nil {
 		return nil, fmt.Errorf("write magic header: %w", err)
 	}
-	res.MarshalFunc = marshal.Marshal
-	res.stopped = true
 
 	if obj != nil {
 		if sa, ok := obj.(string); ok {
@@ -136,6 +190,8 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	}
 	pw.Footer.Schema = pw.Footer.Schema[:0]
 	pw.Footer.Schema = append(pw.Footer.Schema, pw.SchemaHandler.SchemaElements...)
+	pw.initBloomFilters()
+	pw.encodingsValidated = false
 	return nil
 }
 
@@ -170,11 +226,11 @@ func (pw *ParquetWriter) WriteStop() error {
 	pw.RenameSchema()
 
 	// write ColumnIndex
-	if len(pw.ColumnIndexes) > 0 {
+	if len(pw.columnIndexes) > 0 {
 		idx := 0
 		for _, rowGroup := range pw.Footer.RowGroups {
 			for _, columnChunk := range rowGroup.Columns {
-				columnIndexBuf, err := ts.Write(context.TODO(), pw.ColumnIndexes[idx])
+				columnIndexBuf, err := ts.Write(context.TODO(), pw.columnIndexes[idx])
 				if err != nil {
 					return fmt.Errorf("serialize column index: %w", err)
 				}
@@ -184,22 +240,22 @@ func (pw *ParquetWriter) WriteStop() error {
 
 				idx++
 
-				pos := pw.Offset
+				pos := pw.offset
 				columnChunk.ColumnIndexOffset = &pos
 				columnIndexBufSize := int32(len(columnIndexBuf))
 				columnChunk.ColumnIndexLength = &columnIndexBufSize
 
-				pw.Offset += int64(columnIndexBufSize)
+				pw.offset += int64(columnIndexBufSize)
 			}
 		}
 	}
 
 	// write OffsetIndex
-	if len(pw.OffsetIndexes) > 0 {
+	if len(pw.offsetIndexes) > 0 {
 		idx := 0
 		for _, rowGroup := range pw.Footer.RowGroups {
 			for _, columnChunk := range rowGroup.Columns {
-				offsetIndexBuf, err := ts.Write(context.TODO(), pw.OffsetIndexes[idx])
+				offsetIndexBuf, err := ts.Write(context.TODO(), pw.offsetIndexes[idx])
 				if err != nil {
 					return fmt.Errorf("serialize offset index: %w", err)
 				}
@@ -209,22 +265,22 @@ func (pw *ParquetWriter) WriteStop() error {
 
 				idx++
 
-				pos := pw.Offset
+				pos := pw.offset
 				columnChunk.OffsetIndexOffset = &pos
 				offsetIndexBufSize := int32(len(offsetIndexBuf))
 				columnChunk.OffsetIndexLength = &offsetIndexBufSize
 
-				pw.Offset += int64(offsetIndexBufSize)
+				pw.offset += int64(offsetIndexBufSize)
 			}
 		}
 	}
 
 	// write BloomFilter
-	if len(pw.BloomFilterData) > 0 {
+	if len(pw.bloomFilterData) > 0 {
 		idx := 0
 		for _, rowGroup := range pw.Footer.RowGroups {
 			for _, columnChunk := range rowGroup.Columns {
-				data := pw.BloomFilterData[idx]
+				data := pw.bloomFilterData[idx]
 				idx++
 				if data == nil {
 					continue
@@ -232,11 +288,11 @@ func (pw *ParquetWriter) WriteStop() error {
 				if _, err = pw.PFile.Write(data); err != nil {
 					return fmt.Errorf("write bloom filter: %w", err)
 				}
-				pos := pw.Offset
+				pos := pw.offset
 				columnChunk.MetaData.BloomFilterOffset = &pos
 				totalLen := int32(len(data))
 				columnChunk.MetaData.BloomFilterLength = &totalLen
-				pw.Offset += int64(totalLen)
+				pw.offset += int64(totalLen)
 			}
 		}
 	}
@@ -282,14 +338,14 @@ func (pw *ParquetWriter) Write(src any) error {
 
 	// Validate encodings are compatible with data page version (once per writer)
 	if !pw.encodingsValidated {
-		if err := pw.SchemaHandler.ValidateEncodingsForDataPageVersion(pw.DataPageVersion); err != nil {
+		if err := pw.SchemaHandler.ValidateEncodingsForDataPageVersion(pw.dataPageVersion); err != nil {
 			return fmt.Errorf("encoding validation: %w", err)
 		}
 		pw.encodingsValidated = true
 	}
 
 	var err error
-	ln := int64(len(pw.Objs))
+	ln := int64(len(pw.objs))
 
 	val := reflect.ValueOf(src)
 	if val.Kind() == reflect.Ptr {
@@ -297,19 +353,19 @@ func (pw *ParquetWriter) Write(src any) error {
 		src = val.Interface()
 	}
 
-	if pw.CheckSizeCritical <= ln {
-		pw.ObjSize = (pw.ObjSize+common.SizeOf(val))/2 + 1
+	if pw.checkSizeCritical <= ln {
+		pw.objSize = (pw.objSize+common.SizeOf(val))/2 + 1
 	}
-	pw.ObjsSize += pw.ObjSize
-	pw.Objs = append(pw.Objs, src)
+	pw.objsSize += pw.objSize
+	pw.objs = append(pw.objs, src)
 
-	criSize := pw.NP * pw.PageSize * pw.SchemaHandler.GetColumnNum()
+	criSize := pw.np * pw.pageSize * pw.SchemaHandler.GetColumnNum()
 
-	if pw.ObjsSize >= criSize {
+	if pw.objsSize >= criSize {
 		err = pw.Flush(false)
 	} else {
-		dln := (criSize - pw.ObjsSize + pw.ObjSize - 1) / pw.ObjSize / 2
-		pw.CheckSizeCritical = dln + ln
+		dln := (criSize - pw.objsSize + pw.objSize - 1) / pw.objSize / 2
+		pw.checkSizeCritical = dln + ln
 	}
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
@@ -319,25 +375,25 @@ func (pw *ParquetWriter) Write(src any) error {
 
 func (pw *ParquetWriter) flushObjs() error {
 	var err error
-	l := int64(len(pw.Objs))
+	l := int64(len(pw.objs))
 	if l <= 0 {
 		return nil
 	}
-	pagesMapList := make([]map[string][]*layout.Page, pw.NP)
-	for i := range int(pw.NP) {
+	pagesMapList := make([]map[string][]*layout.Page, pw.np)
+	for i := range pw.np {
 		pagesMapList[i] = make(map[string][]*layout.Page)
 	}
 
-	delta := (l + pw.NP - 1) / pw.NP
+	delta := (l + pw.np - 1) / pw.np
 	// layout.TableTo(Data|Dict)Pages appears not to be thread-safe; guard calls
 	// with a conversion mutex to avoid races observed in tests.
 	var convMu sync.Mutex
 	// bloomMu protects bloom filter Insert calls from concurrent goroutines.
 	var bloomMu sync.Mutex
 	var wg sync.WaitGroup
-	var errs []error = make([]error, pw.NP)
+	var errs []error = make([]error, pw.np)
 
-	for c := range pw.NP {
+	for c := range pw.np {
 		bgn := c * delta
 		end := bgn + delta
 		if end > l {
@@ -355,12 +411,12 @@ func (pw *ParquetWriter) flushObjs() error {
 				return
 			}
 
-			tableMap, err2 := pw.MarshalFunc(pw.Objs[b:e], pw.SchemaHandler)
+			tableMap, err2 := pw.marshalFunc(pw.objs[b:e], pw.SchemaHandler)
 
 			if err2 == nil {
 				for name, table := range *tableMap {
 					// Collect values for bloom filter before dict encoding converts them to indices.
-					if bf, ok := pw.BloomFilters[name]; ok && table.Schema.Type != nil {
+					if bf, ok := pw.bloomFilters[name]; ok && table.Schema.Type != nil {
 						bloomMu.Lock()
 						for _, val := range table.Values {
 							if val == nil {
@@ -374,7 +430,7 @@ func (pw *ParquetWriter) flushObjs() error {
 					}
 
 					// Use per-column compression if specified, otherwise fall back to file-level compression
-					compressionType := pw.CompressionType
+					compressionType := pw.compressionType
 					if table.Info != nil && table.Info.CompressionType != nil {
 						compressionType = *table.Info.CompressionType
 					}
@@ -394,9 +450,9 @@ func (pw *ParquetWriter) flushObjs() error {
 						// mutiple goroutines may write to same dict page
 						convMu.Lock()
 						pages, _, localErr := layout.TableToDictDataPagesWithOption(dictRec, table, 32, layout.PageWriteOption{
-							PageSize:     int32(pw.PageSize),
+							PageSize:     int32(pw.pageSize),
 							CompressType: compressionType,
-							WriteCRC:     pw.WriteCRC,
+							WriteCRC:     pw.writeCRC,
 						})
 						convMu.Unlock()
 						if localErr != nil {
@@ -406,10 +462,10 @@ func (pw *ParquetWriter) flushObjs() error {
 						}
 					} else {
 						pages, _, localErr := layout.TableToDataPagesWithOption(table, layout.PageWriteOption{
-							PageSize:        int32(pw.PageSize),
+							PageSize:        int32(pw.pageSize),
 							CompressType:    compressionType,
-							DataPageVersion: pw.DataPageVersion,
-							WriteCRC:        pw.WriteCRC,
+							DataPageVersion: pw.dataPageVersion,
+							WriteCRC:        pw.writeCRC,
 						})
 						if localErr != nil {
 							errs[index] = localErr
@@ -434,19 +490,19 @@ func (pw *ParquetWriter) flushObjs() error {
 
 	for _, pagesMap := range pagesMapList {
 		for name, pages := range pagesMap {
-			if _, ok := pw.PagesMapBuf[name]; !ok {
-				pw.PagesMapBuf[name] = pages
+			if _, ok := pw.pagesMapBuf[name]; !ok {
+				pw.pagesMapBuf[name] = pages
 			} else {
-				pw.PagesMapBuf[name] = append(pw.PagesMapBuf[name], pages...)
+				pw.pagesMapBuf[name] = append(pw.pagesMapBuf[name], pages...)
 			}
 			for _, page := range pages {
-				pw.Size += int64(len(page.RawData))
+				pw.size += int64(len(page.RawData))
 				page.DataTable = nil // release memory
 			}
 		}
 	}
 
-	pw.NumRows += int64(len(pw.Objs))
+	pw.numRows += int64(len(pw.objs))
 	if err != nil {
 		return fmt.Errorf("flush objects: %w", err)
 	}
@@ -461,12 +517,12 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 		return fmt.Errorf("flush objects during flush: %w", err)
 	}
 
-	if (pw.Size+pw.ObjsSize >= pw.RowGroupSize || flag) && len(pw.PagesMapBuf) > 0 {
+	if (pw.size+pw.objsSize >= pw.rowGroupSize || flag) && len(pw.pagesMapBuf) > 0 {
 		// pages -> chunk
 		chunkMap := make(map[string]*layout.Chunk)
-		for name, pages := range pw.PagesMapBuf {
+		for name, pages := range pw.pagesMapBuf {
 			// Determine compression type for this column
-			compressionType := pw.CompressionType
+			compressionType := pw.compressionType
 			if idx, ok := pw.SchemaHandler.MapIndex[name]; ok {
 				if info := pw.SchemaHandler.Infos[idx]; info != nil && info.CompressionType != nil {
 					compressionType = *info.CompressionType
@@ -480,9 +536,9 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 				}
 				dictRec := v.(*layout.DictRecType)
 				dictPage, _, err := layout.DictRecToDictPageWithOption(dictRec, layout.PageWriteOption{
-					PageSize:     int32(pw.PageSize),
+					PageSize:     int32(pw.pageSize),
 					CompressType: compressionType,
-					WriteCRC:     pw.WriteCRC,
+					WriteCRC:     pw.writeCRC,
 				})
 				if err != nil {
 					return fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)
@@ -521,12 +577,12 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 			rowGroup.RowGroupHeader.TotalByteSize += chunk.ChunkHeader.MetaData.TotalUncompressedSize
 			rowGroup.RowGroupHeader.Columns = append(rowGroup.RowGroupHeader.Columns, chunk.ChunkHeader)
 		}
-		rowGroup.RowGroupHeader.NumRows = pw.NumRows
-		pw.NumRows = 0
+		rowGroup.RowGroupHeader.NumRows = pw.numRows
+		pw.numRows = 0
 
 		for k := range len(rowGroup.Chunks) {
 			rowGroup.Chunks[k].ChunkHeader.MetaData.DataPageOffset = -1
-			rowGroup.Chunks[k].ChunkHeader.FileOffset = pw.Offset
+			rowGroup.Chunks[k].ChunkHeader.FileOffset = pw.offset
 
 			pages := rowGroup.Chunks[k].Pages
 			dataPageCount := 0
@@ -542,12 +598,12 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 			columnIndex.MinValues = make([][]byte, dataPageCount)
 			columnIndex.MaxValues = make([][]byte, dataPageCount)
 			columnIndex.BoundaryOrder = parquet.BoundaryOrder_UNORDERED
-			pw.ColumnIndexes = append(pw.ColumnIndexes, columnIndex)
+			pw.columnIndexes = append(pw.columnIndexes, columnIndex)
 
 			// add OffsetIndex
 			offsetIndex := parquet.NewOffsetIndex()
 			offsetIndex.PageLocations = make([]*parquet.PageLocation, 0)
-			pw.OffsetIndexes = append(pw.OffsetIndexes, offsetIndex)
+			pw.offsetIndexes = append(pw.offsetIndexes, offsetIndex)
 
 			firstRowIndex := int64(0)
 			dataPageIdx := 0
@@ -555,10 +611,10 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 			for l := range len(pages) {
 				page := pages[l]
 				if page.Header.Type == parquet.PageType_DICTIONARY_PAGE {
-					tmp := pw.Offset
+					tmp := pw.offset
 					rowGroup.Chunks[k].ChunkHeader.MetaData.DictionaryPageOffset = &tmp
 				} else if rowGroup.Chunks[k].ChunkHeader.MetaData.DataPageOffset <= 0 {
-					rowGroup.Chunks[k].ChunkHeader.MetaData.DataPageOffset = pw.Offset
+					rowGroup.Chunks[k].ChunkHeader.MetaData.DataPageOffset = pw.offset
 				}
 
 				// only record DataPage
@@ -600,7 +656,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 					}
 
 					pageLocation := parquet.NewPageLocation()
-					pageLocation.Offset = pw.Offset
+					pageLocation.Offset = pw.offset
 					pageLocation.FirstRowIndex = firstRowIndex
 					pageLocation.CompressedPageSize = int32(len(page.RawData))
 
@@ -618,14 +674,14 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 				if _, err = pw.PFile.Write(data); err != nil {
 					return fmt.Errorf("write page data: %w", err)
 				}
-				pw.Offset += int64(len(data))
+				pw.offset += int64(len(data))
 			}
 		}
 
 		pw.Footer.RowGroups = append(pw.Footer.RowGroups, rowGroup.RowGroupHeader)
 
 		// Serialize bloom filter data for this row group, one entry per column chunk.
-		if len(pw.BloomFilters) > 0 {
+		if len(pw.bloomFilters) > 0 {
 			ts := thrift.NewTSerializer()
 			ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
 			for k := range len(pw.SchemaHandler.SchemaElements) {
@@ -634,27 +690,27 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 					continue
 				}
 				path := pw.SchemaHandler.IndexMap[int32(k)]
-				bf, ok := pw.BloomFilters[path]
+				bf, ok := pw.bloomFilters[path]
 				if !ok {
-					pw.BloomFilterData = append(pw.BloomFilterData, nil)
+					pw.bloomFilterData = append(pw.bloomFilterData, nil)
 					continue
 				}
 				headerBuf, err := ts.Write(context.TODO(), bf.Header())
 				if err != nil {
 					return fmt.Errorf("serialize bloom filter header for column %s: %w", path, err)
 				}
-				pw.BloomFilterData = append(pw.BloomFilterData, append(headerBuf, bf.Bitset()...))
+				pw.bloomFilterData = append(pw.bloomFilterData, append(headerBuf, bf.Bitset()...))
 			}
 			// Reset bloom filters for next row group
 			pw.initBloomFilters()
 		}
 
-		pw.Size = 0
-		pw.PagesMapBuf = make(map[string][]*layout.Page)
+		pw.size = 0
+		pw.pagesMapBuf = make(map[string][]*layout.Page)
 	}
-	pw.Footer.NumRows += int64(len(pw.Objs))
-	pw.Objs = pw.Objs[:0]
-	pw.ObjsSize = 0
+	pw.Footer.NumRows += int64(len(pw.objs))
+	pw.objs = pw.objs[:0]
+	pw.objsSize = 0
 	return nil
 }
 
@@ -663,7 +719,7 @@ func (pw *ParquetWriter) initBloomFilters() {
 	if pw.SchemaHandler == nil {
 		return
 	}
-	pw.BloomFilters = make(map[string]*bloomfilter.Filter)
+	pw.bloomFilters = make(map[string]*bloomfilter.Filter)
 	for i, info := range pw.SchemaHandler.Infos {
 		if info == nil || !info.BloomFilter {
 			continue
@@ -673,6 +729,6 @@ func (pw *ParquetWriter) initBloomFilters() {
 		if numBytes <= 0 {
 			numBytes = bloomfilter.DefaultNumBytes
 		}
-		pw.BloomFilters[path] = bloomfilter.New(numBytes)
+		pw.bloomFilters[path] = bloomfilter.New(numBytes)
 	}
 }

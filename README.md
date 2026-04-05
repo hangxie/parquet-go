@@ -154,7 +154,7 @@ func main() {
     }
     defer fw.Close()
 
-    pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+    pw, err := writer.NewParquetWriter(fw, new(Student))
     if err != nil {
         log.Fatal("Can't create parquet writer", err)
     }
@@ -395,10 +395,12 @@ Two reader types:
 ### Reader Notes
 
 * For large files, read in chunks to avoid OOM
-* Configure `RowGroupSize` and `PageSize` in writer:
+* Configure `RowGroupSize` and `PageSize` via writer options:
 ```go
-pw.RowGroupSize = common.DefaultRowGroupSize // default 128M
-pw.PageSize = common.DefaultPageSize         // default 8K
+pw, err := writer.NewParquetWriter(fw, new(MyStruct),
+    writer.WithRowGroupSize(common.DefaultRowGroupSize), // default 128M
+    writer.WithPageSize(common.DefaultPageSize),         // default 8K
+)
 ```
 
 ## ParquetFile Interface
@@ -436,12 +438,13 @@ Optimize performance with parallel marshaling/unmarshaling:
 
 ```go
 func NewParquetReader(pFile ParquetFile.ParquetFile, obj interface{}, np int64) (*ParquetReader, error)
-func NewParquetWriter(pFile ParquetFile.ParquetFile, obj interface{}, np int64) (*ParquetWriter, error)
+func NewParquetWriter(pFile ParquetFile.ParquetFile, obj interface{}, opts ...WriterOption) (*ParquetWriter, error)
 func NewJSONWriter(jsonSchema string, pfile ParquetFile.ParquetFile, np int64) (*JSONWriter, error)
 func NewCSVWriter(md []string, pfile ParquetFile.ParquetFile, np int64) (*CSVWriter, error)
 ```
 
-Set `np` parameter to control the number of parallel goroutines.
+For readers, set the `np` parameter to control the number of parallel goroutines.
+For `ParquetWriter`, use `WithNP(n)` to set parallelism (default is 4).
 
 ## Examples
 
