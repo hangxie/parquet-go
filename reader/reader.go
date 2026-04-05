@@ -69,6 +69,12 @@ func applyReaderDefaults(pr *ParquetReader, opts []ReaderOption) error {
 	if pr.np <= 0 {
 		return fmt.Errorf("WithNP: value must be positive, got %d", pr.np)
 	}
+	switch pr.crcMode {
+	case common.CRCIgnore, common.CRCAuto, common.CRCStrict:
+		// valid
+	default:
+		return fmt.Errorf("WithCRCMode: unsupported mode %d", pr.crcMode)
+	}
 	return nil
 }
 
