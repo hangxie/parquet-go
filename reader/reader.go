@@ -286,8 +286,12 @@ func (pr *ParquetReader) Read(dstInterface any) error {
 	return pr.read(dstInterface, "")
 }
 
-// Read maxReadNumber objects
+// ReadByNumber reads up to maxReadNumber objects.
 func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
+	if maxReadNumber < 0 {
+		return nil, fmt.Errorf("negative maxReadNumber: %d", maxReadNumber)
+	}
+
 	var err error
 	if pr.ObjType == nil {
 		if pr.ObjType, err = pr.SchemaHandler.GetType(pr.SchemaHandler.GetRootInName()); err != nil {
