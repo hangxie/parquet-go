@@ -37,7 +37,7 @@ func main() {
 		return
 	}
 	// create new parquet file writer
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student))
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return

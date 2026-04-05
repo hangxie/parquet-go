@@ -87,14 +87,14 @@ func main() {
 	}
 
 	// write
-	pw, err := writer.NewParquetWriter(fw, jsonSchema, 4)
+	pw, err := writer.NewParquetWriter(fw, jsonSchema,
+		writer.WithRowGroupSize(common.DefaultRowGroupSize),
+		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+	)
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
 	}
-
-	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 	num := 10
 	for i := range num {
 		stu := Student{

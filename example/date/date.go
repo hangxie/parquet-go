@@ -28,14 +28,15 @@ func main() {
 		log.Println("Can't create local file", err)
 		return
 	}
-	pw, err := writer.NewParquetWriter(fw, new(DateItem), 2)
+	pw, err := writer.NewParquetWriter(fw, new(DateItem),
+		writer.WithNP(2),
+		writer.WithRowGroupSize(common.DefaultRowGroupSize),
+		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+	)
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
 	}
-
-	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	optionalDate := int32(19619)
 

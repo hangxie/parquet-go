@@ -40,22 +40,21 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter,
 	}
 
 	res.PFile = pfile
-	res.PageSize = pageSize
-	res.RowGroupSize = rowGroupSize
-	// Compression type is by default: parquet.CompressionCodec_SNAPPY
-	res.CompressionType = parquet.CompressionCodec_GZIP
-	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.NP = np
+	res.pageSize = pageSize
+	res.rowGroupSize = rowGroupSize
+	res.compressionType = parquet.CompressionCodec_GZIP
+	res.pagesMapBuf = make(map[string][]*layout.Page)
+	res.np = np
 	res.Footer = parquet.NewFileMetaData()
 	res.Footer.Version = footerVersion
 	res.Footer.Schema = append(res.Footer.Schema,
 		res.SchemaHandler.SchemaElements...)
-	res.Offset = offset
+	res.offset = offset
 	_, err = res.PFile.Write([]byte("PAR1"))
 	if err != nil {
 		return res, fmt.Errorf("write magic header: %w", err)
 	}
-	res.MarshalFunc = marshal.MarshalArrow
+	res.marshalFunc = marshal.MarshalArrow
 	return res, nil
 }
 

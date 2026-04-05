@@ -49,7 +49,7 @@ func main() {
 	}
 
 	// write
-	pw, err := writer.NewParquetWriter(fw, new(Student), 4)
+	pw, err := writer.NewParquetWriter(fw, new(Student))
 	if err != nil {
 		log.Println("Failed to create parquet writer: ", err)
 		return

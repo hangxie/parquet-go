@@ -30,10 +30,10 @@ func TestCSVWriter(t *testing.T) {
 				cw, err := NewCSVWriter(tc.schema, wf, 4)
 				if tc.errMsg == "" {
 					require.NoError(t, err)
-					require.Equal(t, cw.NP, int64(4))
-					require.Equal(t, cw.PageSize, int64(8*1024))
-					require.Equal(t, cw.RowGroupSize, int64(128*1024*1024))
-					require.Equal(t, cw.CompressionType, parquet.CompressionCodec_SNAPPY)
+					require.Equal(t, cw.np, int64(4))
+					require.Equal(t, cw.pageSize, int64(8*1024))
+					require.Equal(t, cw.rowGroupSize, int64(128*1024*1024))
+					require.Equal(t, cw.compressionType, parquet.CompressionCodec_SNAPPY)
 				} else {
 					require.Error(t, err)
 					require.Contains(t, err.Error(), tc.errMsg)
@@ -51,10 +51,10 @@ func TestCSVWriter(t *testing.T) {
 		bw := bufio.NewWriter(&buf)
 		cw, err := NewCSVWriterFromWriter(schema, bw, 4)
 		require.NoError(t, err)
-		require.Equal(t, cw.NP, int64(4))
-		require.Equal(t, cw.PageSize, int64(8*1024))
-		require.Equal(t, cw.RowGroupSize, int64(128*1024*1024))
-		require.Equal(t, cw.CompressionType, parquet.CompressionCodec_SNAPPY)
+		require.Equal(t, cw.np, int64(4))
+		require.Equal(t, cw.pageSize, int64(8*1024))
+		require.Equal(t, cw.rowGroupSize, int64(128*1024*1024))
+		require.Equal(t, cw.compressionType, parquet.CompressionCodec_SNAPPY)
 	})
 
 	t.Run("write_csv", func(t *testing.T) {

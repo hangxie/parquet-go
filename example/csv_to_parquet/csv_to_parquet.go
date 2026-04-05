@@ -29,14 +29,15 @@ func main() {
 		return
 	}
 
-	pw, err := writer.NewParquetWriter(fw, new(Shoe), 2)
+	pw, err := writer.NewParquetWriter(fw, new(Shoe),
+		writer.WithNP(2),
+		writer.WithRowGroupSize(common.DefaultRowGroupSize),
+		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+	)
 	if err != nil {
 		log.Println("Can't create parquet writer", err)
 		return
 	}
-
-	pw.RowGroupSize = common.DefaultRowGroupSize // 128M
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	csvFile, _ := os.Open("shoes.csv")
 	reader := csv.NewReader(bufio.NewReader(csvFile))

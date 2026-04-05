@@ -29,7 +29,7 @@ func TestJSONWriter(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, jw)
 		require.NotNil(t, jw.SchemaHandler)
-		require.Equal(t, int64(1), jw.NP)
+		require.Equal(t, int64(1), jw.np)
 
 		// Clean up
 		err = jw.WriteStop()
@@ -86,7 +86,7 @@ func TestJSONWriter(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, jw)
-		require.Equal(t, int64(2), jw.NP)
+		require.Equal(t, int64(2), jw.np)
 
 		// Clean up
 		err = jw.WriteStop()

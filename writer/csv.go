@@ -32,20 +32,20 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, np int64) (*CSVWr
 		return nil, fmt.Errorf("create schema from metadata: %w", err)
 	}
 	res.PFile = pfile
-	res.PageSize = common.DefaultPageSize         // 8K
-	res.RowGroupSize = common.DefaultRowGroupSize // 128M
-	res.CompressionType = parquet.CompressionCodec_SNAPPY
-	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.NP = np
+	res.pageSize = common.DefaultPageSize         // 8K
+	res.rowGroupSize = common.DefaultRowGroupSize // 128M
+	res.compressionType = parquet.CompressionCodec_SNAPPY
+	res.pagesMapBuf = make(map[string][]*layout.Page)
+	res.np = np
 	res.Footer = parquet.NewFileMetaData()
 	res.Footer.Version = 1
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
-	res.Offset = 4
+	res.offset = 4
 	_, err = res.PFile.Write([]byte("PAR1"))
 	if err != nil {
 		return nil, fmt.Errorf("write magic header: %w", err)
 	}
-	res.MarshalFunc = marshal.MarshalCSV
+	res.marshalFunc = marshal.MarshalCSV
 	res.initBloomFilters()
 	return res, nil
 }

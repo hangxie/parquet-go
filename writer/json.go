@@ -33,25 +33,28 @@ func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, np int64) 
 	}
 
 	res.PFile = pfile
-	res.PageSize = common.DefaultPageSize         // 8K
-	res.RowGroupSize = common.DefaultRowGroupSize // 128M
-	res.CompressionType = parquet.CompressionCodec_SNAPPY
-	res.PagesMapBuf = make(map[string][]*layout.Page)
-	res.NP = np
+	res.pageSize = common.DefaultPageSize         // 8K
+	res.rowGroupSize = common.DefaultRowGroupSize // 128M
+	res.compressionType = parquet.CompressionCodec_SNAPPY
+	res.pagesMapBuf = make(map[string][]*layout.Page)
+	res.np = np
 	res.Footer = parquet.NewFileMetaData()
 	res.Footer.Version = 1
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
-	res.Offset = 4
+	res.offset = 4
 	_, err = res.PFile.Write([]byte("PAR1"))
-	res.MarshalFunc = marshal.MarshalJSON
+	res.marshalFunc = marshal.MarshalJSON
 	res.initBloomFilters()
 	return res, err
 }
 
-// WriteString writes string values to parquet file
+// WriteString writes string values to parquet file.
+// Note: this switches the internal marshal function to MarshalCSV because the
+// data is passed as []any (not a JSON string). Once WriteString is called,
+// subsequent Write calls on this writer will also use MarshalCSV. Do not mix
+// Write (JSON) and WriteString (CSV-style) on the same JSONWriter.
 func (w *JSONWriter) WriteString(recsi any) error {
-	// WriteString uses MarshalCSV since we're passing []any, not JSON
-	w.MarshalFunc = marshal.MarshalCSV
+	w.marshalFunc = marshal.MarshalCSV
 
 	var err error
 	recs := recsi.([]*string)
