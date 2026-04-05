@@ -224,6 +224,16 @@ func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParquetReader_ReadByNumber_Negative(t *testing.T) {
+	pr, err := parquetReader()
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithError() }()
+
+	_, err = pr.ReadByNumber(-1)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative maxReadNumber")
+}
+
 func TestParquetReader_ReadStop(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
