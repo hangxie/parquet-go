@@ -101,74 +101,83 @@ func NewParquetWriterFromWriter(w io.Writer, obj any, opts ...WriterOption) (*Pa
 	return NewParquetWriter(wf, obj, opts...)
 }
 
-// NewParquetWriter creates a parquet handler. Obj is a object with tags or JSON schema string.
-func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error) {
-	var err error
-
-	res := new(ParquetWriter)
-	res.np = 4                                    // default parallel number
-	res.pageSize = common.DefaultPageSize         // 8K
-	res.rowGroupSize = common.DefaultRowGroupSize // 128M
-	res.compressionType = parquet.CompressionCodec_SNAPPY
-	res.dataPageVersion = 1 // default to DATA_PAGE (V1)
-	res.objsSize = 0
-	res.checkSizeCritical = 0
-	res.size = 0
-	res.numRows = 0
-	res.offset = 4
-	res.PFile = pFile
-	res.pagesMapBuf = make(map[string][]*layout.Page)
+// initBase sets up the ParquetWriter with defaults, applies and validates
+// functional options, and writes the PAR1 magic header. Options are validated
+// before any IO so that invalid options never produce partial output.
+//
+// Callers must still set SchemaHandler, marshalFunc, call initBloomFilters,
+// and set stopped = false after successful schema init.
+func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...WriterOption) error {
+	pw.np = 4                                    // default parallel number
+	pw.pageSize = common.DefaultPageSize         // 8K
+	pw.rowGroupSize = common.DefaultRowGroupSize // 128M
+	pw.compressionType = parquet.CompressionCodec_SNAPPY
+	pw.dataPageVersion = 1 // default to DATA_PAGE (V1)
+	pw.offset = 4
+	pw.PFile = pFile
+	pw.pagesMapBuf = make(map[string][]*layout.Page)
 	// DictRecs sync.Map zero value is ready to use
-	res.Footer = parquet.NewFileMetaData()
-	res.Footer.Version = 1
-	res.columnIndexes = make([]*parquet.ColumnIndex, 0)
-	res.offsetIndexes = make([]*parquet.OffsetIndex, 0)
+	pw.Footer = parquet.NewFileMetaData()
+	pw.Footer.Version = 1
+	pw.columnIndexes = make([]*parquet.ColumnIndex, 0)
+	pw.offsetIndexes = make([]*parquet.OffsetIndex, 0)
 	// include the createdBy to avoid
 	// WARN  CorruptStatistics:118 - Ignoring statistics because created_by is null or empty! See PARQUET-251 and PARQUET-297
-	res.Footer.CreatedBy = common.ToPtr("github.com/hangxie/parquet-go/v3")
-	res.marshalFunc = marshal.Marshal
-	res.stopped = true
+	pw.Footer.CreatedBy = common.ToPtr("github.com/hangxie/parquet-go/v3")
+	// marshalFunc must be set by the caller (NewParquetWriter, NewCSVWriter, etc.)
+	// after initBase returns. Each writer type uses a different marshal function.
+	// stopped starts true so that a partially-constructed writer (e.g. after
+	// schema failure) rejects Write calls rather than panicking.
+	pw.stopped = true
 
 	// Apply functional options
 	for _, opt := range opts {
-		opt(res)
+		opt(pw)
 	}
 
-	// Validate options
-	if res.np <= 0 {
-		return nil, fmt.Errorf("WithNP: value must be positive, got %d", res.np)
+	// Validate options before any IO to avoid partial writes on invalid input.
+	if pw.np <= 0 {
+		return fmt.Errorf("WithNP: value must be positive, got %d", pw.np)
 	}
-	if res.pageSize <= 0 {
-		return nil, fmt.Errorf("WithPageSize: value must be positive, got %d", res.pageSize)
+	if pw.pageSize <= 0 {
+		return fmt.Errorf("WithPageSize: value must be positive, got %d", pw.pageSize)
 	}
-	if res.rowGroupSize <= 0 {
-		return nil, fmt.Errorf("WithRowGroupSize: value must be positive, got %d", res.rowGroupSize)
+	if pw.rowGroupSize <= 0 {
+		return fmt.Errorf("WithRowGroupSize: value must be positive, got %d", pw.rowGroupSize)
 	}
-	if res.dataPageVersion != 1 && res.dataPageVersion != 2 {
-		return nil, fmt.Errorf("WithDataPageVersion: value must be 1 or 2, got %d", res.dataPageVersion)
+	if pw.dataPageVersion != 1 && pw.dataPageVersion != 2 {
+		return fmt.Errorf("WithDataPageVersion: value must be 1 or 2, got %d", pw.dataPageVersion)
 	}
 
-	_, err = res.PFile.Write([]byte("PAR1"))
-	if err != nil {
-		return nil, fmt.Errorf("write magic header: %w", err)
+	if _, err := pw.PFile.Write([]byte("PAR1")); err != nil {
+		return fmt.Errorf("write magic header: %w", err)
 	}
+	return nil
+}
+
+// NewParquetWriter creates a parquet writer. Obj is an object with tags or a JSON schema string.
+func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error) {
+	res := new(ParquetWriter)
+	if err := res.initBase(pFile, opts...); err != nil {
+		return nil, err
+	}
+	res.marshalFunc = marshal.Marshal
 
 	if obj != nil {
 		if sa, ok := obj.(string); ok {
 			// SetSchemaHandlerFromJSON handles Footer.Schema internally
-			err = res.SetSchemaHandlerFromJSON(sa)
-			if err != nil {
-				res.stopped = true
-				return res, fmt.Errorf("set schema from JSON: %w", err)
+			if err := res.SetSchemaHandlerFromJSON(sa); err != nil {
+				return nil, fmt.Errorf("set schema from JSON: %w", err)
 			}
 		} else {
+			var err error
 			if sa, ok := obj.(*schema.SchemaHandler); ok {
 				res.SchemaHandler = schema.NewSchemaHandlerFromSchemaHandler(sa)
 			} else if sa, ok := obj.([]*parquet.SchemaElement); ok {
 				res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
 			} else {
 				if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
-					return res, fmt.Errorf("build schema handler: %w", err)
+					return nil, fmt.Errorf("build schema handler: %w", err)
 				}
 			}
 			res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
@@ -180,7 +189,7 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOpt
 	// Enable writing after init completed successfully
 	res.stopped = false
 
-	return res, err
+	return res, nil
 }
 
 func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
@@ -330,10 +339,13 @@ func (pw *ParquetWriter) WriteStop() error {
 	return nil
 }
 
-// Write one object to parquet file
+// Write writes one object to the parquet file.
 func (pw *ParquetWriter) Write(src any) error {
 	if pw.stopped {
 		return fmt.Errorf("writer stopped")
+	}
+	if pw.SchemaHandler == nil {
+		return fmt.Errorf("schema handler not initialized")
 	}
 
 	// Validate encodings are compatible with data page version (once per writer)

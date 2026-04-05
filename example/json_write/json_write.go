@@ -60,7 +60,7 @@ func main() {
 		log.Println("Can't create file", err)
 		return
 	}
-	pw, err := writer.NewJSONWriter(md, fw, 4)
+	pw, err := writer.NewJSONWriter(md, fw)
 	if err != nil {
 		log.Println("Can't create json writer", err)
 		return

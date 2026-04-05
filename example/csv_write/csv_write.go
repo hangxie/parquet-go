@@ -26,7 +26,7 @@ func main() {
 		log.Println("Can't open file", err)
 		return
 	}
-	pw, err := writer.NewCSVWriter(md, fw, 4)
+	pw, err := writer.NewCSVWriter(md, fw)
 	if err != nil {
 		log.Println("Can't create csv writer", err)
 		return

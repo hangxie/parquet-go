@@ -27,7 +27,7 @@ func TestCSVWriter(t *testing.T) {
 				var buf bytes.Buffer
 				bw := bufio.NewWriter(&buf)
 				wf := writerfile.NewWriterFile(bw)
-				cw, err := NewCSVWriter(tc.schema, wf, 4)
+				cw, err := NewCSVWriter(tc.schema, wf)
 				if tc.errMsg == "" {
 					require.NoError(t, err)
 					require.Equal(t, cw.np, int64(4))
@@ -49,12 +49,29 @@ func TestCSVWriter(t *testing.T) {
 		}
 		var buf bytes.Buffer
 		bw := bufio.NewWriter(&buf)
-		cw, err := NewCSVWriterFromWriter(schema, bw, 4)
+		cw, err := NewCSVWriterFromWriter(schema, bw)
 		require.NoError(t, err)
 		require.Equal(t, cw.np, int64(4))
 		require.Equal(t, cw.pageSize, int64(8*1024))
 		require.Equal(t, cw.rowGroupSize, int64(128*1024*1024))
 		require.Equal(t, cw.compressionType, parquet.CompressionCodec_SNAPPY)
+	})
+
+	t.Run("new_csv_writer_with_options", func(t *testing.T) {
+		schema := []string{
+			"Name=First, Type=BYTE_ARRAY, ConvertedType=UTF8, Encoding=PLAIN",
+		}
+		var buf bytes.Buffer
+		bw := bufio.NewWriter(&buf)
+		cw, err := NewCSVWriterFromWriter(schema, bw,
+			WithNP(2),
+			WithPageSize(4096),
+			WithCompressionType(parquet.CompressionCodec_GZIP),
+		)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), cw.np)
+		require.Equal(t, int64(4096), cw.pageSize)
+		require.Equal(t, parquet.CompressionCodec_GZIP, cw.compressionType)
 	})
 
 	t.Run("write_csv", func(t *testing.T) {
@@ -72,7 +89,7 @@ func TestCSVWriter(t *testing.T) {
 		}
 		var buf bytes.Buffer
 		bw := bufio.NewWriter(&buf)
-		cw, _ := NewCSVWriterFromWriter(schema, bw, 4)
+		cw, _ := NewCSVWriterFromWriter(schema, bw)
 
 		for name, tc := range testCases {
 			t.Run(name, func(t *testing.T) {

@@ -4,53 +4,45 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hangxie/parquet-go/v3/common"
-	"github.com/hangxie/parquet-go/v3/layout"
 	"github.com/hangxie/parquet-go/v3/marshal"
-	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
+// CSVWriter is a writer for CSV-style data to parquet files.
 type CSVWriter struct {
 	ParquetWriter
 }
 
-func NewCSVWriterFromWriter(md []string, w io.Writer, np int64) (*CSVWriter, error) {
+// NewCSVWriterFromWriter creates a CSVWriter from an io.Writer.
+func NewCSVWriterFromWriter(md []string, w io.Writer, opts ...WriterOption) (*CSVWriter, error) {
 	wf := writerfile.NewWriterFile(w)
-	return NewCSVWriter(md, wf, np)
+	return NewCSVWriter(md, wf, opts...)
 }
 
-// Create CSV writer
-func NewCSVWriter(md []string, pfile source.ParquetFileWriter, np int64) (*CSVWriter, error) {
-	var err error
+// NewCSVWriter creates a CSVWriter from a schema metadata list and a ParquetFileWriter.
+func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOption) (*CSVWriter, error) {
 	res := new(CSVWriter)
+	if err := res.initBase(pfile, opts...); err != nil {
+		return nil, err
+	}
+
+	var err error
 	res.SchemaHandler, err = schema.NewSchemaHandlerFromMetadata(md)
 	if err != nil {
 		return nil, fmt.Errorf("create schema from metadata: %w", err)
 	}
-	res.PFile = pfile
-	res.pageSize = common.DefaultPageSize         // 8K
-	res.rowGroupSize = common.DefaultRowGroupSize // 128M
-	res.compressionType = parquet.CompressionCodec_SNAPPY
-	res.pagesMapBuf = make(map[string][]*layout.Page)
-	res.np = np
-	res.Footer = parquet.NewFileMetaData()
-	res.Footer.Version = 1
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
-	res.offset = 4
-	_, err = res.PFile.Write([]byte("PAR1"))
-	if err != nil {
-		return nil, fmt.Errorf("write magic header: %w", err)
-	}
 	res.marshalFunc = marshal.MarshalCSV
 	res.initBloomFilters()
+
+	res.stopped = false
 	return res, nil
 }
 
-// Write string values to parquet file
+// WriteString writes string values to parquet file.
 func (w *CSVWriter) WriteString(recsi any) error {
 	var err error
 	recs := recsi.([]*string)

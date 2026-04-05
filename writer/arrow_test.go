@@ -11,6 +11,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
@@ -264,7 +265,7 @@ func TestWriteArrow_EmptyRecord(t *testing.T) {
 
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
-	aw, err := NewArrowWriter(schema, fw, 1)
+	aw, err := NewArrowWriter(schema, fw, WithNP(1))
 	require.NoError(t, err)
 
 	err = aw.WriteArrow(record)
@@ -280,6 +281,25 @@ func TestWriteArrow_EmptyRecord(t *testing.T) {
 	require.Equal(t, int64(0), pr.GetNumRows())
 	_ = pr.ReadStopWithError()
 	require.NoError(t, pf.Close())
+}
+
+func TestNewArrowWriterFromWriter(t *testing.T) {
+	schema := arrow.NewSchema(
+		[]arrow.Field{
+			{Name: "id", Type: arrow.PrimitiveTypes.Int32},
+		}, nil,
+	)
+
+	var buf bytes.Buffer
+	aw, err := NewArrowWriterFromWriter(schema, &buf, WithNP(1))
+	require.NoError(t, err)
+	require.NotNil(t, aw)
+
+	// Verify GZIP compression default
+	require.Equal(t, parquet.CompressionCodec_GZIP, aw.compressionType)
+
+	require.NoError(t, aw.WriteStop())
+	require.Greater(t, buf.Len(), 4)
 }
 
 // testNullableSchema is schema for the testing the support for nullability
@@ -571,7 +591,7 @@ func TestArrowWriter(t *testing.T) {
 		fw := writerfile.NewWriterFile(buf)
 		require.Nil(t, err)
 
-		w, err := NewArrowWriter(ts, fw, 4)
+		w, err := NewArrowWriter(ts, fw)
 		require.Nil(t, err)
 
 		mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
@@ -614,7 +634,7 @@ func TestArrowWriter(t *testing.T) {
 		fw := writerfile.NewWriterFile(buf)
 		require.Nil(t, err)
 
-		w, err := NewArrowWriter(ts, fw, 1)
+		w, err := NewArrowWriter(ts, fw, WithNP(1))
 		require.Nil(t, err)
 
 		mem := memory.NewCheckedAllocator(memory.NewGoAllocator())
@@ -685,7 +705,7 @@ func TestArrowWriter(t *testing.T) {
 		fw := writerfile.NewWriterFile(buf)
 		require.Nil(t, err)
 
-		w, err := NewArrowWriter(ts, fw, 1)
+		w, err := NewArrowWriter(ts, fw, WithNP(1))
 		require.Nil(t, err)
 
 		mem := memory.NewCheckedAllocator(memory.NewGoAllocator())

@@ -439,12 +439,15 @@ Optimize performance with parallel marshaling/unmarshaling:
 ```go
 func NewParquetReader(pFile ParquetFile.ParquetFile, obj interface{}, np int64) (*ParquetReader, error)
 func NewParquetWriter(pFile ParquetFile.ParquetFile, obj interface{}, opts ...WriterOption) (*ParquetWriter, error)
-func NewJSONWriter(jsonSchema string, pfile ParquetFile.ParquetFile, np int64) (*JSONWriter, error)
-func NewCSVWriter(md []string, pfile ParquetFile.ParquetFile, np int64) (*CSVWriter, error)
+func NewJSONWriter(jsonSchema string, pfile ParquetFile.ParquetFile, opts ...WriterOption) (*JSONWriter, error)
+func NewCSVWriter(md []string, pfile ParquetFile.ParquetFile, opts ...WriterOption) (*CSVWriter, error)
+func NewArrowWriter(arrowSchema *arrow.Schema, pfile ParquetFile.ParquetFile, opts ...WriterOption) (*ArrowWriter, error)
 ```
 
 For readers, set the `np` parameter to control the number of parallel goroutines.
-For `ParquetWriter`, use `WithNP(n)` to set parallelism (default is 4).
+For all writers, use `WithNP(n)` to set parallelism (default is 4). The default
+compression is SNAPPY for most writers; `NewArrowWriter` defaults to GZIP.
+Use `WithCompressionType` to override.
 
 ## Examples
 
