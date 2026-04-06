@@ -39,7 +39,12 @@ func main() {
 		return
 	}
 
-	csvFile, _ := os.Open("shoes.csv")
+	csvFile, err := os.Open("shoes.csv")
+	if err != nil {
+		log.Println("Can't open CSV file", err)
+		return
+	}
+	defer csvFile.Close()
 	reader := csv.NewReader(bufio.NewReader(csvFile))
 
 	for {
