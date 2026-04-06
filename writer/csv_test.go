@@ -103,4 +103,35 @@ func TestCSVWriter(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("write_string_wrong_type", func(t *testing.T) {
+		testCases := map[string]struct {
+			data   any
+			errMsg string
+		}{
+			"string_slice":  {[]string{"name", "123"}, "WriteString: expected []*string, got []string"},
+			"int_slice":     {[]int{1, 2}, "WriteString: expected []*string, got []int"},
+			"nil":           {nil, "WriteString: expected []*string, got <nil>"},
+			"single_string": {"name", "WriteString: expected []*string, got string"},
+			"any_slice":     {[]any{"name", "123"}, "WriteString: expected []*string, got []interface {}"},
+		}
+		schema := []string{
+			"Name=Name, Type=BYTE_ARRAY, ConvertedType=UTF8, Encoding=PLAIN",
+			"Name=id, Type=INT32",
+		}
+		var buf bytes.Buffer
+		bw := bufio.NewWriter(&buf)
+		cw, err := NewCSVWriterFromWriter(schema, bw)
+		require.NoError(t, err)
+
+		for name, tc := range testCases {
+			t.Run(name, func(t *testing.T) {
+				require.NotPanics(t, func() {
+					err := cw.WriteString(tc.data)
+					require.Error(t, err)
+					require.Equal(t, tc.errMsg, err.Error())
+				})
+			})
+		}
+	})
 }
