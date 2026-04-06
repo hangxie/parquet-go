@@ -338,7 +338,7 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 		if *page.Schema.Type != parquet.Type_INT32 && *page.Schema.Type != parquet.Type_INT64 {
 			return nil, fmt.Errorf("DELTA_BINARY_PACKED encoding is only supported for INT32 and INT64, not %v", *page.Schema.Type)
 		}
-		return encoding.WriteDelta(valuesBuf), nil
+		return encoding.WriteDelta(valuesBuf)
 	case parquet.Encoding_DELTA_BYTE_ARRAY:
 		// DELTA_BYTE_ARRAY: BYTE_ARRAY only
 		if *page.Schema.Type != parquet.Type_BYTE_ARRAY {
