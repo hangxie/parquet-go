@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"runtime"
 	"strconv"
 	"sync"
@@ -1165,11 +1166,32 @@ func TestPositionTracker_Write(t *testing.T) {
 }
 
 func TestPositionTracker_Close(t *testing.T) {
-	pt := &positionTracker{}
+	t.Run("no underlying closer", func(t *testing.T) {
+		pt := &positionTracker{}
+		err := pt.Close()
+		require.NoError(t, err)
+	})
 
-	err := pt.Close()
+	t.Run("delegates to underlying closer", func(t *testing.T) {
+		mc := &mockCloser{}
+		pt := &positionTracker{r: mc}
+		err := pt.Close()
+		require.NoError(t, err)
+		require.True(t, mc.closed)
+	})
+}
 
-	require.NoError(t, err)
+type mockCloser struct {
+	closed bool
+}
+
+func (m *mockCloser) Read(p []byte) (n int, err error) {
+	return 0, io.EOF
+}
+
+func (m *mockCloser) Close() error {
+	m.closed = true
+	return nil
 }
 
 func TestPositionTracker_Flush(t *testing.T) {

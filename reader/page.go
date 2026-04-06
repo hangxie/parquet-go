@@ -57,6 +57,9 @@ func (p *positionTracker) Write(buf []byte) (int, error) {
 }
 
 func (p *positionTracker) Close() error {
+	if c, ok := p.r.(io.Closer); ok {
+		return c.Close()
+	}
 	return nil
 }
 
