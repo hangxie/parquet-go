@@ -295,7 +295,7 @@ func TestReadChunk_ErrorConditions(t *testing.T) {
 			chunkHeader := tt.setupChunk()
 
 			if tt.expectPanic {
-				_, err := ReadChunk(nil, nil, chunkHeader)
+				_, err := ReadChunk(nil, nil, chunkHeader, nil)
 				require.Error(t, err)
 			}
 		})

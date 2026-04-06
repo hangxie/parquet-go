@@ -675,10 +675,10 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec, c *c
 }
 
 // Read page RawData
-func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...PageReadOptions) (*Page, error) {
+func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts *PageReadOptions) (*Page, error) {
 	var opt PageReadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
+	if opts != nil {
+		opt = *opts
 	}
 	if opt.MaxPageSize <= 0 {
 		opt.MaxPageSize = DefaultMaxPageSize
@@ -1101,10 +1101,10 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 }
 
 // Read page from parquet file
-func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts ...PageReadOptions) (*Page, int64, int64, error) {
+func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts *PageReadOptions) (*Page, int64, int64, error) {
 	var opt PageReadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
+	if opts != nil {
+		opt = *opts
 	}
 	if opt.MaxPageSize <= 0 {
 		opt.MaxPageSize = DefaultMaxPageSize

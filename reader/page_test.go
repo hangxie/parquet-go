@@ -264,7 +264,7 @@ func TestReadPageData(t *testing.T) {
 	pageHeader.CompressedPageSize = firstPage.CompressedSize
 	pageHeader.UncompressedPageSize = firstPage.UncompressedSize
 
-	pageData, err := reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec)
+	pageData, err := reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, pageData)
 	require.Equal(t, firstPage.UncompressedSize, int32(len(pageData)))
@@ -298,7 +298,7 @@ func TestDecodeDictionaryPage(t *testing.T) {
 		pageHeader.DictionaryPageHeader = dictHeader
 
 		// Read and decode the dictionary page using the building block functions
-		pageData, err := reader.ReadPageData(pr.PFile, dictPageHeader.Offset, pageHeader, dictCol.MetaData.Codec)
+		pageData, err := reader.ReadPageData(pr.PFile, dictPageHeader.Offset, pageHeader, dictCol.MetaData.Codec, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, pageData)
 
@@ -770,7 +770,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pageHeader.CompressedPageSize = 100
 		pageHeader.UncompressedPageSize = 200
 
-		_, err := reader.ReadPageData(buf, 99999, pageHeader, parquet.CompressionCodec_UNCOMPRESSED)
+		_, err := reader.ReadPageData(buf, 99999, pageHeader, parquet.CompressionCodec_UNCOMPRESSED, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read page header")
 	})
@@ -800,7 +800,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pageHeader.CompressedPageSize = 999
 		pageHeader.UncompressedPageSize = 999
 
-		_, err = reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec)
+		_, err = reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "decompress page data")
 	})
@@ -826,7 +826,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pageHeader.UncompressedPageSize = 16384
 
 		// Try to decompress with GZIP (will fail on invalid data)
-		_, err := reader.ReadPageData(buf, 0, pageHeader, parquet.CompressionCodec_GZIP)
+		_, err := reader.ReadPageData(buf, 0, pageHeader, parquet.CompressionCodec_GZIP, nil)
 		require.Error(t, err)
 		// Should fail during reading header or page data
 		require.True(t, err != nil)

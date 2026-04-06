@@ -198,7 +198,7 @@ func DecodeDictChunk(chunk *Chunk) {
 }
 
 // Read one chunk from parquet file (Deprecated)
-func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, chunkHeader *parquet.ColumnChunk, opts ...PageReadOptions) (*Chunk, error) {
+func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, chunkHeader *parquet.ColumnChunk, opts *PageReadOptions) (*Chunk, error) {
 	if chunkHeader == nil {
 		return nil, fmt.Errorf("chunkHeader is nil")
 	}
@@ -212,7 +212,7 @@ func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sc
 	var readValues int64 = 0
 	var numValues int64 = chunkHeader.MetaData.GetNumValues()
 	for readValues < numValues {
-		page, cnt, _, err := ReadPage(thriftReader, schemaHandler, chunkHeader.GetMetaData(), opts...)
+		page, cnt, _, err := ReadPage(thriftReader, schemaHandler, chunkHeader.GetMetaData(), opts)
 		if err != nil {
 			return nil, err
 		}
