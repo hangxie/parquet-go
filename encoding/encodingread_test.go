@@ -1245,6 +1245,15 @@ func TestReadDeltaEmpty(t *testing.T) {
 	})
 }
 
+func TestReadDeltaLengthByteArray_NegativeLength(t *testing.T) {
+	// WriteDeltaINT32 with a negative value produces a valid delta-encoded stream
+	// that ReadDeltaBinaryPackedINT64 decodes to a negative int64 length.
+	lengths := WriteDeltaINT32([]any{int32(-5)})
+	_, err := ReadDeltaLengthByteArray(bytes.NewReader(lengths))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid negative length")
+}
+
 func TestReadDeltaByteArrayWithEmptyPrefixLengths(t *testing.T) {
 	var buf []byte
 	buf = append(buf, WriteUnsignedVarInt(128)...)
