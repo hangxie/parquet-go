@@ -33,11 +33,6 @@ func ToInt64(nums []any) []int64 { // convert bool/int values to int64 values
 }
 
 func WritePlain(src []any, pt parquet.Type) ([]byte, error) {
-	ln := len(src)
-	if ln <= 0 {
-		return []byte{}, nil
-	}
-
 	switch pt {
 	case parquet.Type_BOOLEAN:
 		return WritePlainBOOLEAN(src)
@@ -56,7 +51,7 @@ func WritePlain(src []any, pt parquet.Type) ([]byte, error) {
 	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
 		return WritePlainFIXED_LEN_BYTE_ARRAY(src)
 	default:
-		return []byte{}, nil
+		return nil, fmt.Errorf("unsupported parquet type: %v", pt)
 	}
 }
 
