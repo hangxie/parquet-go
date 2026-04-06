@@ -45,7 +45,10 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOpt
 // WriteString writes string values to parquet file.
 func (w *CSVWriter) WriteString(recsi any) error {
 	var err error
-	recs := recsi.([]*string)
+	recs, ok := recsi.([]*string)
+	if !ok {
+		return fmt.Errorf("WriteString: expected []*string, got %T", recsi)
+	}
 	lr := len(recs)
 	rec := make([]any, lr)
 	for i := range lr {
