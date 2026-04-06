@@ -174,6 +174,16 @@ func TestArrowColToParquetCol(t *testing.T) {
 			col:    buildArray(mem, []int32{1, 2, 3}, []bool{true, false, true}, array.NewInt32Builder),
 			errMsg: "field with name 'test' is marked non-nullable but its column array contains Null value at index 1",
 		},
+		"unsupported_type_null": {
+			field:  arrow.Field{Name: "test", Type: arrow.Null, Nullable: true},
+			col:    array.NewNull(3),
+			errMsg: "unsupported Arrow type: null",
+		},
+		"unsupported_type_float16": {
+			field:  arrow.Field{Name: "test", Type: &arrow.Float16Type{}, Nullable: true},
+			col:    array.NewNull(1),
+			errMsg: "unsupported Arrow type: float16",
+		},
 	}
 
 	for name, tc := range testCases {

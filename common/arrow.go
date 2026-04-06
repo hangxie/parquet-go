@@ -51,7 +51,7 @@ func arrowArrayToParquetList[arrowValueT any](field arrow.Field, col arrow.Array
 // If `col` contains Null value but `field` is not marked as Nullable this
 // results in an error.
 func ArrowColToParquetCol(field arrow.Field, col arrow.Array) ([]any, error) {
-	recs := make([]any, col.Len())
+	var recs []any
 	var err error
 	switch field.Type.(type) {
 	case *arrow.Int8Type:
@@ -88,6 +88,8 @@ func ArrowColToParquetCol(field arrow.Field, col arrow.Array) ([]any, error) {
 		recs, err = arrowArrayToParquetList(field, col, func(v arrow.Time32) any { return int32(v) })
 	case *arrow.TimestampType:
 		recs, err = arrowArrayToParquetList(field, col, func(v arrow.Timestamp) any { return int64(v) })
+	default:
+		return nil, fmt.Errorf("unsupported Arrow type: %v", field.Type)
 	}
 	return recs, err
 }
