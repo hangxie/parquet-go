@@ -51,7 +51,7 @@ func (pr *ParquetReader) SkipRowsByPath(pathStr string, num int64) error {
 
 	if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 		var err error
-		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 			return fmt.Errorf("init column buffer for %v: %w", pathStr, err)
 		}
 	}
@@ -107,7 +107,7 @@ func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []a
 
 	if _, ok := pr.ColumnBuffers[pathStr]; !ok {
 		var err error
-		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+		if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 			return []any{}, []int32{}, []int32{}, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 		}
 	}

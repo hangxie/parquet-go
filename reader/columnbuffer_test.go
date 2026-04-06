@@ -420,7 +420,7 @@ func TestNewColumnBuffer(t *testing.T) {
 			footer := tt.setupFooter()
 			schemaHandler := tt.setupSchema()
 
-			result, err := NewColumnBuffer(pFile, footer, schemaHandler, tt.pathStr)
+			result, err := NewColumnBuffer(pFile, footer, schemaHandler, tt.pathStr, nil)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -465,7 +465,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		}
 		schemaHandler := newMockSchemaHandler()
 
-		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.nested.deep.field")
+		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.nested.deep.field", nil)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Equal(t, "root.nested.deep.field", result.PathStr)
@@ -491,7 +491,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		}
 		schemaHandler := newMockSchemaHandler()
 
-		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.external_field")
+		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.external_field", nil)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		// When FilePath is specified, the function should handle opening the external file
@@ -537,7 +537,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 			MapIndex:       map[string]int32{"root.badfield": 1},
 		}
 
-		cb, err := NewColumnBuffer(mockFile, footer, sh, "root.badfield")
+		cb, err := NewColumnBuffer(mockFile, footer, sh, "root.badfield", nil)
 		require.Error(t, err)
 		require.Nil(t, cb)
 	})
@@ -755,7 +755,7 @@ func TestNewColumnBuffer_FilePathOpenError(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf")
+	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf", nil)
 	require.Error(t, err)
 	require.Nil(t, cb)
 }
@@ -775,7 +775,7 @@ func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf")
+	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf", nil)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 
@@ -957,7 +957,7 @@ func TestReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(pFile, footer, sh, "root.leaf")
+	cb, err := NewColumnBuffer(pFile, footer, sh, "root.leaf", nil)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 

@@ -259,10 +259,10 @@ func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChu
 
 // ReadPageData reads and decompresses the data from a page at the given offset
 // Returns the uncompressed page data
-func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, opts ...layout.PageReadOptions) ([]byte, error) {
+func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, opts *layout.PageReadOptions) ([]byte, error) {
 	var opt layout.PageReadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
+	if opts != nil {
+		opt = *opts
 	}
 	// Re-read the header to get exact header size
 	_, headerSize, err := readPageHeader(pFile, offset)
@@ -367,7 +367,7 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	}
 
 	// Read and decode the page data
-	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
+	data, err := ReadPageData(pr.PFile, offset, pageHeader, codec, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
 	if err != nil {
 		return nil, fmt.Errorf("read page data: %w", err)
 	}

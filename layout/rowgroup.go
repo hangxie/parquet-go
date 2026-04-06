@@ -42,7 +42,7 @@ func (rowGroup *RowGroup) RowGroupToTableMap() *map[string]*Table {
 }
 
 // Read one RowGroup from parquet file (Deprecated)
-func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileReader, schemaHandler *schema.SchemaHandler, NP int64, opts ...PageReadOptions) (*RowGroup, error) {
+func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileReader, schemaHandler *schema.SchemaHandler, NP int64, opts *PageReadOptions) (*RowGroup, error) {
 	if rowGroupHeader == nil {
 		return nil, fmt.Errorf("rowGroupHeader is nil")
 	}
@@ -93,7 +93,7 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 					errs[index] = fmt.Errorf("column %d: convert to thrift reader: %w", i, err)
 					return
 				}
-				chunk, err := ReadChunk(thriftReader, schemaHandler, columnChunks[i], opts...)
+				chunk, err := ReadChunk(thriftReader, schemaHandler, columnChunks[i], opts)
 				if err != nil {
 					_ = thriftReader.Close()
 					_ = pf.Close()

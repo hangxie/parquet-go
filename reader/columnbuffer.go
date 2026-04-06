@@ -35,7 +35,7 @@ type ColumnBufferType struct {
 	PageReadOptions layout.PageReadOptions
 }
 
-func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts ...layout.PageReadOptions) (*ColumnBufferType, error) {
+func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions) (*ColumnBufferType, error) {
 	if pFile == nil {
 		return nil, fmt.Errorf("pFile is nil")
 	}
@@ -60,8 +60,8 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 		return nil, err
 	}
 	var opt layout.PageReadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
+	if opts != nil {
+		opt = *opts
 	}
 	res := &ColumnBufferType{
 		PFile:            newPFile,
@@ -144,7 +144,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 
 func (cbt *ColumnBufferType) ReadPage() error {
 	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
-		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, cbt.PageReadOptions)
+		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, &cbt.PageReadOptions)
 		if err != nil {
 			// data is nil and rl/dl=0, no pages in file
 			if err == io.EOF && cbt.DataTable == nil && cbt.SchemaHandler != nil &&
@@ -197,7 +197,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 
 func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
-		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, cbt.PageReadOptions)
+		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, &cbt.PageReadOptions)
 		if err != nil {
 			return nil, err
 		}

@@ -2028,7 +2028,7 @@ func TestReadPage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			thriftReader := tt.setupData()
-			page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData)
+			page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData, nil)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -2050,6 +2050,149 @@ func TestReadPage(t *testing.T) {
 			require.NotNil(t, page.Header)
 		})
 	}
+}
+
+func TestReadPage_NilOptsUsesDefaults(t *testing.T) {
+	schemaElements := []*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "test_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+	}
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	colMetaData := &parquet.ColumnMetaData{
+		Type:         parquet.Type_INT32,
+		Codec:        parquet.CompressionCodec_UNCOMPRESSED,
+		PathInSchema: []string{"test_col"},
+	}
+
+	// Build a small valid data page (CompressedPageSize=8)
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   8,
+		UncompressedPageSize: 8,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  2,
+			NumNulls:                   0,
+			NumRows:                    2,
+			Encoding:                   parquet.Encoding_PLAIN,
+			DefinitionLevelsByteLength: 0,
+			RepetitionLevelsByteLength: 0,
+			IsCompressed:               false,
+		},
+	}
+	transport := thrift.NewTMemoryBufferLen(1024)
+	protocol := thrift.NewTCompactProtocolConf(transport, nil)
+	require.NoError(t, header.Write(context.Background(), protocol))
+	require.NoError(t, protocol.Flush(context.Background()))
+	headerBytes := transport.Buffer.Bytes()
+
+	pageData := []byte{0x7B, 0x00, 0x00, 0x00, 0xC8, 0x01, 0x00, 0x00}
+
+	t.Run("nil opts succeeds with default MaxPageSize", func(t *testing.T) {
+		mem := thrift.NewTMemoryBuffer()
+		mem.Write(headerBytes)
+		mem.Write(pageData)
+		thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+		page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData, nil)
+		require.NoError(t, err)
+		require.NotNil(t, page)
+	})
+
+	t.Run("explicit MaxPageSize rejects oversized page", func(t *testing.T) {
+		mem := thrift.NewTMemoryBuffer()
+		mem.Write(headerBytes)
+		mem.Write(pageData)
+		thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+		_, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData, &PageReadOptions{MaxPageSize: 1})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "page size 8 exceeds limit 1")
+	})
+
+	t.Run("explicit MaxPageSize allows page within limit", func(t *testing.T) {
+		mem := thrift.NewTMemoryBuffer()
+		mem.Write(headerBytes)
+		mem.Write(pageData)
+		thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+		page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData, &PageReadOptions{MaxPageSize: 100})
+		require.NoError(t, err)
+		require.NotNil(t, page)
+	})
+}
+
+func TestReadPageRawData_NilOptsUsesDefaults(t *testing.T) {
+	schemaElements := []*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "test_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+	}
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	colMetaData := &parquet.ColumnMetaData{
+		Type:         parquet.Type_INT32,
+		Codec:        parquet.CompressionCodec_UNCOMPRESSED,
+		PathInSchema: []string{"test_col"},
+	}
+
+	// Build a small valid data page (CompressedPageSize=8)
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   8,
+		UncompressedPageSize: 8,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  2,
+			NumNulls:                   0,
+			NumRows:                    2,
+			Encoding:                   parquet.Encoding_PLAIN,
+			DefinitionLevelsByteLength: 0,
+			RepetitionLevelsByteLength: 0,
+			IsCompressed:               false,
+		},
+	}
+	transport := thrift.NewTMemoryBufferLen(1024)
+	protocol := thrift.NewTCompactProtocolConf(transport, nil)
+	require.NoError(t, header.Write(context.Background(), protocol))
+	require.NoError(t, protocol.Flush(context.Background()))
+	headerBytes := transport.Buffer.Bytes()
+
+	pageData := []byte{0x7B, 0x00, 0x00, 0x00, 0xC8, 0x01, 0x00, 0x00}
+
+	t.Run("nil opts succeeds with default MaxPageSize", func(t *testing.T) {
+		mem := thrift.NewTMemoryBuffer()
+		mem.Write(headerBytes)
+		mem.Write(pageData)
+		thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+		page, err := ReadPageRawData(thriftReader, schemaHandler, colMetaData, nil)
+		require.NoError(t, err)
+		require.NotNil(t, page)
+	})
+
+	t.Run("explicit MaxPageSize rejects oversized page", func(t *testing.T) {
+		mem := thrift.NewTMemoryBuffer()
+		mem.Write(headerBytes)
+		mem.Write(pageData)
+		thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+		_, err := ReadPageRawData(thriftReader, schemaHandler, colMetaData, &PageReadOptions{MaxPageSize: 1})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "page size 8 exceeds limit 1")
+	})
 }
 
 func TestReadPageV2IsCompressedFalse(t *testing.T) {
@@ -2109,7 +2252,7 @@ func TestReadPageV2IsCompressedFalse(t *testing.T) {
 	mem.Buffer.Write(buf.Bytes())
 	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
 
-	page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData)
+	page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData, nil)
 	require.NoError(t, err)
 	require.NotNil(t, page)
 	require.Equal(t, parquet.PageType_DATA_PAGE_V2, page.Header.GetType())
@@ -2283,7 +2426,7 @@ func TestReadPageErrorCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			thriftReader := tt.setupData()
-			page, _, _, err := ReadPage(thriftReader, schemaHandler, tt.colMetaData)
+			page, _, _, err := ReadPage(thriftReader, schemaHandler, tt.colMetaData, nil)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -2489,7 +2632,7 @@ func TestReadPageRawData(t *testing.T) {
 			transport.Buffer.Write(data)
 			bufferedTransport := thrift.NewTBufferedTransport(transport, 1024)
 
-			page, err := ReadPageRawData(bufferedTransport, schemaHandler, tc.colMetadata)
+			page, err := ReadPageRawData(bufferedTransport, schemaHandler, tc.colMetadata, nil)
 
 			if tc.expectError {
 				require.Error(t, err)
