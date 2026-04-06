@@ -142,10 +142,14 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	pr.RenameSchema()
 	for i := range len(pr.SchemaHandler.SchemaElements) {
 		schemaElement := pr.SchemaHandler.SchemaElements[i]
+		if schemaElement == nil {
+			continue
+		}
 		if schemaElement.GetNumChildren() == 0 {
-			pathStr := pr.SchemaHandler.IndexMap[int32(i)]
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
-				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
+			if pathStr, exists := pr.SchemaHandler.IndexMap[int32(i)]; exists {
+				if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+					return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
+				}
 			}
 		}
 	}
