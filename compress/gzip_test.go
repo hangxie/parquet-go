@@ -18,6 +18,15 @@ func TestGzipCompression(t *testing.T) {
 	require.Equal(t, input, output)
 }
 
+func TestGzipCompressWithLevelError(t *testing.T) {
+	// Call gzipCompressWithLevel directly with an invalid level to exercise
+	// the error-return path that is unreachable through the public API.
+	compress := gzipCompressWithLevel(100)
+	_, err := compress([]byte("test data"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "gzip compress")
+}
+
 func TestGzipCompressionLevel(t *testing.T) {
 	t.Run("valid level round-trip", func(t *testing.T) {
 		c, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_GZIP, 1))
