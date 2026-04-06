@@ -720,18 +720,18 @@ func StringToVariableName(str string) string {
 		return str
 	}
 
-	name := ""
+	var b strings.Builder
+	b.Grow(ln)
 	for i := range ln {
 		c := str[i]
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
-			name += string(c)
+			b.WriteByte(c)
 		} else {
-			name += strconv.Itoa(int(c))
+			b.WriteString(strconv.Itoa(int(c)))
 		}
 	}
 
-	name = headToUpper(name)
-	return name
+	return headToUpper(b.String())
 }
 
 // Convert the first letter of a string to uppercase
