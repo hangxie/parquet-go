@@ -330,25 +330,35 @@ func TestWritePlain(t *testing.T) {
 				dataType: parquet.Type_FIXED_LEN_BYTE_ARRAY,
 			},
 			{
-				name:     "unknown_type",
-				src:      []any{1, 2, 3},
-				dataType: parquet.Type(-1),
+				name:      "unknown_type",
+				src:       []any{1, 2, 3},
+				dataType:  parquet.Type(-1),
+				expectErr: true,
+			},
+			{
+				name:      "unknown_type_empty_src",
+				src:       []any{},
+				dataType:  parquet.Type(-1),
+				expectErr: true,
+			},
+			{
+				name:      "unknown_type_nil_src",
+				src:       nil,
+				dataType:  parquet.Type(-1),
+				expectErr: true,
 			},
 		}
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				result, err := WritePlain(tc.src, tc.dataType)
-				if !tc.expectErr {
-					require.NoError(t, err)
-				}
-
-				if tc.name == "empty_data" {
-					require.Equal(t, 0, len(result))
+				if tc.expectErr {
+					require.Error(t, err)
 					return
 				}
+				require.NoError(t, err)
 
-				if tc.name == "unknown_type" {
+				if tc.name == "empty_data" {
 					require.Equal(t, 0, len(result))
 					return
 				}
