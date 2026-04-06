@@ -197,11 +197,12 @@ func TestWriteDelta(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				result := WriteDelta(tc.src)
+				result, err := WriteDelta(tc.src)
 				if tc.name == "unsupported_type" {
-					require.Len(t, result, 0)
+					require.Error(t, err)
 					return
 				}
+				require.NoError(t, err)
 				if tc.name == "empty_input" {
 					require.Equal(t, []byte{128, 1, 4, 0, 0}, result)
 					return

@@ -297,20 +297,20 @@ func WriteBitPacked(vals []any, bitWidth int64, ifHeader bool) []byte {
 	return res
 }
 
-func WriteDelta(nums []any) []byte {
+func WriteDelta(nums []any) ([]byte, error) {
 	ln := len(nums)
 	if ln <= 0 {
 		// If empty, we default to treating it as INT32 for the sake of writing an empty header.
 		// The type doesn't matter much for an empty block as long as the header is valid.
-		return WriteDeltaINT32(nums)
+		return WriteDeltaINT32(nums), nil
 	}
 
 	if _, ok := nums[0].(int32); ok {
-		return WriteDeltaINT32(nums)
+		return WriteDeltaINT32(nums), nil
 	} else if _, ok := nums[0].(int64); ok {
-		return WriteDeltaINT64(nums)
+		return WriteDeltaINT64(nums), nil
 	} else {
-		return []byte{}
+		return nil, fmt.Errorf("WriteDelta: unsupported type %T, expected int32 or int64", nums[0])
 	}
 }
 
