@@ -1,26 +1,32 @@
-# parquet-go-source 
+# parquet-go-source
 
-parquet-go-source is a source provider for parquet-go. Your source must implement ParquetFile interface:
+parquet-go-source is a source provider for parquet-go. Sources implement separate reader and writer interfaces:
 
 ```go
-type ParquetFile interface {
+type ParquetFileReader interface {
 	io.Seeker
 	io.Reader
+	io.Closer
+	Open(name string) (ParquetFileReader, error)
+	Clone() (ParquetFileReader, error)
+}
+
+type ParquetFileWriter interface {
 	io.Writer
 	io.Closer
-	Open(name string) (ParquetFile, error)
-	Create(name string) (ParquetFile, error)
+	Create(name string) (ParquetFileWriter, error)
 }
 ```
 
-Now it supports:
+Supported sources:
 * Local
 * HDFS
-* S3 (by [shsing2000](https://github.com/shsing2000))
-* GCS (by [AOHUA](https://github.com/AOHUA))
-* MemoryFileSystem (by [daikokoro](https://github.com/daidokoro))
-* MemoryBuffer (by [pmalekn](https://github.com/pmalekn))
-* HTTP Multipart Request Body (by [mcgrawia](https://github.com/mcgrawia))
-* Azure Blobs (by [davigust](https://github.com/davigust))
+* S3 (AWS SDK v1 and v2)
+* Google Cloud Storage
+* Azure Blob Storage
+* HTTP (read-only)
+* Memory buffer
+* GoCloud CDK (generic blob storage)
+* OpenStack Swift
 
-Thanks for all the contributors !
+Thanks for all the contributors!
