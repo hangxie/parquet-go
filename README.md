@@ -16,12 +16,16 @@ parquet-go is a pure-go implementation of reading and writing the parquet format
 ## Installation
 
 ```sh
-go get github.com/hangxie/parquet-go
+go get github.com/hangxie/parquet-go/v3
 ```
 
-## What's New in v2
+## What's New in v3
 
-This repo was forked from https://github.com/xitongsys/parquet-go and merged https://github.com/xitongsys/parquet-go-source. v2 introduces significant improvements and new features:
+v3 eliminates all global mutable state, making every configuration per-instance via functional options. This enables safe concurrent use of multiple readers/writers with independent settings in the same process. See [Breaking Changes from v2](#breaking-changes-from-v2) for migration details.
+
+## What Was New in v2
+
+This repo was forked from https://github.com/xitongsys/parquet-go and merged https://github.com/xitongsys/parquet-go-source. v2 introduced significant improvements and new features:
 
 ### Major Improvements
 
@@ -117,6 +121,57 @@ See [geoparquet.md](geoparquet.md) for detailed documentation.
   - Statistics for INTERVAL and geospatial data
 - Fixed GeoJSON output format for multi-geometries
 
+### Breaking Changes from v2
+
+v3 removes all global mutable state in favor of per-instance functional options. This is a breaking API change.
+
+#### Removed Global Functions
+
+| v2 Global Function | v3 Replacement |
+|-|-|
+| `compress.SetCompressionLevel()` | `writer.WithCompressionType()` per writer instance |
+| `compress.SetMaxDecompressedSize()` | Per-compressor configuration via `compress.NewCompressor()` |
+| `layout.SetMaxPageSize()` | `writer.WithPageSize()` per writer instance |
+| `source/http.SetDefaultClient()` | `http.NewHttpReaderWithClient()` per reader instance |
+| `source/mem.SetInMemFileFs()` | `mem.NewMemFileWriterWithFs()` per writer instance |
+| `types.SetGeo*()` global setters | `types.NewGeospatialConfig()` with functional options |
+
+#### Constructor Signature Changes
+
+**Writer** — positional `np int64` parameter replaced by variadic `...WriterOption`:
+```go
+// v2
+pw, _ := writer.NewParquetWriter(fw, new(Student), 4)
+// v3
+pw, _ := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
+```
+
+**Reader** — positional `np int64` and `ParquetReaderOptions` struct replaced by variadic `...ReaderOption`:
+```go
+// v2
+pr, _ := reader.NewParquetReader(fr, new(Student), 4)
+// v3
+pr, _ := reader.NewParquetReader(fr, new(Student), reader.WithNP(4))
+```
+
+**Column Reader** — same pattern:
+```go
+// v2
+pr, _ := reader.NewParquetColumnReader(fr, 4)
+// v3
+pr, _ := reader.NewParquetColumnReader(fr, reader.WithNP(4))
+```
+
+#### Available Options
+
+Writer options: `WithNP`, `WithPageSize`, `WithRowGroupSize`, `WithCompressionType`, `WithDataPageVersion`, `WithWriteCRC`.
+
+Reader options: `WithNP`, `WithCaseInsensitive`, `WithCRCMode`.
+
+#### Privatized Fields
+
+Configuration fields on `ParquetWriter` and `ParquetReader` are now unexported (e.g., `NP` → `np`). Use `With*` options at construction time instead of direct field access.
+
 ### Breaking Changes from v1
 
 Please refer to [v1 README.md](READMEv1.md) for v1 documentation. Key breaking changes:
@@ -134,9 +189,9 @@ package main
 
 import (
     "log"
-    "github.com/hangxie/parquet-go/parquet"
-    "github.com/hangxie/parquet-go/writer"
-    "github.com/hangxie/parquet-go/source"
+
+    "github.com/hangxie/parquet-go/v3/source/local"
+    "github.com/hangxie/parquet-go/v3/writer"
 )
 
 type Student struct {
@@ -148,7 +203,7 @@ type Student struct {
 }
 
 func main() {
-    fw, err := source.NewLocalFileWriter("output.parquet")
+    fw, err := local.NewLocalFileWriter("output.parquet")
     if err != nil {
         log.Fatal("Can't create file", err)
     }
@@ -186,8 +241,9 @@ package main
 
 import (
     "log"
-    "github.com/hangxie/parquet-go/reader"
-    "github.com/hangxie/parquet-go/source"
+
+    "github.com/hangxie/parquet-go/v3/reader"
+    "github.com/hangxie/parquet-go/v3/source/local"
 )
 
 type Student struct {
@@ -199,7 +255,7 @@ type Student struct {
 }
 
 func main() {
-    fr, err := source.NewLocalFileReader("output.parquet")
+    fr, err := local.NewLocalFileReader("output.parquet")
     if err != nil {
         log.Fatal("Can't open file", err)
     }
@@ -270,7 +326,7 @@ func main() {
 ### Type Notes
 
 * Type aliases are supported (e.g., `type MyString string`), but the base type must follow the table
-* Use [converter.go](https://github.com/hangxie/parquet-go/blob/master/types/converter.go) for type conversion utilities
+* Use [converter.go](types/converter.go) for type conversion utilities
 
 ## Encoding Support
 
@@ -305,6 +361,12 @@ func main() {
 |LZ4|✓|
 |LZ4_RAW|✓|
 |ZSTD|✓|
+
+### Compression Notes
+
+* **LZ4** uses the standard LZ4 frame format with frame headers. This is the legacy Parquet compression type.
+* **LZ4_RAW** uses raw LZ4 block compression without framing. This is the preferred LZ4 variant per the Parquet specification.
+* All compression codecs enforce decompressed size limits to prevent compression bombs.
 
 ## Repetition Types
 
@@ -403,18 +465,23 @@ pw, err := writer.NewParquetWriter(fw, new(MyStruct),
 )
 ```
 
-## ParquetFile Interface
+## ParquetFile Interfaces
 
-All file sources must implement:
+File sources implement separate reader and writer interfaces:
 
 ```go
-type ParquetFile interface {
+type ParquetFileReader interface {
     io.Seeker
     io.Reader
+    io.Closer
+    Open(name string) (ParquetFileReader, error)
+    Clone() (ParquetFileReader, error)
+}
+
+type ParquetFileWriter interface {
     io.Writer
     io.Closer
-    Open(name string) (ParquetFile, error)
-    Create(name string) (ParquetFile, error)
+    Create(name string) (ParquetFileWriter, error)
 }
 ```
 
@@ -437,11 +504,11 @@ See [source/README.md](source/README.md) for details.
 Optimize performance with parallel marshaling/unmarshaling:
 
 ```go
-func NewParquetReader(pFile ParquetFile.ParquetFile, obj interface{}, opts ...ReaderOption) (*ParquetReader, error)
-func NewParquetWriter(pFile ParquetFile.ParquetFile, obj interface{}, opts ...WriterOption) (*ParquetWriter, error)
-func NewJSONWriter(jsonSchema string, pfile ParquetFile.ParquetFile, opts ...WriterOption) (*JSONWriter, error)
-func NewCSVWriter(md []string, pfile ParquetFile.ParquetFile, opts ...WriterOption) (*CSVWriter, error)
-func NewArrowWriter(arrowSchema *arrow.Schema, pfile ParquetFile.ParquetFile, opts ...WriterOption) (*ArrowWriter, error)
+func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOption) (*ParquetReader, error)
+func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error)
+func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, opts ...WriterOption) (*JSONWriter, error)
+func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOption) (*CSVWriter, error)
+func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, opts ...WriterOption) (*ArrowWriter, error)
 ```
 
 Use `WithNP(n)` to set the number of parallel goroutines (default is 4).
