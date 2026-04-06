@@ -146,6 +146,9 @@ func ReadPlainBYTE_ARRAY(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 			break
 		}
 		ln := binary.LittleEndian.Uint32(buf)
+		if uint64(ln) > uint64(bytesReader.Len()) {
+			return nil, fmt.Errorf("ReadPlainBYTE_ARRAY: length prefix %d exceeds remaining data size %d", ln, bytesReader.Len())
+		}
 		cur := make([]byte, ln)
 		if ln > 0 {
 			if _, err := bytesReader.Read(cur); err != nil {

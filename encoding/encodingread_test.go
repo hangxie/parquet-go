@@ -651,6 +651,18 @@ func TestReadPlain(t *testing.T) {
 		}
 	})
 
+	t.Run("byte_array_length_prefix_exceeds_buffer", func(t *testing.T) {
+		// Craft a buffer with a length prefix that far exceeds remaining data.
+		buf := []byte{
+			0xFF, 0xFF, 0xFF, 0xFF, // length prefix: ~4GB
+			0x01, 0x02, 0x03, // only 3 bytes of actual data
+		}
+		_, err := ReadPlainBYTE_ARRAY(bytes.NewReader(buf), 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "length prefix")
+		require.Contains(t, err.Error(), "exceeds remaining data size")
+	})
+
 	t.Run("double", func(t *testing.T) {
 		testData := [][]any{
 			{float64(0), float64(1), float64(2)},
