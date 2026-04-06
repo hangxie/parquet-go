@@ -254,30 +254,6 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 	pathMap := schemaHandler.PathMap
 	nodeBuf := NewNodeBuf(1)
 
-	for i := range len(schemaHandler.SchemaElements) {
-		schema := schemaHandler.SchemaElements[i]
-		pathStr := schemaHandler.IndexMap[int32(i)]
-		numChildren := schema.GetNumChildren()
-		if numChildren == 0 {
-			table := layout.NewEmptyTable()
-			table.Path = common.StrToPath(pathStr)
-			if table.MaxDefinitionLevel, err = schemaHandler.MaxDefinitionLevel(table.Path); err != nil {
-				return nil, err
-			}
-			if table.MaxRepetitionLevel, err = schemaHandler.MaxRepetitionLevel(table.Path); err != nil {
-				return nil, err
-			}
-			table.RepetitionType = schema.GetRepetitionType()
-			table.Schema = schemaHandler.SchemaElements[schemaHandler.MapIndex[pathStr]]
-			table.Info = schemaHandler.Infos[i]
-			// Pre-size tables under the assumption that they'll be filled.
-			table.Values = make([]any, 0, len(srcInterface))
-			table.DefinitionLevels = make([]int32, 0, len(srcInterface))
-			table.RepetitionLevels = make([]int32, 0, len(srcInterface))
-			res[pathStr] = table
-		}
-	}
-
 	stack := make([]*Node, 0, 100)
 	for i := range srcInterface {
 		stack = stack[:0]
