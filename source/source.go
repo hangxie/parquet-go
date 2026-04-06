@@ -22,7 +22,7 @@ type ParquetFileWriter interface {
 
 const bufferSize = 4096
 
-// Convert a file reater to Thrift reader
+// ConvertToThriftReader converts a file reader to a Thrift buffered transport.
 func ConvertToThriftReader(file ParquetFileReader, offset int64) *thrift.TBufferedTransport {
 	if _, err := file.Seek(offset, 0); err != nil {
 		return nil
