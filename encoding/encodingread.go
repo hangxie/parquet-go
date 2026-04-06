@@ -467,7 +467,11 @@ func ReadDeltaLengthByteArray(bytesReader *bytes.Reader) ([]any, error) {
 	res = make([]any, len(lengths))
 	for i := range lengths {
 		res[i] = ""
-		length := uint64(lengths[i].(int64))
+		l := lengths[i].(int64)
+		if l < 0 {
+			return res, fmt.Errorf("ReadDeltaLengthByteArray: invalid negative length %d at index %d", l, i)
+		}
+		length := uint64(l)
 		if length > 0 {
 			cur, err := ReadPlainFIXED_LEN_BYTE_ARRAY(bytesReader, 1, length)
 			if err != nil {
