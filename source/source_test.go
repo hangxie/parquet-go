@@ -103,8 +103,8 @@ func TestConvertToThriftReader_BufferSize(t *testing.T) {
 	mockReader := newMockParquetFileReader(testData)
 
 	// Test ConvertToThriftReader
-	thriftReader := ConvertToThriftReader(mockReader, 0)
-
+	thriftReader, err := ConvertToThriftReader(mockReader, 0)
+	require.NoError(t, err)
 	require.NotNil(t, thriftReader)
 
 	// Read data in chunks and verify it matches
@@ -136,8 +136,8 @@ func TestConvertToThriftReader_EmptyData(t *testing.T) {
 	mockReader := newMockParquetFileReader(testData)
 
 	// Test ConvertToThriftReader with offset 0
-	thriftReader := ConvertToThriftReader(mockReader, 0)
-
+	thriftReader, err := ConvertToThriftReader(mockReader, 0)
+	require.NoError(t, err)
 	require.NotNil(t, thriftReader)
 
 	// Try to read - should get EOF immediately
@@ -162,8 +162,8 @@ func TestConvertToThriftReader_LargeOffset(t *testing.T) {
 
 	// Test ConvertToThriftReader with offset beyond data length
 	largeOffset := int64(len(testData) + 100)
-	thriftReader := ConvertToThriftReader(mockReader, largeOffset)
-
+	thriftReader, err := ConvertToThriftReader(mockReader, largeOffset)
+	require.NoError(t, err)
 	require.NotNil(t, thriftReader)
 
 	// Try to read - should get EOF immediately since we're beyond the data
@@ -187,8 +187,8 @@ func TestConvertToThriftReader_NegativeOffset(t *testing.T) {
 	mockReader := newMockParquetFileReader(testData)
 
 	// Test ConvertToThriftReader with negative offset (should be clamped to 0)
-	thriftReader := ConvertToThriftReader(mockReader, -10)
-
+	thriftReader, err := ConvertToThriftReader(mockReader, -10)
+	require.NoError(t, err)
 	require.NotNil(t, thriftReader)
 
 	// Verify it reads from the beginning
@@ -211,9 +211,10 @@ func TestConvertToThriftReader_SeekError(t *testing.T) {
 	mockReader.seekError = true
 
 	// Test ConvertToThriftReader when seek fails
-	thriftReader := ConvertToThriftReader(mockReader, 10)
-
+	thriftReader, err := ConvertToThriftReader(mockReader, 10)
+	require.Error(t, err)
 	require.Nil(t, thriftReader)
+	require.Contains(t, err.Error(), "seek to offset")
 }
 
 func TestConvertToThriftReader_Success(t *testing.T) {
@@ -224,8 +225,8 @@ func TestConvertToThriftReader_Success(t *testing.T) {
 	mockReader := newMockParquetFileReader(testData)
 
 	// Test ConvertToThriftReader with offset 0
-	thriftReader := ConvertToThriftReader(mockReader, 0)
-
+	thriftReader, err := ConvertToThriftReader(mockReader, 0)
+	require.NoError(t, err)
 	require.NotNil(t, thriftReader)
 
 	// Verify the thrift reader can read data
@@ -244,8 +245,8 @@ func TestConvertToThriftReader_TypeAssertion(t *testing.T) {
 	testData := []byte("test data")
 	mockReader := newMockParquetFileReader(testData)
 
-	result := ConvertToThriftReader(mockReader, 0)
-
+	result, err := ConvertToThriftReader(mockReader, 0)
+	require.NoError(t, err)
 	require.NotNil(t, result)
 
 	// Verify we can use it as a reader
@@ -264,8 +265,8 @@ func TestConvertToThriftReader_WithOffset(t *testing.T) {
 
 	// Test ConvertToThriftReader with offset 7 (should start reading from "this")
 	offset := int64(7)
-	thriftReader := ConvertToThriftReader(mockReader, offset)
-
+	thriftReader, err := ConvertToThriftReader(mockReader, offset)
+	require.NoError(t, err)
 	require.NotNil(t, thriftReader)
 
 	// Verify the thrift reader reads from the correct offset

@@ -22,9 +22,12 @@ import (
 func readColumnIndex(pf source.ParquetFileReader, offset int64) (*parquet.ColumnIndex, error) {
 	colIdx := parquet.NewColumnIndex()
 	tpf := thrift.NewTCompactProtocolFactoryConf(nil)
-	triftReader := source.ConvertToThriftReader(pf, offset)
+	triftReader, err := source.ConvertToThriftReader(pf, offset)
+	if err != nil {
+		return nil, err
+	}
 	protocol := tpf.GetProtocol(triftReader)
-	err := colIdx.Read(context.Background(), protocol)
+	err = colIdx.Read(context.Background(), protocol)
 	if err != nil {
 		return nil, err
 	}
@@ -1485,9 +1488,12 @@ func TestDataPageVersion(t *testing.T) {
 func readBloomFilter(pf source.ParquetFileReader, offset int64) (*parquet.BloomFilterHeader, []byte, error) {
 	header := parquet.NewBloomFilterHeader()
 	tpf := thrift.NewTCompactProtocolFactoryConf(nil)
-	triftReader := source.ConvertToThriftReader(pf, offset)
+	triftReader, err := source.ConvertToThriftReader(pf, offset)
+	if err != nil {
+		return nil, nil, err
+	}
 	protocol := tpf.GetProtocol(triftReader)
-	err := header.Read(context.Background(), protocol)
+	err = header.Read(context.Background(), protocol)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -87,7 +87,12 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 					errs[index] = fmt.Errorf("column %d: open file: %w", i, err)
 					return
 				}
-				thriftReader := source.ConvertToThriftReader(pf, offset)
+				thriftReader, err := source.ConvertToThriftReader(pf, offset)
+				if err != nil {
+					_ = pf.Close()
+					errs[index] = fmt.Errorf("column %d: convert to thrift reader: %w", i, err)
+					return
+				}
 				chunk, err := ReadChunk(thriftReader, schemaHandler, columnChunks[i], opts...)
 				if err != nil {
 					_ = pf.Close()

@@ -1,6 +1,7 @@
 package source
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -22,12 +23,13 @@ type ParquetFileWriter interface {
 
 const bufferSize = 4096
 
-// Convert a file reater to Thrift reader
-func ConvertToThriftReader(file ParquetFileReader, offset int64) *thrift.TBufferedTransport {
+// ConvertToThriftReader converts a file reader to a Thrift buffered transport.
+// It seeks to the given offset before wrapping the reader.
+func ConvertToThriftReader(file ParquetFileReader, offset int64) (*thrift.TBufferedTransport, error) {
 	if _, err := file.Seek(offset, 0); err != nil {
-		return nil
+		return nil, fmt.Errorf("seek to offset %d: %w", offset, err)
 	}
 	thriftReader := thrift.NewStreamTransportR(file)
 	bufferReader := thrift.NewTBufferedTransport(thriftReader, bufferSize)
-	return bufferReader
+	return bufferReader, nil
 }
