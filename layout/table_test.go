@@ -57,8 +57,8 @@ func TestNewTableFromTable(t *testing.T) {
 	require.NotNil(t, result)
 	require.Equal(t, src.Schema, result.Schema)
 	require.Len(t, result.Path, len(src.Path))
-	require.Equal(t, int32(0), result.MaxDefinitionLevel)
-	require.Equal(t, int32(0), result.MaxRepetitionLevel)
+	require.Equal(t, src.MaxDefinitionLevel, result.MaxDefinitionLevel)
+	require.Equal(t, src.MaxRepetitionLevel, result.MaxRepetitionLevel)
 }
 
 func TestTable_Merge(t *testing.T) {

@@ -12,8 +12,8 @@ func NewTableFromTable(src *Table) *Table {
 	table := new(Table)
 	table.Schema = src.Schema
 	table.Path = append(table.Path, src.Path...)
-	table.MaxDefinitionLevel = 0
-	table.MaxRepetitionLevel = 0
+	table.MaxDefinitionLevel = src.MaxDefinitionLevel
+	table.MaxRepetitionLevel = src.MaxRepetitionLevel
 	table.Info = src.Info
 	return table
 }
