@@ -663,6 +663,76 @@ func TestReadPlain(t *testing.T) {
 		require.Contains(t, err.Error(), "exceeds remaining data size")
 	})
 
+	t.Run("byte_array_boundary_cases", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			buf       []byte
+			cnt       uint64
+			expectErr bool
+		}{
+			{
+				name: "length_equals_remaining_succeeds",
+				// length prefix = 3, remaining = 3 bytes
+				buf:       []byte{0x03, 0x00, 0x00, 0x00, 0x41, 0x42, 0x43},
+				cnt:       1,
+				expectErr: false,
+			},
+			{
+				name: "length_exceeds_remaining_by_one",
+				// length prefix = 4, remaining = 3 bytes
+				buf:       []byte{0x04, 0x00, 0x00, 0x00, 0x41, 0x42, 0x43},
+				cnt:       1,
+				expectErr: true,
+			},
+			{
+				name: "zero_length_value",
+				// length prefix = 0
+				buf:       []byte{0x00, 0x00, 0x00, 0x00},
+				cnt:       1,
+				expectErr: false,
+			},
+			{
+				name: "multiple_values_second_oversized",
+				// first value: length=1, data="A"; second value: length=0xFF, only 1 byte left
+				buf:       []byte{0x01, 0x00, 0x00, 0x00, 0x41, 0xFF, 0x00, 0x00, 0x00, 0x42},
+				cnt:       2,
+				expectErr: true,
+			},
+			{
+				name: "truncated_length_prefix",
+				// only 2 bytes instead of 4 for length prefix
+				buf:       []byte{0x01, 0x00},
+				cnt:       1,
+				expectErr: true,
+			},
+			{
+				name:      "cnt_zero",
+				buf:       []byte{},
+				cnt:       0,
+				expectErr: false,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := ReadPlainBYTE_ARRAY(bytes.NewReader(tt.buf), tt.cnt)
+				if tt.expectErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
+	})
+
+	t.Run("fixed_len_byte_array_exceeds_buffer", func(t *testing.T) {
+		// 3 bytes of data but fixedLength=100
+		buf := []byte{0x01, 0x02, 0x03}
+		_, err := ReadPlainFIXED_LEN_BYTE_ARRAY(bytes.NewReader(buf), 1, 100)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "fixed length")
+		require.Contains(t, err.Error(), "exceeds remaining data size")
+	})
+
 	t.Run("double", func(t *testing.T) {
 		testData := [][]any{
 			{float64(0), float64(1), float64(2)},

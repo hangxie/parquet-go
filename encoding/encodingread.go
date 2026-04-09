@@ -138,12 +138,11 @@ func ReadPlainBYTE_ARRAY(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 	if err := validateCount(cnt); err != nil {
 		return nil, fmt.Errorf("ReadPlainBYTE_ARRAY: %w", err)
 	}
-	var err error
 	res := make([]any, cnt)
+	buf := make([]byte, 4)
 	for i := range int(cnt) {
-		buf := make([]byte, 4)
-		if _, err = bytesReader.Read(buf); err != nil {
-			break
+		if _, err := io.ReadFull(bytesReader, buf); err != nil {
+			return nil, fmt.Errorf("ReadPlainBYTE_ARRAY: read length prefix at index %d: %w", i, err)
 		}
 		ln := binary.LittleEndian.Uint32(buf)
 		if uint64(ln) > uint64(bytesReader.Len()) {
@@ -151,29 +150,31 @@ func ReadPlainBYTE_ARRAY(bytesReader *bytes.Reader, cnt uint64) ([]any, error) {
 		}
 		cur := make([]byte, ln)
 		if ln > 0 {
-			if _, err := bytesReader.Read(cur); err != nil {
-				return nil, err
+			if _, err := io.ReadFull(bytesReader, cur); err != nil {
+				return nil, fmt.Errorf("ReadPlainBYTE_ARRAY: read value at index %d: %w", i, err)
 			}
 		}
 		res[i] = string(cur)
 	}
-	return res, err
+	return res, nil
 }
 
 func ReadPlainFIXED_LEN_BYTE_ARRAY(bytesReader *bytes.Reader, cnt, fixedLength uint64) ([]any, error) {
 	if err := validateCount(cnt); err != nil {
 		return nil, fmt.Errorf("ReadPlainFIXED_LEN_BYTE_ARRAY: %w", err)
 	}
-	var err error
+	if fixedLength > uint64(bytesReader.Len()) {
+		return nil, fmt.Errorf("ReadPlainFIXED_LEN_BYTE_ARRAY: fixed length %d exceeds remaining data size %d", fixedLength, bytesReader.Len())
+	}
 	res := make([]any, cnt)
 	for i := range int(cnt) {
 		cur := make([]byte, fixedLength)
-		if _, err = bytesReader.Read(cur); err != nil {
-			break
+		if _, err := io.ReadFull(bytesReader, cur); err != nil {
+			return nil, fmt.Errorf("ReadPlainFIXED_LEN_BYTE_ARRAY: read value at index %d: %w", i, err)
 		}
 		res[i] = string(cur)
 	}
-	return res, err
+	return res, nil
 }
 
 func ReadUnsignedVarInt(bytesReader *bytes.Reader) (uint64, error) {
