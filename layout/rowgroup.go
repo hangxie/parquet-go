@@ -95,11 +95,13 @@ func ReadRowGroup(rowGroupHeader *parquet.RowGroup, PFile source.ParquetFileRead
 				}
 				chunk, err := ReadChunk(thriftReader, schemaHandler, columnChunks[i], opts...)
 				if err != nil {
+					_ = thriftReader.Close()
 					_ = pf.Close()
 					errs[index] = fmt.Errorf("column %d: read chunk: %w", i, err)
 					return
 				}
 				chunksList[index] = append(chunksList[index], chunk)
+				_ = thriftReader.Close()
 				if err := pf.Close(); err != nil {
 					errs[index] = fmt.Errorf("column %d: close file: %w", i, err)
 					return
