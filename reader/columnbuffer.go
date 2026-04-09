@@ -132,11 +132,11 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		_ = cbt.ThriftReader.Close()
 	}
 
-	var err2 error
-	cbt.ThriftReader, err2 = source.ConvertToThriftReader(cbt.PFile, offset)
-	if err2 != nil {
-		return fmt.Errorf("convert to thrift reader at offset %d: %w", offset, err2)
+	thriftReader, thriftErr := source.ConvertToThriftReader(cbt.PFile, offset)
+	if thriftErr != nil {
+		return fmt.Errorf("convert to thrift reader at offset %d: %w", offset, thriftErr)
 	}
+	cbt.ThriftReader = thriftReader
 	cbt.ChunkReadValues = 0
 	cbt.DictPage = nil
 	return nil
