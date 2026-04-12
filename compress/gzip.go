@@ -34,6 +34,10 @@ func gzipCompress(pool *sync.Pool) func([]byte) ([]byte, error) {
 	return func(buf []byte) ([]byte, error) {
 		res := new(bytes.Buffer)
 		gzipWriter := pool.Get().(*gzip.Writer)
+		defer func() {
+			gzipWriter.Reset(nil)
+			pool.Put(gzipWriter)
+		}()
 		gzipWriter.Reset(res)
 		if _, err := gzipWriter.Write(buf); err != nil {
 			return nil, fmt.Errorf("gzip compress: %w", err)
@@ -41,8 +45,6 @@ func gzipCompress(pool *sync.Pool) func([]byte) ([]byte, error) {
 		if err := gzipWriter.Close(); err != nil {
 			return nil, fmt.Errorf("gzip compress close: %w", err)
 		}
-		gzipWriter.Reset(nil)
-		pool.Put(gzipWriter)
 		return res.Bytes(), nil
 	}
 }
@@ -66,6 +68,9 @@ func gzipCompressWithLevel(level int) func([]byte) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("gzip compress: %w", err)
 		}
+		defer func() {
+			_ = gzipWriter.Close()
+		}()
 		if _, err := gzipWriter.Write(buf); err != nil {
 			return nil, fmt.Errorf("gzip compress: %w", err)
 		}

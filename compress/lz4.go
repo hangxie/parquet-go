@@ -30,6 +30,10 @@ func init() {
 func lz4Compress(pool *sync.Pool) func([]byte) ([]byte, error) {
 	return func(buf []byte) ([]byte, error) {
 		lz4Writer := pool.Get().(*lz4.Writer)
+		defer func() {
+			lz4Writer.Reset(nil)
+			pool.Put(lz4Writer)
+		}()
 		res := new(bytes.Buffer)
 		lz4Writer.Reset(res)
 		if _, err := lz4Writer.Write(buf); err != nil {
@@ -38,8 +42,6 @@ func lz4Compress(pool *sync.Pool) func([]byte) ([]byte, error) {
 		if err := lz4Writer.Close(); err != nil {
 			return nil, fmt.Errorf("lz4 compress close: %w", err)
 		}
-		lz4Writer.Reset(nil)
-		pool.Put(lz4Writer)
 		return res.Bytes(), nil
 	}
 }
@@ -53,8 +55,11 @@ func lz4Uncompress(buf []byte, maxSize int64) ([]byte, error) {
 func lz4CompressWithLevel(pool *sync.Pool, cl lz4.CompressionLevel) func([]byte) ([]byte, error) {
 	return func(buf []byte) ([]byte, error) {
 		lz4Writer := pool.Get().(*lz4.Writer)
-		if err := lz4Writer.Apply(lz4.CompressionLevelOption(cl)); err != nil {
+		defer func() {
+			lz4Writer.Reset(nil)
 			pool.Put(lz4Writer)
+		}()
+		if err := lz4Writer.Apply(lz4.CompressionLevelOption(cl)); err != nil {
 			return nil, fmt.Errorf("lz4 compress: %w", err)
 		}
 		res := new(bytes.Buffer)
@@ -65,8 +70,6 @@ func lz4CompressWithLevel(pool *sync.Pool, cl lz4.CompressionLevel) func([]byte)
 		if err := lz4Writer.Close(); err != nil {
 			return nil, fmt.Errorf("lz4 compress close: %w", err)
 		}
-		lz4Writer.Reset(nil)
-		pool.Put(lz4Writer)
 		return res.Bytes(), nil
 	}
 }
