@@ -143,24 +143,6 @@ func serializePage(page *Page, opt PageWriteOption, compressedData ...[]byte) er
 	return nil
 }
 
-// Deprecated: Use TableToDataPagesWithOption instead.
-func TableToDataPages(table *Table, pageSize int32, compressType parquet.CompressionCodec) ([]*Page, int64, error) {
-	return TableToDataPagesWithOption(table, PageWriteOption{
-		PageSize:        pageSize,
-		CompressType:    compressType,
-		DataPageVersion: 1,
-	})
-}
-
-// Deprecated: Use TableToDataPagesWithOption instead.
-func TableToDataPagesWithVersion(table *Table, pageSize int32, compressType parquet.CompressionCodec, pageVersion int32) ([]*Page, int64, error) {
-	return TableToDataPagesWithOption(table, PageWriteOption{
-		PageSize:        pageSize,
-		CompressType:    compressType,
-		DataPageVersion: pageVersion,
-	})
-}
-
 // TableToDataPagesWithOption converts a table to data pages using the provided options.
 func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int64, error) {
 	var totSize int64 = 0
@@ -431,37 +413,6 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 	return nil
 }
 
-// Deprecated: Use TableToDataPagesWithOption instead.
-//
-// Before (manually build page, compress, then use page.RawData):
-//
-//	page := NewDataPage()
-//	// ... set up page fields from table ...
-//	_, err := page.DataPageCompress(compressType)
-//	// serialized data is in page.RawData
-//
-// After (returns ready-to-use pages with RawData already set):
-//
-//	pages, size, err := TableToDataPagesWithOption(table, PageWriteOption{
-//	    PageSize:     pageSize,
-//	    CompressType: compressType,
-//	})
-func (page *Page) DataPageCompress(compressType parquet.CompressionCodec) ([]byte, error) {
-	compressedData, err := page.dataPageCompress(compressType, nil)
-	if err != nil {
-		return nil, err
-	}
-	ts := thrift.NewTSerializer()
-	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
-	if err != nil {
-		return nil, err
-	}
-
-	page.RawData = slices.Concat(pageHeaderBuf, compressedData)
-	return page.RawData, nil
-}
-
 func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *compress.Compressor) ([]byte, error) {
 	ln := len(page.DataTable.DefinitionLevels)
 
@@ -542,38 +493,6 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *com
 	}
 
 	return dataEncodeBuf, nil
-}
-
-// Deprecated: Use TableToDataPagesWithOption instead.
-//
-// Before (manually build page, compress, then use page.RawData):
-//
-//	page := NewDataPage()
-//	// ... set up page fields from table ...
-//	_, err := page.DataPageV2Compress(compressType)
-//	// serialized data is in page.RawData
-//
-// After (returns ready-to-use pages with RawData already set):
-//
-//	pages, size, err := TableToDataPagesWithOption(table, PageWriteOption{
-//	    PageSize:        pageSize,
-//	    CompressType:    compressType,
-//	    DataPageVersion: 2,
-//	})
-func (page *Page) DataPageV2Compress(compressType parquet.CompressionCodec) ([]byte, error) {
-	repLevels, defLevels, compressedValues, err := page.dataPageV2Compress(compressType, nil)
-	if err != nil {
-		return nil, err
-	}
-	ts := thrift.NewTSerializer()
-	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
-	if err != nil {
-		return nil, err
-	}
-
-	page.RawData = slices.Concat(pageHeaderBuf, repLevels, defLevels, compressedValues)
-	return page.RawData, nil
 }
 
 // dataPageV2Compress compresses a data page v2 and populates the page header.

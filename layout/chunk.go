@@ -3,12 +3,9 @@ package layout
 import (
 	"fmt"
 
-	"github.com/apache/thrift/lib/go/thrift"
-
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
-	"github.com/hangxie/parquet-go/v3/schema"
 )
 
 // Chunk stores the ColumnChunk in parquet file
@@ -195,35 +192,6 @@ func DecodeDictChunk(chunk *Chunk) {
 		}
 	}
 	chunk.Pages = chunk.Pages[1:] // delete the head dict page
-}
-
-// Read one chunk from parquet file (Deprecated)
-func ReadChunk(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, chunkHeader *parquet.ColumnChunk, opts *PageReadOptions) (*Chunk, error) {
-	if chunkHeader == nil {
-		return nil, fmt.Errorf("chunkHeader is nil")
-	}
-	if chunkHeader.MetaData == nil {
-		return nil, fmt.Errorf("chunkHeader.MetaData is nil")
-	}
-
-	chunk := new(Chunk)
-	chunk.ChunkHeader = chunkHeader
-
-	var readValues int64 = 0
-	var numValues int64 = chunkHeader.MetaData.GetNumValues()
-	for readValues < numValues {
-		page, cnt, _, err := ReadPage(thriftReader, schemaHandler, chunkHeader.GetMetaData(), opts)
-		if err != nil {
-			return nil, err
-		}
-		chunk.Pages = append(chunk.Pages, page)
-		readValues += cnt
-	}
-
-	if len(chunk.Pages) > 0 && chunk.Pages[0].Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
-		DecodeDictChunk(chunk)
-	}
-	return chunk, nil
 }
 
 // aggregateSizeStatistics combines per-page level histograms and byte array

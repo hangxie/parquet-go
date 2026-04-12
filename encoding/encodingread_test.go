@@ -26,56 +26,6 @@ func TestReadBitPacked(t *testing.T) {
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res), "ReadBitPacked err, expect %v, get %v", data, res)
 		}
 	})
-
-	t.Run("count", func(t *testing.T) {
-		testData := []struct {
-			name     string
-			values   []any
-			bitWidth int64
-		}{
-			{
-				name:     "simple_values",
-				values:   []any{int64(1), int64(2), int64(3), int64(4)},
-				bitWidth: 3,
-			},
-			{
-				name:     "single_value",
-				values:   []any{int64(5)},
-				bitWidth: 3,
-			},
-			{
-				name:     "zero_values",
-				values:   []any{int64(0), int64(0), int64(0), int64(0)},
-				bitWidth: 1,
-			},
-			{
-				name:     "max_3bit_values",
-				values:   []any{int64(7), int64(7), int64(7), int64(7)},
-				bitWidth: 3,
-			},
-			{
-				name:     "larger_bitwidth",
-				values:   []any{int64(100), int64(200), int64(300), int64(400)},
-				bitWidth: 9,
-			},
-		}
-
-		for _, td := range testData {
-			t.Run(td.name, func(t *testing.T) {
-				// Write data using WriteBitPackedDeprecated
-				encoded := WriteBitPackedDeprecated(td.values, td.bitWidth)
-
-				// Read it back using ReadBitPackedCount
-				decoded, err := ReadBitPackedCount(bytes.NewReader(encoded), uint64(len(td.values)), uint64(td.bitWidth))
-
-				require.NoError(t, err)
-				require.Equal(t, len(td.values), len(decoded))
-				for i := range td.values {
-					require.Equal(t, td.values[i], decoded[i], "Value mismatch at index %d", i)
-				}
-			})
-		}
-	})
 }
 
 func TestReadByteStreamSplit(t *testing.T) {

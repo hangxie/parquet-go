@@ -542,11 +542,6 @@ func (pr *ParquetReader) ReadStopWithError() error {
 	return errors.Join(errs...)
 }
 
-// Deprecated: Use ReadStopWithError instead. This method ignores errors.
-func (pr *ParquetReader) ReadStop() {
-	_ = pr.ReadStopWithError()
-}
-
 // BloomFilterCheck checks if a value might exist in the given column of the given row group.
 // It returns true if the value might exist (or if there is no bloom filter), false if the value
 // is definitely not present. The columnPath uses dot-separated notation matching the parquet tag

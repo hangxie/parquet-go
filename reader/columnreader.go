@@ -84,11 +84,6 @@ func (pr *ParquetReader) SkipRowsByIndexWithError(index, num int64) error {
 	return nil
 }
 
-// Deprecated: Use SkipRowsByIndexWithError instead. This method ignores errors.
-func (pr *ParquetReader) SkipRowsByIndex(index, num int64) {
-	_ = pr.SkipRowsByIndexWithError(index, num)
-}
-
 // ReadColumnByPath reads column by path in schema.
 func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []any, rls, dls []int32, err error) {
 	errPathNotFound := fmt.Errorf("path %v not found", pathStr)

@@ -364,13 +364,6 @@ func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
 	return originalNum - num, nil
 }
 
-// Deprecated: Use SkipRowsWithError instead. This method ignores underlying
-// read/decoding errors and will be removed in a future major release.
-func (cbt *ColumnBufferType) SkipRows(num int64) int64 {
-	n, _ := cbt.SkipRowsWithError(num)
-	return n
-}
-
 // ReadRowsWithError reads up to num rows into a table and returns any non-EOF error.
 func (cbt *ColumnBufferType) ReadRowsWithError(num int64) (*layout.Table, int64, error) {
 	if cbt.Footer.NumRows == 0 {
@@ -405,11 +398,4 @@ func (cbt *ColumnBufferType) ReadRowsWithError(num int64) (*layout.Table, int64,
 		return res, num, err
 	}
 	return res, num, nil
-}
-
-// Deprecated: Use ReadRowsWithError instead. This method ignores underlying
-// read/decoding errors and will be removed in a future major release.
-func (cbt *ColumnBufferType) ReadRows(num int64) (*layout.Table, int64) {
-	tbl, n, _ := cbt.ReadRowsWithError(num)
-	return tbl, n
 }

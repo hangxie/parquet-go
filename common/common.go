@@ -16,9 +16,6 @@ const (
 	DefaultRowGroupSize = 128 * 1024 * 1024
 )
 
-// Deprecated: Use ParGoPathDelimiter instead.
-const PAR_GO_PATH_DELIMITER = ParGoPathDelimiter
-
 type fieldAttr struct {
 	Type            string
 	Length          int32
