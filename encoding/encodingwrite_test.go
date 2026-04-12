@@ -45,21 +45,6 @@ func TestWriteBitPacked(t *testing.T) {
 			require.Equal(t, string(data.expected), string(res))
 		}
 	})
-
-	t.Run("deprecated", func(t *testing.T) {
-		testData := []struct {
-			nums     []any
-			expected []byte
-		}{
-			// [1,2,3,4] with bitWidth=3, LSB-first: 001|010|011|100 = 11010001|00001000 = [0xD1, 0x08] = [209, 8]
-			{[]any{1, 2, 3, 4}, []byte{209, 8}},
-		}
-
-		for _, data := range testData {
-			res := WriteBitPackedDeprecated(data.nums, 3)
-			require.Equal(t, string(data.expected), string(res))
-		}
-	})
 }
 
 func TestWriteByteStreamSplit(t *testing.T) {

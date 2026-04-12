@@ -259,49 +259,6 @@ func TestPagesToDictChunkWithInvalidSchema(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestReadChunk_ErrorConditions(t *testing.T) {
-	// Test ReadChunk with error conditions
-	// Since ReadChunk is deprecated and involves complex thrift reader setup,
-	// we'll test error paths with minimal mocking
-
-	tests := []struct {
-		name        string
-		setupChunk  func() *parquet.ColumnChunk
-		expectPanic bool
-		description string
-	}{
-		{
-			name: "nil_chunk_header",
-			setupChunk: func() *parquet.ColumnChunk {
-				return nil
-			},
-			expectPanic: true,
-			description: "ReadChunk should panic when chunk header is nil",
-		},
-		{
-			name: "chunk_header_with_nil_metadata",
-			setupChunk: func() *parquet.ColumnChunk {
-				return &parquet.ColumnChunk{
-					// MetaData is nil
-				}
-			},
-			expectPanic: true,
-			description: "ReadChunk should panic when metadata is nil",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			chunkHeader := tt.setupChunk()
-
-			if tt.expectPanic {
-				_, err := ReadChunk(nil, nil, chunkHeader, nil)
-				require.Error(t, err)
-			}
-		})
-	}
-}
-
 func TestPagesToChunk_NilChecks(t *testing.T) {
 	tests := []struct {
 		name        string

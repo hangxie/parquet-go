@@ -166,15 +166,6 @@ func ExtractPageHeaderInfo(pageHeader *parquet.PageHeader, offset int64, index i
 	return info
 }
 
-// ReadAllPageHeaders reads all page headers from a column chunk
-// Returns a slice of PageHeaderInfo containing metadata about each page
-//
-// Deprecated: Use ParquetReader.GetAllPageHeaders instead, which provides proper validation
-// and uses row group/column indices rather than requiring direct access to internal fields.
-func ReadAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) ([]PageHeaderInfo, error) {
-	return readAllPageHeaders(pFile, columnChunk)
-}
-
 // readAllPageHeaders reads all page headers from a column chunk
 // Returns a slice of PageHeaderInfo containing metadata about each page
 func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) ([]PageHeaderInfo, error) {

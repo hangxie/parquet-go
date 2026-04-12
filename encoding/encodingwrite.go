@@ -470,39 +470,6 @@ func WriteDeltaLengthByteArray(arrays []any) []byte {
 	return res
 }
 
-func WriteBitPackedDeprecated(vals []any, bitWidth int64) []byte {
-	ln := len(vals)
-	if ln <= 0 {
-		return []byte{}
-	}
-	valsInt := make([]uint64, ln)
-	for i := range ln {
-		valsInt[i] = uint64(reflect.ValueOf(vals[i]).Int())
-	}
-
-	// Calculate total bytes needed
-	totalBits := ln * int(bitWidth)
-	byteCnt := (totalBits + 7) / 8
-	res := make([]byte, byteCnt)
-
-	// Pack bits using LSB-first order (consistent with PLAIN boolean encoding)
-	bitPos := 0 // Current bit position across all bytes
-	for i := range ln {
-		val := valsInt[i]
-		// Write bitWidth bits starting at bitPos
-		for j := 0; j < int(bitWidth); j++ {
-			byteIdx := bitPos / 8
-			bitIdx := bitPos % 8
-			if (val & (1 << j)) != 0 {
-				res[byteIdx] |= (1 << bitIdx)
-			}
-			bitPos++
-		}
-	}
-
-	return res
-}
-
 func WriteDeltaByteArray(arrays []any) []byte {
 	ln := len(arrays)
 	if ln <= 0 {
