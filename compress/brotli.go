@@ -34,6 +34,7 @@ func brotliCompress(pool *sync.Pool) func([]byte) ([]byte, error) {
 	return func(buf []byte) ([]byte, error) {
 		res := new(bytes.Buffer)
 		brotliWriter := pool.Get().(*brotli.Writer)
+		defer pool.Put(brotliWriter)
 		brotliWriter.Reset(res)
 		if _, err := brotliWriter.Write(buf); err != nil {
 			return nil, fmt.Errorf("brotli compress: %w", err)
@@ -41,7 +42,6 @@ func brotliCompress(pool *sync.Pool) func([]byte) ([]byte, error) {
 		if err := brotliWriter.Close(); err != nil {
 			return nil, fmt.Errorf("brotli compress close: %w", err)
 		}
-		pool.Put(brotliWriter)
 		return res.Bytes(), nil
 	}
 }
