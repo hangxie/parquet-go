@@ -19,166 +19,17 @@ parquet-go is a pure-go implementation of reading and writing the parquet format
 go get github.com/hangxie/parquet-go/v3
 ```
 
-## What's New in v3
+## Configuration
 
-v3 eliminates all global mutable state, making every configuration per-instance via functional options. This enables safe concurrent use of multiple readers/writers with independent settings in the same process. See [Breaking Changes from v2](#breaking-changes-from-v2) for migration details.
+All configuration is per-instance via functional options, enabling safe concurrent use of multiple readers/writers with independent settings in the same process.
 
-## What Was New in v2
+### Writer Options
 
-This repo was forked from https://github.com/xitongsys/parquet-go and merged https://github.com/xitongsys/parquet-go-source. v2 introduced significant improvements and new features:
+`WithNP`, `WithPageSize`, `WithRowGroupSize`, `WithCompressionType`, `WithDataPageVersion`, `WithWriteCRC`.
 
-### Major Improvements
+### Reader Options
 
-1. **Better Error Handling**: Most functions now return errors instead of using panic/recover style code
-2. **Performance Enhancements**:
-   - Optimized `SkipRows()` for faster data skipping
-   - Optimized schema reading performance by eliminating redundant tree traversals
-   - Reduced lock contention using `sync.Map` in critical paths
-   - Improved memory usage efficiency
-3. **Enhanced Type Support**: Proper interpretation of logical types and converted types
-4. **Apache Parquet Format 2.12.0**: Updated to the latest parquet format specification
-
-### New Features Since v1
-
-#### Encoding Support
-- **BYTE_STREAM_SPLIT**: Full support for INT32/INT64/FIXED_LEN_BYTE_ARRAY types
-- **BIT_PACKED**: Read support for BIT_PACKED encoding
-- **Data Page V2**: Complete support for Data Page V2 format
-- Proper validation of encoding/type compatibility at schema stage
-
-#### New Logical Types
-- **FLOAT16**: Half-precision floating point numbers stored as FIXED[2], decoded to float32
-- **INTEGER**: Enhanced integer types with proper bitWidth and signedness mapping
-  - 8-bit → int8/uint8
-  - 16-bit → int16/uint16
-  - 32-bit → int32/uint32
-  - 64-bit → int64/uint64
-- **UUID**: 16-byte values automatically converted to canonical UUID strings
-- **GEOMETRY**: Planar geospatial coordinates with optional CRS
-- **GEOGRAPHY**: Spherical geospatial coordinates with optional CRS and edge interpolation algorithm
-- **VARIANT**: Dynamic type support (limited tooling compatibility)
-
-#### Geospatial Support (GeoParquet)
-
-Comprehensive support for geospatial data with configurable JSON output modes:
-
-1. **Hex Mode**: WKB data as hexadecimal strings
-2. **Base64 Mode**: WKB data as base64-encoded strings
-3. **GeoJSON Mode**: RFC 7946 compliant GeoJSON output (default for GEOGRAPHY)
-4. **Hybrid Mode**: Both GeoJSON and raw WKB together
-
-Features:
-- Configurable coordinate precision
-- Optional CRS reprojection to CRS84
-- Support for Point, LineString, and Polygon geometries
-- Proper handling of CRS and algorithm metadata
-
-See [geoparquet.md](geoparquet.md) for detailed documentation.
-
-#### API Enhancements
-- `Reset()`: Reset reader to beginning of file
-- `ReadStopWithError()`: Close reader resources with proper error handling
-- `SkipRowsByIndexWithError()`: Skip rows by column index with proper error handling
-- `Clone()`: Clone ParquetFileReader interface for concurrent access
-- Page manipulation functions for advanced use cases
-
-#### Better JSON/BSON Support
-- Proper BSON data decoding in JSON output
-- Improved DATE type output in ISO 8601 format
-- TIME values output as human-readable strings
-- INTERVAL type with proper millisecond precision
-
-#### Additional Data Sources
-- HTTP reader support for reading parquet files over HTTP
-- Enhanced S3v2 support with versioned object access
-- Improved Azure Blob storage support
-- GoCloud CDK integration for generic blob storage
-
-### Bug Fixes Since v1
-
-- Fixed race conditions in:
-  - source/http
-  - writer/writer.go (flush operations)
-  - lz4_raw compression
-- Fixed panic issues:
-  - Handling corrupted parquet files
-  - Old-style LIST format compatibility
-  - Zero-value unmarshal operations
-  - Empty files with zero records
-  - Out of bound index errors
-- Fixed encoding issues:
-  - Hardcoded encoding bug in column chunks
-  - PLAIN_DICTIONARY encoding compatibility
-  - Proper encoding validation
-- Fixed data handling:
-  - Empty slice handling in decimal comparison
-  - Negative decimal values between (-1, 1)
-  - Optional scalar field handling
-  - Default root name assumptions
-- Fixed metadata:
-  - Format version in footer
-  - create_by field format
-  - Statistics for INTERVAL and geospatial data
-- Fixed GeoJSON output format for multi-geometries
-
-### Breaking Changes from v2
-
-v3 removes all global mutable state in favor of per-instance functional options. This is a breaking API change.
-
-#### Removed Global Functions
-
-| v2 Global Function | v3 Replacement |
-|-|-|
-| `compress.SetCompressionLevel()` | `writer.WithCompressionType()` per writer instance |
-| `compress.SetMaxDecompressedSize()` | Per-compressor configuration via `compress.NewCompressor()` |
-| `layout.SetMaxPageSize()` | `writer.WithPageSize()` per writer instance |
-| `source/http.SetDefaultClient()` | `http.NewHttpReaderWithClient()` per reader instance |
-| `source/mem.SetInMemFileFs()` | `mem.NewMemFileWriterWithFs()` per writer instance |
-| `types.SetGeo*()` global setters | `types.NewGeospatialConfig()` with functional options; pass to `marshal.ConvertToJSONFriendly` via `marshal.WithGeospatialConfig(cfg)` |
-
-#### Constructor Signature Changes
-
-**Writer** — positional `np int64` parameter replaced by variadic `...WriterOption`:
-```go
-// v2
-pw, _ := writer.NewParquetWriter(fw, new(Student), 4)
-// v3
-pw, _ := writer.NewParquetWriter(fw, new(Student), writer.WithNP(4))
-```
-
-**Reader** — positional `np int64` and `ParquetReaderOptions` struct replaced by variadic `...ReaderOption`:
-```go
-// v2
-pr, _ := reader.NewParquetReader(fr, new(Student), 4)
-// v3
-pr, _ := reader.NewParquetReader(fr, new(Student), reader.WithNP(4))
-```
-
-**Column Reader** — same pattern:
-```go
-// v2
-pr, _ := reader.NewParquetColumnReader(fr, 4)
-// v3
-pr, _ := reader.NewParquetColumnReader(fr, reader.WithNP(4))
-```
-
-#### Available Options
-
-Writer options: `WithNP`, `WithPageSize`, `WithRowGroupSize`, `WithCompressionType`, `WithDataPageVersion`, `WithWriteCRC`.
-
-Reader options: `WithNP`, `WithCaseInsensitive`, `WithCRCMode`.
-
-#### Privatized Fields
-
-Configuration fields on `ParquetWriter` and `ParquetReader` are now unexported (e.g., `NP` → `np`). Use `With*` options at construction time instead of direct field access.
-
-### Breaking Changes from v1
-
-Please refer to [v1 README.md](READMEv1.md) for v1 documentation. Key breaking changes:
-
-1. Many functions now return errors instead of panicking
-2. Separated reader and writer interfaces for ParquetFile sources
-3. Updated to use github.com/hangxie/parquet-go module path
+`WithNP`, `WithCaseInsensitive`, `WithCRCMode`.
 
 ## Quick Start
 
@@ -334,14 +185,14 @@ func main() {
 
 |Encoding|Types|Read|Write|
 |-|-|-|-|
-|PLAIN|All types|✓|✓|
-|PLAIN_DICTIONARY|All types|✓|✓|
-|RLE_DICTIONARY|All types|✓|✓|
-|DELTA_BINARY_PACKED|Integer types|✓|✓|
-|DELTA_BYTE_ARRAY|BYTE_ARRAY, UTF8|✓|✓|
-|DELTA_LENGTH_BYTE_ARRAY|BYTE_ARRAY, UTF8|✓|✓|
-|BYTE_STREAM_SPLIT|INT32, INT64, FIXED_LEN_BYTE_ARRAY|✓|✓|
-|BIT_PACKED|Boolean, Integer|✓|✓|
+|PLAIN|All types|Y|Y|
+|PLAIN_DICTIONARY|All types|Y|Y|
+|RLE_DICTIONARY|All types|Y|Y|
+|DELTA_BINARY_PACKED|Integer types|Y|Y|
+|DELTA_BYTE_ARRAY|BYTE_ARRAY, UTF8|Y|Y|
+|DELTA_LENGTH_BYTE_ARRAY|BYTE_ARRAY, UTF8|Y|Y|
+|BYTE_STREAM_SPLIT|INT32, INT64, FIXED_LEN_BYTE_ARRAY|Y|Y|
+|BIT_PACKED|Boolean, Integer|Y|Y|
 
 ### Encoding Notes
 
@@ -353,20 +204,50 @@ func main() {
 
 |Compression|Supported|
 |-|-|
-|UNCOMPRESSED|✓|
-|SNAPPY|✓|
-|GZIP|✓|
-|LZO|✗|
-|BROTLI|✓|
-|LZ4|✓|
-|LZ4_RAW|✓|
-|ZSTD|✓|
+|UNCOMPRESSED|Y|
+|SNAPPY|Y|
+|GZIP|Y|
+|LZO|N|
+|BROTLI|Y|
+|LZ4|Y|
+|LZ4_RAW|Y|
+|ZSTD|Y|
 
 ### Compression Notes
 
 * **LZ4** uses the standard LZ4 frame format with frame headers. This is the legacy Parquet compression type.
 * **LZ4_RAW** uses raw LZ4 block compression without framing. This is the preferred LZ4 variant per the Parquet specification.
 * All compression codecs enforce decompressed size limits to prevent compression bombs.
+
+## CRC Checksum Handling
+
+The Parquet format defines an optional CRC32 field in `PageHeader` (polynomial 0x04C11DB7, same as GZip). The checksum covers the compressed page data (not the page header itself).
+
+### Reader: CRC Validation Modes
+
+CRC validation on read is controlled by `reader.WithCRCMode()`, applied globally to all columns.
+
+| Scenario               | Strict     | Auto           | Ignore (default) |
+|------------------------|------------|----------------|-------------------|
+| CRC absent in header   | **Fail**   | Pass           | Pass              |
+| CRC present, valid     | Pass       | Pass           | Pass              |
+| CRC present, invalid   | **Fail**   | **Fail**       | Pass              |
+
+- **Ignore** -- Default mode. Skips all CRC validation regardless of whether a checksum is present in the page header. This preserves backward-compatible behavior.
+- **Auto** -- Validates CRC when present, silently passes when absent.
+- **Strict** -- Requires CRC on every page and validates it. Returns an error if CRC is missing or if the computed checksum does not match.
+
+The flag applies to all columns uniformly; there is no per-column CRC setting.
+
+### Writer: CRC Computation
+
+CRC computation on write is controlled by `writer.WithWriteCRC()`. When enabled, the writer computes CRC32 (IEEE polynomial) over the compressed page data and sets `PageHeader.Crc` before serialization. The default is `false` (no CRC written).
+
+```go
+pw, _ := writer.NewParquetWriter(pFile, obj, writer.WithWriteCRC(true))
+```
+
+CRC is computed on all page types: data pages (v1 and v2), dictionary pages, and dictionary-encoded data pages. The checksum covers the same bytes that the reader validates -- the full `CompressedPageSize` payload after the page header.
 
 ## Repetition Types
 
@@ -442,17 +323,17 @@ schema := arrow.NewSchema(
 
 Four writer types are available:
 
-1. **ParquetWriter**: Write Go structs - [example](example/local_flat.go)
-2. **JSONWriter**: Convert JSON to Parquet - [example](example/json_write.go)
-3. **CSVWriter**: Write CSV-like data - [example](example/csv_write.go)
-4. **ArrowWriter**: Write using Arrow schemas - [example](example/arrow_to_parquet.go)
+1. **ParquetWriter**: Write Go structs - [example](example/local_flat)
+2. **JSONWriter**: Convert JSON to Parquet - [example](example/json_write)
+3. **CSVWriter**: Write CSV-like data - [example](example/csv_write)
+4. **ArrowWriter**: Write using Arrow schemas - [example](example/arrow_to_parquet)
 
 ## Readers
 
 Two reader types:
 
-1. **ParquetReader**: Read into Go structs - [example](example/local_nested.go)
-2. **ColumnReader**: Read raw column data with repetition/definition levels - [example](example/column_read.go)
+1. **ParquetReader**: Read into Go structs - [example](example/local_nested)
+2. **ColumnReader**: Read raw column data with repetition/definition levels - [example](example/column_read)
 
 ### Reader Notes
 
@@ -489,7 +370,7 @@ type ParquetFileWriter interface {
 
 * Local filesystem
 * HDFS
-* S3 (AWS SDK v1 and v2)
+* S3 (AWS SDK v2)
 * Google Cloud Storage
 * Azure Blob Storage
 * HTTP (read-only)
@@ -498,6 +379,114 @@ type ParquetFileWriter interface {
 * OpenStack Swift
 
 See [source/README.md](source/README.md) for details.
+
+## GeoParquet: Geospatial Logical Types
+
+parquet-go supports Apache Parquet's geospatial logical types and provides configurable JSON output when converting data to a "JSON-friendly" form (via `marshal.ConvertToJSONFriendly`).
+
+### Overview
+
+- Physical storage: WKB (Well-Known Binary) in `BYTE_ARRAY` fields
+- Logical types:
+  - `GEOMETRY`: planar coordinates with an optional `crs`
+  - `GEOGRAPHY`: spherical coordinates with an optional `crs` and an `algorithm` for edge interpolation
+- CRS: defaults to `"OGC:CRS84"` when not provided
+- Algorithm (GEOGRAPHY): `SPHERICAL` (default), `VINCENTY`, `THOMAS`, `ANDOYER`, `KARNEY`
+
+### JSON Output Modes
+
+You can choose how geospatial values are emitted during JSON conversion:
+
+1. **Hex**: WKB data as hexadecimal strings
+2. **Base64**: WKB data as base64-encoded strings
+3. **GeoJSON**: RFC 7946 compliant GeoJSON output (default for GEOGRAPHY)
+4. **Hybrid**: Both GeoJSON and raw WKB together
+
+Defaults: `GEOGRAPHY` -> GeoJSON, `GEOMETRY` -> Hex.
+
+### Configuration API
+
+Geospatial JSON rendering is configured per-instance via `types.GeospatialConfig` using functional options:
+
+```go
+cfg := types.NewGeospatialConfig(
+    // Select per-type JSON output mode
+    types.WithGeographyJSONMode(types.GeospatialModeGeoJSON), // or Hex, Base64, Hybrid
+    types.WithGeometryJSONMode(types.GeospatialModeHex),
+
+    // In Hybrid mode, choose raw encoding: false -> hex (default), true -> base64
+    types.WithGeospatialHybridRawBase64(true),
+
+    // Optional: emit GeoJSON geometry object instead of Feature in GeoJSON mode
+    types.WithGeospatialGeoJSONAsFeature(false), // default is true
+
+    // Optional: round coordinates to a fixed number of decimals in GeoJSON
+    // (RFC 7946 S11.2 discusses precision considerations)
+    types.WithGeospatialCoordinatePrecision(6), // default is 6; set -1 to disable
+
+    // Optional reprojection to CRS84
+    types.WithGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+        // Implement CRS->CRS84 reprojection here and return (updated, true)
+        // Return (nil, false) to skip/indicate failure
+        return nil, false
+    }),
+)
+
+// Then pass cfg to ConvertGeometryLogicalValue / ConvertGeographyLogicalValue
+result := types.ConvertGeographyLogicalValue(wkbBytes, geogType, cfg)
+```
+
+The default config (`types.DefaultGeospatialConfig()`) uses Hex mode for GEOMETRY, GeoJSON mode for GEOGRAPHY, Feature wrapping enabled, and 6-decimal coordinate precision.
+
+### Output Examples
+
+Given a WKB Point in CRS84 (hex `0101000000000000000000F03F0000000000000040` -> (1,2)):
+
+- **GeoJSON** (Geography default, Feature):
+```json
+{ "type": "Feature", "geometry": { "type": "Point", "coordinates": [1, 2] }, "properties": { "crs": "OGC:CRS84", "algorithm": "SPHERICAL" } }
+```
+
+- **Hex** (Geometry default):
+```json
+{ "wkb_hex": "0101000000000000000000F03F0000000000000040", "crs": "OGC:CRS84" }
+```
+
+- **Hybrid + base64 raw**:
+```json
+{ "geojson": { "type": "Point", "coordinates": [1, 2] }, "wkb_b64": "AQAAAAAAAADwP4AAAAAAAABA", "crs": "OGC:CRS84" }
+```
+
+### Reprojection Hook
+
+If your `GEOMETRY` provides a non-CRS84 CRS (e.g., `EPSG:3857`), you can register a reprojection callback to emit GeoJSON in CRS84:
+
+```go
+cfg := types.NewGeospatialConfig(
+    types.WithGeospatialReprojector(func(crs string, gj map[string]any) (map[string]any, bool) {
+        if crs == "EPSG:3857" {
+            // Convert geometry coordinates from EPSG:3857 to CRS84 (lon/lat degrees)
+            return gj, true
+        }
+        return nil, false
+    }),
+)
+```
+
+If reprojection fails or the hook returns false, the original GeoJSON is emitted unchanged.
+
+### Fallback Behavior
+
+- If WKB parsing fails or the geometry type is not supported by the built-in converter, the converter falls back to raw WKB including CRS/algorithm when applicable.
+- In Hybrid mode, fallback uses hex (`wkb_hex`) regardless of the base64 selection flag.
+
+### Supported Geometry Types in Converter
+
+- Point (2D)
+- LineString (2D)
+- Polygon (2D)
+
+Other WKB types currently fall back to raw WKB.
 
 ## Concurrency
 
@@ -526,32 +515,45 @@ go build -tags example ./example/json_write        # JSON to Parquet
 go build -tags example ./example/csv_write         # CSV to Parquet
 go build -tags example ./example/new_logical       # FLOAT16 + INTEGER
 go build -tags example ./example/geospatial        # GEOMETRY + GEOGRAPHY
+go build -tags example ./example/bloom_filter      # Bloom filter
 go build -tags example ./example/all_types         # Comprehensive sample
 ```
 
 |Example|Description|
 |-|-|
-|[local_flat.go](example/local_flat.go)|Write/read flat parquet file|
-|[local_nested.go](example/local_nested.go)|Write/read nested structures|
-|[read_partial.go](example/read_partial.go)|Read partial fields|
-|[read_partial2.go](example/read_partial2.go)|Read sub-structs|
-|[read_without_schema_predefined.go](example/read_without_schema_predefined.go)|Read without predefined schema|
-|[json_schema.go](example/json_schema.go)|Define schema with JSON|
-|[json_write.go](example/json_write.go)|Convert JSON to Parquet|
-|[convert_to_json.go](example/convert_to_json.go)|Convert Parquet to JSON|
-|[csv_write.go](example/csv_write.go)|CSV writer|
-|[column_read.go](example/column_read.go)|Read raw column data|
-|[type.go](example/type.go)|Type examples|
-|[type_alias.go](example/type_alias.go)|Type alias examples|
-|[new_logical.go](example/new_logical.go)|New logical types|
-|[geospatial.go](example/geospatial.go)|Geospatial types|
-|[all_types.go](example/all_types.go)|All type support|
+|[local_flat](example/local_flat)|Write/read flat parquet file|
+|[local_nested](example/local_nested)|Write/read nested structures|
+|[read_partial](example/read_partial)|Read partial fields|
+|[read_partial2](example/read_partial2)|Read sub-structs|
+|[read_without_schema_predefined](example/read_without_schema_predefined)|Read without predefined schema|
+|[read_partial_without_schema_predefined](example/read_partial_without_schema_predefined)|Read partial without predefined schema|
+|[json_schema](example/json_schema)|Define schema with JSON|
+|[json_write](example/json_write)|Convert JSON to Parquet|
+|[convert_to_json](example/convert_to_json)|Convert Parquet to JSON|
+|[csv_write](example/csv_write)|CSV writer|
+|[csv_to_parquet](example/csv_to_parquet)|CSV file to Parquet|
+|[column_read](example/column_read)|Read raw column data|
+|[type](example/type)|Type examples|
+|[type_alias](example/type_alias)|Type alias examples|
+|[new_logical](example/new_logical)|New logical types (FLOAT16, INTEGER)|
+|[geospatial](example/geospatial)|Geospatial types (GEOMETRY, GEOGRAPHY)|
+|[bloom_filter](example/bloom_filter)|Bloom filter|
+|[datapagev2](example/datapagev2)|Data Page V2|
+|[date](example/date)|Date type|
+|[all_types](example/all_types)|All type support|
+|[arrow_to_parquet](example/arrow_to_parquet)|Arrow schema to Parquet|
+|[variant-fine-control](example/variant-fine-control)|VARIANT type fine control|
+|[dot_in_name](example/dot_in_name)|Dot in field name|
+|[keyvalue_metadata](example/keyvalue_metadata)|Key-value metadata|
+|[writer](example/writer)|ParquetWriter from io.Writer|
+|[writer_file](example/writer_file)|WriterFile example|
+|[mem](example/mem)|In-memory file system|
 
 ## Documentation
 
 * [v1 README](READMEv1.md) - Original v1 documentation
+* [v2 README](READMEv2.md) - v2 documentation
 * [source/README.md](source/README.md) - File source implementations
-* [geoparquet.md](geoparquet.md) - Detailed geospatial support documentation
 
 ## Contributing
 

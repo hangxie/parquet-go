@@ -44,7 +44,7 @@ to the parquet-go library project.
 
 - Public APIs must have clear GoDoc comments.
 - Examples in `example/` should be buildable (tagged with `//go:build example`) and demonstrate real use cases.
-- Documentation (`README.md`, `geoparquet.md`, `source/README.md`) must reflect all behavioral changes.
+- Documentation (`README.md`, `source/README.md`) must reflect all behavioral changes.
 - Compatibility notes should reflect supported platforms and Parquet format versions.
 
 ---
