@@ -12,6 +12,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/types"
 	"github.com/hangxie/parquet-go/v3/writer"
 )
 
@@ -27,7 +28,7 @@ type Row struct {
 func main() {
 	// Geospatial JSON rendering is configured per-instance via GeospatialConfig.
 	// The default config uses Hex mode for GEOMETRY and GeoJSON for GEOGRAPHY.
-	// Custom configs can be created with NewGeospatialConfig(opts...).
+	// Custom configs can be passed to ConvertToJSONFriendly via marshal.WithGeospatialConfig(...).
 
 	// Write a few rows
 	fw, err := local.NewLocalFileWriter("/tmp/geospatial.parquet")
@@ -74,11 +75,25 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Default config: Hex for GEOMETRY, GeoJSON for GEOGRAPHY
 	out, err := marshal.ConvertToJSONFriendly(data, pr.SchemaHandler)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("%v\n", out)
+	fmt.Printf("Default config:\n%v\n", out)
+
+	// Custom config: GeoJSON for both GEOMETRY and GEOGRAPHY
+	geoCfg := types.NewGeospatialConfig(
+		types.WithGeometryJSONMode(types.GeospatialModeGeoJSON),
+		types.WithGeographyJSONMode(types.GeospatialModeGeoJSON),
+	)
+	out2, err := marshal.ConvertToJSONFriendly(data, pr.SchemaHandler,
+		marshal.WithGeospatialConfig(geoCfg),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("\nGeoJSON config:\n%v\n", out2)
 
 	// Display geospatial statistics for both geometry columns
 	fmt.Println("\nGeospatial Statistics:")

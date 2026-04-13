@@ -495,7 +495,7 @@ func TestConvertValueToJSONFriendlyWithContext(t *testing.T) {
 	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(TestStruct))
 	require.NoError(t, err)
 
-	ctx := &conversionContext{}
+	ctx := &jsonConverter{}
 
 	tests := []struct {
 		name          string
@@ -664,7 +664,7 @@ func TestConvertValueToJSONFriendlyWithContext_NilCases(t *testing.T) {
 	schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(struct{}))
 	require.NoError(t, err)
 
-	ctx := &conversionContext{}
+	ctx := &jsonConverter{}
 
 	tests := []struct {
 		name        string
@@ -982,8 +982,8 @@ func createOldListTable(path []string, values []any, repetitionLevels, definitio
 }
 
 // createConversionContext creates a standard conversion context for JSON conversion tests
-func createConversionContext() *conversionContext {
-	return &conversionContext{
+func createConversionContext() *jsonConverter {
+	return &jsonConverter{
 		fieldCache: sync.Map{},
 	}
 }
@@ -2474,4 +2474,62 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		val2, _ := types.ConvertVariantValue(v2)
 		require.Equal(t, int32(222), val2)
 	})
+}
+
+func TestConvertToJSONFriendly_WithGeospatialConfig(t *testing.T) {
+	type GeoRow struct {
+		Geom string `parquet:"name=geom, type=BYTE_ARRAY, logicaltype=GEOMETRY"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(GeoRow))
+	require.NoError(t, err)
+
+	// WKB Point(100, 50) little-endian
+	wkbPoint := string([]byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x59, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x49, 0x40})
+
+	tests := []struct {
+		name     string
+		opts     []JSONConvertOption
+		expected map[string]any
+	}{
+		{
+			name: "default_uses_hex_mode",
+			opts: nil,
+			expected: map[string]any{
+				"wkb_hex": "010100000000000000000059400000000000004940",
+				"crs":     "OGC:CRS84",
+			},
+		},
+		{
+			name: "custom_geojson_mode",
+			opts: []JSONConvertOption{WithGeospatialConfig(types.NewGeospatialConfig(
+				types.WithGeometryJSONMode(types.GeospatialModeGeoJSON),
+			))},
+			expected: map[string]any{
+				"type":       "Feature",
+				"geometry":   map[string]any{"type": "Point", "coordinates": []float64{100, 50}},
+				"properties": map[string]any{"crs": "OGC:CRS84"},
+			},
+		},
+		{
+			name: "custom_base64_mode",
+			opts: []JSONConvertOption{WithGeospatialConfig(types.NewGeospatialConfig(
+				types.WithGeometryJSONMode(types.GeospatialModeBase64),
+			))},
+			expected: map[string]any{
+				"wkb_b64": "AQEAAAAAAAAAAABZQAAAAAAAAElA",
+				"crs":     "OGC:CRS84",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := GeoRow{Geom: wkbPoint}
+			result, err := ConvertToJSONFriendly(input, sh, tt.opts...)
+			require.NoError(t, err)
+			resultMap, ok := result.(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, tt.expected, resultMap["Geom"])
+		})
+	}
 }

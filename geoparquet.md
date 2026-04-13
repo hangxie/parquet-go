@@ -70,8 +70,13 @@ cfg := types.NewGeospatialConfig(
     }),
 )
 
-// Then pass cfg to ConvertGeometryLogicalValue / ConvertGeographyLogicalValue
-result := types.ConvertGeographyLogicalValue(wkbBytes, geogType, cfg)
+// Pass cfg to ConvertToJSONFriendly to control geospatial rendering
+out, err := marshal.ConvertToJSONFriendly(data, schemaHandler,
+    marshal.WithGeospatialConfig(cfg),
+)
+
+// Or convert a single value using its schema element directly
+result := types.ConvertToJSONType(wkbBytes, schemaElement, cfg)
 ```
 
 The default config (`types.DefaultGeospatialConfig()`) uses Hex mode for GEOMETRY, GeoJSON mode for GEOGRAPHY, Feature wrapping enabled, and 6-decimal coordinate precision.
