@@ -14,12 +14,14 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/bloomfilter"
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/marshal"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	phttp "github.com/hangxie/parquet-go/v3/source/http"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/types"
 	"github.com/hangxie/parquet-go/v3/writer"
 )
 
@@ -1847,4 +1849,83 @@ func TestBloomFilterInterop(t *testing.T) {
 		}
 		require.True(t, foundLength)
 	})
+}
+
+func TestGeospatialConfigRoundTrip(t *testing.T) {
+	type GeoRow struct {
+		Geom string `parquet:"name=geom, type=BYTE_ARRAY, logicaltype=GEOMETRY"`
+	}
+
+	// WKB Point(1, 2) little-endian
+	wkbPoint := string([]byte{
+		0x01, 0x01, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, // 1.0
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, // 2.0
+	})
+
+	// Write
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := writer.NewParquetWriter(fw, new(GeoRow), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.Write(GeoRow{Geom: wkbPoint}))
+	require.NoError(t, pw.WriteStop())
+	require.NoError(t, fw.Close())
+
+	// Read
+	fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := NewParquetReader(fr, nil, WithNP(1))
+	require.NoError(t, err)
+	data, err := pr.ReadByNumber(1)
+	require.NoError(t, err)
+	require.NoError(t, pr.ReadStopWithError())
+
+	tests := []struct {
+		name     string
+		cfg      *types.GeospatialConfig
+		expected map[string]any
+	}{
+		{
+			name: "default_hex",
+			cfg:  nil,
+			expected: map[string]any{
+				"wkb_hex": "0101000000000000000000f03f0000000000000040",
+				"crs":     "OGC:CRS84",
+			},
+		},
+		{
+			name: "geojson",
+			cfg:  types.NewGeospatialConfig(types.WithGeometryJSONMode(types.GeospatialModeGeoJSON)),
+			expected: map[string]any{
+				"type":       "Feature",
+				"geometry":   map[string]any{"type": "Point", "coordinates": []float64{1, 2}},
+				"properties": map[string]any{"crs": "OGC:CRS84"},
+			},
+		},
+		{
+			name: "base64",
+			cfg:  types.NewGeospatialConfig(types.WithGeometryJSONMode(types.GeospatialModeBase64)),
+			expected: map[string]any{
+				"wkb_b64": "AQEAAAAAAAAAAADwPwAAAAAAAABA",
+				"crs":     "OGC:CRS84",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var opts []marshal.JSONConvertOption
+			if tt.cfg != nil {
+				opts = append(opts, marshal.WithGeospatialConfig(tt.cfg))
+			}
+			out, err := marshal.ConvertToJSONFriendly(data, pr.SchemaHandler, opts...)
+			require.NoError(t, err)
+			slice, ok := out.([]any)
+			require.True(t, ok)
+			require.Len(t, slice, 1)
+			row, ok := slice[0].(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, tt.expected, row["geom"])
+		})
+	}
 }

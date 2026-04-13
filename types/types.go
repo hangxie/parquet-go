@@ -636,18 +636,96 @@ func getNumericValue[T numericType](val reflect.Value) (T, bool) {
 	return 0, false
 }
 
-// ParquetTypeToJSONType converts a parquet physical value back to its logical JSON representation
-func ParquetTypeToJSONType(val any, pT *parquet.Type, cT *parquet.ConvertedType, precision, scale int) any {
-	if val == nil {
-		return nil
+// JSONTypeConfig holds configuration for ConvertToJSONType.
+type JSONTypeConfig struct {
+	Geospatial *GeospatialConfig
+}
+
+// JSONTypeOption configures ConvertToJSONType behavior.
+type JSONTypeOption func(*JSONTypeConfig)
+
+// WithGeospatialConfig sets a custom GeospatialConfig for GEOMETRY/GEOGRAPHY rendering.
+func WithGeospatialConfig(cfg *GeospatialConfig) JSONTypeOption {
+	return func(c *JSONTypeConfig) { c.Geospatial = cfg }
+}
+
+// ConvertToJSONType converts a parquet value to its JSON-friendly representation using the
+// schema element's type information (physical, converted, logical).
+// Options (e.g., WithGeospatialConfig) control type-specific rendering; unset options use defaults.
+// This is the canonical conversion entry point; callers only need the SchemaElement.
+func ConvertToJSONType(val any, se *parquet.SchemaElement, opts ...JSONTypeOption) any {
+	if val == nil || se == nil {
+		return val
 	}
 
-	// Handle INT96 timestamp conversion (before checking ConvertedType)
+	var cfg JSONTypeConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	pT, cT, lT := se.Type, se.ConvertedType, se.LogicalType
+
+	// Handle INT96 timestamp conversion (before checking logical/converted types)
 	if pT != nil && *pT == parquet.Type_INT96 {
 		return convertINT96Value(val)
 	}
 
-	// If no converted type, check for binary types that need base64 encoding
+	// LogicalType takes precedence (newer standard)
+	if lT != nil {
+		return parquetTypeToJSONTypeWithLogical(val, pT, lT, cfg.Geospatial)
+	}
+
+	// Fall back to ConvertedType (legacy)
+	return parquetTypeToJSONTypeWithConverted(val, pT, cT, int(se.GetPrecision()), int(se.GetScale()))
+}
+
+// parquetTypeToJSONTypeWithLogical converts a value using its LogicalType.
+func parquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, lT *parquet.LogicalType, geoCfg *GeospatialConfig) any {
+	if lT.IsSetDECIMAL() {
+		decimal := lT.GetDECIMAL()
+		return ConvertDecimalValue(val, pT, int(decimal.GetPrecision()), int(decimal.GetScale()))
+	}
+	if lT.IsSetFLOAT16() {
+		return ConvertFloat16LogicalValue(val)
+	}
+	if lT.IsSetTIMESTAMP() {
+		return convertTimestampLogicalValue(val, lT.GetTIMESTAMP())
+	}
+	if lT.IsSetTIME() {
+		return ConvertTimeLogicalValue(val, lT.GetTIME())
+	}
+	if lT.IsSetDATE() {
+		return ConvertDateLogicalValue(val)
+	}
+	if lT.IsSetSTRING() {
+		return val
+	}
+	if lT.IsSetINTEGER() {
+		return ConvertIntegerLogicalValue(val, pT, lT.GetINTEGER())
+	}
+	if lT.IsSetUUID() {
+		return ConvertUUIDValue(val)
+	}
+	if lT.IsSetGEOMETRY() {
+		if geoCfg == nil {
+			geoCfg = defaultGeospatialConfig
+		}
+		return ConvertGeometryLogicalValue(val, lT.GetGEOMETRY(), geoCfg)
+	}
+	if lT.IsSetGEOGRAPHY() {
+		if geoCfg == nil {
+			geoCfg = defaultGeospatialConfig
+		}
+		return ConvertGeographyLogicalValue(val, lT.GetGEOGRAPHY(), geoCfg)
+	}
+	if lT.IsSetBSON() {
+		return ConvertBSONLogicalValue(val)
+	}
+	return val
+}
+
+// parquetTypeToJSONTypeWithConverted converts a value using its ConvertedType (legacy path).
+func parquetTypeToJSONTypeWithConverted(val any, pT *parquet.Type, cT *parquet.ConvertedType, precision, scale int) any {
 	if cT == nil {
 		if pT != nil && (*pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY) {
 			return convertBinaryValue(val)
@@ -657,190 +735,61 @@ func ParquetTypeToJSONType(val any, pT *parquet.Type, cT *parquet.ConvertedType,
 
 	switch *cT {
 	case parquet.ConvertedType_DECIMAL:
-		// Convert decimal to numeric value for JSON output
-		switch *pT {
-		case parquet.Type_INT32:
-			if v, ok := val.(int32); ok {
-				return decimalIntToFloat(int64(v), scale)
-			}
-		case parquet.Type_INT64:
-			if v, ok := val.(int64); ok {
-				return decimalIntToFloat(v, scale)
-			}
-		case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
-			if v, ok := val.(string); ok {
-				return decimalByteArrayToFloat([]byte(v), precision, scale)
-			}
-		}
+		return ConvertDecimalValue(val, pT, precision, scale)
+	case parquet.ConvertedType_UTF8, parquet.ConvertedType_DATE,
+		parquet.ConvertedType_INT_32, parquet.ConvertedType_INT_64:
 		return val
-
-	case parquet.ConvertedType_UTF8:
-		// UTF8 strings should remain as strings
-		return val
-
-	case parquet.ConvertedType_DATE:
-		// DATE is stored as int32 days since epoch, could convert to readable format
-		// For now, keeping as int32 for JSON compatibility
-		return val
-
 	case parquet.ConvertedType_TIME_MILLIS:
-		// TIME_MILLIS is stored as int32 milliseconds, convert to readable time format
 		if v, ok := val.(int32); ok {
 			return TIME_MILLISToTimeFormat(v)
 		}
 		return val
-
 	case parquet.ConvertedType_TIME_MICROS:
-		// TIME_MICROS is stored as int64 microseconds, convert to readable time format
 		if v, ok := val.(int64); ok {
 			return TIME_MICROSToTimeFormat(v)
 		}
 		return val
-
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
-		// TIMESTAMP_MILLIS is stored as int64 milliseconds since epoch
-		// Convert to ISO8601 format
 		return ConvertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MILLIS)
-
 	case parquet.ConvertedType_TIMESTAMP_MICROS:
-		// TIMESTAMP_MICROS is stored as int64 microseconds since epoch
-		// Convert to ISO8601 format
 		return ConvertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MICROS)
-
 	case parquet.ConvertedType_INT_8:
-		// Convert back to int8 representation for JSON
 		if v, ok := val.(int32); ok {
 			return int8(v)
 		}
 		return val
-
 	case parquet.ConvertedType_INT_16:
-		// Convert back to int16 representation for JSON
 		if v, ok := val.(int32); ok {
 			return int16(v)
 		}
 		return val
-
-	case parquet.ConvertedType_INT_32:
-		// Already int32
-		return val
-
-	case parquet.ConvertedType_INT_64:
-		// Already int64
-		return val
-
 	case parquet.ConvertedType_UINT_8:
-		// Convert back to uint8 representation for JSON
 		if v, ok := val.(int32); ok {
 			return uint8(v)
 		}
 		return val
-
 	case parquet.ConvertedType_UINT_16:
-		// Convert back to uint16 representation for JSON
 		if v, ok := val.(int32); ok {
 			return uint16(v)
 		}
 		return val
-
 	case parquet.ConvertedType_UINT_32:
-		// Convert back to uint32 representation for JSON
 		if v, ok := val.(int32); ok {
 			return uint32(v)
 		}
 		return val
-
 	case parquet.ConvertedType_UINT_64:
-		// Convert back to uint64 representation for JSON
 		if v, ok := val.(int64); ok {
 			return uint64(v)
 		}
 		return val
-
 	case parquet.ConvertedType_INTERVAL:
-		// Convert INTERVAL to Go duration string
 		return convertIntervalValue(val)
-
 	case parquet.ConvertedType_BSON:
-		// Convert BSON to base64 string for JSON compatibility
 		return ConvertBSONLogicalValue(val)
-
 	default:
-		// For other converted types, return as-is
 		return val
 	}
-}
-
-// ParquetTypeToJSONTypeWithLogical converts a parquet physical value back to its logical JSON representation
-// supporting both ConvertedType and LogicalType
-func ParquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, precision, scale int) any {
-	if val == nil {
-		return nil
-	}
-
-	// Handle INT96 timestamp conversion (before checking logical types)
-	if pT != nil && *pT == parquet.Type_INT96 {
-		return convertINT96Value(val)
-	}
-
-	// Check for LogicalType first (newer standard)
-	if lT != nil {
-		if lT.IsSetDECIMAL() {
-			decimal := lT.GetDECIMAL()
-			actualPrecision := int(decimal.GetPrecision())
-			actualScale := int(decimal.GetScale())
-			return ConvertDecimalValue(val, pT, actualPrecision, actualScale)
-		}
-		// Newer logical types handling
-		if lT.IsSetFLOAT16() {
-			return ConvertFloat16LogicalValue(val)
-		}
-		if lT.IsSetTIMESTAMP() {
-			return convertTimestampLogicalValue(val, lT.GetTIMESTAMP())
-		}
-		if lT.IsSetTIME() {
-			return ConvertTimeLogicalValue(val, lT.GetTIME())
-		}
-		if lT.IsSetDATE() {
-			return ConvertDateLogicalValue(val)
-		}
-		if lT.IsSetSTRING() {
-			// STRING logical type should return the string value as-is
-			return val
-		}
-		if lT.IsSetINTEGER() {
-			return ConvertIntegerLogicalValue(val, pT, lT.GetINTEGER())
-		}
-		if lT.IsSetUUID() {
-			return ConvertUUIDValue(val)
-		}
-		if lT.IsSetGEOMETRY() {
-			return ConvertGeometryLogicalValue(val, lT.GetGEOMETRY(), defaultGeospatialConfig)
-		}
-		if lT.IsSetGEOGRAPHY() {
-			return ConvertGeographyLogicalValue(val, lT.GetGEOGRAPHY(), defaultGeospatialConfig)
-		}
-		if lT.IsSetBSON() {
-			return ConvertBSONLogicalValue(val)
-		}
-		// For other logical types, don't apply base64 encoding - return as-is
-		return val
-	}
-
-	// Fall back to ConvertedType (legacy)
-	if cT != nil && *cT == parquet.ConvertedType_DECIMAL {
-		return ConvertDecimalValue(val, pT, precision, scale)
-	}
-
-	// If no logical type and no converted type, check for binary types
-	if cT == nil {
-		if pT != nil && (*pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY) {
-			return convertBinaryValue(val)
-		}
-	}
-
-	// For other types, use the existing function
-	return ParquetTypeToJSONType(val, pT, cT, precision, scale)
 }
 
 // ConvertDecimalValue handles decimal conversion for both logical and converted types

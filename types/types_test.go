@@ -1114,7 +1114,7 @@ func TestParquetTypeToGoReflectType_SafetyChecks(t *testing.T) {
 	}
 }
 
-func TestParquetTypeToJSONType(t *testing.T) {
+func TestConvertToJSONType_AllConvertedTypes(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     any
@@ -1364,14 +1364,24 @@ func TestParquetTypeToJSONType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ParquetTypeToJSONType(tt.value, tt.pT, tt.cT, tt.precision, tt.scale)
-
+			se := parquet.NewSchemaElement()
+			se.Type = tt.pT
+			se.ConvertedType = tt.cT
+			if tt.precision != 0 {
+				p := int32(tt.precision)
+				se.Precision = &p
+			}
+			if tt.scale != 0 {
+				s := int32(tt.scale)
+				se.Scale = &s
+			}
+			result := ConvertToJSONType(tt.value, se)
 			require.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestParquetTypeToJSONTypeWithLogical(t *testing.T) {
+func TestConvertToJSONType_AllLogicalTypes(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     any
@@ -1857,7 +1867,105 @@ func TestParquetTypeToJSONTypeWithLogical(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ParquetTypeToJSONTypeWithLogical(tt.value, tt.pT, tt.cT, tt.lT, tt.precision, tt.scale)
+			se := parquet.NewSchemaElement()
+			se.Type = tt.pT
+			se.ConvertedType = tt.cT
+			se.LogicalType = tt.lT
+			if tt.precision != 0 {
+				p := int32(tt.precision)
+				se.Precision = &p
+			}
+			if tt.scale != 0 {
+				s := int32(tt.scale)
+				se.Scale = &s
+			}
+			result := ConvertToJSONType(tt.value, se)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestConvertToJSONType(t *testing.T) {
+	wkbPoint := []byte{0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x59, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x49, 0x40} // POINT(100 50)
+	geomLT := createGeometryLogicalType("OGC:CRS84")
+	geogLT := createGeographyLogicalType("OGC:CRS84", parquet.EdgeInterpolationAlgorithm_SPHERICAL)
+
+	makeSchemaElement := func(lT *parquet.LogicalType) *parquet.SchemaElement {
+		se := parquet.NewSchemaElement()
+		se.Type = parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+		se.LogicalType = lT
+		return se
+	}
+
+	tests := []struct {
+		name     string
+		value    any
+		se       *parquet.SchemaElement
+		opts     []JSONTypeOption
+		expected any
+	}{
+		{
+			name:     "nil_schema_element_returns_val",
+			value:    wkbPoint,
+			se:       nil,
+			expected: wkbPoint,
+		},
+		{
+			name:  "geometry_default_uses_hex",
+			value: wkbPoint,
+			se:    makeSchemaElement(geomLT),
+			expected: map[string]any{
+				"wkb_hex": "010100000000000000000059400000000000004940",
+				"crs":     "OGC:CRS84",
+			},
+		},
+		{
+			name:  "geometry_geojson_mode",
+			value: wkbPoint,
+			se:    makeSchemaElement(geomLT),
+			opts:  []JSONTypeOption{WithGeospatialConfig(NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeGeoJSON)))},
+			expected: map[string]any{
+				"type":       "Feature",
+				"geometry":   map[string]any{"type": "Point", "coordinates": []float64{100, 50}},
+				"properties": map[string]any{"crs": "OGC:CRS84"},
+			},
+		},
+		{
+			name:  "geometry_base64_mode",
+			value: wkbPoint,
+			se:    makeSchemaElement(geomLT),
+			opts:  []JSONTypeOption{WithGeospatialConfig(NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeBase64)))},
+			expected: map[string]any{
+				"wkb_b64": "AQEAAAAAAAAAAABZQAAAAAAAAElA",
+				"crs":     "OGC:CRS84",
+			},
+		},
+		{
+			name:  "geography_default_uses_geojson",
+			value: wkbPoint,
+			se:    makeSchemaElement(geogLT),
+			expected: map[string]any{
+				"type":       "Feature",
+				"geometry":   map[string]any{"type": "Point", "coordinates": []float64{100, 50}},
+				"properties": map[string]any{"crs": "OGC:CRS84", "algorithm": "SPHERICAL"},
+			},
+		},
+		{
+			name:  "geography_hex_mode",
+			value: wkbPoint,
+			se:    makeSchemaElement(geogLT),
+			opts:  []JSONTypeOption{WithGeospatialConfig(NewGeospatialConfig(WithGeographyJSONMode(GeospatialModeHex)))},
+			expected: map[string]any{
+				"wkb_hex":   "010100000000000000000059400000000000004940",
+				"crs":       "OGC:CRS84",
+				"algorithm": "SPHERICAL",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertToJSONType(tt.value, tt.se, tt.opts...)
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -2601,8 +2709,8 @@ func TestConvertBSONLogicalValue(t *testing.T) {
 
 // Test JSONTypeToParquetType function comprehensively to improve its 30.8% coverage
 
-// Test ParquetTypeToJSONType comprehensively to improve its 52.0% coverage
-func TestParquetTypeToJSONType_Comprehensive(t *testing.T) {
+// Test parquetTypeToJSONTypeWithConverted comprehensively via ConvertToJSONType
+func TestConvertToJSONType_ConvertedTypes_Comprehensive(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     any
@@ -2872,7 +2980,18 @@ func TestParquetTypeToJSONType_Comprehensive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ParquetTypeToJSONType(tt.value, tt.pT, tt.cT, tt.precision, tt.scale)
+			se := parquet.NewSchemaElement()
+			se.Type = tt.pT
+			se.ConvertedType = tt.cT
+			if tt.precision != 0 {
+				p := int32(tt.precision)
+				se.Precision = &p
+			}
+			if tt.scale != 0 {
+				s := int32(tt.scale)
+				se.Scale = &s
+			}
+			result := ConvertToJSONType(tt.value, se)
 			require.Equal(t, tt.expected, result)
 		})
 	}

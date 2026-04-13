@@ -134,7 +134,7 @@ v3 removes all global mutable state in favor of per-instance functional options.
 | `layout.SetMaxPageSize()` | `writer.WithPageSize()` per writer instance |
 | `source/http.SetDefaultClient()` | `http.NewHttpReaderWithClient()` per reader instance |
 | `source/mem.SetInMemFileFs()` | `mem.NewMemFileWriterWithFs()` per writer instance |
-| `types.SetGeo*()` global setters | `types.NewGeospatialConfig()` with functional options |
+| `types.SetGeo*()` global setters | `types.NewGeospatialConfig()` with functional options; pass to `marshal.ConvertToJSONFriendly` via `marshal.WithGeospatialConfig(cfg)` |
 
 #### Constructor Signature Changes
 
