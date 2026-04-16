@@ -202,22 +202,24 @@ func main() {
 
 ## Compression Support
 
-|Compression|Supported|
-|-|-|
-|UNCOMPRESSED|Y|
-|SNAPPY|Y|
-|GZIP|Y|
-|LZO|N|
-|BROTLI|Y|
-|LZ4|Y|
-|LZ4_RAW|Y|
-|ZSTD|Y|
+| Compression | Supported | Default Level | Library |
+|-------------|-----------|---------------|---------|
+| UNCOMPRESSED| Y         | N/A           | N/A     |
+| SNAPPY      | Y         | N/A           | klauspost/compress/snappy |
+| GZIP        | Y         | 6             | klauspost/compress/gzip |
+| LZO         | N         | N/A           | N/A     |
+| BROTLI      | Y         | 6             | andybalholm/brotli |
+| LZ4         | Y         | Fast (0)      | pierrec/lz4/v4 |
+| LZ4_RAW     | Y         | 9             | pierrec/lz4/v4 |
+| ZSTD        | Y         | 3             | klauspost/compress/zstd |
 
 ### Compression Notes
 
-* **LZ4** uses the standard LZ4 frame format with frame headers. This is the legacy Parquet compression type.
-* **LZ4_RAW** uses raw LZ4 block compression without framing. This is the preferred LZ4 variant per the Parquet specification.
-* All compression codecs enforce decompressed size limits to prevent compression bombs.
+* **Default Codec**: For standard writers, the default compression is `SNAPPY`. `NewArrowWriter` defaults to `GZIP`.
+* **Levels**: Codecs that support compression levels can be configured using `compress.WithCompressionLevel(codec, level)` compressor option.
+* **LZ4**: Uses the standard LZ4 frame format with frame headers. This is the legacy Parquet compression type. User-facing levels are mapped via `1 << (8 + level)` to lz4 `CompressionLevel` constants.
+* **LZ4_RAW**: Uses raw LZ4 block compression without framing. This is the preferred LZ4 variant per the Parquet specification. User-facing levels are passed directly to `lz4.CompressorHC`.
+* **Decompression Safety**: All compression codecs enforce decompressed size limits (default 256MB) to prevent decompression bombs. Configure this via `compress.WithMaxDecompressedSize`.
 
 ## CRC Checksum Handling
 
@@ -501,8 +503,7 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, o
 ```
 
 Use `WithNP(n)` to set the number of parallel goroutines (default is 4).
-For writers, the default compression is SNAPPY; `NewArrowWriter` defaults to GZIP.
-Use `WithCompressionType` to override.
+Use `WithCompressionType` to override defaults.
 
 ## Examples
 
