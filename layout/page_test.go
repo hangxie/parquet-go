@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/compress"
 	"github.com/hangxie/parquet-go/v3/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
@@ -435,6 +436,61 @@ func TestGetRLDLFromRawData(t *testing.T) {
 			},
 			expectError:  true,
 			errorMessage: "unsupported page type",
+		},
+		{
+			name: "data_page_compressed_valid_expected_size",
+			setupPage: func() *Page {
+				// Compress known data and set matching UncompressedPageSize
+				rawData := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+				compressedData, err := compress.CompressWithError(rawData, parquet.CompressionCodec_SNAPPY)
+				if err != nil {
+					t.Fatalf("compress test data: %v", err)
+				}
+
+				page := NewDataPage()
+				page.Header.Type = parquet.PageType_DATA_PAGE
+				page.Header.UncompressedPageSize = int32(len(rawData))
+				page.Header.DataPageHeader = &parquet.DataPageHeader{
+					NumValues:               2,
+					Encoding:                parquet.Encoding_PLAIN,
+					DefinitionLevelEncoding: parquet.Encoding_RLE,
+					RepetitionLevelEncoding: parquet.Encoding_RLE,
+				}
+				page.Path = []string{"parquet_go_root", "required_field"}
+				page.CompressType = parquet.CompressionCodec_SNAPPY
+				page.RawData = compressedData
+				return page
+			},
+			expectError:    false,
+			expectedValues: 2,
+			expectedRows:   2,
+		},
+		{
+			name: "data_page_compressed_size_mismatch",
+			setupPage: func() *Page {
+				// Compress data but set wrong UncompressedPageSize
+				rawData := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+				compressedData, err := compress.CompressWithError(rawData, parquet.CompressionCodec_SNAPPY)
+				if err != nil {
+					t.Fatalf("compress test data: %v", err)
+				}
+
+				page := NewDataPage()
+				page.Header.Type = parquet.PageType_DATA_PAGE
+				page.Header.UncompressedPageSize = int32(len(rawData)) + 10 // wrong size
+				page.Header.DataPageHeader = &parquet.DataPageHeader{
+					NumValues:               2,
+					Encoding:                parquet.Encoding_PLAIN,
+					DefinitionLevelEncoding: parquet.Encoding_RLE,
+					RepetitionLevelEncoding: parquet.Encoding_RLE,
+				}
+				page.Path = []string{"parquet_go_root", "required_field"}
+				page.CompressType = parquet.CompressionCodec_SNAPPY
+				page.RawData = compressedData
+				return page
+			},
+			expectError:  true,
+			errorMessage: "uncompress data page",
 		},
 		{
 			name: "data_page_compressed_invalid",

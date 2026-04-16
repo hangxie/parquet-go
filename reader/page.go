@@ -279,8 +279,8 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 		return nil, fmt.Errorf("CRC validation failed: %w", err)
 	}
 
-	// Decompress the data
-	uncompressedData, err := compress.Uncompress(compressedData, codec)
+	// Decompress the data with expected size validation
+	uncompressedData, err := compress.UncompressWithExpectedSize(compressedData, codec, int64(pageHeader.UncompressedPageSize))
 	if err != nil {
 		return nil, fmt.Errorf("decompress page data: %w", err)
 	}
