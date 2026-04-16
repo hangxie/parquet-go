@@ -805,6 +805,34 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		require.Contains(t, err.Error(), "decompress page data")
 	})
 
+	t.Run("decompressed size mismatch", func(t *testing.T) {
+		testFile := getTestParquetFile(t)
+		buf, err := local.NewLocalFileReader(testFile)
+		require.NoError(t, err)
+		pr, err := reader.NewParquetReader(buf, new(TestPageRecord), reader.WithNP(4))
+		require.NoError(t, err)
+		defer func() {
+			_ = pr.ReadStopWithError()
+		}()
+
+		col := pr.Footer.RowGroups[0].Columns[0]
+		headers, err := pr.GetAllPageHeaders(0, 0)
+		require.NoError(t, err)
+		require.NotEmpty(t, headers)
+
+		firstPage := headers[0]
+
+		// Set a wrong uncompressed page size to trigger size validation
+		pageHeader := parquet.NewPageHeader()
+		pageHeader.Type = firstPage.PageType
+		pageHeader.CompressedPageSize = firstPage.CompressedSize
+		pageHeader.UncompressedPageSize = firstPage.UncompressedSize + 10
+
+		_, err = reader.ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "decompress page data")
+	})
+
 	t.Run("decompression failure - invalid compressed data", func(t *testing.T) {
 		// Create minimal mock data that looks like a page but isn't valid GZIP
 		mockData := []byte{

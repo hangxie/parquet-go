@@ -697,8 +697,12 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 		buf = append(buf, dataBuf...)
 
 	} else {
-		if buf, err = resolveCompressor(p.compressor).Uncompress(p.RawData, p.CompressType); err != nil {
-			return 0, 0, fmt.Errorf("uncompress data page: %w", err)
+		if p.CompressType != parquet.CompressionCodec_UNCOMPRESSED {
+			if buf, err = resolveCompressor(p.compressor).UncompressWithExpectedSize(p.RawData, p.CompressType, int64(p.Header.GetUncompressedPageSize())); err != nil {
+				return 0, 0, fmt.Errorf("uncompress data page: %w", err)
+			}
+		} else {
+			buf = p.RawData
 		}
 	}
 
@@ -843,7 +847,12 @@ func (p *Page) processDictionaryPage() error {
 func (p *Page) processDataPageV2(schemaHandler *schema.SchemaHandler) error {
 	if p.Header.DataPageHeaderV2.GetIsCompressed() {
 		var err error
-		if p.RawData, err = resolveCompressor(p.compressor).Uncompress(p.RawData, p.CompressType); err != nil {
+		// In V2, rep/def levels are always uncompressed and already stripped from RawData.
+		// The expected uncompressed data size is the total minus the level byte lengths.
+		dll := int64(p.Header.DataPageHeaderV2.GetDefinitionLevelsByteLength())
+		rll := int64(p.Header.DataPageHeaderV2.GetRepetitionLevelsByteLength())
+		expectedDataSize := int64(p.Header.GetUncompressedPageSize()) - dll - rll
+		if p.RawData, err = resolveCompressor(p.compressor).UncompressWithExpectedSize(p.RawData, p.CompressType, expectedDataSize); err != nil {
 			return fmt.Errorf("uncompress data page v2: %w", err)
 		}
 	}
@@ -1081,7 +1090,8 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 		if pageHeader.DataPageHeaderV2.GetIsCompressed() {
 			codec := colMetaData.GetCodec()
 			if len(dataBuf) > 0 {
-				if dataBuf, err = c.Uncompress(dataBuf, codec); err != nil {
+				expectedDataSize := int64(pageHeader.GetUncompressedPageSize()) - int64(rll) - int64(dll)
+				if dataBuf, err = c.UncompressWithExpectedSize(dataBuf, codec, expectedDataSize); err != nil {
 					return nil, 0, 0, err
 				}
 			}
@@ -1117,7 +1127,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 			return nil, 0, 0, fmt.Errorf("CRC validation failed: %w", err)
 		}
 		codec := colMetaData.GetCodec()
-		if buf, err = c.Uncompress(buf, codec); err != nil {
+		if buf, err = c.UncompressWithExpectedSize(buf, codec, int64(pageHeader.GetUncompressedPageSize())); err != nil {
 			return nil, 0, 0, err
 		}
 	}
