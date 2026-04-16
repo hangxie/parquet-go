@@ -46,7 +46,7 @@ import (
 )
 
 type Student struct {
-    Name   string  `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+    Name   string  `parquet:"name=name, type=BYTE_ARRAY, logicaltype=STRING, encoding=PLAIN_DICTIONARY"`
     Age    int32   `parquet:"name=age, type=INT32"`
     ID     int64   `parquet:"name=id, type=INT64"`
     Weight float32 `parquet:"name=weight, type=FLOAT"`
@@ -98,7 +98,7 @@ import (
 )
 
 type Student struct {
-    Name   string  `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+    Name   string  `parquet:"name=name, type=BYTE_ARRAY, logicaltype=STRING"`
     Age    int32   `parquet:"name=age, type=INT32"`
     ID     int64   `parquet:"name=id, type=INT64"`
     Weight float32 `parquet:"name=weight, type=FLOAT"`
@@ -272,7 +272,7 @@ Four methods to define schema:
 
 ```go
 type Student struct {
-    Name   string  `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+    Name   string  `parquet:"name=name, type=BYTE_ARRAY, logicaltype=STRING, encoding=PLAIN_DICTIONARY"`
     Age    int32   `parquet:"name=age, type=INT32, encoding=PLAIN"`
     ID     int64   `parquet:"name=id, type=INT64"`
     Weight float32 `parquet:"name=weight, type=FLOAT"`
@@ -286,7 +286,7 @@ type Student struct {
 jsonSchema := `{
   "Tag": "name=parquet_go_root, repetitiontype=REQUIRED",
   "Fields": [
-    {"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=REQUIRED"},
+    {"Tag": "name=name, type=BYTE_ARRAY, logicaltype=STRING, repetitiontype=REQUIRED"},
     {"Tag": "name=age, type=INT32, repetitiontype=REQUIRED"}
   ]
 }`
@@ -296,7 +296,7 @@ jsonSchema := `{
 
 ```go
 md := []string{
-    "name=Name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY",
+    "name=Name, type=BYTE_ARRAY, logicaltype=STRING, encoding=PLAIN_DICTIONARY",
     "name=Age, type=INT32",
 }
 ```
