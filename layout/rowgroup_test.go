@@ -18,6 +18,7 @@ func TestRowGroupToTableMap(t *testing.T) {
 		name          string
 		setupRowGroup func() *RowGroup
 		expectedKeys  []string
+		expectError   bool
 		checkResult   func(t *testing.T, tableMap *map[string]*Table)
 	}{
 		{
@@ -127,6 +128,23 @@ func TestRowGroupToTableMap(t *testing.T) {
 			},
 		},
 		{
+			name: "nil_data_table",
+			setupRowGroup: func() *RowGroup {
+				return &RowGroup{
+					Chunks: []*Chunk{
+						{
+							Pages: []*Page{
+								{
+									DataTable: nil,
+								},
+							},
+						},
+					},
+				}
+			},
+			expectError: true,
+		},
+		{
 			name: "empty_path",
 			setupRowGroup: func() *RowGroup {
 				return &RowGroup{
@@ -157,8 +175,13 @@ func TestRowGroupToTableMap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rowGroup := tt.setupRowGroup()
-			tableMap := rowGroup.RowGroupToTableMap()
+			tableMap, err := rowGroup.RowGroupToTableMap()
 
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 			require.NotNil(t, tableMap)
 
 			if tt.checkResult != nil {

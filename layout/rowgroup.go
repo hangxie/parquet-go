@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"fmt"
+
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
@@ -18,12 +20,16 @@ func NewRowGroup() *RowGroup {
 	return rowGroup
 }
 
-// Convert a RowGroup to table map
-func (rowGroup *RowGroup) RowGroupToTableMap() *map[string]*Table {
+// RowGroupToTableMap converts a RowGroup to a map of path to Table.
+// Returns an error if any page has a nil DataTable.
+func (rowGroup *RowGroup) RowGroupToTableMap() (*map[string]*Table, error) {
 	tableMap := make(map[string]*Table, 0)
 	for _, chunk := range rowGroup.Chunks {
 		pathStr := ""
 		for _, page := range chunk.Pages {
+			if page.DataTable == nil {
+				return nil, fmt.Errorf("page DataTable is nil, data may not have been decoded")
+			}
 			if pathStr == "" {
 				pathStr = common.PathToStr(page.DataTable.Path)
 			}
@@ -33,5 +39,5 @@ func (rowGroup *RowGroup) RowGroupToTableMap() *map[string]*Table {
 			tableMap[pathStr].Merge(page.DataTable)
 		}
 	}
-	return &tableMap
+	return &tableMap, nil
 }
