@@ -279,7 +279,35 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 		return nil, fmt.Errorf("CRC validation failed: %w", err)
 	}
 
-	// Decompress the data with expected size validation
+	// Handle DATA_PAGE_V2: rep/def levels are stored uncompressed at the
+	// start of the page, only the values portion is compressed.
+	if v2Header := pageHeader.DataPageHeaderV2; v2Header != nil {
+		dll := v2Header.GetDefinitionLevelsByteLength()
+		rll := v2Header.GetRepetitionLevelsByteLength()
+		levelBytes := int(dll + rll)
+
+		if levelBytes > len(compressedData) {
+			return nil, fmt.Errorf("level byte lengths exceed page data (dll=%d + rll=%d > %d)", dll, rll, len(compressedData))
+		}
+
+		levelData := compressedData[:levelBytes]
+		valuesData := compressedData[levelBytes:]
+
+		if v2Header.GetIsCompressed() && len(valuesData) > 0 {
+			expectedDataSize := int64(pageHeader.UncompressedPageSize) - int64(levelBytes)
+			valuesData, err = compress.UncompressWithExpectedSize(valuesData, codec, expectedDataSize)
+			if err != nil {
+				return nil, fmt.Errorf("decompress page data: %w", err)
+			}
+		}
+
+		result := make([]byte, 0, len(levelData)+len(valuesData))
+		result = append(result, levelData...)
+		result = append(result, valuesData...)
+		return result, nil
+	}
+
+	// Non-V2 pages: decompress the entire buffer
 	uncompressedData, err := compress.UncompressWithExpectedSize(compressedData, codec, int64(pageHeader.UncompressedPageSize))
 	if err != nil {
 		return nil, fmt.Errorf("decompress page data: %w", err)

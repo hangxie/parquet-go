@@ -16,6 +16,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/local"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 const (
@@ -268,6 +269,73 @@ func TestReadPageData(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, pageData)
 	require.Equal(t, firstPage.UncompressedSize, int32(len(pageData)))
+}
+
+func TestReadPageData_V2(t *testing.T) {
+	// Use an optional field so V2 pages have non-zero definition level bytes
+	type Record struct {
+		Name *string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+	}
+
+	var buf bytes.Buffer
+	pw, err := writer.NewParquetWriterFromWriter(&buf, new(Record),
+		writer.WithNP(1),
+		writer.WithDataPageVersion(2),
+		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+	)
+	require.NoError(t, err)
+
+	for i := range 100 {
+		s := fmt.Sprintf("name_%d", i)
+		require.NoError(t, pw.Write(Record{Name: &s}))
+	}
+	require.NoError(t, pw.WriteStop())
+
+	// Read back and verify ReadPageData handles V2 pages with level data
+	data := buf.Bytes()
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(data)
+	pr, err := reader.NewParquetReader(pf, new(Record), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithError() }()
+
+	headers, err := pr.GetAllPageHeaders(0, 0)
+	require.NoError(t, err)
+	require.NotEmpty(t, headers)
+
+	col := pr.Footer.RowGroups[0].Columns[0]
+
+	// Verify we actually have V2 pages with non-zero level bytes
+	hasV2WithLevels := false
+	for _, h := range headers {
+		if h.PageType == parquet.PageType_DATA_PAGE_V2 && h.DefLevelBytes > 0 {
+			hasV2WithLevels = true
+		}
+	}
+	require.True(t, hasV2WithLevels, "test must produce V2 pages with non-zero definition level bytes")
+
+	for _, h := range headers {
+		pageHeader := parquet.NewPageHeader()
+		pageHeader.Type = h.PageType
+		pageHeader.CompressedPageSize = h.CompressedSize
+		pageHeader.UncompressedPageSize = h.UncompressedSize
+		if h.PageType == parquet.PageType_DATA_PAGE_V2 {
+			pageHeader.DataPageHeaderV2 = &parquet.DataPageHeaderV2{
+				NumValues:                  h.NumValues,
+				NumNulls:                   h.NumNulls,
+				NumRows:                    h.NumRows,
+				Encoding:                   h.Encoding,
+				DefinitionLevelsByteLength: h.DefLevelBytes,
+				RepetitionLevelsByteLength: h.RepLevelBytes,
+				IsCompressed:               true,
+			}
+		}
+
+		pageData, err := reader.ReadPageData(pr.PFile, h.Offset, pageHeader, col.MetaData.Codec, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, pageData)
+		require.Equal(t, h.UncompressedSize, int32(len(pageData)),
+			"page %d (type %v): uncompressed size mismatch", h.Index, h.PageType)
+	}
 }
 
 func TestDecodeDictionaryPage(t *testing.T) {
