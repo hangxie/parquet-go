@@ -305,9 +305,7 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
-				if tt.expectedError != "" {
-					require.Contains(t, err.Error(), tt.expectedError)
-				}
+				require.Contains(t, err.Error(), tt.expectedError)
 				require.Nil(t, result)
 				return
 			}

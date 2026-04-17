@@ -2089,6 +2089,7 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 		_, err := r.Reconstruct(0, tableBgn, tableEnd)
 		// Should error because we passed a struct as BYTE_ARRAY value
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected value type")
 	})
 
 	t.Run("reconstruct_returns_existing_variant", func(t *testing.T) {

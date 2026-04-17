@@ -78,6 +78,7 @@ func TestNewAzBlobFileWriter(t *testing.T) {
 
 			if tc.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "invalid credential type")
 				require.Nil(t, writer)
 				if tc.expectedErrMsg != "" {
 					require.Contains(t, err.Error(), tc.expectedErrMsg)
@@ -100,6 +101,7 @@ func TestNewAzBlobFileWriterWithClient(t *testing.T) {
 	t.Run("nil_client", func(t *testing.T) {
 		writer, err := NewAzBlobFileWriterWithClient(ctx, testURL, nil)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "client is nil")
 		require.Nil(t, writer)
 		require.Contains(t, err.Error(), "client is nil")
 	})
@@ -217,9 +219,7 @@ func TestAzBlobWriter_Write(t *testing.T) {
 			if tc.expectError {
 				require.Error(t, err)
 				require.Equal(t, 0, n)
-				if tc.expectedError != "" {
-					require.Contains(t, err.Error(), tc.expectedError)
-				}
+				require.Contains(t, err.Error(), tc.expectedError)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, len(tc.writeData), n)
@@ -293,6 +293,7 @@ func TestAzBlobWriter_Close(t *testing.T) {
 
 			if tc.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "upload failed")
 			} else {
 				require.NoError(t, err)
 			}
@@ -448,6 +449,7 @@ func TestAzBlobWriter_WriteWithCloseError(t *testing.T) {
 	// This should fail and call CloseWithError
 	n, err := writer.Write([]byte("test data"))
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "close error")
 	require.Equal(t, 0, n)
 	require.Contains(t, err.Error(), "close")
 }
@@ -483,6 +485,7 @@ func TestAzBlobWriter_CreateWithUploadFailure(t *testing.T) {
 	// Close should return the upload error
 	err = azWriter.Close()
 	require.Error(t, err) // Should get upload error from goroutine
+	require.Contains(t, err.Error(), "Azure Blob upload")
 }
 
 func TestAzBlobWriter_ConcurrentOperations(t *testing.T) {
@@ -564,6 +567,7 @@ func TestAzBlobWriter_EdgeCases(t *testing.T) {
 		// Try to write after close - should fail
 		n, err := writer.Write([]byte("test"))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "closed pipe")
 		require.Equal(t, 0, n)
 	})
 

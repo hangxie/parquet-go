@@ -76,6 +76,7 @@ func TestSwiftWriterWriteDelegation(t *testing.T) {
 	testData := []byte("test")
 	_, err := writer.Write(testData)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "fileWriter is nil")
 }
 
 func TestSwiftFileStructure(t *testing.T) {

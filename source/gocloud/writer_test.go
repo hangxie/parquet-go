@@ -53,6 +53,7 @@ func TestBlobWriter_Write(t *testing.T) {
 	bf = &blobWriter{}
 	n, err = bf.Write(testData)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "writer not created")
 	require.Equal(t, 0, n)
 }
 

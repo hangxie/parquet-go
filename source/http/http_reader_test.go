@@ -500,6 +500,7 @@ func TestNewHttpReader(t *testing.T) {
 			} else if tt.name == "invalid_url" {
 				// For invalid URL, just expect an error
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "unsupported protocol scheme")
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, reader)
@@ -652,6 +653,7 @@ func TestHttpReader_ReadServerDown(t *testing.T) {
 	buf := make([]byte, 10)
 	_, err = reader.Read(buf)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "connection refused")
 }
 
 func TestNewHttpReader_ConcurrentSafety(t *testing.T) {

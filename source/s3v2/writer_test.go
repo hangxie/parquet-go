@@ -229,6 +229,7 @@ func TestS3Writer_WriteAfterError(t *testing.T) {
 		// If no immediate error, close should still return error
 		err = writer.Close()
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "upload failed")
 	}
 }
 

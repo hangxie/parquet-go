@@ -45,6 +45,7 @@ func TestPagesToChunk(t *testing.T) {
 		name          string
 		setupPages    func() []*Page
 		expectError   bool
+		errMsg        string
 		expectedPages int
 		checkChunk    func(t *testing.T, chunk *Chunk)
 	}{
@@ -142,6 +143,7 @@ func TestPagesToChunk(t *testing.T) {
 				return []*Page{page}
 			},
 			expectError: true,
+			errMsg:      "schema type is nil",
 		},
 		{
 			name: "omit_stats_enabled",
@@ -179,6 +181,7 @@ func TestPagesToChunk(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 				return
 			}
 
@@ -257,6 +260,7 @@ func TestPagesToDictChunkWithInvalidSchema(t *testing.T) {
 	pages := []*Page{dictPage, dataPage}
 	_, err := PagesToDictChunk(pages)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "schema type is nil")
 }
 
 func TestPagesToChunk_NilChecks(t *testing.T) {

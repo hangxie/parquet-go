@@ -181,6 +181,7 @@ func TestReadDictionaryPageValues(t *testing.T) {
 			dictCol.MetaData.Type,
 		)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "seek to page")
 	})
 }
 
@@ -924,6 +925,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		// Try to decompress with GZIP (will fail on invalid data)
 		_, err := reader.ReadPageData(buf, 0, pageHeader, parquet.CompressionCodec_GZIP, nil)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "Required field")
 		// Should fail during reading header or page data
 		require.True(t, err != nil)
 	})

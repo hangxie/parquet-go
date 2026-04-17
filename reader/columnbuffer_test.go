@@ -177,8 +177,9 @@ func TestNewColumnBuffer(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return newMockSchemaHandler()
 			},
-			pathStr:     "test.field",
-			expectError: true,
+			pathStr:       "test.field",
+			expectError:   true,
+			expectedError: "pFile is nil",
 		},
 		{
 			name: "clone_fails",
@@ -208,8 +209,9 @@ func TestNewColumnBuffer(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return newMockSchemaHandler()
 			},
-			pathStr:     "test.field",
-			expectError: true, // Will fail when NextRowGroup tries to access footer
+			pathStr:       "test.field",
+			expectError:   true,
+			expectedError: "footer is nil",
 		},
 		{
 			name: "nil_schema_handler",
@@ -224,8 +226,9 @@ func TestNewColumnBuffer(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return nil
 			},
-			pathStr:     "test.field",
-			expectError: true, // Will fail when NextRowGroup tries to access schema handler
+			pathStr:       "test.field",
+			expectError:   true,
+			expectedError: "schema handler is nil",
 		},
 		{
 			name: "empty_path",
@@ -424,9 +427,7 @@ func TestNewColumnBuffer(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
-				if tt.expectedError != "" {
-					require.Equal(t, tt.expectedError, err.Error())
-				}
+				require.Contains(t, err.Error(), tt.expectedError)
 				require.Nil(t, result)
 			} else {
 				require.NoError(t, err)
@@ -539,6 +540,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 
 		cb, err := NewColumnBuffer(mockFile, footer, sh, "root.badfield", nil)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "path not found")
 		require.Nil(t, cb)
 	})
 
@@ -724,6 +726,7 @@ func TestSkipRowsWithError(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "EOF")
 				// When we expect errors, we may have skipped some rows before the error
 				require.True(t, n >= 0)
 			} else {
@@ -757,6 +760,7 @@ func TestNewColumnBuffer_FilePathOpenError(t *testing.T) {
 
 	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf", nil)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "mock open error")
 	require.Nil(t, cb)
 }
 
@@ -830,6 +834,7 @@ func TestReadPage_ChunkHeaderConditions(t *testing.T) {
 			err := cb.ReadPage()
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "move to next row group")
 			} else {
 				require.NoError(t, err)
 			}
@@ -884,6 +889,7 @@ func TestReadPageForSkip_Conditions(t *testing.T) {
 			page, err := cb.ReadPageForSkip()
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "EOF")
 				require.Nil(t, page)
 			} else {
 				require.NoError(t, err)
@@ -1032,5 +1038,6 @@ func TestReadPageForSkip_RecursiveCall(t *testing.T) {
 	page, err := cb.ReadPageForSkip()
 	// Should error because NextRowGroup will fail (no more row groups)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "EOF")
 	require.Nil(t, page)
 }

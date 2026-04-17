@@ -153,6 +153,7 @@ func TestNewLocalFileWriter(t *testing.T) {
 			// Check error expectation
 			if testCase.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "no such file or directory")
 			}
 			if !testCase.expectError {
 				require.NoError(t, err)

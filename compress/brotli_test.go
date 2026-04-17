@@ -23,6 +23,7 @@ func TestCodec_BROTLI(t *testing.T) {
 
 	_, err = c.Uncompress([]byte{0xFF, 0xFF}, parquet.CompressionCodec_BROTLI)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "brotli:")
 }
 
 func TestBrotliCompressionLevel(t *testing.T) {

@@ -116,4 +116,5 @@ func TestLz4RawUncompressInvalidData(t *testing.T) {
 	invalidData := []byte{0xFF, 0xFF, 0xFF, 0xFF}
 	_, err := c.Uncompress(invalidData, parquet.CompressionCodec_LZ4_RAW)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "lz4 decompression")
 }

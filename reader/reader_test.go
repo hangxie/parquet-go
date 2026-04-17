@@ -176,6 +176,7 @@ func TestParquetReader_ReadPartial(t *testing.T) {
 
 	err = pr.ReadPartial(nil, nameField)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "dstInterface is nil")
 }
 
 func TestParquetReader_ReadPartialByNumber(t *testing.T) {
@@ -221,10 +222,12 @@ func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 	// Test with invalid path
 	_, err = pr.ReadPartialByNumber(1, "nonexistent_field")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "path not found")
 
 	// Test with negative number (should return error)
 	_, err = pr.ReadPartialByNumber(-1, nameField)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative maxReadNumber")
 }
 
 func TestParquetReader_ReadByNumber_Negative(t *testing.T) {
@@ -308,6 +311,7 @@ func TestParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
 	invalidJSON := `{"invalid": json}`
 	err = pr.SetSchemaHandlerFromJSON(invalidJSON)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "unmarshal json schema")
 
 	// Test with valid JSON but invalid schema structure
 	invalidSchema := `{
@@ -318,6 +322,7 @@ func TestParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
 	}`
 	err = pr.SetSchemaHandlerFromJSON(invalidSchema)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a valid Type")
 
 	// Test JSON parsing capability (the function should at least parse valid JSON)
 	// This tests the JSON unmarshaling part of the function
@@ -769,6 +774,7 @@ func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 		setup       func() *ParquetReader
 		index       int64
 		expectError bool
+		errMsg      string
 	}{
 		{
 			name: "nil_schema_handler",
@@ -779,6 +785,7 @@ func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 			},
 			index:       0,
 			expectError: true,
+			errMsg:      "SchemaHandler is nil",
 		},
 		{
 			name: "nil_value_columns",
@@ -791,6 +798,7 @@ func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 			},
 			index:       0,
 			expectError: true,
+			errMsg:      "ValueColumns is nil",
 		},
 		{
 			name: "index_out_of_bounds",
@@ -803,6 +811,7 @@ func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 			},
 			index:       5,
 			expectError: true,
+			errMsg:      "out of range",
 		},
 	}
 
@@ -813,6 +822,7 @@ func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 			err := pr.SkipRowsByIndexWithError(tt.index, 1)
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				require.NoError(t, err)
 			}

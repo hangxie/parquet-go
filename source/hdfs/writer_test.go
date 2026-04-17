@@ -42,6 +42,7 @@ func TestHdfsWriterClose(t *testing.T) {
 func TestNewHdfsFileWriterError(t *testing.T) {
 	_, err := NewHdfsFileWriter([]string{"nonexistent:9000"}, "test-user", "test.parquet")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "no available namenodes")
 }
 
 func TestHdfsWriterWriteDelegation(t *testing.T) {
@@ -58,6 +59,7 @@ func TestHdfsWriterWriteDelegation(t *testing.T) {
 	testData := []byte("test")
 	_, err := writer.Write(testData)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "fileWriter is nil")
 }
 
 func TestHdfsWriter_Create(t *testing.T) {
@@ -73,4 +75,5 @@ func TestHdfsWriter_Create(t *testing.T) {
 
 	_, err := writer.Create("test.parquet")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "client is nil")
 }

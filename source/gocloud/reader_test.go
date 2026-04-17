@@ -131,10 +131,12 @@ func TestBlobReader_Seek(t *testing.T) {
 	// Out of range whence
 	_, err := bf.Seek(0, io.SeekEnd+1)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid whence")
 
 	// Filesize is inconsequential for SeekStart and SeekCurrent
 	_, err = bf.Seek(-1, io.SeekStart)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid offset")
 
 	offset, err := bf.Seek(10, io.SeekStart)
 	require.NoError(t, err)
@@ -150,10 +152,12 @@ func TestBlobReader_Seek(t *testing.T) {
 
 	_, err = bf.Seek(-1, io.SeekCurrent)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid offset")
 
 	// Ensure SeekEnd works correctly with zero sized files
 	_, err = bf.Seek(-1, io.SeekEnd)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid offset")
 
 	offset, err = bf.Seek(1, io.SeekEnd)
 	require.NoError(t, err)
@@ -167,6 +171,7 @@ func TestBlobReader_Seek(t *testing.T) {
 
 	_, err = bf.Seek(-2, io.SeekEnd)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid offset")
 
 	offset, err = bf.Seek(1, io.SeekEnd)
 	require.NoError(t, err)

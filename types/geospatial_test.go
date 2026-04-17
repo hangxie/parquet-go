@@ -1126,11 +1126,12 @@ func TestEdgeInterpolationAlgorithm_Invalid_JSON(t *testing.T) {
 		name      string
 		jsonStr   string
 		shouldErr bool
+		errMsg    string
 	}{
-		{"numeric value", `{"algorithm": 0}`, true},
-		{"invalid string", `{"algorithm": "INVALID"}`, true},
-		{"empty string", `{"algorithm": ""}`, true},
-		{"null value", `{"algorithm": null}`, false}, // null is valid (zero value)
+		{"numeric value", `{"algorithm": 0}`, true, "cannot unmarshal number"},
+		{"invalid string", `{"algorithm": "INVALID"}`, true, "not a valid EdgeInterpolationAlgorithm"},
+		{"empty string", `{"algorithm": ""}`, true, "not a valid EdgeInterpolationAlgorithm"},
+		{"null value", `{"algorithm": null}`, false, ""},
 	}
 
 	for _, tc := range testCases {
@@ -1139,6 +1140,7 @@ func TestEdgeInterpolationAlgorithm_Invalid_JSON(t *testing.T) {
 			err := json.Unmarshal([]byte(tc.jsonStr), &ts)
 			if tc.shouldErr {
 				require.Error(t, err, "Expected error when unmarshaling %s", tc.jsonStr)
+				require.Contains(t, err.Error(), tc.errMsg)
 			} else {
 				require.NoError(t, err, "Expected no error when unmarshaling %s", tc.jsonStr)
 			}

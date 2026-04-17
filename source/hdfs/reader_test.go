@@ -62,6 +62,7 @@ func TestHdfsReaderClose(t *testing.T) {
 func TestNewHdfsFileReaderError(t *testing.T) {
 	_, err := NewHdfsFileReader([]string{"nonexistent:9000"}, "test-user", "test.parquet")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "no available namenodes")
 }
 
 func TestHdfsReaderMethodDelegation(t *testing.T) {
@@ -78,6 +79,7 @@ func TestHdfsReaderMethodDelegation(t *testing.T) {
 	buf := make([]byte, 10)
 	_, err := reader.Read(buf)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "fileReader is nil")
 }
 
 func TestHdfsReaderSeekDelegation(t *testing.T) {
@@ -93,6 +95,7 @@ func TestHdfsReaderSeekDelegation(t *testing.T) {
 
 	_, err := reader.Seek(0, 0)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "fileReader is nil")
 }
 
 func TestHdfsReader_Open(t *testing.T) {
@@ -108,6 +111,7 @@ func TestHdfsReader_Open(t *testing.T) {
 
 	_, err := reader.Open("test.parquet")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "client is nil")
 }
 
 func TestHdfsReader_Clone(t *testing.T) {

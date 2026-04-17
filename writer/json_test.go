@@ -43,6 +43,7 @@ func TestJSONWriter(t *testing.T) {
 		jw, err := NewJSONWriter(invalidSchema, fw, WithNP(1))
 
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unmarshal json schema")
 		require.Nil(t, jw)
 	})
 
@@ -52,6 +53,7 @@ func TestJSONWriter(t *testing.T) {
 		jw, err := NewJSONWriter("", fw, WithNP(1))
 
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unmarshal json schema")
 		require.Nil(t, jw)
 	})
 
@@ -68,6 +70,7 @@ func TestJSONWriter(t *testing.T) {
 		jw, err := NewJSONWriter(malformedSchema, fw, WithNP(1))
 
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "not a valid Type")
 		require.Nil(t, jw)
 	})
 
@@ -99,6 +102,7 @@ func TestJSONWriter(t *testing.T) {
 		jw, err := NewJSONWriterFromWriter(invalidSchema, &buf, WithNP(1))
 
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unmarshal json schema")
 		require.Nil(t, jw)
 	})
 
@@ -133,6 +137,7 @@ func TestJSONWriter(t *testing.T) {
 			writeData      []any // Can be string or []byte
 			expectWriteErr bool
 			expectStopErr  bool
+			stopErrMsg     string
 			expectRows     *int64                                                // nil means don't check rows
 			minBufSize     int                                                   // minimum buffer size after write
 			customTest     func(t *testing.T, jw *JSONWriter, buf *bytes.Buffer) // For special test cases
@@ -185,6 +190,7 @@ func TestJSONWriter(t *testing.T) {
 				},
 				expectWriteErr: false, // Write doesn't validate immediately
 				expectStopErr:  true,  // Error occurs during marshaling
+				stopErrMsg:     "unexpected EOF",
 				minBufSize:     4,
 			},
 			{
@@ -310,6 +316,7 @@ func TestJSONWriter(t *testing.T) {
 				stopErr := jw.WriteStop()
 				if tt.expectStopErr {
 					require.Error(t, stopErr)
+					require.Contains(t, stopErr.Error(), tt.stopErrMsg)
 					return
 				}
 				require.NoError(t, stopErr)
