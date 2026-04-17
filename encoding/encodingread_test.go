@@ -74,6 +74,7 @@ func TestReadByteStreamSplit(t *testing.T) {
 		reader := bytes.NewReader([]byte{0x00, 0x00}) // Only 2 bytes, need 4
 		_, err := ReadByteStreamSplitFloat32(reader, 1)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected EOF")
 	})
 
 	t.Run("float64", func(t *testing.T) {
@@ -121,6 +122,7 @@ func TestReadByteStreamSplit(t *testing.T) {
 		reader := bytes.NewReader([]byte{0x00, 0x00, 0x00, 0x00}) // Only 4 bytes, need 8
 		_, err := ReadByteStreamSplitFloat64(reader, 1)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected EOF")
 	})
 
 	t.Run("int32", func(t *testing.T) {
@@ -170,6 +172,7 @@ func TestReadByteStreamSplit(t *testing.T) {
 		reader := bytes.NewReader([]byte{0x00, 0x00}) // Only 2 bytes, need 4
 		_, err := ReadByteStreamSplitINT32(reader, 1)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected EOF")
 	})
 
 	t.Run("int64", func(t *testing.T) {
@@ -219,6 +222,7 @@ func TestReadByteStreamSplit(t *testing.T) {
 		reader := bytes.NewReader([]byte{0x00, 0x00, 0x00, 0x00}) // Only 4 bytes, need 8
 		_, err := ReadByteStreamSplitINT64(reader, 1)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected EOF")
 	})
 
 	t.Run("fixed_len_byte_array", func(t *testing.T) {
@@ -272,11 +276,13 @@ func TestReadByteStreamSplit(t *testing.T) {
 		reader := bytes.NewReader([]byte{0x00, 0x00}) // Only 2 bytes, need 4
 		_, err := ReadByteStreamSplitFixedLenByteArray(reader, 1, 4)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected EOF")
 
 		// Test zero element size
 		reader2 := bytes.NewReader([]byte{0x00, 0x00, 0x00, 0x00})
 		_, err = ReadByteStreamSplitFixedLenByteArray(reader2, 1, 0)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "element size must be > 0")
 	})
 
 	t.Run("invalid_count", func(t *testing.T) {
@@ -445,6 +451,7 @@ func TestReadPlain(t *testing.T) {
 					// Test unknown type directly
 					_, err := ReadPlain(bytes.NewReader([]byte{}), tc.dataType, 0, tc.bitWidth)
 					require.Error(t, err)
+					require.Contains(t, err.Error(), "unknown parquet type")
 					return
 				}
 
@@ -667,6 +674,7 @@ func TestReadPlain(t *testing.T) {
 				_, err := ReadPlainBYTE_ARRAY(bytes.NewReader(tt.buf), tt.cnt)
 				if tt.expectErr {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), "ReadPlainBYTE_ARRAY")
 				} else {
 					require.NoError(t, err)
 				}
@@ -866,6 +874,7 @@ func TestReadPlain(t *testing.T) {
 
 				if tc.expectError {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), "EOF")
 					return
 				}
 
@@ -981,6 +990,7 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 		// This should fail because we don't have enough data
 		_, err := ReadRLEBitPackedHybrid(reader, 1, 1000000)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "EOF")
 	})
 
 	t.Run("coverage", func(t *testing.T) {
@@ -1091,6 +1101,7 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 
 				if tt.expectError {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), "EOF")
 				} else {
 					require.NoError(t, err)
 					require.NotNil(t, result)
@@ -1163,9 +1174,7 @@ func TestValidateCount(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
-				if tt.errorMsg != "" {
-					require.Contains(t, err.Error(), tt.errorMsg)
-				}
+				require.Contains(t, err.Error(), tt.errorMsg)
 			} else {
 				require.NoError(t, err)
 			}
@@ -1177,21 +1186,25 @@ func TestReadDeltaEmpty(t *testing.T) {
 	t.Run("ReadDeltaBinaryPackedINT32", func(t *testing.T) {
 		_, err := ReadDeltaBinaryPackedINT32(bytes.NewReader([]byte{}))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "EOF")
 	})
 
 	t.Run("ReadDeltaBinaryPackedINT64", func(t *testing.T) {
 		_, err := ReadDeltaBinaryPackedINT64(bytes.NewReader([]byte{}))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "EOF")
 	})
 
 	t.Run("ReadDeltaLengthByteArray", func(t *testing.T) {
 		_, err := ReadDeltaLengthByteArray(bytes.NewReader([]byte{}))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "EOF")
 	})
 
 	t.Run("ReadDeltaByteArray", func(t *testing.T) {
 		_, err := ReadDeltaByteArray(bytes.NewReader([]byte{}))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "EOF")
 	})
 }
 

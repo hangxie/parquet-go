@@ -53,6 +53,7 @@ func TestBinaryRead(t *testing.T) {
 		expected    []any
 		expectError bool
 		errorType   error
+		errMsg      string
 		useMockFail bool
 	}{
 		// FLOAT32 tests
@@ -64,7 +65,7 @@ func TestBinaryRead(t *testing.T) {
 		{name: "float32/empty", typeName: "float32", input: []byte{}, numValues: 0, expected: []any{}},
 		{name: "float32/insufficient", typeName: "float32", input: []byte{0x00, 0x00, 0x00}, numValues: 1, expectError: true, errorType: io.ErrUnexpectedEOF},
 		{name: "float32/partial_second", typeName: "float32", input: []byte{0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, numValues: 2, expectError: true, errorType: io.ErrUnexpectedEOF},
-		{name: "float32/read_error", typeName: "float32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, useMockFail: true},
+		{name: "float32/read_error", typeName: "float32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, errMsg: "mock read error", useMockFail: true},
 
 		// FLOAT64 tests
 		{name: "float64/zero", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{float64(0.0)}},
@@ -75,7 +76,7 @@ func TestBinaryRead(t *testing.T) {
 		{name: "float64/multiple", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x40}, numValues: 3, expected: []any{float64(1.0), float64(2.0), float64(3.0)}},
 		{name: "float64/empty", typeName: "float64", input: []byte{}, numValues: 0, expected: []any{}},
 		{name: "float64/insufficient", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, errorType: io.ErrUnexpectedEOF},
-		{name: "float64/read_error", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, useMockFail: true},
+		{name: "float64/read_error", typeName: "float64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, errMsg: "mock read error", useMockFail: true},
 
 		// INT32 tests
 		{name: "int32/zero", typeName: "int32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{int32(0)}},
@@ -86,7 +87,7 @@ func TestBinaryRead(t *testing.T) {
 		{name: "int32/multiple", typeName: "int32", input: []byte{0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF}, numValues: 3, expected: []any{int32(1), int32(2), int32(-1)}},
 		{name: "int32/empty", typeName: "int32", input: []byte{}, numValues: 0, expected: []any{}},
 		{name: "int32/insufficient", typeName: "int32", input: []byte{0x00, 0x00, 0x00}, numValues: 1, expectError: true, errorType: io.ErrUnexpectedEOF},
-		{name: "int32/read_error", typeName: "int32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, useMockFail: true},
+		{name: "int32/read_error", typeName: "int32", input: []byte{0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, errMsg: "mock read error", useMockFail: true},
 
 		// INT64 tests
 		{name: "int64/zero", typeName: "int64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expected: []any{int64(0)}},
@@ -97,7 +98,7 @@ func TestBinaryRead(t *testing.T) {
 		{name: "int64/multiple", typeName: "int64", input: []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, numValues: 3, expected: []any{int64(1), int64(2), int64(-1)}},
 		{name: "int64/empty", typeName: "int64", input: []byte{}, numValues: 0, expected: []any{}},
 		{name: "int64/insufficient", typeName: "int64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, errorType: io.ErrUnexpectedEOF},
-		{name: "int64/read_error", typeName: "int64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, useMockFail: true},
+		{name: "int64/read_error", typeName: "int64", input: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, numValues: 1, expectError: true, errMsg: "mock read error", useMockFail: true},
 	}
 
 	for _, tt := range tests {
@@ -127,6 +128,9 @@ func TestBinaryRead(t *testing.T) {
 				require.Error(t, err)
 				if tt.errorType != nil {
 					require.ErrorIs(t, err, tt.errorType)
+				}
+				if tt.errMsg != "" {
+					require.Contains(t, err.Error(), tt.errMsg)
 				}
 				return
 			}
@@ -171,6 +175,7 @@ func TestBinaryReadEdgeCases(t *testing.T) {
 			}
 
 			require.Error(t, err)
+			require.Contains(t, err.Error(), "binary data")
 		})
 	}
 }

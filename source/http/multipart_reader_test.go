@@ -220,6 +220,7 @@ func TestMultipartFileReader_Seek_InvalidOffset(t *testing.T) {
 	// The behavior depends on the underlying bytes.Reader implementation
 	if err != nil {
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "negative position")
 	} else {
 		// If no error, verify the offset
 		require.GreaterOrEqual(t, offset, int64(0))
@@ -299,6 +300,7 @@ func TestMultipartFileReader_Open_ErrorHandling(t *testing.T) {
 	// Open should fail due to invalid fileHeader
 	_, err := reader.Open("new-file.parquet")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "no such file")
 }
 
 func TestMultipartFileReader_ReadWriteOperations(t *testing.T) {

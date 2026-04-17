@@ -136,6 +136,7 @@ func TestSchemaHandler_GetRepetitionType(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "name not in schema")
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.expected, result)
@@ -163,8 +164,9 @@ func TestSchemaHandler_GetType(t *testing.T) {
 					ExPathToInPath: map[string]string{},
 				}
 			},
-			path:        "nonexistent_field",
-			expectError: true,
+			path:          "nonexistent_field",
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "empty_path",
@@ -176,8 +178,9 @@ func TestSchemaHandler_GetType(t *testing.T) {
 					ExPathToInPath: map[string]string{},
 				}
 			},
-			path:        "",
-			expectError: true,
+			path:          "",
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "successful_type_retrieval",
@@ -227,8 +230,9 @@ func TestSchemaHandler_GetType(t *testing.T) {
 					ExPathToInPath: map[string]string{},
 				}
 			},
-			path:        "invalid..path..format",
-			expectError: true,
+			path:          "invalid..path..format",
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "path_not_found_in_map_index",
@@ -323,9 +327,7 @@ func TestSchemaHandler_GetType(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
-				if tt.expectedError != "" {
-					require.Equal(t, tt.expectedError, err.Error())
-				}
+				require.Contains(t, err.Error(), tt.expectedError)
 			} else {
 				require.NoError(t, err)
 				if tt.validateType != nil {

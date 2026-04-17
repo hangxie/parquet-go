@@ -93,6 +93,7 @@ func TestBufferReader_Seek_errors(t *testing.T) {
 	// Test seek to negative position
 	_, err := reader.Seek(-10, io.SeekStart)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "seek to negative location")
 
 	// Test seek beyond end
 	pos, err := reader.Seek(100, io.SeekStart)

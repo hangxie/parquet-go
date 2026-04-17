@@ -691,6 +691,7 @@ func TestNewS3FileReader_FakeConfig(t *testing.T) {
 	// but HeadObject fails because there's no real S3 endpoint.
 	_, err := NewS3FileReader(context.Background(), "bucket", "key", nil)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "head object")
 }
 
 func TestNewS3FileReaderWithParams_GetConfigError(t *testing.T) {

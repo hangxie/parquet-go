@@ -28,6 +28,7 @@ func TestGcsWriterCreate(t *testing.T) {
 
 	_, err := writer.Create("new-file.parquet")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "open gcs writer")
 }
 
 func TestGcsWriterNilOperations(t *testing.T) {

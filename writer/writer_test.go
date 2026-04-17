@@ -541,6 +541,7 @@ func TestParquetWriter(t *testing.T) {
 		invalidJSON := `{"invalid": json}`
 		err = pw.SetSchemaHandlerFromJSON(invalidJSON)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unmarshal json schema")
 	})
 
 	t.Run("set_schema_handler_from_json_empty", func(t *testing.T) {
@@ -551,6 +552,7 @@ func TestParquetWriter(t *testing.T) {
 
 		err = pw.SetSchemaHandlerFromJSON("")
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unmarshal json schema")
 	})
 
 	t.Run("write_stop_race_condition_on_error", func(t *testing.T) {
@@ -563,7 +565,9 @@ func TestParquetWriter(t *testing.T) {
 			entry := fmt.Sprintf(`{"not-x":%d}`, i)
 			require.NoError(t, pw.Write(entry))
 		}
-		require.Error(t, pw.WriteStop())
+		stopErr := pw.WriteStop()
+		require.Error(t, stopErr)
+		require.Contains(t, stopErr.Error(), "nil value encountered for REQUIRED field")
 	})
 
 	t.Run("zero_rows", func(t *testing.T) {
@@ -628,6 +632,7 @@ func TestNewParquetWriter_SchemaVariants(t *testing.T) {
 			pw, err := NewParquetWriter(fw, tt.obj, WithNP(1))
 			if tt.wantErr {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "unmarshal json schema")
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, pw)
@@ -860,6 +865,7 @@ func TestOptionValidation_NoPartialOutput(t *testing.T) {
 	fw := writerfile.NewWriterFile(&buf)
 	_, err := NewParquetWriter(fw, new(test), WithNP(0))
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "value must be positive")
 	// Invalid option must not produce any output (no PAR1 header written)
 	require.Equal(t, 0, buf.Len())
 }

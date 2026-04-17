@@ -106,6 +106,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 		opts        []ReaderOption
 		expectError bool
 		expectPanic bool
+		errMsg      string
 	}{
 		{
 			name: "nil_file",
@@ -115,6 +116,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 			opts:        []ReaderOption{WithNP(1)},
 			expectError: true,
 			expectPanic: true,
+			errMsg:      "PFile is nil",
 		},
 		{
 			name: "read_footer_error",
@@ -126,6 +128,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 			opts:        []ReaderOption{WithNP(1)},
 			expectError: true,
 			expectPanic: false,
+			errMsg:      "read footer",
 		},
 		{
 			name: "invalid_footer_data",
@@ -138,6 +141,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 			opts:        []ReaderOption{WithNP(1)},
 			expectError: true,
 			expectPanic: false,
+			errMsg:      "Required field Version",
 		},
 		{
 			name: "valid_minimal_file",
@@ -150,6 +154,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 			opts:        []ReaderOption{WithNP(1)},
 			expectError: true, // We expect this to fail with invalid data, but it exercises the code path
 			expectPanic: false,
+			errMsg:      "Required field Version",
 		},
 	}
 
@@ -158,6 +163,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 			if tt.expectPanic {
 				_, err := NewParquetColumnReader(tt.setupReader(), tt.opts...)
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 				return
 			}
 
@@ -165,6 +171,7 @@ func TestNewParquetColumnReader(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 				require.Nil(t, reader)
 			} else {
 				require.NoError(t, err)
@@ -182,6 +189,7 @@ func TestParquetReader_EdgeCases(t *testing.T) {
 
 		err := pr.SkipRowsByPath("test", 1)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "SchemaHandler is nil")
 	})
 
 	t.Run("nil_column_buffers_map", func(t *testing.T) {
@@ -196,6 +204,7 @@ func TestParquetReader_EdgeCases(t *testing.T) {
 
 		err := pr.SkipRowsByPath("test", 1)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "ColumnBuffers is nil")
 	})
 }
 
@@ -256,6 +265,7 @@ func TestParquetReader_ReadColumnByIndex(t *testing.T) {
 			if tt.index < 0 {
 				_, _, _, err := pr.ReadColumnByIndex(tt.index, tt.num)
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "out of range")
 				return
 			}
 
@@ -294,6 +304,7 @@ func TestParquetReader_ReadColumnByIndex_ErrorPropagation(t *testing.T) {
 		values, rls, dls, err := pr.ReadColumnByIndex(0, 5)
 
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
 
 		// Should return empty slices on error
 		require.Empty(t, values)
@@ -322,9 +333,10 @@ func TestParquetReader_ReadColumnByPath_Comprehensive(t *testing.T) {
 					},
 				}
 			},
-			pathStr:     "test.field",
-			num:         0,
-			expectError: true,
+			pathStr:       "test.field",
+			num:           0,
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "invalid_num_negative",
@@ -337,9 +349,10 @@ func TestParquetReader_ReadColumnByPath_Comprehensive(t *testing.T) {
 					},
 				}
 			},
-			pathStr:     "test.field",
-			num:         -5,
-			expectError: true,
+			pathStr:       "test.field",
+			num:           -5,
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "empty_path",
@@ -352,9 +365,10 @@ func TestParquetReader_ReadColumnByPath_Comprehensive(t *testing.T) {
 					},
 				}
 			},
-			pathStr:     "",
-			num:         5,
-			expectError: true,
+			pathStr:       "",
+			num:           5,
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "path_conversion_error",
@@ -367,9 +381,10 @@ func TestParquetReader_ReadColumnByPath_Comprehensive(t *testing.T) {
 					},
 				}
 			},
-			pathStr:     "invalid..path",
-			num:         5,
-			expectError: true,
+			pathStr:       "invalid..path",
+			num:           5,
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "path_not_found_in_schema",
@@ -399,9 +414,7 @@ func TestParquetReader_ReadColumnByPath_Comprehensive(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
-				if tt.expectedError != "" {
-					require.Contains(t, err.Error(), tt.expectedError)
-				}
+				require.Contains(t, err.Error(), tt.expectedError)
 				// Check that error case returns empty slices
 				require.Empty(t, values)
 				require.Empty(t, rls)
@@ -456,6 +469,7 @@ func TestParquetReader_SkipRowsByIndexWithError(t *testing.T) {
 		index       int64
 		num         int64
 		expectError bool
+		errMsg      string
 	}{
 		{
 			name: "index_out_of_range",
@@ -469,6 +483,7 @@ func TestParquetReader_SkipRowsByIndexWithError(t *testing.T) {
 			index:       5, // Out of range
 			num:         3,
 			expectError: true,
+			errMsg:      "out of range",
 		},
 		{
 			name: "nil_schema_handler",
@@ -479,6 +494,7 @@ func TestParquetReader_SkipRowsByIndexWithError(t *testing.T) {
 			},
 			index:       0,
 			expectError: true,
+			errMsg:      "SchemaHandler is nil",
 		},
 		{
 			name: "nil_value_columns",
@@ -491,6 +507,7 @@ func TestParquetReader_SkipRowsByIndexWithError(t *testing.T) {
 			},
 			index:       0,
 			expectError: true,
+			errMsg:      "ValueColumns is nil",
 		},
 	}
 
@@ -501,6 +518,7 @@ func TestParquetReader_SkipRowsByIndexWithError(t *testing.T) {
 			err := pr.SkipRowsByIndexWithError(tt.index, tt.num)
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				require.NoError(t, err)
 			}
@@ -592,11 +610,13 @@ func TestParquetReader_SkipRowsByIndexWithError_Success(t *testing.T) {
 	emptyReader := &ParquetReader{SchemaHandler: nil}
 	err = emptyReader.SkipRowsByIndexWithError(0, 5)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "SchemaHandler is nil")
 
 	// Test with nil ValueColumns - should return error
 	emptyReader.SchemaHandler = &schema.SchemaHandler{ValueColumns: nil}
 	err = emptyReader.SkipRowsByIndexWithError(0, 5)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "ValueColumns is nil")
 }
 
 func TestParquetReader_ReadColumnByPath_WithValidData(t *testing.T) {
@@ -636,6 +656,7 @@ func TestParquetReader_ErrorPaths(t *testing.T) {
 
 		err := pr.SkipRowsByPath("test.field", 5)
 		require.Error(t, err) // This should hit the NewColumnBuffer error path (line 47-49)
+		require.Contains(t, err.Error(), "footer is nil")
 	})
 
 	t.Run("read_column_column_buffer_error", func(t *testing.T) {
@@ -652,6 +673,7 @@ func TestParquetReader_ErrorPaths(t *testing.T) {
 
 		values, rls, dls, err := pr.ReadColumnByPath("test.field", 5)
 		require.Error(t, err) // This should hit the NewColumnBuffer error path (line 88-90)
+		require.Contains(t, err.Error(), "footer is nil")
 		require.Empty(t, values)
 		require.Empty(t, rls)
 		require.Empty(t, dls)
@@ -674,6 +696,7 @@ func TestParquetReader_ErrorPaths(t *testing.T) {
 		if err != nil {
 			// This will fail at NewColumnBuffer, which is expected
 			require.Error(t, err)
+			require.Contains(t, err.Error(), "pFile is nil")
 		}
 	})
 
@@ -692,6 +715,7 @@ func TestParquetReader_ErrorPaths(t *testing.T) {
 		// This will either error at NewColumnBuffer or return the fallback error
 		if err != nil {
 			require.Error(t, err)
+			require.Contains(t, err.Error(), "pFile is nil")
 			require.Empty(t, values)
 			require.Empty(t, rls)
 			require.Empty(t, dls)
@@ -725,9 +749,10 @@ func TestParquetReader_SkipRowsByPath_Comprehensive(t *testing.T) {
 					},
 				}
 			},
-			pathStr:     "test.field",
-			num:         0,
-			expectError: true,
+			pathStr:       "test.field",
+			num:           0,
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "invalid_num_negative",
@@ -740,9 +765,10 @@ func TestParquetReader_SkipRowsByPath_Comprehensive(t *testing.T) {
 					},
 				}
 			},
-			pathStr:     "test.field",
-			num:         -1,
-			expectError: true,
+			pathStr:       "test.field",
+			num:           -1,
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "empty_path",
@@ -755,9 +781,10 @@ func TestParquetReader_SkipRowsByPath_Comprehensive(t *testing.T) {
 					},
 				}
 			},
-			pathStr:     "",
-			num:         5,
-			expectError: true,
+			pathStr:       "",
+			num:           5,
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "conversion_error",
@@ -770,9 +797,10 @@ func TestParquetReader_SkipRowsByPath_Comprehensive(t *testing.T) {
 					},
 				}
 			},
-			pathStr:     "invalid..path",
-			num:         5,
-			expectError: true,
+			pathStr:       "invalid..path",
+			num:           5,
+			expectError:   true,
+			expectedError: "path not found",
 		},
 		{
 			name: "path_not_found_in_map_index",
@@ -802,9 +830,7 @@ func TestParquetReader_SkipRowsByPath_Comprehensive(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
-				if tt.expectedError != "" {
-					require.Contains(t, err.Error(), tt.expectedError)
-				}
+				require.Contains(t, err.Error(), tt.expectedError)
 			} else {
 				require.NoError(t, err)
 			}

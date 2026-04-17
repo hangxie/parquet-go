@@ -113,6 +113,7 @@ func TestSwiftReaderReadDelegation(t *testing.T) {
 	buf := make([]byte, 10)
 	_, err := reader.Read(buf)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "fileReader is nil")
 }
 
 func TestSwiftReaderSeekDelegation(t *testing.T) {
@@ -127,6 +128,7 @@ func TestSwiftReaderSeekDelegation(t *testing.T) {
 
 	_, err := reader.Seek(0, io.SeekStart)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "fileReader is nil")
 }
 
 func TestSwiftReaderStructure(t *testing.T) {

@@ -138,11 +138,13 @@ func TestFromBitset(t *testing.T) {
 	t.Run("empty-bitset", func(t *testing.T) {
 		_, err := FromBitset(nil)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "bloom filter bitset too small")
 	})
 
 	t.Run("too-small-bitset", func(t *testing.T) {
 		_, err := FromBitset(make([]byte, 16))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "bloom filter bitset too small")
 	})
 
 	t.Run("not-multiple-of-block-size", func(t *testing.T) {
@@ -161,6 +163,7 @@ func TestFromBitset(t *testing.T) {
 	t.Run("not-multiple-of-32", func(t *testing.T) {
 		_, err := FromBitset(make([]byte, 33))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "not a multiple of block size")
 	})
 }
 

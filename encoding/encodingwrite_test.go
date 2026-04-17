@@ -185,6 +185,7 @@ func TestWriteDelta(t *testing.T) {
 				result, err := WriteDelta(tc.src)
 				if tc.name == "unsupported_type" {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), "unsupported type")
 					return
 				}
 				require.NoError(t, err)
@@ -340,6 +341,7 @@ func TestWritePlain(t *testing.T) {
 				result, err := WritePlain(tc.src, tc.dataType)
 				if tc.expectErr {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), "unsupported parquet type")
 					return
 				}
 				require.NoError(t, err)
@@ -396,6 +398,7 @@ func TestWritePlain(t *testing.T) {
 			name      string
 			nums      []any
 			expectErr bool
+			errMsg    string
 		}{
 			{
 				name: "empty_input",
@@ -413,11 +416,13 @@ func TestWritePlain(t *testing.T) {
 				name:      "invalid_type",
 				nums:      []any{"invalid"},
 				expectErr: true,
+				errMsg:    "is not float",
 			},
 			{
 				name:      "mixed_types",
 				nums:      []any{float64(1.1), "invalid"},
 				expectErr: true,
+				errMsg:    "is not float",
 			},
 		}
 
@@ -427,6 +432,7 @@ func TestWritePlain(t *testing.T) {
 
 				if tc.expectErr {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), tc.errMsg)
 					return
 				}
 
@@ -459,6 +465,7 @@ func TestWritePlain(t *testing.T) {
 			name      string
 			nums      []any
 			expectErr bool
+			errMsg    string
 		}{
 			{
 				name: "empty_input",
@@ -476,11 +483,13 @@ func TestWritePlain(t *testing.T) {
 				name:      "invalid_type",
 				nums:      []any{"invalid"},
 				expectErr: true,
+				errMsg:    "is not float32",
 			},
 			{
 				name:      "mixed_types",
 				nums:      []any{float32(1.1), "invalid"},
 				expectErr: true,
+				errMsg:    "is not float32",
 			},
 		}
 
@@ -490,6 +499,7 @@ func TestWritePlain(t *testing.T) {
 
 				if tc.expectErr {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), tc.errMsg)
 					return
 				}
 
@@ -507,6 +517,7 @@ func TestWritePlain(t *testing.T) {
 			nums      []any
 			expected  []byte
 			expectErr bool
+			errMsg    string
 		}{
 			{
 				name:     "empty_input",
@@ -527,11 +538,13 @@ func TestWritePlain(t *testing.T) {
 				name:      "invalid_type",
 				nums:      []any{"invalid"},
 				expectErr: true,
+				errMsg:    "is not int32",
 			},
 			{
 				name:      "mixed_types",
 				nums:      []any{int32(1), "invalid"},
 				expectErr: true,
+				errMsg:    "is not int32",
 			},
 		}
 
@@ -541,6 +554,7 @@ func TestWritePlain(t *testing.T) {
 
 				if data.expectErr {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), data.errMsg)
 					return
 				}
 
@@ -557,6 +571,7 @@ func TestWritePlain(t *testing.T) {
 			nums      []any
 			expected  []byte
 			expectErr bool
+			errMsg    string
 		}{
 			{
 				name:     "empty_input",
@@ -577,11 +592,13 @@ func TestWritePlain(t *testing.T) {
 				name:      "invalid_type",
 				nums:      []any{"invalid"},
 				expectErr: true,
+				errMsg:    "is not int64",
 			},
 			{
 				name:      "mixed_types",
 				nums:      []any{int64(1), "invalid"},
 				expectErr: true,
+				errMsg:    "is not int64",
 			},
 		}
 
@@ -591,6 +608,7 @@ func TestWritePlain(t *testing.T) {
 
 				if data.expectErr {
 					require.Error(t, err)
+					require.Contains(t, err.Error(), data.errMsg)
 					return
 				}
 

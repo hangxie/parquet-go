@@ -282,11 +282,13 @@ func TestNewCompressor(t *testing.T) {
 	t.Run("unsupported codec level", func(t *testing.T) {
 		_, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_UNCOMPRESSED, 5))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "does not support compression levels")
 	})
 
 	t.Run("codec without factory", func(t *testing.T) {
 		_, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_SNAPPY, 5))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "does not support compression levels")
 	})
 }
 

@@ -85,6 +85,7 @@ func TestMarshalJSON(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "unexpected EOF")
 				return
 			}
 
@@ -382,6 +383,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 
 		_, err = MarshalJSON(invalidJSON, sch)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "unexpected EOF")
 	})
 
 	t.Run("type_conversion_error", func(t *testing.T) {
@@ -402,6 +404,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 
 		_, err = MarshalJSON(invalidTypeJSON, sch)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "expected integer")
 	})
 
 	t.Run("empty_path_handling", func(t *testing.T) {

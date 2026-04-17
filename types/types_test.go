@@ -21,6 +21,7 @@ func TestInterfaceToParquetType(t *testing.T) {
 		value       any
 		pT          *parquet.Type
 		expectError bool
+		errMsg      string
 		expected    any
 	}{
 		// Direct type matches (should return as-is)
@@ -47,6 +48,7 @@ func TestInterfaceToParquetType(t *testing.T) {
 			value:       float32(42),
 			pT:          parquet.TypePtr(parquet.Type_INT64),
 			expectError: true,
+			errMsg:      "convert float32 to int64",
 		},
 		{
 			name:     "float32_direct",
@@ -115,6 +117,7 @@ func TestInterfaceToParquetType(t *testing.T) {
 			value:       string("foobar"),
 			pT:          parquet.TypePtr(parquet.Type_DOUBLE),
 			expectError: true,
+			errMsg:      "convert string to float64",
 		},
 		{
 			name:     "reflect_bool_to_bool",
@@ -129,24 +132,28 @@ func TestInterfaceToParquetType(t *testing.T) {
 			value:       "not a bool",
 			pT:          parquet.TypePtr(parquet.Type_BOOLEAN),
 			expectError: true,
+			errMsg:      "convert string to bool",
 		},
 		{
 			name:        "string_to_int32_error",
 			value:       "not an int",
 			pT:          parquet.TypePtr(parquet.Type_INT32),
 			expectError: true,
+			errMsg:      "convert string to int32",
 		},
 		{
 			name:        "bool_to_float_error",
 			value:       true,
 			pT:          parquet.TypePtr(parquet.Type_FLOAT),
 			expectError: true,
+			errMsg:      "convert bool to float32",
 		},
 		{
 			name:        "int_to_string_error",
 			value:       42,
 			pT:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
 			expectError: true,
+			errMsg:      "convert int to string",
 		},
 
 		// Edge cases
@@ -174,6 +181,7 @@ func TestInterfaceToParquetType(t *testing.T) {
 			value:       reflect.ValueOf(true),
 			pT:          parquet.TypePtr(parquet.Type_BOOLEAN),
 			expectError: true,
+			errMsg:      "convert reflect.Value to bool",
 		},
 	}
 
@@ -183,6 +191,7 @@ func TestInterfaceToParquetType(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
 				require.NoError(t, err)
 				if tt.value == nil {

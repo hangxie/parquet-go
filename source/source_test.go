@@ -188,6 +188,7 @@ func TestConvertToThriftReader_NegativeOffset(t *testing.T) {
 
 	thriftReader, err := ConvertToThriftReader(mockReader, -10)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "seek error")
 	require.Nil(t, thriftReader)
 	require.Contains(t, err.Error(), "seek to offset")
 }
@@ -195,6 +196,7 @@ func TestConvertToThriftReader_NegativeOffset(t *testing.T) {
 func TestConvertToThriftReader_NilFile(t *testing.T) {
 	thriftReader, err := ConvertToThriftReader(nil, 0)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "file reader is nil")
 	require.Nil(t, thriftReader)
 	require.Contains(t, err.Error(), "file reader is nil")
 }
@@ -210,6 +212,7 @@ func TestConvertToThriftReader_SeekError(t *testing.T) {
 	// Test ConvertToThriftReader when seek fails
 	thriftReader, err := ConvertToThriftReader(mockReader, 10)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "seek error")
 	require.Nil(t, thriftReader)
 	require.Contains(t, err.Error(), "seek to offset")
 }

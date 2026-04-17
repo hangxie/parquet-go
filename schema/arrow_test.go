@@ -202,6 +202,7 @@ func TestNewSchemaHandlerFromArrow(t *testing.T) {
 	t.Run("nil_schema_error", func(t *testing.T) {
 		_, err := NewSchemaHandlerFromArrow(nil)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "schema is nil")
 	})
 
 	t.Run("verify_info_structure", func(t *testing.T) {

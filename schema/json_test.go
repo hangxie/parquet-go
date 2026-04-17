@@ -40,7 +40,8 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			  ]
 			}
 			`,
-			expectError: true,
+			expectError:   true,
+			errorContains: "unmarshal json schema",
 		},
 		{
 			name: "list_needs_exact_one_field",
@@ -121,9 +122,7 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
-				if tt.errorContains != "" {
-					require.Contains(t, err.Error(), tt.errorContains)
-				}
+				require.Contains(t, err.Error(), tt.errorContains)
 				return
 			}
 

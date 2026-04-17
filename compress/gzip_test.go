@@ -45,5 +45,6 @@ func TestGzipCompressionLevel(t *testing.T) {
 	t.Run("invalid level returns error", func(t *testing.T) {
 		_, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_GZIP, 100))
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid compression level")
 	})
 }

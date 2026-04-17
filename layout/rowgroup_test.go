@@ -179,6 +179,7 @@ func TestRowGroupToTableMap(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
+				require.Contains(t, err.Error(), "page DataTable is nil")
 				return
 			}
 			require.NoError(t, err)
