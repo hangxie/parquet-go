@@ -17,12 +17,11 @@ import (
 
 func TestInterfaceToParquetType(t *testing.T) {
 	tests := []struct {
-		name        string
-		value       any
-		pT          *parquet.Type
-		expectError bool
-		errMsg      string
-		expected    any
+		name     string
+		value    any
+		pT       *parquet.Type
+		errMsg   string
+		expected any
 	}{
 		// Direct type matches (should return as-is)
 		{
@@ -44,11 +43,10 @@ func TestInterfaceToParquetType(t *testing.T) {
 			expected: int64(42),
 		},
 		{
-			name:        "float32_to_int64",
-			value:       float32(42),
-			pT:          parquet.TypePtr(parquet.Type_INT64),
-			expectError: true,
-			errMsg:      "convert float32 to int64",
+			name:   "float32_to_int64",
+			value:  float32(42),
+			pT:     parquet.TypePtr(parquet.Type_INT64),
+			errMsg: "convert float32 to int64",
 		},
 		{
 			name:     "float32_direct",
@@ -113,11 +111,10 @@ func TestInterfaceToParquetType(t *testing.T) {
 			expected: float64(float32(3.14)), // Note: precision conversion
 		},
 		{
-			name:        "string_to_float64",
-			value:       string("foobar"),
-			pT:          parquet.TypePtr(parquet.Type_DOUBLE),
-			expectError: true,
-			errMsg:      "convert string to float64",
+			name:   "string_to_float64",
+			value:  string("foobar"),
+			pT:     parquet.TypePtr(parquet.Type_DOUBLE),
+			errMsg: "convert string to float64",
 		},
 		{
 			name:     "reflect_bool_to_bool",
@@ -128,32 +125,28 @@ func TestInterfaceToParquetType(t *testing.T) {
 
 		// Error cases
 		{
-			name:        "string_to_bool_error",
-			value:       "not a bool",
-			pT:          parquet.TypePtr(parquet.Type_BOOLEAN),
-			expectError: true,
-			errMsg:      "convert string to bool",
+			name:   "string_to_bool_error",
+			value:  "not a bool",
+			pT:     parquet.TypePtr(parquet.Type_BOOLEAN),
+			errMsg: "convert string to bool",
 		},
 		{
-			name:        "string_to_int32_error",
-			value:       "not an int",
-			pT:          parquet.TypePtr(parquet.Type_INT32),
-			expectError: true,
-			errMsg:      "convert string to int32",
+			name:   "string_to_int32_error",
+			value:  "not an int",
+			pT:     parquet.TypePtr(parquet.Type_INT32),
+			errMsg: "convert string to int32",
 		},
 		{
-			name:        "bool_to_float_error",
-			value:       true,
-			pT:          parquet.TypePtr(parquet.Type_FLOAT),
-			expectError: true,
-			errMsg:      "convert bool to float32",
+			name:   "bool_to_float_error",
+			value:  true,
+			pT:     parquet.TypePtr(parquet.Type_FLOAT),
+			errMsg: "convert bool to float32",
 		},
 		{
-			name:        "int_to_string_error",
-			value:       42,
-			pT:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-			expectError: true,
-			errMsg:      "convert int to string",
+			name:   "int_to_string_error",
+			value:  42,
+			pT:     parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			errMsg: "convert int to string",
 		},
 
 		// Edge cases
@@ -177,11 +170,10 @@ func TestInterfaceToParquetType(t *testing.T) {
 		},
 		// Additional edge cases from comprehensive test
 		{
-			name:        "reflect_value_bool_to_bool",
-			value:       reflect.ValueOf(true),
-			pT:          parquet.TypePtr(parquet.Type_BOOLEAN),
-			expectError: true,
-			errMsg:      "convert reflect.Value to bool",
+			name:   "reflect_value_bool_to_bool",
+			value:  reflect.ValueOf(true),
+			pT:     parquet.TypePtr(parquet.Type_BOOLEAN),
+			errMsg: "convert reflect.Value to bool",
 		},
 	}
 
@@ -189,7 +181,7 @@ func TestInterfaceToParquetType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := InterfaceToParquetType(tt.value, tt.pT)
 
-			if tt.expectError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
 			} else {

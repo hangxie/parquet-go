@@ -40,7 +40,6 @@ func TestBinaryWrite(t *testing.T) {
 		typeName      string
 		input         []any
 		expected      []byte
-		expectError   bool
 		errorContains string
 		useFailWriter bool
 	}{
@@ -53,10 +52,10 @@ func TestBinaryWrite(t *testing.T) {
 		{name: "float32/pos_inf", typeName: "float32", input: []any{float32(math.Inf(1))}, expected: []byte{0x00, 0x00, 0x80, 0x7F}},
 		{name: "float32/neg_inf", typeName: "float32", input: []any{float32(math.Inf(-1))}, expected: []byte{0x00, 0x00, 0x80, 0xFF}},
 		{name: "float32/empty", typeName: "float32", input: []any{}, expected: []byte{}},
-		{name: "float32/invalid_string", typeName: "float32", input: []any{"not_a_float"}, expectError: true, errorContains: "is not float32"},
-		{name: "float32/invalid_float64", typeName: "float32", input: []any{float64(123.45)}, expectError: true, errorContains: "is not float32"},
-		{name: "float32/mixed_types", typeName: "float32", input: []any{float32(1.0), int32(2), float32(3.0)}, expectError: true, errorContains: "is not float32"},
-		{name: "float32/write_error", typeName: "float32", input: []any{float32(123.45)}, expectError: true, errorContains: "mock write error", useFailWriter: true},
+		{name: "float32/invalid_string", typeName: "float32", input: []any{"not_a_float"}, errorContains: "is not float32"},
+		{name: "float32/invalid_float64", typeName: "float32", input: []any{float64(123.45)}, errorContains: "is not float32"},
+		{name: "float32/mixed_types", typeName: "float32", input: []any{float32(1.0), int32(2), float32(3.0)}, errorContains: "is not float32"},
+		{name: "float32/write_error", typeName: "float32", input: []any{float32(123.45)}, errorContains: "mock write error", useFailWriter: true},
 
 		// FLOAT64 tests
 		{name: "float64/zero", typeName: "float64", input: []any{float64(0.0)}, expected: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
@@ -68,9 +67,9 @@ func TestBinaryWrite(t *testing.T) {
 		{name: "float64/pos_inf", typeName: "float64", input: []any{math.Inf(1)}, expected: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x7F}},
 		{name: "float64/neg_inf", typeName: "float64", input: []any{math.Inf(-1)}, expected: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0xFF}},
 		{name: "float64/empty", typeName: "float64", input: []any{}, expected: []byte{}},
-		{name: "float64/invalid_string", typeName: "float64", input: []any{"not_a_float"}, expectError: true, errorContains: "is not float32"},
-		{name: "float64/mixed_types", typeName: "float64", input: []any{float64(1.0), int64(2), float64(3.0)}, expectError: true, errorContains: "is not float32"},
-		{name: "float64/write_error", typeName: "float64", input: []any{float64(123.45)}, expectError: true, errorContains: "mock write error", useFailWriter: true},
+		{name: "float64/invalid_string", typeName: "float64", input: []any{"not_a_float"}, errorContains: "is not float32"},
+		{name: "float64/mixed_types", typeName: "float64", input: []any{float64(1.0), int64(2), float64(3.0)}, errorContains: "is not float32"},
+		{name: "float64/write_error", typeName: "float64", input: []any{float64(123.45)}, errorContains: "mock write error", useFailWriter: true},
 
 		// INT32 tests
 		{name: "int32/zero", typeName: "int32", input: []any{int32(0)}, expected: []byte{0x00, 0x00, 0x00, 0x00}},
@@ -80,9 +79,9 @@ func TestBinaryWrite(t *testing.T) {
 		{name: "int32/min", typeName: "int32", input: []any{int32(-2147483648)}, expected: []byte{0x00, 0x00, 0x00, 0x80}},
 		{name: "int32/multiple", typeName: "int32", input: []any{int32(1), int32(2), int32(-1)}, expected: []byte{0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF}},
 		{name: "int32/empty", typeName: "int32", input: []any{}, expected: []byte{}},
-		{name: "int32/invalid_string", typeName: "int32", input: []any{"not_an_int"}, expectError: true, errorContains: "is not int32"},
-		{name: "int32/mixed_types", typeName: "int32", input: []any{int32(1), "invalid", int32(2)}, expectError: true, errorContains: "is not int32"},
-		{name: "int32/write_error", typeName: "int32", input: []any{int32(123)}, expectError: true, errorContains: "mock write error", useFailWriter: true},
+		{name: "int32/invalid_string", typeName: "int32", input: []any{"not_an_int"}, errorContains: "is not int32"},
+		{name: "int32/mixed_types", typeName: "int32", input: []any{int32(1), "invalid", int32(2)}, errorContains: "is not int32"},
+		{name: "int32/write_error", typeName: "int32", input: []any{int32(123)}, errorContains: "mock write error", useFailWriter: true},
 
 		// INT64 tests
 		{name: "int64/zero", typeName: "int64", input: []any{int64(0)}, expected: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
@@ -92,9 +91,9 @@ func TestBinaryWrite(t *testing.T) {
 		{name: "int64/min", typeName: "int64", input: []any{int64(-9223372036854775808)}, expected: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80}},
 		{name: "int64/multiple", typeName: "int64", input: []any{int64(1), int64(2), int64(-1)}, expected: []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}},
 		{name: "int64/empty", typeName: "int64", input: []any{}, expected: []byte{}},
-		{name: "int64/invalid_string", typeName: "int64", input: []any{"not_an_int"}, expectError: true, errorContains: "is not int64"},
-		{name: "int64/mixed_types", typeName: "int64", input: []any{int64(1), int32(2), int64(3)}, expectError: true, errorContains: "is not int64"},
-		{name: "int64/write_error", typeName: "int64", input: []any{int64(123)}, expectError: true, errorContains: "mock write error", useFailWriter: true},
+		{name: "int64/invalid_string", typeName: "int64", input: []any{"not_an_int"}, errorContains: "is not int64"},
+		{name: "int64/mixed_types", typeName: "int64", input: []any{int64(1), int32(2), int64(3)}, errorContains: "is not int64"},
+		{name: "int64/write_error", typeName: "int64", input: []any{int64(123)}, errorContains: "mock write error", useFailWriter: true},
 	}
 
 	for _, tt := range tests {
@@ -121,7 +120,7 @@ func TestBinaryWrite(t *testing.T) {
 				err = BinaryWriteINT64(writer, tt.input)
 			}
 
-			if tt.expectError {
+			if tt.errorContains != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorContains)
 				return

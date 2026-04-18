@@ -10,7 +10,6 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 	tests := []struct {
 		name          string
 		jsonSchema    string
-		expectError   bool
 		errorContains string
 		expectedElems *int // nil means don't check elements count
 	}{
@@ -25,7 +24,6 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			  ]
 			}
 			`,
-			expectError:   false,
 			expectedElems: func() *int { e := 3; return &e }(), // goroot + 2 fields
 		},
 		{
@@ -40,7 +38,6 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			  ]
 			}
 			`,
-			expectError:   true,
 			errorContains: "unmarshal json schema",
 		},
 		{
@@ -56,7 +53,6 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			  ]
 			}
 			`,
-			expectError:   true,
 			errorContains: "LIST needs exactly 1 field",
 		},
 		{
@@ -72,7 +68,6 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			  ]
 			}
 			`,
-			expectError:   true,
 			errorContains: "MAP needs exactly 2 fields",
 		},
 		{
@@ -85,7 +80,6 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			  ]
 			}
 			`,
-			expectError:   false,
 			expectedElems: func() *int { e := 4; return &e }(), // root + variant group + metadata + value
 		},
 		{
@@ -98,7 +92,6 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			  ]
 			}
 			`,
-			expectError:   false,
 			expectedElems: func() *int { e := 4; return &e }(),
 		},
 		{
@@ -111,7 +104,6 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			  ]
 			}
 			`,
-			expectError:   false,
 			expectedElems: func() *int { e := 4; return &e }(),
 		},
 	}
@@ -120,7 +112,7 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, err := NewSchemaHandlerFromJSON(tt.jsonSchema)
 
-			if tt.expectError {
+			if tt.errorContains != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorContains)
 				return

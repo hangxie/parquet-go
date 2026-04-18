@@ -150,7 +150,6 @@ func TestSchemaHandler_GetType(t *testing.T) {
 		name          string
 		setupHandler  func() *SchemaHandler
 		path          string
-		expectError   bool
 		expectedError string
 		validateType  func(t *testing.T, resultType reflect.Type)
 	}{
@@ -165,7 +164,6 @@ func TestSchemaHandler_GetType(t *testing.T) {
 				}
 			},
 			path:          "nonexistent_field",
-			expectError:   true,
 			expectedError: "path not found",
 		},
 		{
@@ -179,7 +177,6 @@ func TestSchemaHandler_GetType(t *testing.T) {
 				}
 			},
 			path:          "",
-			expectError:   true,
 			expectedError: "path not found",
 		},
 		{
@@ -214,8 +211,7 @@ func TestSchemaHandler_GetType(t *testing.T) {
 					},
 				}
 			},
-			path:        "test_field",
-			expectError: false,
+			path: "test_field",
 			validateType: func(t *testing.T, resultType reflect.Type) {
 				require.Equal(t, reflect.Int32, resultType.Kind())
 			},
@@ -231,7 +227,6 @@ func TestSchemaHandler_GetType(t *testing.T) {
 				}
 			},
 			path:          "invalid..path..format",
-			expectError:   true,
 			expectedError: "path not found",
 		},
 		{
@@ -260,7 +255,6 @@ func TestSchemaHandler_GetType(t *testing.T) {
 				}
 			},
 			path:          "nonexistent_field",
-			expectError:   true,
 			expectedError: "path not found: nonexistent_field",
 		},
 		{
@@ -308,8 +302,7 @@ func TestSchemaHandler_GetType(t *testing.T) {
 					},
 				}
 			},
-			path:        "list_field",
-			expectError: false,
+			path: "list_field",
 			validateType: func(t *testing.T, resultType reflect.Type) {
 				// Should be *[]string
 				require.Equal(t, reflect.Ptr, resultType.Kind())
@@ -325,7 +318,7 @@ func TestSchemaHandler_GetType(t *testing.T) {
 
 			resultType, err := sh.GetType(tt.path)
 
-			if tt.expectError {
+			if tt.expectedError != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.expectedError)
 			} else {
