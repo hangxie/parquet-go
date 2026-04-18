@@ -81,7 +81,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 	tests := []struct {
 		name              string
 		structDef         interface{}
-		expectError       bool
 		expectedErrorText string
 		validateSchema    func(t *testing.T, schema *SchemaHandler)
 	}{
@@ -90,7 +89,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				Id int32 `parquet:"foo=bar, type=INT32"`
 			}),
-			expectError:       true,
 			expectedErrorText: "unrecognized tag 'foo'",
 		},
 		{
@@ -98,7 +96,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				Name string `parquet:"name=name, type=UTF8"`
 			}),
-			expectError:       true,
 			expectedErrorText: "field [Name] with type [UTF8]: not a valid Type strin",
 		},
 		{
@@ -107,7 +104,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 				Id   int32 `parquet:"name=id, type=INT32, ConvertedType=INT_32"`
 				Name string
 			}),
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 2, len(schema.SchemaElements))
 				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
@@ -123,7 +119,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				Name *string `parquet:"name=name, type=BYTE_ARRAY, ConvertedType=UTF8"`
 			}),
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 2, len(schema.SchemaElements))
 				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
@@ -139,7 +134,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				MapField map[string]*int32 `parquet:"name=map, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
 			}),
-			expectError:       true,
 			expectedErrorText: "field [Value] with type []: not a valid Type string",
 		},
 		{
@@ -147,7 +141,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				MapField map[string]*int32 `parquet:"name=map, type=MAP, convertedtype=MAP, valuetype=INT32"`
 			}),
-			expectError:       true,
 			expectedErrorText: "field [Key] with type []: not a valid Type string",
 		},
 		{
@@ -156,7 +149,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 				MapField1 map[string]*int32  `parquet:"name=map, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
 				MapField2 *map[*string]int32 `parquet:"name=map, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
 			}),
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 9, len(schema.SchemaElements))
 				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
@@ -211,7 +203,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				ListField *[]string `parquet:"name=list, type=LIST, convertedtype=LIST"`
 			}),
-			expectError:       true,
 			expectedErrorText: "field [Element] with type []: not a valid Type string",
 		},
 		{
@@ -220,7 +211,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 				ListField1 *[]string `parquet:"name=list, type=LIST, convertedtype=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 				ListField2 []*string `parquet:"name=list, type=LIST, convertedtype=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 			}),
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 7, len(schema.SchemaElements))
 				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
@@ -265,7 +255,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				ListField []int32 `parquet:"name=repeated, type=INT32, repetitiontype=REPEATED"`
 			}),
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 2, len(schema.SchemaElements))
 				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
@@ -281,7 +270,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				VariantField any `parquet:"name=variant, type=VARIANT, logicaltype=VARIANT"`
 			}),
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				// VARIANT should create a GROUP with 2 children: Metadata and Value
 				require.Equal(t, 4, len(schema.SchemaElements))
@@ -311,7 +299,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 				MapField1 map[string]*int32  `parquet:"name=map1, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
 				MapField2 *map[*string]int32 `parquet:"name=map2, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
 			}),
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 9, len(schema.SchemaElements))
 				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
@@ -342,7 +329,6 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			structDef: new(struct {
 				VariantField any `parquet:"name=variant, type=VARIANT, encoding=PLAIN, compression=GZIP"`
 			}),
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 4, len(schema.SchemaElements))
 
@@ -365,11 +351,9 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			schema, err := NewSchemaHandlerFromStruct(tt.structDef)
 
-			if tt.expectError {
+			if tt.expectedErrorText != "" {
 				require.NotNil(t, err)
-				if tt.expectedErrorText != "" {
-					require.Contains(t, err.Error(), tt.expectedErrorText)
-				}
+				require.Contains(t, err.Error(), tt.expectedErrorText)
 				require.Nil(t, schema)
 			} else {
 				require.Nil(t, err)

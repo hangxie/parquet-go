@@ -13,7 +13,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 	tests := []struct {
 		name              string
 		metadata          []string
-		expectError       bool
 		expectedError     string
 		expectedNumFields *int // nil means don't check
 		validateSchema    func(t *testing.T, schema *SchemaHandler)
@@ -24,7 +23,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=id, type=INT64",
 			},
-			expectError:       false,
 			expectedNumFields: func() *int { n := 2; return &n }(), // root + 1 field
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
@@ -39,7 +37,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 				"name=name, type=BYTE_ARRAY, convertedtype=UTF8",
 				"name=age, type=INT32",
 			},
-			expectError:       false,
 			expectedNumFields: func() *int { n := 4; return &n }(), // root + 3 fields
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, common.ParGoRootInName, schema.SchemaElements[0].Name)
@@ -60,7 +57,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 				"name=tags, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=REPEATED",
 				"name=score, type=DOUBLE, scale=2, precision=10",
 			},
-			expectError:       false,
 			expectedNumFields: func() *int { n := 9; return &n }(), // root + 8 fields
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				// Verify root
@@ -97,7 +93,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=string_field, type=BYTE_ARRAY, convertedtype=UTF8",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.ConvertedType_UTF8, *field.ConvertedType)
@@ -108,7 +103,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=decimal_field, type=BYTE_ARRAY, convertedtype=DECIMAL, scale=2, precision=10",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.ConvertedType_DECIMAL, *field.ConvertedType)
@@ -121,7 +115,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=timestamp_field, type=INT64, convertedtype=TIMESTAMP_MILLIS",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.ConvertedType_TIMESTAMP_MILLIS, *field.ConvertedType)
@@ -133,7 +126,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=bool_field, type=BOOLEAN",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.Type_BOOLEAN, *field.Type)
@@ -144,7 +136,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=int32_field, type=INT32",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.Type_INT32, *field.Type)
@@ -155,7 +146,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=float_field, type=FLOAT",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.Type_FLOAT, *field.Type)
@@ -166,7 +156,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=double_field, type=DOUBLE",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.Type_DOUBLE, *field.Type)
@@ -177,7 +166,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=byte_array_field, type=BYTE_ARRAY",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.Type_BYTE_ARRAY, *field.Type)
@@ -189,7 +177,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=required_field, type=INT32, repetitiontype=REQUIRED",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.FieldRepetitionType_REQUIRED, *field.RepetitionType)
@@ -200,7 +187,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=optional_field, type=INT32, repetitiontype=OPTIONAL",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.FieldRepetitionType_OPTIONAL, *field.RepetitionType)
@@ -211,7 +197,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=repeated_field, type=INT32, repetitiontype=REPEATED",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, parquet.FieldRepetitionType_REPEATED, *field.RepetitionType)
@@ -223,7 +208,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=complex_field, type=BYTE_ARRAY, convertedtype=DECIMAL, repetitiontype=OPTIONAL, scale=2, precision=10, length=16",
 			},
-			expectError: false,
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				field := schema.SchemaElements[1]
 				require.Equal(t, "Complex_field", field.Name)
@@ -238,13 +222,11 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 		{
 			name:              "nil_metadata",
 			metadata:          nil,
-			expectError:       false,
 			expectedNumFields: func() *int { n := 1; return &n }(), // just root
 		},
 		{
 			name:              "empty_metadata",
 			metadata:          []string{},
-			expectError:       false,
 			expectedNumFields: func() *int { n := 1; return &n }(), // just root
 		},
 		// Error Cases - Schema Element Errors
@@ -253,7 +235,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=field, type=INT64, scale=invalid",
 			},
-			expectError:   true,
 			expectedError: "parse metadata",
 		},
 		{
@@ -261,7 +242,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=field, type=INT64, precision=invalid",
 			},
-			expectError:   true,
 			expectedError: "parse metadata",
 		},
 		{
@@ -269,7 +249,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=field, type=BYTE_ARRAY, length=invalid",
 			},
-			expectError:   true,
 			expectedError: "parse metadata",
 		},
 		// Error Cases - StringToTag Errors
@@ -278,7 +257,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"this is not a valid tag format at all",
 			},
-			expectError:   true,
 			expectedError: "parse metadata",
 		},
 		{
@@ -286,7 +264,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=field, type=INVALID_TYPE",
 			},
-			expectError:   true,
 			expectedError: "not a valid Type string",
 		},
 		{
@@ -294,7 +271,6 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 			metadata: []string{
 				"name=field, type=INT32, repetitiontype=INVALID_REP_TYPE",
 			},
-			expectError:   true,
 			expectedError: "not a valid FieldRepetitionType string",
 		},
 	}
@@ -303,7 +279,7 @@ func TestNewSchemaHandlerFromMetadata(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := NewSchemaHandlerFromMetadata(tt.metadata)
 
-			if tt.expectError {
+			if tt.expectedError != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.expectedError)
 				require.Nil(t, result)

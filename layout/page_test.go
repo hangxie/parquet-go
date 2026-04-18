@@ -301,7 +301,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupPage      func() *Page
-		expectError    bool
 		expectedValues int64
 		expectedRows   int64
 		errorMessage   string
@@ -326,7 +325,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				page.RawData = []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 				return page
 			},
-			expectError:    false,
 			expectedValues: 2,
 			expectedRows:   2,
 		},
@@ -354,7 +352,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				}
 				return page
 			},
-			expectError:    false,
 			expectedValues: 3,
 			expectedRows:   3,
 		},
@@ -378,7 +375,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				page.RawData = []byte{0x01, 0x02, 0x03, 0x04}
 				return page
 			},
-			expectError:    false,
 			expectedValues: 1,
 			expectedRows:   1,
 		},
@@ -400,7 +396,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				page.RawData = []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 				return page
 			},
-			expectError:    false,
 			expectedValues: 2,
 			expectedRows:   2,
 		},
@@ -419,7 +414,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				page.RawData = []byte{0x01, 0x02, 0x03, 0x04}
 				return page
 			},
-			expectError:    false,
 			expectedValues: 0,
 			expectedRows:   0,
 		},
@@ -434,7 +428,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				page.RawData = []byte{0x01, 0x02, 0x03, 0x04}
 				return page
 			},
-			expectError:  true,
 			errorMessage: "unsupported page type",
 		},
 		{
@@ -461,7 +454,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				page.RawData = compressedData
 				return page
 			},
-			expectError:    false,
 			expectedValues: 2,
 			expectedRows:   2,
 		},
@@ -489,7 +481,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				page.RawData = compressedData
 				return page
 			},
-			expectError:  true,
 			errorMessage: "uncompress data page",
 		},
 		{
@@ -510,7 +501,6 @@ func TestGetRLDLFromRawData(t *testing.T) {
 				page.RawData = []byte{0xFF, 0xFF, 0xFF, 0xFF}
 				return page
 			},
-			expectError:  true,
 			errorMessage: "uncompress data page",
 		},
 	}
@@ -520,7 +510,7 @@ func TestGetRLDLFromRawData(t *testing.T) {
 			page := tt.setupPage()
 			numValues, numRows, err := page.GetRLDLFromRawData(schemaHandler)
 
-			if tt.expectError {
+			if tt.errorMessage != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMessage)
 				return
@@ -1076,7 +1066,6 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 		name        string
 		setupPage   func() *Page
 		setupSchema func() *schema.SchemaHandler
-		expectError bool
 		errMsg      string
 	}{
 		{
@@ -1106,7 +1095,6 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return &schema.SchemaHandler{}
 			},
-			expectError: false,
 		},
 		{
 			name: "unsupported_page_type",
@@ -1120,8 +1108,7 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return &schema.SchemaHandler{}
 			},
-			expectError: true,
-			errMsg:      "unsupported page type",
+			errMsg: "unsupported page type",
 		},
 		{
 			name: "dictionary_page_invalid_data",
@@ -1147,8 +1134,7 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return &schema.SchemaHandler{}
 			},
-			expectError: true,
-			errMsg:      "read plain values from dictionary page",
+			errMsg: "read plain values from dictionary page",
 		},
 		{
 			name: "data_page_plain_encoding",
@@ -1198,7 +1184,6 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 				}
 				return schemaHandler
 			},
-			expectError: false,
 		},
 		{
 			name: "data_page_with_nulls",
@@ -1247,7 +1232,6 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 				}
 				return schemaHandler
 			},
-			expectError: false,
 		},
 		{
 			name: "data_page_with_converted_type",
@@ -1297,7 +1281,6 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 				}
 				return schemaHandler
 			},
-			expectError: false,
 		},
 		{
 			name: "data_page_v2_compressed",
@@ -1349,7 +1332,6 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 				}
 				return schemaHandler
 			},
-			expectError: false,
 		},
 		{
 			name: "data_page_string_type",
@@ -1398,7 +1380,6 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 				}
 				return schemaHandler
 			},
-			expectError: false,
 		},
 		{
 			name: "data_page_invalid_encoding_error",
@@ -1444,8 +1425,7 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 				}
 				return schemaHandler
 			},
-			expectError: true,
-			errMsg:      "read data page values",
+			errMsg: "read data page values",
 		},
 	}
 
@@ -1456,7 +1436,7 @@ func TestPage_GetValueFromRawData(t *testing.T) {
 
 			err := page.GetValueFromRawData(schemaHandler)
 
-			if tt.expectError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
 			} else {
@@ -1490,7 +1470,6 @@ func TestReadDataPageValues(t *testing.T) {
 		cnt            uint64
 		bitWidth       uint64
 		setupData      func() []byte
-		expectError    bool
 		errMsg         string
 	}{
 		{
@@ -1501,7 +1480,6 @@ func TestReadDataPageValues(t *testing.T) {
 			cnt:            0,
 			bitWidth:       0,
 			setupData:      func() []byte { return []byte{} },
-			expectError:    false,
 		},
 		{
 			name:           "bit_packed_deprecated",
@@ -1514,7 +1492,6 @@ func TestReadDataPageValues(t *testing.T) {
 				// BIT_PACKED encoding for [1, 2, 3, 4] with bitWidth=3
 				return []byte{0xD1, 0x08}
 			},
-			expectError: false,
 		},
 		{
 			name:           "unknown_encoding",
@@ -1524,7 +1501,6 @@ func TestReadDataPageValues(t *testing.T) {
 			cnt:            1,
 			bitWidth:       0,
 			setupData:      func() []byte { return []byte{} },
-			expectError:    true,
 			errMsg:         "unknown Encoding method",
 		},
 		{
@@ -1539,7 +1515,6 @@ func TestReadDataPageValues(t *testing.T) {
 				values := []any{int64(1), int64(2), int64(3)}
 				return encoding.WriteDeltaINT64(values)
 			},
-			expectError: false,
 		},
 		{
 			name:           "delta_binary_packed_unsupported_type",
@@ -1549,7 +1524,6 @@ func TestReadDataPageValues(t *testing.T) {
 			cnt:            1,
 			bitWidth:       0,
 			setupData:      func() []byte { return []byte{} },
-			expectError:    true,
 			errMsg:         "DELTA_BINARY_PACKED can only be used with int32 and int64",
 		},
 		{
@@ -1560,7 +1534,6 @@ func TestReadDataPageValues(t *testing.T) {
 			cnt:            1,
 			bitWidth:       0,
 			setupData:      func() []byte { return []byte{} },
-			expectError:    true,
 			errMsg:         "EOF",
 		},
 	}
@@ -1572,7 +1545,7 @@ func TestReadDataPageValues(t *testing.T) {
 
 			result, err := ReadDataPageValues(bytesReader, tc.encodingMethod, tc.dataType, tc.convertedType, tc.cnt, tc.bitWidth)
 
-			if tc.expectError {
+			if tc.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			} else {
@@ -2035,7 +2008,6 @@ func TestReadPage(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupData    func() *thrift.TBufferedTransport
-		expectError  bool
 		errMsg       string
 		expectedType string
 	}{
@@ -2044,8 +2016,7 @@ func TestReadPage(t *testing.T) {
 			setupData: func() *thrift.TBufferedTransport {
 				return thrift.NewTBufferedTransport(thrift.NewTMemoryBuffer(), 1024)
 			},
-			expectError: true,
-			errMsg:      "EOF",
+			errMsg: "EOF",
 		},
 		{
 			name: "invalid data",
@@ -2054,8 +2025,7 @@ func TestReadPage(t *testing.T) {
 				mem.Write([]byte{0x01, 0x02, 0x03})
 				return thrift.NewTBufferedTransport(mem, 1024)
 			},
-			expectError: true,
-			errMsg:      "EOF",
+			errMsg: "EOF",
 		},
 		{
 			name: "dictionary page",
@@ -2065,7 +2035,6 @@ func TestReadPage(t *testing.T) {
 				mem.Write(data)
 				return thrift.NewTBufferedTransport(mem, 1024)
 			},
-			expectError:  false,
 			expectedType: "DICT",
 		},
 		{
@@ -2076,7 +2045,6 @@ func TestReadPage(t *testing.T) {
 				mem.Write(data)
 				return thrift.NewTBufferedTransport(mem, 1024)
 			},
-			expectError:  false,
 			expectedType: "DATA",
 		},
 		{
@@ -2087,7 +2055,6 @@ func TestReadPage(t *testing.T) {
 				mem.Write(data)
 				return thrift.NewTBufferedTransport(mem, 1024)
 			},
-			expectError:  false,
 			expectedType: "DATA",
 		},
 	}
@@ -2097,7 +2064,7 @@ func TestReadPage(t *testing.T) {
 			thriftReader := tt.setupData()
 			page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData, nil)
 
-			if tt.expectError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
 				return
@@ -2463,7 +2430,6 @@ func TestReadPageErrorCases(t *testing.T) {
 		name         string
 		setupData    func() *thrift.TBufferedTransport
 		colMetaData  *parquet.ColumnMetaData
-		expectError  bool
 		errorMessage string
 	}{
 		{
@@ -2475,7 +2441,6 @@ func TestReadPageErrorCases(t *testing.T) {
 				return thrift.NewTBufferedTransport(mem, 1024)
 			},
 			colMetaData:  colMetaDataCompressed,
-			expectError:  true,
 			errorMessage: "INDEX_PAGE",
 		},
 		{
@@ -2487,7 +2452,6 @@ func TestReadPageErrorCases(t *testing.T) {
 				return thrift.NewTBufferedTransport(mem, 1024)
 			},
 			colMetaData:  colMetaDataCompressed,
-			expectError:  true,
 			errorMessage: "unexpected EOF",
 		},
 	}
@@ -2497,7 +2461,7 @@ func TestReadPageErrorCases(t *testing.T) {
 			thriftReader := tt.setupData()
 			page, _, _, err := ReadPage(thriftReader, schemaHandler, tt.colMetaData, nil)
 
-			if tt.expectError {
+			if tt.errorMessage != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMessage)
 				return
@@ -2511,10 +2475,9 @@ func TestReadPageErrorCases(t *testing.T) {
 
 func TestReadPageHeader(t *testing.T) {
 	testCases := []struct {
-		name        string
-		setupData   func() []byte
-		expectError bool
-		errMsg      string
+		name      string
+		setupData func() []byte
+		errMsg    string
 	}{
 		{
 			name: "valid_data_page_header",
@@ -2543,7 +2506,6 @@ func TestReadPageHeader(t *testing.T) {
 
 				return transport.Buffer.Bytes()
 			},
-			expectError: false,
 		},
 		{
 			name: "valid_dictionary_page_header",
@@ -2569,23 +2531,20 @@ func TestReadPageHeader(t *testing.T) {
 
 				return transport.Buffer.Bytes()
 			},
-			expectError: false,
 		},
 		{
 			name: "empty_data",
 			setupData: func() []byte {
 				return []byte{}
 			},
-			expectError: true,
-			errMsg:      "EOF",
+			errMsg: "EOF",
 		},
 		{
 			name: "corrupted_data",
 			setupData: func() []byte {
 				return []byte{0xFF, 0xFF, 0xFF, 0xFF}
 			},
-			expectError: true,
-			errMsg:      "read error",
+			errMsg: "read error",
 		},
 	}
 
@@ -2598,7 +2557,7 @@ func TestReadPageHeader(t *testing.T) {
 
 			header, err := ReadPageHeader(bufferedTransport)
 
-			if tc.expectError {
+			if tc.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			} else {
@@ -2629,7 +2588,6 @@ func TestReadPageRawData(t *testing.T) {
 		name        string
 		setupData   func() []byte
 		colMetadata *parquet.ColumnMetaData
-		expectError bool
 		errMsg      string
 	}{
 		{
@@ -2680,7 +2638,6 @@ func TestReadPageRawData(t *testing.T) {
 				PathInSchema: []string{"test_col"},
 				Codec:        parquet.CompressionCodec_UNCOMPRESSED,
 			},
-			expectError: false,
 		},
 		{
 			name: "empty_transport",
@@ -2693,8 +2650,7 @@ func TestReadPageRawData(t *testing.T) {
 				PathInSchema: []string{"test_col"},
 				Codec:        parquet.CompressionCodec_UNCOMPRESSED,
 			},
-			expectError: true,
-			errMsg:      "EOF",
+			errMsg: "EOF",
 		},
 	}
 
@@ -2707,7 +2663,7 @@ func TestReadPageRawData(t *testing.T) {
 
 			page, err := ReadPageRawData(bufferedTransport, schemaHandler, tc.colMetadata, nil)
 
-			if tc.expectError {
+			if tc.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			} else {
@@ -3716,67 +3672,57 @@ func TestEncodingValues_ErrorPaths(t *testing.T) {
 		pType    parquet.Type
 		encoding parquet.Encoding
 		values   []any
-		wantErr  bool
 		errMsg   string
 	}{
 		"RLE_with_BYTE_ARRAY": {
 			pType:    parquet.Type_BYTE_ARRAY,
 			encoding: parquet.Encoding_RLE,
 			values:   []any{"hello"},
-			wantErr:  true,
 			errMsg:   "RLE encoding is not supported for",
 		},
 		"DELTA_BINARY_PACKED_with_BYTE_ARRAY": {
 			pType:    parquet.Type_BYTE_ARRAY,
 			encoding: parquet.Encoding_DELTA_BINARY_PACKED,
 			values:   []any{"hello"},
-			wantErr:  true,
 			errMsg:   "DELTA_BINARY_PACKED encoding is only supported for INT32 and INT64",
 		},
 		"DELTA_BYTE_ARRAY_with_INT32": {
 			pType:    parquet.Type_INT32,
 			encoding: parquet.Encoding_DELTA_BYTE_ARRAY,
 			values:   []any{int32(1)},
-			wantErr:  true,
 			errMsg:   "DELTA_BYTE_ARRAY encoding is only supported for BYTE_ARRAY",
 		},
 		"DELTA_LENGTH_BYTE_ARRAY_with_INT32": {
 			pType:    parquet.Type_INT32,
 			encoding: parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY,
 			values:   []any{int32(1)},
-			wantErr:  true,
 			errMsg:   "DELTA_LENGTH_BYTE_ARRAY encoding is only supported for BYTE_ARRAY",
 		},
 		"BYTE_STREAM_SPLIT_with_BYTE_ARRAY": {
 			pType:    parquet.Type_BYTE_ARRAY,
 			encoding: parquet.Encoding_BYTE_STREAM_SPLIT,
 			values:   []any{"hello"},
-			wantErr:  true,
 			errMsg:   "BYTE_STREAM_SPLIT encoding is only supported for",
 		},
 		"DELTA_BINARY_PACKED_with_INT32_success": {
 			pType:    parquet.Type_INT32,
 			encoding: parquet.Encoding_DELTA_BINARY_PACKED,
 			values:   []any{int32(1), int32(2), int32(3)},
-			wantErr:  false,
 		},
 		"DELTA_BYTE_ARRAY_with_BYTE_ARRAY_success": {
 			pType:    parquet.Type_BYTE_ARRAY,
 			encoding: parquet.Encoding_DELTA_BYTE_ARRAY,
 			values:   []any{"abc", "def"},
-			wantErr:  false,
 		},
 		"DELTA_LENGTH_BYTE_ARRAY_with_BYTE_ARRAY_success": {
 			pType:    parquet.Type_BYTE_ARRAY,
 			encoding: parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY,
 			values:   []any{"abc", "def"},
-			wantErr:  false,
 		},
 		"BYTE_STREAM_SPLIT_with_FLOAT_success": {
 			pType:    parquet.Type_FLOAT,
 			encoding: parquet.Encoding_BYTE_STREAM_SPLIT,
 			values:   []any{float32(1.5), float32(2.5)},
-			wantErr:  false,
 		},
 	}
 
@@ -3791,7 +3737,7 @@ func TestEncodingValues_ErrorPaths(t *testing.T) {
 			page.Info.Encoding = tt.encoding
 
 			result, err := page.EncodingValues(tt.values)
-			if tt.wantErr {
+			if tt.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
 				require.Nil(t, result)

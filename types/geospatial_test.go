@@ -1123,22 +1123,21 @@ func TestEdgeInterpolationAlgorithm_Invalid_JSON(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name      string
-		jsonStr   string
-		shouldErr bool
-		errMsg    string
+		name    string
+		jsonStr string
+		errMsg  string
 	}{
-		{"numeric value", `{"algorithm": 0}`, true, "cannot unmarshal number"},
-		{"invalid string", `{"algorithm": "INVALID"}`, true, "not a valid EdgeInterpolationAlgorithm"},
-		{"empty string", `{"algorithm": ""}`, true, "not a valid EdgeInterpolationAlgorithm"},
-		{"null value", `{"algorithm": null}`, false, ""},
+		{"numeric value", `{"algorithm": 0}`, "cannot unmarshal number"},
+		{"invalid string", `{"algorithm": "INVALID"}`, "not a valid EdgeInterpolationAlgorithm"},
+		{"empty string", `{"algorithm": ""}`, "not a valid EdgeInterpolationAlgorithm"},
+		{"null value", `{"algorithm": null}`, ""},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			var ts TestStruct
 			err := json.Unmarshal([]byte(tc.jsonStr), &ts)
-			if tc.shouldErr {
+			if tc.errMsg != "" {
 				require.Error(t, err, "Expected error when unmarshaling %s", tc.jsonStr)
 				require.Contains(t, err.Error(), tc.errMsg)
 			} else {

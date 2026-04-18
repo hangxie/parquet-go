@@ -44,7 +44,6 @@ func TestPagesToChunk(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupPages    func() []*Page
-		expectError   bool
 		errMsg        string
 		expectedPages int
 		checkChunk    func(t *testing.T, chunk *Chunk)
@@ -142,8 +141,7 @@ func TestPagesToChunk(t *testing.T) {
 
 				return []*Page{page}
 			},
-			expectError: true,
-			errMsg:      "schema type is nil",
+			errMsg: "schema type is nil",
 		},
 		{
 			name: "omit_stats_enabled",
@@ -179,7 +177,7 @@ func TestPagesToChunk(t *testing.T) {
 			pages := tt.setupPages()
 			chunk, err := PagesToChunk(pages)
 
-			if tt.expectError {
+			if tt.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
 				return
@@ -265,28 +263,24 @@ func TestPagesToDictChunkWithInvalidSchema(t *testing.T) {
 
 func TestPagesToChunk_NilChecks(t *testing.T) {
 	tests := []struct {
-		name        string
-		pages       []*Page
-		expectError bool
-		errorMsg    string
+		name     string
+		pages    []*Page
+		errorMsg string
 	}{
 		{
-			name:        "empty_pages_slice",
-			pages:       []*Page{},
-			expectError: true,
-			errorMsg:    "pages slice empty",
+			name:     "empty_pages_slice",
+			pages:    []*Page{},
+			errorMsg: "pages slice empty",
 		},
 		{
-			name:        "nil_pages_slice",
-			pages:       nil,
-			expectError: true,
-			errorMsg:    "pages slice empty",
+			name:     "nil_pages_slice",
+			pages:    nil,
+			errorMsg: "pages slice empty",
 		},
 		{
-			name:        "first_page_nil",
-			pages:       []*Page{nil},
-			expectError: true,
-			errorMsg:    "page #0 is nil",
+			name:     "first_page_nil",
+			pages:    []*Page{nil},
+			errorMsg: "page #0 is nil",
 		},
 		{
 			name: "first_page_schema_nil",
@@ -295,8 +289,7 @@ func TestPagesToChunk_NilChecks(t *testing.T) {
 					Schema: nil,
 				},
 			},
-			expectError: true,
-			errorMsg:    "page #0 schema is nil",
+			errorMsg: "page #0 schema is nil",
 		},
 		{
 			name: "first_page_schema_type_nil",
@@ -307,8 +300,7 @@ func TestPagesToChunk_NilChecks(t *testing.T) {
 					},
 				},
 			},
-			expectError: true,
-			errorMsg:    "page #0 schema type is nil",
+			errorMsg: "page #0 schema type is nil",
 		},
 		{
 			name: "first_page_info_nil",
@@ -320,15 +312,14 @@ func TestPagesToChunk_NilChecks(t *testing.T) {
 					Info: nil,
 				},
 			},
-			expectError: true,
-			errorMsg:    "page #0 info is nil",
+			errorMsg: "page #0 info is nil",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := PagesToChunk(tt.pages)
-			if tt.expectError {
+			if tt.errorMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMsg)
 			} else {
@@ -340,11 +331,10 @@ func TestPagesToChunk_NilChecks(t *testing.T) {
 
 func TestPagesToDictChunk_NilChecks(t *testing.T) {
 	tests := []struct {
-		name        string
-		pages       []*Page
-		expectError bool
-		expectNil   bool
-		errorMsg    string
+		name      string
+		pages     []*Page
+		expectNil bool
+		errorMsg  string
 	}{
 		{
 			name:      "less_than_two_pages",
@@ -352,10 +342,9 @@ func TestPagesToDictChunk_NilChecks(t *testing.T) {
 			expectNil: true,
 		},
 		{
-			name:        "second_page_nil",
-			pages:       []*Page{{}, nil},
-			expectError: true,
-			errorMsg:    "page #1 is nil",
+			name:     "second_page_nil",
+			pages:    []*Page{{}, nil},
+			errorMsg: "page #1 is nil",
 		},
 		{
 			name: "second_page_schema_nil",
@@ -363,8 +352,7 @@ func TestPagesToDictChunk_NilChecks(t *testing.T) {
 				{},
 				{Schema: nil},
 			},
-			expectError: true,
-			errorMsg:    "page #1 schema is nil",
+			errorMsg: "page #1 schema is nil",
 		},
 		{
 			name: "second_page_schema_type_nil",
@@ -376,8 +364,7 @@ func TestPagesToDictChunk_NilChecks(t *testing.T) {
 					},
 				},
 			},
-			expectError: true,
-			errorMsg:    "page #1 schema type is nil",
+			errorMsg: "page #1 schema type is nil",
 		},
 		{
 			name: "second_page_info_nil",
@@ -390,15 +377,14 @@ func TestPagesToDictChunk_NilChecks(t *testing.T) {
 					Info: nil,
 				},
 			},
-			expectError: true,
-			errorMsg:    "page #1 info is nil",
+			errorMsg: "page #1 info is nil",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := PagesToDictChunk(tt.pages)
-			if tt.expectError {
+			if tt.errorMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMsg)
 			} else if tt.expectNil {
