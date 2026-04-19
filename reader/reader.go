@@ -360,20 +360,8 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 }
 
 // Read rows of parquet file with a prefixPath
-func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
-	if dstInterface == nil {
-		return fmt.Errorf("dstInterface is nil")
-	}
-
-	tmap := make(map[string]*layout.Table)
+func (pr *ParquetReader) fetchColumnData(num int, prefixPath string, tmap map[string]*layout.Table) error {
 	var locker sync.Mutex
-	ot := reflect.TypeOf(dstInterface).Elem().Elem()
-	num := reflect.ValueOf(dstInterface).Elem().Len()
-	if num <= 0 {
-		return nil
-	}
-
-	// Worker pool with closed task channel and first-error capture
 	taskChan := make(chan string)
 	var wgCols sync.WaitGroup
 	var firstErr error
@@ -392,7 +380,6 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 				errMu.Unlock()
 				continue
 			}
-			// Merge into shared map
 			locker.Lock()
 			if _, ok := tmap[pathStr]; ok {
 				tmap[pathStr].Merge(table)
@@ -401,8 +388,6 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 				tmap[pathStr].Merge(table)
 			}
 			locker.Unlock()
-			// No direct error from ReadRows; errors surface during unmarshal below
-			_ = pathStr
 		}
 	}
 
@@ -418,10 +403,16 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	}
 	close(taskChan)
 	wgCols.Wait()
+	return firstErr
+}
 
+func (pr *ParquetReader) unmarshalToResult(num int, tmap map[string]*layout.Table, dstInterface any, prefixPath string) error {
+	ot := reflect.TypeOf(dstInterface).Elem().Elem()
 	dstList := make([]any, pr.np)
 	delta := (int64(num) + pr.np - 1) / pr.np
 
+	var firstErr error
+	var errMu sync.Mutex
 	var wg sync.WaitGroup
 	for c := range pr.np {
 		bgn := c * delta
@@ -434,10 +425,7 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 		}
 		wg.Add(1)
 		go func(b, e, index int) {
-			defer func() {
-				wg.Done()
-			}()
-
+			defer wg.Done()
 			dstList[index] = reflect.New(reflect.SliceOf(ot)).Interface()
 			if err2 := marshal.Unmarshal(&tmap, b, e, dstList[index], pr.SchemaHandler, prefixPath); err2 != nil {
 				errMu.Lock()
@@ -448,7 +436,6 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 			}
 		}(int(bgn), int(end), int(c))
 	}
-
 	wg.Wait()
 
 	dstValue := reflect.ValueOf(dstInterface).Elem()
@@ -456,11 +443,25 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	for _, dst := range dstList {
 		dstValue.Set(reflect.AppendSlice(dstValue, reflect.ValueOf(dst).Elem()))
 	}
+	return firstErr
+}
 
-	if firstErr != nil {
-		return firstErr
+func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
+	if dstInterface == nil {
+		return fmt.Errorf("dstInterface is nil")
 	}
-	return nil
+
+	tmap := make(map[string]*layout.Table)
+	num := reflect.ValueOf(dstInterface).Elem().Len()
+	if num <= 0 {
+		return nil
+	}
+
+	if err := pr.fetchColumnData(num, prefixPath, tmap); err != nil {
+		return err
+	}
+
+	return pr.unmarshalToResult(num, tmap, dstInterface, prefixPath)
 }
 
 // detectBloomFilters scans the first row group's metadata to detect which columns have bloom
