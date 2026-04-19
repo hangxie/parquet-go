@@ -92,7 +92,7 @@ func TestNewMultipartFileWrapper(t *testing.T) {
 	require.NotNil(t, reader)
 
 	// Verify it implements the interface
-	var _ source.ParquetFileReader = reader
+	_ = source.ParquetFileReader(reader)
 }
 
 func TestMultipartFileReader_InterfaceCompliance(t *testing.T) {
@@ -114,7 +114,7 @@ func TestMultipartFileReader_Clone(t *testing.T) {
 	require.NotSame(t, reader, clonedReader)
 
 	// Verify cloned reader implements the interface
-	var _ source.ParquetFileReader = clonedReader
+	_ = source.ParquetFileReader(clonedReader)
 }
 
 func TestMultipartFileReader_Read(t *testing.T) {
