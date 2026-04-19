@@ -257,7 +257,7 @@ func WriteBitPacked(vals []any, bitWidth int64, ifHeader bool) []byte {
 	var resCur int64 = 0
 	var resCurNeedBits int64 = 8
 	var used int64 = 0
-	var left int64 = bitWidth - used
+	left := bitWidth - used
 	val := int64(valsInt[i])
 	for i < ln {
 		if left >= resCurNeedBits {
@@ -315,7 +315,7 @@ func WriteDelta(nums []any) ([]byte, error) {
 }
 
 func WriteDeltaINT32(nums []any) []byte {
-	var totalNumValues uint64 = uint64(len(nums))
+	totalNumValues := uint64(len(nums))
 	if totalNumValues == 0 {
 		var blockSize uint64 = 128
 		var numMiniBlocksInBlock uint64 = 4
@@ -332,7 +332,7 @@ func WriteDeltaINT32(nums []any) []byte {
 	var numValuesInMiniBlock uint64 = 32
 
 	num := nums[0].(int32)
-	var firstValue uint64 = uint64((num >> 31) ^ (num << 1))
+	firstValue := uint64((num >> 31) ^ (num << 1))
 
 	res = append(res, WriteUnsignedVarInt(blockSize)...)
 	res = append(res, WriteUnsignedVarInt(numMiniBlocksInBlock)...)
@@ -370,7 +370,7 @@ func WriteDeltaINT32(nums []any) []byte {
 			bitWidths[j] = byte(bits.Len32(uint32(maxValue)))
 		}
 
-		var minDeltaZigZag uint64 = uint64((minDelta >> 31) ^ (minDelta << 1))
+		minDeltaZigZag := uint64((minDelta >> 31) ^ (minDelta << 1))
 		res = append(res, WriteUnsignedVarInt(minDeltaZigZag)...)
 		res = append(res, bitWidths...)
 
@@ -383,7 +383,7 @@ func WriteDeltaINT32(nums []any) []byte {
 }
 
 func WriteDeltaINT64(nums []any) []byte {
-	var totalNumValues uint64 = uint64(len(nums))
+	totalNumValues := uint64(len(nums))
 	if totalNumValues == 0 {
 		var blockSize uint64 = 128
 		var numMiniBlocksInBlock uint64 = 4
@@ -400,7 +400,7 @@ func WriteDeltaINT64(nums []any) []byte {
 	var numValuesInMiniBlock uint64 = 32
 
 	num := nums[0].(int64)
-	var firstValue uint64 = uint64((num >> 63) ^ (num << 1))
+	firstValue := uint64((num >> 63) ^ (num << 1))
 
 	res = append(res, WriteUnsignedVarInt(blockSize)...)
 	res = append(res, WriteUnsignedVarInt(numMiniBlocksInBlock)...)
@@ -438,7 +438,7 @@ func WriteDeltaINT64(nums []any) []byte {
 			bitWidths[j] = byte(bits.Len64(uint64(maxValue)))
 		}
 
-		var minDeltaZigZag uint64 = uint64((minDelta >> 63) ^ (minDelta << 1))
+		minDeltaZigZag := uint64((minDelta >> 63) ^ (minDelta << 1))
 		res = append(res, WriteUnsignedVarInt(minDeltaZigZag)...)
 		res = append(res, bitWidths...)
 

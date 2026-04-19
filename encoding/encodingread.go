@@ -263,9 +263,9 @@ func ReadBitPackedCount(bytesReader *bytes.Reader, cnt, bitWidth uint64) ([]any,
 	// Unpack bits using LSB-first order
 	i := 0
 	var resCur uint64 = 0
-	var resCurNeedBits uint64 = bitWidth
+	resCurNeedBits := bitWidth
 	var used uint64 = 0
-	var left uint64 = 8 - used
+	left := 8 - used
 	b := bytesBuf[i]
 
 	for uint64(len(res)) < cnt {
@@ -363,7 +363,7 @@ func ReadDeltaBinaryPackedINT32(bytesReader *bytes.Reader) ([]any, error) {
 	}
 
 	fv32 := int32(firstValueZigZag)
-	var firstValue int32 = int32(uint32(fv32)>>1) ^ -(fv32 & 1)
+	firstValue := int32(uint32(fv32)>>1) ^ -(fv32 & 1)
 	numValuesInMiniBlock := blockSize / numMiniblocksInBlock
 
 	res = make([]any, 0)
@@ -375,7 +375,7 @@ func ReadDeltaBinaryPackedINT32(bytesReader *bytes.Reader) ([]any, error) {
 		}
 
 		md32 := int32(minDeltaZigZag)
-		var minDelta int32 = int32(uint32(md32)>>1) ^ -(md32 & 1)
+		minDelta := int32(uint32(md32)>>1) ^ -(md32 & 1)
 		bitWidths := make([]uint64, numMiniblocksInBlock)
 		for i := range numMiniblocksInBlock {
 			b, err := bytesReader.ReadByte()
@@ -420,7 +420,7 @@ func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader) ([]any, error) {
 	if err != nil {
 		return res, err
 	}
-	var firstValue int64 = int64(firstValueZigZag>>1) ^ -(int64(firstValueZigZag) & 1)
+	firstValue := int64(firstValueZigZag>>1) ^ -(int64(firstValueZigZag) & 1)
 
 	numValuesInMiniBlock := blockSize / numMiniblocksInBlock
 
@@ -431,7 +431,7 @@ func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader) ([]any, error) {
 		if err != nil {
 			return res, err
 		}
-		var minDelta int64 = int64(minDeltaZigZag>>1) ^ -(int64(minDeltaZigZag) & 1)
+		minDelta := int64(minDeltaZigZag>>1) ^ -(int64(minDeltaZigZag) & 1)
 		bitWidths := make([]uint64, numMiniblocksInBlock)
 		for i := range numMiniblocksInBlock {
 			b, err := bytesReader.ReadByte()
