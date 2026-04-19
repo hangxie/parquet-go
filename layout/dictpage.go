@@ -72,6 +72,71 @@ func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT par
 	return dataEncodeBuf, nil
 }
 
+// dictPageValueResult holds the results from scanning one page's worth of values for dictionary encoding.
+type dictPageValueResult struct {
+	endIdx    int
+	numValues int32
+	size      int32
+	minVal    any
+	maxVal    any
+	nullCount int64
+	values    []int32
+}
+
+// scanDictPageValues scans table values from startIdx to build one page, collecting dictionary indices and stats.
+func scanDictPageValues(table *Table, dictRec *DictRecType, startIdx int, pageSize int32, omitStats bool, funcTable common.FuncTable) (dictPageValueResult, error) {
+	totalLn := len(table.Values)
+	r := dictPageValueResult{
+		endIdx: startIdx,
+		minVal: table.Values[startIdx],
+		maxVal: table.Values[startIdx],
+	}
+
+	for r.endIdx < totalLn && r.size < pageSize {
+		if table.Values[r.endIdx] == nil {
+			if err := checkRequiredNil(table, r.endIdx); err != nil {
+				return r, err
+			}
+			r.nullCount++
+			r.endIdx++
+			continue
+		}
+		if table.DefinitionLevels[r.endIdx] == table.MaxDefinitionLevel {
+			r.numValues++
+			var elSize int32
+			if omitStats {
+				_, _, elSize = funcTable.MinMaxSize(nil, nil, table.Values[r.endIdx])
+			} else {
+				r.minVal, r.maxVal, elSize = funcTable.MinMaxSize(r.minVal, r.maxVal, table.Values[r.endIdx])
+			}
+			r.size += elSize
+			r.values = append(r.values, dictRec.lookupOrInsert(table.Values[r.endIdx]))
+		}
+		r.endIdx++
+	}
+	return r, nil
+}
+
+// lookupOrInsert returns the dictionary index for the given value, inserting it if not already present.
+func (d *DictRecType) lookupOrInsert(val any) int32 {
+	if idx, ok := d.DictMap[val]; ok {
+		return idx
+	}
+	d.DictSlice = append(d.DictSlice, val)
+	idx := int32(len(d.DictSlice) - 1)
+	d.DictMap[val] = idx
+	return idx
+}
+
+// checkRequiredNil returns an error if a nil value appears at a position where a REQUIRED field should have a value.
+func checkRequiredNil(table *Table, idx int) error {
+	if table.Schema.GetRepetitionType() == parquet.FieldRepetitionType_REQUIRED &&
+		table.DefinitionLevels[idx] == table.MaxDefinitionLevel {
+		return fmt.Errorf("nil value encountered for REQUIRED field %s at index %d", table.Path, idx)
+	}
+	return nil
+}
+
 // TableToDictDataPagesWithOption converts a table to dictionary-encoded data pages using the provided options.
 func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth int32, opt PageWriteOption) ([]*Page, int64, error) {
 	var totSize int64 = 0
@@ -85,56 +150,19 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 	pT, cT, logT, omitStats := table.Schema.Type, table.Schema.ConvertedType, table.Schema.LogicalType, table.Info.OmitStats
 
 	for i < totalLn {
-		j := i
-		var size int32 = 0
-		var numValues int32 = 0
-
-		var maxVal any = table.Values[i]
-		var minVal any = table.Values[i]
-		var nullCount int64 = 0
-		values := make([]int32, 0)
-
 		funcTable, err := common.FindFuncTable(pT, cT, logT)
 		if err != nil {
 			return nil, 0, fmt.Errorf("find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 		}
 
-		for j < totalLn && size < opt.PageSize {
-			if table.Values[j] == nil {
-				// Check if this is a required field with a value that should be present
-				// DefinitionLevel == MaxDefinitionLevel means we're at a leaf that should have a value
-				if table.Schema.GetRepetitionType() == parquet.FieldRepetitionType_REQUIRED &&
-					table.DefinitionLevels[j] == table.MaxDefinitionLevel {
-					return nil, 0, fmt.Errorf("nil value encountered for REQUIRED field %s at index %d", table.Path, j)
-				}
-				nullCount++
-				j++
-				continue
-			}
-			if table.DefinitionLevels[j] == table.MaxDefinitionLevel {
-				numValues++
-				var elSize int32
-				if omitStats {
-					_, _, elSize = funcTable.MinMaxSize(nil, nil, table.Values[j])
-				} else {
-					minVal, maxVal, elSize = funcTable.MinMaxSize(minVal, maxVal, table.Values[j])
-				}
-				size += elSize
-				if idx, ok := dictRec.DictMap[table.Values[j]]; ok {
-					values = append(values, idx)
-				} else {
-					dictRec.DictSlice = append(dictRec.DictSlice, table.Values[j])
-					idx := int32(len(dictRec.DictSlice) - 1)
-					dictRec.DictMap[table.Values[j]] = idx
-					values = append(values, idx)
-				}
-			}
-			j++
+		scan, err := scanDictPageValues(table, dictRec, i, opt.PageSize, omitStats, funcTable)
+		if err != nil {
+			return nil, 0, err
 		}
 
 		page := NewDataPage()
 		page.PageSize = opt.PageSize
-		page.Header.DataPageHeader.NumValues = numValues
+		page.Header.DataPageHeader.NumValues = scan.numValues
 		page.Header.Type = parquet.PageType_DATA_PAGE
 
 		page.DataTable = new(Table)
@@ -142,16 +170,16 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 		page.DataTable.Path = table.Path
 		page.DataTable.MaxDefinitionLevel = table.MaxDefinitionLevel
 		page.DataTable.MaxRepetitionLevel = table.MaxRepetitionLevel
-		page.DataTable.DefinitionLevels = table.DefinitionLevels[i:j]
-		page.DataTable.RepetitionLevels = table.RepetitionLevels[i:j]
+		page.DataTable.DefinitionLevels = table.DefinitionLevels[i:scan.endIdx]
+		page.DataTable.RepetitionLevels = table.RepetitionLevels[i:scan.endIdx]
 
 		// Values in DataTable of a DictPage is nil for optimization.
 		// page.DataTable.Values = values
 
 		if !omitStats {
-			page.MaxVal = maxVal
-			page.MinVal = minVal
-			page.NullCount = &nullCount
+			page.MaxVal = scan.maxVal
+			page.MinVal = scan.minVal
+			page.NullCount = &scan.nullCount
 		}
 		page.Schema = table.Schema
 		page.CompressType = opt.CompressType
@@ -160,7 +188,7 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 
 		page.computeLevelHistograms()
 
-		compressedData, compressErr := page.dictDataPageCompress(opt.CompressType, bitWidth, values, opt.Compressor)
+		compressedData, compressErr := page.dictDataPageCompress(opt.CompressType, bitWidth, scan.values, opt.Compressor)
 		if compressErr != nil {
 			return nil, 0, compressErr
 		}
@@ -170,7 +198,7 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 
 		totSize += int64(len(page.RawData))
 		res = append(res, page)
-		i = j
+		i = scan.endIdx
 	}
 	return res, totSize, nil
 }
