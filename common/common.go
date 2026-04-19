@@ -122,7 +122,7 @@ type Tag struct {
 
 func StringToTag(tag string) (*Tag, error) {
 	mp := &Tag{}
-	tagStr := strings.Replace(tag, "\t", "", -1)
+	tagStr := strings.ReplaceAll(tag, "\t", "")
 
 	for tag := range strings.SplitSeq(tagStr, ",") {
 		kv := strings.SplitN(tag, "=", 2)
@@ -153,7 +153,7 @@ func StringToTag(tag string) (*Tag, error) {
 		} else if strings.HasPrefix(key, "value") {
 			err = mp.Value.update(strings.TrimPrefix(key, "value"), val)
 		} else {
-			err = mp.fieldAttr.update(key, val)
+			err = mp.update(key, val)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("parse tag '%s': %w", tag, err)
@@ -262,83 +262,112 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 }
 
 // ValidateSchemaElement checks if the ConvertedType and LogicalType are compatible with the physical Type.
+func validateLogicalTime(lt *parquet.LogicalType, pT *parquet.Type) error {
+	if lt.TIME == nil {
+		return nil
+	}
+	if lt.TIME.Unit.MILLIS != nil {
+		if *pT != parquet.Type_INT32 {
+			return fmt.Errorf("LogicalType TIME(MILLIS) can only be used with INT32")
+		}
+	} else {
+		if *pT != parquet.Type_INT64 {
+			return fmt.Errorf("LogicalType TIME(MICROS/NANOS) can only be used with INT64")
+		}
+	}
+	return nil
+}
+
+func validateLogicalInteger(lt *parquet.LogicalType, pT *parquet.Type) error {
+	if lt.INTEGER == nil {
+		return nil
+	}
+	if lt.INTEGER.BitWidth <= 32 {
+		if *pT != parquet.Type_INT32 {
+			return fmt.Errorf("LogicalType INTEGER(bitwidth<=32) can only be used with INT32")
+		}
+	} else {
+		if *pT != parquet.Type_INT64 {
+			return fmt.Errorf("LogicalType INTEGER(bitwidth=64) can only be used with INT64")
+		}
+	}
+	return nil
+}
+
+func validateLogicalType(schema *parquet.SchemaElement) error {
+	if schema.LogicalType == nil {
+		return nil
+	}
+	lt := schema.LogicalType
+	if lt.STRING != nil || lt.JSON != nil || lt.BSON != nil || lt.ENUM != nil {
+		if *schema.Type != parquet.Type_BYTE_ARRAY {
+			return fmt.Errorf("LogicalType STRING/JSON/BSON/ENUM can only be used with BYTE_ARRAY")
+		}
+	}
+	if lt.UUID != nil {
+		if *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			return fmt.Errorf("LogicalType UUID can only be used with FIXED_LEN_BYTE_ARRAY")
+		}
+	}
+	if lt.DATE != nil {
+		if *schema.Type != parquet.Type_INT32 {
+			return fmt.Errorf("LogicalType DATE can only be used with INT32")
+		}
+	}
+	if err := validateLogicalTime(lt, schema.Type); err != nil {
+		return err
+	}
+	if lt.TIMESTAMP != nil {
+		if *schema.Type != parquet.Type_INT64 {
+			return fmt.Errorf("LogicalType TIMESTAMP can only be used with INT64")
+		}
+	}
+	return validateLogicalInteger(lt, schema.Type)
+}
+
+func validateConvertedType(schema *parquet.SchemaElement) error {
+	if schema.ConvertedType == nil {
+		return nil
+	}
+	ct := *schema.ConvertedType
+	switch ct {
+	case parquet.ConvertedType_UTF8, parquet.ConvertedType_JSON, parquet.ConvertedType_BSON, parquet.ConvertedType_ENUM:
+		if *schema.Type != parquet.Type_BYTE_ARRAY {
+			return fmt.Errorf("ConvertedType %s can only be used with BYTE_ARRAY", ct)
+		}
+	case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS,
+		parquet.ConvertedType_INT_8, parquet.ConvertedType_INT_16, parquet.ConvertedType_INT_32,
+		parquet.ConvertedType_UINT_8, parquet.ConvertedType_UINT_16, parquet.ConvertedType_UINT_32:
+		if *schema.Type != parquet.Type_INT32 {
+			return fmt.Errorf("ConvertedType %s can only be used with INT32", ct)
+		}
+	case parquet.ConvertedType_INT_64, parquet.ConvertedType_UINT_64,
+		parquet.ConvertedType_TIME_MICROS, parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS:
+		if *schema.Type != parquet.Type_INT64 {
+			return fmt.Errorf("ConvertedType %s can only be used with INT64", ct)
+		}
+	case parquet.ConvertedType_INTERVAL:
+		if *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			return fmt.Errorf("ConvertedType %s can only be used with FIXED_LEN_BYTE_ARRAY", ct)
+		}
+		if schema.TypeLength == nil || *schema.TypeLength != 12 {
+			return fmt.Errorf("ConvertedType %s requires FIXED_LEN_BYTE_ARRAY with length 12", ct)
+		}
+	}
+	return nil
+}
+
 func ValidateSchemaElement(schema *parquet.SchemaElement) error {
 	if schema.Type == nil {
 		return nil
 	}
 
-	// LogicalType validation
-	if schema.LogicalType != nil {
-		if schema.LogicalType.STRING != nil || schema.LogicalType.JSON != nil || schema.LogicalType.BSON != nil || schema.LogicalType.ENUM != nil {
-			if *schema.Type != parquet.Type_BYTE_ARRAY {
-				return fmt.Errorf("LogicalType STRING/JSON/BSON/ENUM can only be used with BYTE_ARRAY")
-			}
-		}
-		if schema.LogicalType.UUID != nil {
-			if *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
-				return fmt.Errorf("LogicalType UUID can only be used with FIXED_LEN_BYTE_ARRAY")
-			}
-		}
-		if schema.LogicalType.DATE != nil {
-			if *schema.Type != parquet.Type_INT32 {
-				return fmt.Errorf("LogicalType DATE can only be used with INT32")
-			}
-		}
-		if schema.LogicalType.TIME != nil {
-			if schema.LogicalType.TIME.Unit.MILLIS != nil {
-				if *schema.Type != parquet.Type_INT32 {
-					return fmt.Errorf("LogicalType TIME(MILLIS) can only be used with INT32")
-				}
-			} else {
-				if *schema.Type != parquet.Type_INT64 {
-					return fmt.Errorf("LogicalType TIME(MICROS/NANOS) can only be used with INT64")
-				}
-			}
-		}
-		if schema.LogicalType.TIMESTAMP != nil {
-			if *schema.Type != parquet.Type_INT64 {
-				return fmt.Errorf("LogicalType TIMESTAMP can only be used with INT64")
-			}
-		}
-		if schema.LogicalType.INTEGER != nil {
-			if schema.LogicalType.INTEGER.BitWidth <= 32 {
-				if *schema.Type != parquet.Type_INT32 {
-					return fmt.Errorf("LogicalType INTEGER(bitwidth<=32) can only be used with INT32")
-				}
-			} else {
-				if *schema.Type != parquet.Type_INT64 {
-					return fmt.Errorf("LogicalType INTEGER(bitwidth=64) can only be used with INT64")
-				}
-			}
-		}
+	if err := validateLogicalType(schema); err != nil {
+		return err
 	}
 
-	// ConvertedType validation
-	if schema.ConvertedType != nil {
-		switch *schema.ConvertedType {
-		case parquet.ConvertedType_UTF8, parquet.ConvertedType_JSON, parquet.ConvertedType_BSON, parquet.ConvertedType_ENUM:
-			if *schema.Type != parquet.Type_BYTE_ARRAY {
-				return fmt.Errorf("ConvertedType %s can only be used with BYTE_ARRAY", schema.ConvertedType)
-			}
-		case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS,
-			parquet.ConvertedType_INT_8, parquet.ConvertedType_INT_16, parquet.ConvertedType_INT_32,
-			parquet.ConvertedType_UINT_8, parquet.ConvertedType_UINT_16, parquet.ConvertedType_UINT_32:
-			if *schema.Type != parquet.Type_INT32 {
-				return fmt.Errorf("ConvertedType %s can only be used with INT32", schema.ConvertedType)
-			}
-		case parquet.ConvertedType_INT_64, parquet.ConvertedType_UINT_64,
-			parquet.ConvertedType_TIME_MICROS, parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS:
-			if *schema.Type != parquet.Type_INT64 {
-				return fmt.Errorf("ConvertedType %s can only be used with INT64", schema.ConvertedType)
-			}
-		case parquet.ConvertedType_INTERVAL:
-			if *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
-				return fmt.Errorf("ConvertedType %s can only be used with FIXED_LEN_BYTE_ARRAY", schema.ConvertedType)
-			}
-			if schema.TypeLength == nil || *schema.TypeLength != 12 {
-				return fmt.Errorf("ConvertedType %s requires FIXED_LEN_BYTE_ARRAY with length 12", schema.ConvertedType)
-			}
-		}
+	if err := validateConvertedType(schema); err != nil {
+		return err
 	}
 
 	return nil
@@ -495,6 +524,97 @@ func newEdgeInterpolationAlgorithmFromString(algoStr string) (*parquet.EdgeInter
 	}
 }
 
+func newDecimalLogicalType(mp map[string]string) (*parquet.DecimalType, error) {
+	decimal := parquet.NewDecimalType()
+	precisionVal := mp["logicaltype.precision"]
+	valInt, err := strconv.ParseInt(precisionVal, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("parse logicaltype.precision value '%s' as int32: %w", precisionVal, err)
+	}
+	decimal.Precision = int32(valInt)
+
+	scaleVal := mp["logicaltype.scale"]
+	valInt, err = strconv.ParseInt(scaleVal, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("parse logicaltype.scale value '%s' as int32: %w", scaleVal, err)
+	}
+	decimal.Scale = int32(valInt)
+	return decimal, nil
+}
+
+func newTimeLogicalType(mp map[string]string) (*parquet.TimeType, error) {
+	timeType := parquet.NewTimeType()
+	var err error
+	if timeType.IsAdjustedToUTC, err = strconv.ParseBool(mp["logicaltype.isadjustedtoutc"]); err != nil {
+		return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
+	}
+	if timeType.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
+		return nil, err
+	}
+	return timeType, nil
+}
+
+func newTimestampLogicalType(mp map[string]string) (*parquet.TimestampType, error) {
+	timestampType := parquet.NewTimestampType()
+	var err error
+	if timestampType.IsAdjustedToUTC, err = strconv.ParseBool(mp["logicaltype.isadjustedtoutc"]); err != nil {
+		return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
+	}
+	if timestampType.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
+		return nil, err
+	}
+	return timestampType, nil
+}
+
+func newIntegerLogicalType(mp map[string]string) (*parquet.IntType, error) {
+	intType := parquet.NewIntType()
+	valInt, err := strconv.ParseInt(mp["logicaltype.bitwidth"], 10, 8)
+	if err != nil {
+		return nil, fmt.Errorf("parse logicaltype.bitwidth as int32: %w", err)
+	}
+	intType.BitWidth = int8(valInt)
+	if intType.IsSigned, err = strconv.ParseBool(mp["logicaltype.issigned"]); err != nil {
+		return nil, fmt.Errorf("parse logicaltype.issigned as boolean: %w", err)
+	}
+	return intType, nil
+}
+
+func newVariantLogicalType(mp map[string]string) (*parquet.VariantType, error) {
+	variantType := parquet.NewVariantType()
+	if vStr, ok := mp["logicaltype.specification_version"]; ok && vStr != "" {
+		valInt, err := strconv.ParseInt(vStr, 10, 8)
+		if err != nil {
+			return nil, fmt.Errorf("parse logicaltype.specification_version as int8: %w", err)
+		}
+		v := int8(valInt)
+		variantType.SpecificationVersion = &v
+	}
+	return variantType, nil
+}
+
+func newGeometryLogicalType(mp map[string]string) (*parquet.GeometryType, error) {
+	geometryType := parquet.NewGeometryType()
+	if crs, ok := mp["logicaltype.crs"]; ok && crs != "" {
+		geometryType.CRS = &crs
+	}
+	return geometryType, nil
+}
+
+func newGeographyLogicalType(mp map[string]string) (*parquet.GeographyType, error) {
+	geographyType := parquet.NewGeographyType()
+	if crs, ok := mp["logicaltype.crs"]; ok && crs != "" {
+		geographyType.CRS = &crs
+	}
+	if algoStr, ok := mp["logicaltype.algorithm"]; ok && algoStr != "" {
+		algo, err := newEdgeInterpolationAlgorithmFromString(algoStr)
+		if err != nil {
+			return nil, err
+		}
+		geographyType.Algorithm = algo
+	}
+	return geographyType, nil
+}
+
 func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, error) {
 	val, ok := mp["logicaltype"]
 	if !ok {
@@ -513,47 +633,22 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 	case "ENUM":
 		logicalType.ENUM = parquet.NewEnumType()
 	case "DECIMAL":
-		logicalType.DECIMAL = parquet.NewDecimalType()
-		precisionVal := mp["logicaltype.precision"]
-		valInt, err := strconv.ParseInt(precisionVal, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("parse logicaltype.precision value '%s' as int32: %w", precisionVal, err)
+		if logicalType.DECIMAL, err = newDecimalLogicalType(mp); err != nil {
+			return nil, err
 		}
-		logicalType.DECIMAL.Precision = int32(valInt)
-
-		scaleVal := mp["logicaltype.scale"]
-		valInt, err = strconv.ParseInt(scaleVal, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("parse logicaltype.scale value '%s' as int32: %w", scaleVal, err)
-		}
-		logicalType.DECIMAL.Scale = int32(valInt)
 	case "DATE":
 		logicalType.DATE = parquet.NewDateType()
 	case "TIME":
-		logicalType.TIME = parquet.NewTimeType()
-		if logicalType.TIME.IsAdjustedToUTC, err = strconv.ParseBool(mp["logicaltype.isadjustedtoutc"]); err != nil {
-			return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
-		}
-		if logicalType.TIME.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
+		if logicalType.TIME, err = newTimeLogicalType(mp); err != nil {
 			return nil, err
 		}
 	case "TIMESTAMP":
-		logicalType.TIMESTAMP = parquet.NewTimestampType()
-		if logicalType.TIMESTAMP.IsAdjustedToUTC, err = strconv.ParseBool(mp["logicaltype.isadjustedtoutc"]); err != nil {
-			return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
-		}
-		if logicalType.TIMESTAMP.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
+		if logicalType.TIMESTAMP, err = newTimestampLogicalType(mp); err != nil {
 			return nil, err
 		}
 	case "INTEGER":
-		logicalType.INTEGER = parquet.NewIntType()
-		valInt, err := strconv.ParseInt(mp["logicaltype.bitwidth"], 10, 8)
-		if err != nil {
-			return nil, fmt.Errorf("parse logicaltype.bitwidth as int32: %w", err)
-		}
-		logicalType.INTEGER.BitWidth = int8(valInt)
-		if logicalType.INTEGER.IsSigned, err = strconv.ParseBool(mp["logicaltype.issigned"]); err != nil {
-			return nil, fmt.Errorf("parse logicaltype.issigned as boolean: %w", err)
+		if logicalType.INTEGER, err = newIntegerLogicalType(mp); err != nil {
+			return nil, err
 		}
 	case "JSON":
 		logicalType.JSON = parquet.NewJsonType()
@@ -564,31 +659,16 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 	case "FLOAT16":
 		logicalType.FLOAT16 = parquet.NewFloat16Type()
 	case "VARIANT":
-		logicalType.VARIANT = parquet.NewVariantType()
-		if vStr, ok := mp["logicaltype.specification_version"]; ok && vStr != "" {
-			valInt, err := strconv.ParseInt(vStr, 10, 32)
-			if err != nil {
-				return nil, fmt.Errorf("parse logicaltype.specification_version as int32: %w", err)
-			}
-			v := int8(valInt)
-			logicalType.VARIANT.SpecificationVersion = &v
+		if logicalType.VARIANT, err = newVariantLogicalType(mp); err != nil {
+			return nil, err
 		}
 	case "GEOMETRY":
-		logicalType.GEOMETRY = parquet.NewGeometryType()
-		if crs, ok := mp["logicaltype.crs"]; ok && crs != "" {
-			logicalType.GEOMETRY.CRS = &crs
+		if logicalType.GEOMETRY, err = newGeometryLogicalType(mp); err != nil {
+			return nil, err
 		}
 	case "GEOGRAPHY":
-		logicalType.GEOGRAPHY = parquet.NewGeographyType()
-		if crs, ok := mp["logicaltype.crs"]; ok && crs != "" {
-			logicalType.GEOGRAPHY.CRS = &crs
-		}
-		if algoStr, ok := mp["logicaltype.algorithm"]; ok && algoStr != "" {
-			algo, err := newEdgeInterpolationAlgorithmFromString(algoStr)
-			if err != nil {
-				return nil, err
-			}
-			logicalType.GEOGRAPHY.Algorithm = algo
+		if logicalType.GEOGRAPHY, err = newGeographyLogicalType(mp); err != nil {
+			return nil, err
 		}
 	default:
 		return nil, fmt.Errorf("unknown logicaltype: %s", val)
