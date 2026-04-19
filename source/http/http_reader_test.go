@@ -373,9 +373,10 @@ func TestHttpReader_Seek(t *testing.T) {
 
 				expectedOff := tt.expectedOffset
 				if expectedOff == -1 {
-					if tt.name == "seek_from_end" {
+					switch tt.name {
+					case "seek_from_end":
 						expectedOff = int64(len(testData)) - 10
-					} else if tt.name == "seek_beyond_end_clamped" {
+					case "seek_beyond_end_clamped":
 						expectedOff = int64(len(testData))
 					}
 				}
@@ -507,7 +508,7 @@ func TestNewHttpReader(t *testing.T) {
 
 				// For the success case, verify it implements the interface
 				if tt.name == "success" {
-					var _ source.ParquetFileReader = reader
+					_ = source.ParquetFileReader(reader)
 				}
 			}
 		})
