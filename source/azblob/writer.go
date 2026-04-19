@@ -94,7 +94,7 @@ func (s *azBlobWriter) Close() error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("Azure Blob upload: %w", err)
+		return fmt.Errorf("azure blob upload: %w", err)
 	}
 	return nil
 }
