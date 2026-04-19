@@ -34,20 +34,33 @@ type VariantSchemaInfo struct {
 //	├── metadata (BYTE_ARRAY, REQUIRED)
 //	├── value (BYTE_ARRAY, OPTIONAL)        ← OPTIONAL when shredded
 //	└── typed_value (various types, OPTIONAL)
+func isVariantMetadataChild(child *parquet.SchemaElement) bool {
+	return child.Type != nil && *child.Type == parquet.Type_BYTE_ARRAY &&
+		child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_REQUIRED
+}
+
+func isVariantValueChild(child *parquet.SchemaElement) bool {
+	if child.Type == nil || *child.Type != parquet.Type_BYTE_ARRAY || child.RepetitionType == nil {
+		return false
+	}
+	rt := *child.RepetitionType
+	return rt == parquet.FieldRepetitionType_REQUIRED || rt == parquet.FieldRepetitionType_OPTIONAL
+}
+
+func isOptionalChild(child *parquet.SchemaElement) bool {
+	return child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_OPTIONAL
+}
+
 func (sh *SchemaHandler) isValidVariantSchema(idx int32, children []int32) bool {
 	elem := sh.SchemaElements[idx]
 
-	// Must have VARIANT LogicalType
 	if elem.LogicalType == nil || elem.LogicalType.VARIANT == nil {
 		return false
 	}
-
-	// Must have at least 2 children (metadata + value or metadata + typed_value)
 	if len(children) < 2 {
 		return false
 	}
 
-	// Look for metadata, value and typed_value columns in children
 	hasMetadata := false
 	hasValueOrTyped := false
 
@@ -58,30 +71,13 @@ func (sh *SchemaHandler) isValidVariantSchema(idx int32, children []int32) bool 
 		child := sh.SchemaElements[childIdx]
 		childName := sh.GetInName(int(childIdx))
 
-		if strings.EqualFold(childName, "Metadata") {
-			// Metadata column: required BYTE_ARRAY
-			if child.Type != nil && *child.Type == parquet.Type_BYTE_ARRAY &&
-				child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_REQUIRED {
-				hasMetadata = true
-			}
-		} else if strings.EqualFold(childName, "Value") {
-			// Value column: BYTE_ARRAY, REQUIRED or OPTIONAL
-			if child.Type != nil && *child.Type == parquet.Type_BYTE_ARRAY {
-				if child.RepetitionType != nil {
-					rt := *child.RepetitionType
-					if rt == parquet.FieldRepetitionType_REQUIRED || rt == parquet.FieldRepetitionType_OPTIONAL {
-						hasValueOrTyped = true
-					}
-				}
-			}
-		} else if strings.EqualFold(childName, "Typed_value") {
-			// typed_value column: should be OPTIONAL for valid shredding
-			if child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_OPTIONAL {
-				hasValueOrTyped = true
-			}
-		} else {
-			// Any other optional field is a shredded field
-			if child.RepetitionType != nil && *child.RepetitionType == parquet.FieldRepetitionType_OPTIONAL {
+		switch {
+		case strings.EqualFold(childName, "Metadata"):
+			hasMetadata = isVariantMetadataChild(child)
+		case strings.EqualFold(childName, "Value"):
+			hasValueOrTyped = isVariantValueChild(child)
+		default:
+			if isOptionalChild(child) {
 				hasValueOrTyped = true
 			}
 		}
@@ -160,16 +156,101 @@ func (sh *SchemaHandler) buildChildrenMap() [][]int32 {
 	return children
 }
 
+var anyType = reflect.TypeFor[any]()
+
+func typeOrAny(t reflect.Type) reflect.Type {
+	if t == nil {
+		return anyType
+	}
+	return t
+}
+
+func applyRepetition(t reflect.Type, rT *parquet.FieldRepetitionType) reflect.Type {
+	if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
+		return reflect.PointerTo(t)
+	}
+	return t
+}
+
+func resolveLeafType(pT *parquet.Type, rT *parquet.FieldRepetitionType) reflect.Type {
+	if rT == nil {
+		return typeOrAny(types.ParquetTypeToGoReflectType(pT, nil))
+	}
+	switch *rT {
+	case parquet.FieldRepetitionType_REPEATED:
+		return reflect.SliceOf(typeOrAny(types.ParquetTypeToGoReflectType(pT, nil)))
+	case parquet.FieldRepetitionType_OPTIONAL:
+		et := types.ParquetTypeToGoReflectType(pT, rT)
+		if et == nil {
+			return reflect.PointerTo(anyType)
+		}
+		return et
+	default:
+		return typeOrAny(types.ParquetTypeToGoReflectType(pT, rT))
+	}
+}
+
+func (sh *SchemaHandler) isListSchema(idx int32, elements [][]int32, cT *parquet.ConvertedType) bool {
+	return cT != nil && *cT == parquet.ConvertedType_LIST &&
+		len(elements[idx]) == 1 &&
+		sh.GetInName(int(elements[idx][0])) == "List" &&
+		len(elements[elements[idx][0]]) == 1 &&
+		sh.GetInName(int(elements[elements[idx][0]][0])) == "Element"
+}
+
+func (sh *SchemaHandler) isMapSchema(idx int32, elements [][]int32, cT *parquet.ConvertedType) bool {
+	return cT != nil && *cT == parquet.ConvertedType_MAP &&
+		len(elements[idx]) == 1 &&
+		sh.GetInName(int(elements[idx][0])) == "Key_value" &&
+		len(elements[elements[idx][0]]) == 2 &&
+		sh.GetInName(int(elements[elements[idx][0]][0])) == "Key" &&
+		sh.GetInName(int(elements[elements[idx][0]][1])) == "Value"
+}
+
+func (sh *SchemaHandler) resolveStructType(idx int32, elements [][]int32, elementTypes []reflect.Type, rT *parquet.FieldRepetitionType) reflect.Type {
+	fields := make([]reflect.StructField, 0, len(elements[idx]))
+	for _, ci := range elements[idx] {
+		fields = append(fields, reflect.StructField{
+			Name: sh.Infos[ci].InName,
+			Type: typeOrAny(elementTypes[ci]),
+			Tag:  reflect.StructTag(`json:"` + sh.Infos[ci].ExName + `"`),
+		})
+	}
+	structType := reflect.StructOf(fields)
+	if rT == nil || *rT == parquet.FieldRepetitionType_REQUIRED {
+		return structType
+	} else if *rT == parquet.FieldRepetitionType_OPTIONAL {
+		return reflect.New(structType).Type()
+	}
+	return reflect.SliceOf(structType)
+}
+
+func (sh *SchemaHandler) resolveGroupType(idx int32, elements [][]int32, elementTypes []reflect.Type, cT *parquet.ConvertedType, rT *parquet.FieldRepetitionType) reflect.Type {
+	switch {
+	case sh.isListSchema(idx, elements, cT):
+		cidx := elements[elements[idx][0]][0]
+		return applyRepetition(reflect.SliceOf(elementTypes[cidx]), rT)
+
+	case sh.isMapSchema(idx, elements, cT):
+		kIdx, vIdx := elements[elements[idx][0]][0], elements[elements[idx][0]][1]
+		return applyRepetition(reflect.MapOf(typeOrAny(elementTypes[kIdx]), typeOrAny(elementTypes[vIdx])), rT)
+
+	case sh.isValidVariantSchema(idx, elements[idx]):
+		return applyRepetition(anyType, rT)
+
+	default:
+		return sh.resolveStructType(idx, elements, elementTypes, rT)
+	}
+}
+
 // Get object type from schema by reflect
 func (sh *SchemaHandler) GetTypes() []reflect.Type {
-	// Return cached types if available
 	if sh.elementTypes != nil {
 		return sh.elementTypes
 	}
 
 	ln := int32(len(sh.SchemaElements))
 
-	// Build or use cached children map
 	var elements [][]int32
 	if sh.childrenMap != nil {
 		elements = sh.childrenMap
@@ -181,7 +262,7 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 	elementTypes := make([]reflect.Type, ln)
 
 	var pos int32 = 0
-	stack := make([][2]int32, 0) // stack item[0]: index of schemas; item[1]: numChildren
+	stack := make([][2]int32, 0)
 	for pos < ln || len(stack) > 0 {
 		if len(stack) == 0 || stack[len(stack)-1][1] > 0 {
 			if len(stack) > 0 {
@@ -190,119 +271,23 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 			item := [2]int32{pos, sh.SchemaElements[pos].GetNumChildren()}
 			stack = append(stack, item)
 			pos++
-
 		} else {
 			curlen := len(stack) - 1
 			idx := stack[curlen][0]
-			nc := sh.SchemaElements[idx].GetNumChildren()
-			pT, cT := sh.SchemaElements[idx].Type, sh.SchemaElements[idx].ConvertedType
-			rT := sh.SchemaElements[idx].RepetitionType
+			elem := sh.SchemaElements[idx]
+			pT, cT, rT := elem.Type, elem.ConvertedType, elem.RepetitionType
 
-			if nc == 0 {
-				// Leaf node handling
-				if rT == nil {
-					// Default to REQUIRED if RepetitionType is nil
-					elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, nil)
-					if elementTypes[idx] == nil {
-						// Fallback to interface{} to avoid panics on malformed schemas
-						elementTypes[idx] = reflect.TypeOf((*any)(nil)).Elem()
-					}
-				} else {
-					switch *rT {
-					case parquet.FieldRepetitionType_REPEATED:
-						et := types.ParquetTypeToGoReflectType(pT, nil)
-						if et == nil {
-							et = reflect.TypeOf((*any)(nil)).Elem()
-						}
-						elementTypes[idx] = reflect.SliceOf(et)
-					case parquet.FieldRepetitionType_OPTIONAL:
-						et := types.ParquetTypeToGoReflectType(pT, rT)
-						if et == nil {
-							// Represent optional unknown as *interface{}
-							elementTypes[idx] = reflect.PointerTo(reflect.TypeOf((*any)(nil)).Elem())
-						} else {
-							elementTypes[idx] = et
-						}
-					default:
-						elementTypes[idx] = types.ParquetTypeToGoReflectType(pT, rT)
-						if elementTypes[idx] == nil {
-							elementTypes[idx] = reflect.TypeOf((*any)(nil)).Elem()
-						}
-					}
-				}
+			if elem.GetNumChildren() == 0 {
+				elementTypes[idx] = resolveLeafType(pT, rT)
 			} else {
-				if cT != nil && *cT == parquet.ConvertedType_LIST &&
-					len(elements[idx]) == 1 &&
-					sh.GetInName(int(elements[idx][0])) == "List" &&
-					len(elements[elements[idx][0]]) == 1 &&
-					sh.GetInName(int(elements[elements[idx][0]][0])) == "Element" {
-					cidx := elements[elements[idx][0]][0]
-					if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
-						elementTypes[idx] = reflect.PointerTo(reflect.SliceOf(elementTypes[cidx]))
-					} else {
-						elementTypes[idx] = reflect.SliceOf(elementTypes[cidx])
-					}
-				} else if cT != nil && *cT == parquet.ConvertedType_MAP &&
-					len(elements[idx]) == 1 &&
-					sh.GetInName(int(elements[idx][0])) == "Key_value" &&
-					len(elements[elements[idx][0]]) == 2 &&
-					sh.GetInName(int(elements[elements[idx][0]][0])) == "Key" &&
-					sh.GetInName(int(elements[elements[idx][0]][1])) == "Value" {
-					kIdx, vIdx := elements[elements[idx][0]][0], elements[elements[idx][0]][1]
-					kT, vT := elementTypes[kIdx], elementTypes[vIdx]
-					if kT == nil {
-						kT = reflect.TypeOf((*any)(nil)).Elem()
-					}
-					if vT == nil {
-						vT = reflect.TypeOf((*any)(nil)).Elem()
-					}
-					if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
-						elementTypes[idx] = reflect.PointerTo(reflect.MapOf(kT, vT))
-					} else {
-						elementTypes[idx] = reflect.MapOf(kT, vT)
-					}
-				} else if sh.isValidVariantSchema(idx, elements[idx]) {
-					// VARIANT type - return interface{} so it can hold decoded value
-					// (aligned with JSON schema behavior)
-					variantType := reflect.TypeOf((*any)(nil)).Elem()
-					if rT != nil && *rT == parquet.FieldRepetitionType_OPTIONAL {
-						elementTypes[idx] = reflect.PointerTo(variantType)
-					} else {
-						elementTypes[idx] = variantType
-					}
-				} else {
-					fields := []reflect.StructField{}
-					for _, ci := range elements[idx] {
-						ft := elementTypes[ci]
-						if ft == nil {
-							ft = reflect.TypeOf((*any)(nil)).Elem()
-						}
-						fields = append(fields, reflect.StructField{
-							Name: sh.Infos[ci].InName,
-							Type: ft,
-							Tag:  reflect.StructTag(`json:"` + sh.Infos[ci].ExName + `"`),
-						})
-					}
-
-					structType := reflect.StructOf(fields)
-
-					if rT == nil || *rT == parquet.FieldRepetitionType_REQUIRED {
-						elementTypes[idx] = structType
-					} else if *rT == parquet.FieldRepetitionType_OPTIONAL {
-						elementTypes[idx] = reflect.New(structType).Type()
-					} else if *rT == parquet.FieldRepetitionType_REPEATED {
-						elementTypes[idx] = reflect.SliceOf(structType)
-					}
-				}
+				elementTypes[idx] = sh.resolveGroupType(idx, elements, elementTypes, cT, rT)
 			}
 
 			stack = stack[:curlen]
 		}
 	}
 
-	// Cache the computed types for future calls
 	sh.elementTypes = elementTypes
-
 	return elementTypes
 }
 
