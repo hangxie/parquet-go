@@ -223,7 +223,7 @@ func TestNewS3FileReaderWithClient_Success(t *testing.T) {
 	require.NotNil(t, reader)
 
 	// Test that it implements the interface
-	var _ source.ParquetFileReader = reader
+	_ = source.ParquetFileReader(reader)
 }
 
 func TestNewS3FileReaderWithClient_WithVersion(t *testing.T) {

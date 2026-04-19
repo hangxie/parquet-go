@@ -109,7 +109,7 @@ func TestNewS3FileWriterWithClient_Success(t *testing.T) {
 	require.NotNil(t, writer)
 
 	// Test that it implements the interface
-	var _ source.ParquetFileWriter = writer
+	_ = source.ParquetFileWriter(writer)
 }
 
 func TestS3Writer_CloseWithoutWrite(t *testing.T) {
