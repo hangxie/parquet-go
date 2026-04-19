@@ -224,196 +224,204 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 
 // StrToParquetTypeWithLogical converts a string to a parquet value using LogicalType for newer types
 // This function extends StrToParquetType to handle FLOAT16, UUID, GEOMETRY, GEOGRAPHY, and TIME/TIMESTAMP with nanos
+func strToTimestampLogical(s string, ts *parquet.TimestampType) (any, error) {
+	if ts.Unit != nil {
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			switch {
+			case ts.Unit.IsSetNANOS():
+				return t.UnixNano(), nil
+			case ts.Unit.IsSetMICROS():
+				return t.UnixNano() / int64(time.Microsecond), nil
+			case ts.Unit.IsSetMILLIS():
+				return t.UnixNano() / int64(time.Millisecond), nil
+			}
+		}
+		var v int64
+		_, err := fmt.Sscanf(s, "%d", &v)
+		return v, err
+	}
+	return nil, fmt.Errorf("timestamp unit not set")
+}
+
+func strToTimeLogical(s string, t *parquet.TimeType) (any, error) {
+	if t.Unit == nil {
+		return nil, fmt.Errorf("time unit not set")
+	}
+	if nanos, err := ParseTimeString(s); err == nil {
+		switch {
+		case t.Unit.IsSetNANOS():
+			return nanos, nil
+		case t.Unit.IsSetMICROS():
+			return nanos / int64(time.Microsecond), nil
+		case t.Unit.IsSetMILLIS():
+			return int32(nanos / int64(time.Millisecond)), nil
+		}
+	}
+	if t.Unit.IsSetMILLIS() {
+		var v int32
+		_, err := fmt.Sscanf(s, "%d", &v)
+		return v, err
+	}
+	var v int64
+	_, err := fmt.Sscanf(s, "%d", &v)
+	return v, err
+}
+
+func strToDecimalLogical(s string, dec *parquet.DecimalType, pT *parquet.Type, length int) (any, error) {
+	decScale := int(dec.GetScale())
+	numSca := big.NewFloat(1.0)
+	for range decScale {
+		numSca.Mul(numSca, big.NewFloat(10))
+	}
+	num := new(big.Float)
+	num.SetString(s)
+	num.Mul(num, numSca)
+
+	switch *pT {
+	case parquet.Type_INT32:
+		tmp, _ := num.Float64()
+		return int32(tmp), nil
+	case parquet.Type_INT64:
+		tmp, _ := num.Float64()
+		return int64(tmp), nil
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		return StrIntToBinary(num.Text('f', 0), "BigEndian", length, true), nil
+	default:
+		return StrIntToBinary(num.Text('f', 0), "BigEndian", 0, true), nil
+	}
+}
+
+func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, length int) (any, bool, error) {
+	if lT.IsSetFLOAT16() {
+		v, err := ParseFloat16String(s)
+		return v, true, err
+	}
+	if lT.IsSetUUID() {
+		if u, err := uuid.Parse(s); err == nil {
+			return string(u[:]), true, nil
+		}
+		return s, true, nil
+	}
+	if lT.IsSetTIMESTAMP() {
+		v, err := strToTimestampLogical(s, lT.GetTIMESTAMP())
+		return v, err == nil, err
+	}
+	if lT.IsSetTIME() {
+		v, err := strToTimeLogical(s, lT.GetTIME())
+		return v, err == nil, err
+	}
+	if lT.IsSetDATE() {
+		if v, err := ParseDateString(s); err == nil {
+			return v, true, nil
+		}
+		var v int32
+		_, err := fmt.Sscanf(s, "%d", &v)
+		return int32(v), true, err
+	}
+	if lT.IsSetDECIMAL() {
+		v, err := strToDecimalLogical(s, lT.GetDECIMAL(), pT, length)
+		return v, true, err
+	}
+	return nil, false, nil
+}
+
 func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
-	// Check LogicalType first (newer standard)
 	if lT != nil {
-		// FLOAT16 (half-precision float)
-		if lT.IsSetFLOAT16() {
-			return ParseFloat16String(s)
+		if v, handled, err := strToLogicalType(s, lT, pT, length); handled {
+			return v, err
 		}
-
-		// UUID
-		if lT.IsSetUUID() {
-			if u, err := uuid.Parse(s); err == nil {
-				return string(u[:]), nil
-			}
-			// Otherwise return as-is (assume it's already 16-byte binary)
-			return s, nil
-		}
-
-		// TIMESTAMP with LogicalType
-		if lT.IsSetTIMESTAMP() {
-			ts := lT.GetTIMESTAMP()
-			if ts.Unit != nil {
-				if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-					switch {
-					case ts.Unit.IsSetNANOS():
-						return t.UnixNano(), nil
-					case ts.Unit.IsSetMICROS():
-						return t.UnixNano() / int64(time.Microsecond), nil
-					case ts.Unit.IsSetMILLIS():
-						return t.UnixNano() / int64(time.Millisecond), nil
-					}
-				}
-				var v int64
-				_, err := fmt.Sscanf(s, "%d", &v)
-				return v, err
-			}
-		}
-
-		// TIME with LogicalType
-		if lT.IsSetTIME() {
-			t := lT.GetTIME()
-			if t.Unit != nil {
-				if nanos, err := ParseTimeString(s); err == nil {
-					switch {
-					case t.Unit.IsSetNANOS():
-						return nanos, nil
-					case t.Unit.IsSetMICROS():
-						return nanos / int64(time.Microsecond), nil
-					case t.Unit.IsSetMILLIS():
-						return int32(nanos / int64(time.Millisecond)), nil
-					}
-				}
-				if t.Unit.IsSetMILLIS() {
-					var v int32
-					_, err := fmt.Sscanf(s, "%d", &v)
-					return v, err
-				}
-				var v int64
-				_, err := fmt.Sscanf(s, "%d", &v)
-				return v, err
-			}
-		}
-
-		// DATE
-		if lT.IsSetDATE() {
-			if v, err := ParseDateString(s); err == nil {
-				return v, nil
-			}
-			var v int32
-			_, err := fmt.Sscanf(s, "%d", &v)
-			return int32(v), err
-		}
-
-		// DECIMAL with LogicalType
-		if lT.IsSetDECIMAL() {
-			dec := lT.GetDECIMAL()
-			decScale := int(dec.GetScale())
-			numSca := big.NewFloat(1.0)
-			for range decScale {
-				numSca.Mul(numSca, big.NewFloat(10))
-			}
-			num := new(big.Float)
-			num.SetString(s)
-			num.Mul(num, numSca)
-
-			switch *pT {
-			case parquet.Type_INT32:
-				tmp, _ := num.Float64()
-				return int32(tmp), nil
-			case parquet.Type_INT64:
-				tmp, _ := num.Float64()
-				return int64(tmp), nil
-			case parquet.Type_FIXED_LEN_BYTE_ARRAY:
-				s = num.Text('f', 0)
-				res := StrIntToBinary(s, "BigEndian", length, true)
-				return res, nil
-			default:
-				s = num.Text('f', 0)
-				res := StrIntToBinary(s, "BigEndian", 0, true)
-				return res, nil
-			}
-		}
-
-		// GEOMETRY - not yet supported for human-readable import
-		// if lT.IsSetGEOMETRY() { ... }
-
-		// GEOGRAPHY - not yet supported for human-readable import
-		// if lT.IsSetGEOGRAPHY() { ... }
-
-		// BSON - not yet supported for human-readable import (JSON string to BSON)
-		// if lT.IsSetBSON() { ... }
 	}
 
-	// Fall back to legacy ConvertedType handling
 	return StrToParquetType(s, pT, cT, length, scale)
 }
 
-func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
-	if src == nil {
-		return src, nil
+func convertToBool(src any) (any, error) {
+	if v, ok := src.(bool); ok {
+		return v, nil
 	}
+	rv := reflect.ValueOf(src)
+	if !rv.IsValid() || rv.Kind() != reflect.Bool {
+		return nil, fmt.Errorf("convert %T to bool", src)
+	}
+	return rv.Bool(), nil
+}
 
-	if pT == nil {
+func convertToInt32(src any) (any, error) {
+	if v, ok := src.(int32); ok {
+		return v, nil
+	}
+	rv := reflect.ValueOf(src)
+	if !rv.IsValid() || rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr {
+		return nil, fmt.Errorf("convert %T to int32", src)
+	}
+	return int32(rv.Int()), nil
+}
+
+func convertToInt64(src any) (any, error) {
+	if v, ok := src.(int64); ok {
+		return v, nil
+	}
+	rv := reflect.ValueOf(src)
+	if !rv.IsValid() || rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr {
+		return nil, fmt.Errorf("convert %T to int64", src)
+	}
+	return rv.Int(), nil
+}
+
+func convertToFloat32(src any) (any, error) {
+	if v, ok := src.(float32); ok {
+		return v, nil
+	}
+	rv := reflect.ValueOf(src)
+	if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
+		return nil, fmt.Errorf("convert %T to float32", src)
+	}
+	return float32(rv.Float()), nil
+}
+
+func convertToFloat64(src any) (any, error) {
+	if v, ok := src.(float64); ok {
+		return v, nil
+	}
+	rv := reflect.ValueOf(src)
+	if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
+		return nil, fmt.Errorf("convert %T to float64", src)
+	}
+	return rv.Float(), nil
+}
+
+func convertToString(src any) (any, error) {
+	if v, ok := src.(string); ok {
+		return v, nil
+	}
+	if b, ok := src.([]byte); ok {
+		return string(b), nil
+	}
+	rv := reflect.ValueOf(src)
+	if !rv.IsValid() || rv.Kind() != reflect.String {
+		return nil, fmt.Errorf("convert %T to string", src)
+	}
+	return rv.String(), nil
+}
+
+func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {
+	if src == nil || pT == nil {
 		return src, nil
 	}
 
 	switch *pT {
 	case parquet.Type_BOOLEAN:
-		if _, ok := src.(bool); ok {
-			return src, nil
-		}
-		rv := reflect.ValueOf(src)
-		if !rv.IsValid() || rv.Kind() != reflect.Bool {
-			return nil, fmt.Errorf("convert %T to bool", src)
-		}
-		return rv.Bool(), nil
-
+		return convertToBool(src)
 	case parquet.Type_INT32:
-		if _, ok := src.(int32); ok {
-			return src, nil
-		}
-		rv := reflect.ValueOf(src)
-		if !rv.IsValid() || (rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr) {
-			return nil, fmt.Errorf("convert %T to int32", src)
-		}
-		return int32(rv.Int()), nil
-
+		return convertToInt32(src)
 	case parquet.Type_INT64:
-		if _, ok := src.(int64); ok {
-			return src, nil
-		}
-		rv := reflect.ValueOf(src)
-		if !rv.IsValid() || (rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr) {
-			return nil, fmt.Errorf("convert %T to int64", src)
-		}
-		return rv.Int(), nil
-
+		return convertToInt64(src)
 	case parquet.Type_FLOAT:
-		if _, ok := src.(float32); ok {
-			return src, nil
-		}
-		rv := reflect.ValueOf(src)
-		if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
-			return nil, fmt.Errorf("convert %T to float32", src)
-		}
-		return float32(rv.Float()), nil
-
+		return convertToFloat32(src)
 	case parquet.Type_DOUBLE:
-		if _, ok := src.(float64); ok {
-			return src, nil
-		}
-		rv := reflect.ValueOf(src)
-		if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
-			return nil, fmt.Errorf("convert %T to float64", src)
-		}
-		return rv.Float(), nil
-
+		return convertToFloat64(src)
 	case parquet.Type_INT96, parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
-		if _, ok := src.(string); ok {
-			return src, nil
-		}
-		// Also accept []byte and convert to string
-		if b, ok := src.([]byte); ok {
-			return string(b), nil
-		}
-		rv := reflect.ValueOf(src)
-		if !rv.IsValid() || rv.Kind() != reflect.String {
-			return nil, fmt.Errorf("convert %T to string", src)
-		}
-		return rv.String(), nil
-
+		return convertToString(src)
 	default:
 		return src, nil
 	}
@@ -529,61 +537,52 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale)
 }
 
-// jsonValueToParquetDirect attempts direct type conversion without string round-trip.
-// Returns (result, true) on success, or (nil, false) if fallback is needed.
-func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int) (any, bool) {
-	if pT == nil {
-		return nil, false
-	}
-
-	// Handle converted types that need special treatment
-	if cT != nil {
-		switch *cT {
-		case parquet.ConvertedType_UTF8:
-			if val.Kind() == reflect.String {
-				return val.String(), true
-			}
-		case parquet.ConvertedType_INT_8:
-			if v, ok := getNumericValue[int64](val); ok {
-				return int32(int8(v)), true
-			}
-		case parquet.ConvertedType_INT_16:
-			if v, ok := getNumericValue[int64](val); ok {
-				return int32(int16(v)), true
-			}
-		case parquet.ConvertedType_INT_32:
-			if v, ok := getNumericValue[int64](val); ok {
-				return int32(v), true
-			}
-		case parquet.ConvertedType_INT_64:
-			if v, ok := getNumericValue[int64](val); ok {
-				return v, true
-			}
-		case parquet.ConvertedType_UINT_8:
-			if v, ok := getNumericValue[uint64](val); ok {
-				return int32(uint8(v)), true
-			}
-		case parquet.ConvertedType_UINT_16:
-			if v, ok := getNumericValue[uint64](val); ok {
-				return int32(uint16(v)), true
-			}
-		case parquet.ConvertedType_UINT_32:
-			if v, ok := getNumericValue[uint64](val); ok {
-				return int32(uint32(v)), true
-			}
-		case parquet.ConvertedType_UINT_64:
-			if v, ok := getNumericValue[uint64](val); ok {
-				return int64(v), true
-			}
-		// For time/date types, fall back to string parsing (they need special format handling)
-		case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS, parquet.ConvertedType_TIME_MICROS,
-			parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS:
-			return nil, false
+// jsonConvertedTypeDirect handles direct conversion for converted types.
+func jsonConvertedTypeDirect(val reflect.Value, cT parquet.ConvertedType) (any, bool) {
+	switch cT {
+	case parquet.ConvertedType_UTF8:
+		if val.Kind() == reflect.String {
+			return val.String(), true
+		}
+	case parquet.ConvertedType_INT_8:
+		if v, ok := getNumericValue[int64](val); ok {
+			return int32(int8(v)), true
+		}
+	case parquet.ConvertedType_INT_16:
+		if v, ok := getNumericValue[int64](val); ok {
+			return int32(int16(v)), true
+		}
+	case parquet.ConvertedType_INT_32:
+		if v, ok := getNumericValue[int64](val); ok {
+			return int32(v), true
+		}
+	case parquet.ConvertedType_INT_64:
+		if v, ok := getNumericValue[int64](val); ok {
+			return v, true
+		}
+	case parquet.ConvertedType_UINT_8:
+		if v, ok := getNumericValue[uint64](val); ok {
+			return int32(uint8(v)), true
+		}
+	case parquet.ConvertedType_UINT_16:
+		if v, ok := getNumericValue[uint64](val); ok {
+			return int32(uint16(v)), true
+		}
+	case parquet.ConvertedType_UINT_32:
+		if v, ok := getNumericValue[uint64](val); ok {
+			return int32(uint32(v)), true
+		}
+	case parquet.ConvertedType_UINT_64:
+		if v, ok := getNumericValue[uint64](val); ok {
+			return int64(v), true
 		}
 	}
+	return nil, false
+}
 
-	// Handle basic parquet types without converted type
-	switch *pT {
+// jsonPhysicalTypeDirect handles direct conversion for basic parquet physical types.
+func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type) (any, bool) {
+	switch pT {
 	case parquet.Type_BOOLEAN:
 		if val.Kind() == reflect.Bool {
 			return val.Bool(), true
@@ -607,15 +606,36 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 	case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
 		if val.Kind() == reflect.String {
 			s := val.String()
-			// Try base64 decoding first (for binary data)
 			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
 				return string(decoded), true
 			}
 			return s, true
 		}
 	}
-
 	return nil, false
+}
+
+// jsonValueToParquetDirect attempts direct type conversion without string round-trip.
+// Returns (result, true) on success, or (nil, false) if fallback is needed.
+func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, _ *parquet.LogicalType, _ int) (any, bool) {
+	if pT == nil {
+		return nil, false
+	}
+
+	// Handle converted types that need special treatment (skip time/date types that need string parsing)
+	if cT != nil {
+		switch *cT {
+		case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS, parquet.ConvertedType_TIME_MICROS,
+			parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS:
+			return nil, false
+		default:
+			if result, ok := jsonConvertedTypeDirect(val, *cT); ok {
+				return result, true
+			}
+		}
+	}
+
+	return jsonPhysicalTypeDirect(val, *pT)
 }
 
 // numericType is a constraint for numeric types that can be extracted from reflect.Value.
