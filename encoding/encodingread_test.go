@@ -28,6 +28,7 @@ func TestReadBitPacked(t *testing.T) {
 	})
 }
 
+//nolint:gocognit
 func TestReadByteStreamSplit(t *testing.T) {
 	t.Run("float32", func(t *testing.T) {
 		testCases := []struct {
@@ -371,7 +372,7 @@ func TestReadDelta(t *testing.T) {
 			resZigZag, err := ReadUnsignedVarInt(bytes.NewReader(WriteUnsignedVarInt(u64)))
 			require.NoError(t, err)
 			res32 := int32(resZigZag)
-			var res int32 = int32(uint32(res32)>>1) ^ -(res32 & 1)
+			res := int32(uint32(res32)>>1) ^ -(res32 & 1)
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res), "ReadUnsignedVarInt mismatch for %v", data)
 		}
 	})
@@ -387,6 +388,7 @@ func TestReadDelta(t *testing.T) {
 	})
 }
 
+//nolint:gocognit
 func TestReadPlain(t *testing.T) {
 	t.Run("generic", func(t *testing.T) {
 		testCases := []struct {

@@ -263,6 +263,7 @@ func TestWriteDelta(t *testing.T) {
 	})
 }
 
+//nolint:gocognit
 func TestWritePlain(t *testing.T) {
 	t.Run("generic", func(t *testing.T) {
 		testCases := []struct {
