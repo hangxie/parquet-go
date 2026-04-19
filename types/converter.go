@@ -346,7 +346,8 @@ func Float32ToFloat16(f32 float32) string {
 
 	var f16 uint16
 
-	if exp == 0xFF {
+	switch exp {
+	case 0xFF:
 		// Inf or NaN
 		if frac != 0 {
 			// NaN
@@ -355,10 +356,10 @@ func Float32ToFloat16(f32 float32) string {
 			// Inf
 			f16 = uint16((sign << 15) | 0x7C00)
 		}
-	} else if exp == 0 {
+	case 0:
 		// Zero or subnormal
 		f16 = uint16(sign << 15)
-	} else {
+	default:
 		// Normalized number
 		newExp := exp - 127 + 15 // Rebias from float32 to float16
 
