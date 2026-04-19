@@ -1073,6 +1073,7 @@ func TestPagesToDictChunk_GeospatialStatistics(t *testing.T) {
 	})
 }
 
+//nolint:gocognit
 func TestChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 	// Create WKB point data for testing
 	wkbPoint := []byte{
