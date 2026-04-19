@@ -47,6 +47,7 @@ func TestDataPageCompressWithStatistics(t *testing.T) {
 	require.NotNil(t, page.Header.DataPageHeader.Statistics.NullCount)
 }
 
+//nolint:gocognit
 func TestGeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 	// Create WKB point data for testing (point at coordinates 10.5, 20.3)
 	wkbPoint := []byte{
@@ -1926,7 +1927,7 @@ func TestReadPage(t *testing.T) {
 		if err := protocol.Flush(context.Background()); err != nil {
 			require.NoError(t, err)
 		}
-		headerData := transport.Buffer.Bytes()
+		headerData := transport.Bytes()
 		buf.Write(headerData)
 
 		// Add dictionary values (2 INT32 values: 100, 200)
@@ -1959,7 +1960,7 @@ func TestReadPage(t *testing.T) {
 		if err := protocol.Flush(context.Background()); err != nil {
 			require.NoError(t, err)
 		}
-		headerData := transport.Buffer.Bytes()
+		headerData := transport.Bytes()
 		buf.Write(headerData)
 
 		// Add page data (2 INT32 values: 42, 84)
@@ -1995,7 +1996,7 @@ func TestReadPage(t *testing.T) {
 		if err := protocol.Flush(context.Background()); err != nil {
 			require.NoError(t, err)
 		}
-		headerData := transport.Buffer.Bytes()
+		headerData := transport.Bytes()
 		buf.Write(headerData)
 
 		// Add page data (2 INT32 values: 123, 456)
@@ -2126,7 +2127,7 @@ func TestReadPage_NilOptsUsesDefaults(t *testing.T) {
 	protocol := thrift.NewTCompactProtocolConf(transport, nil)
 	require.NoError(t, header.Write(context.Background(), protocol))
 	require.NoError(t, protocol.Flush(context.Background()))
-	headerBytes := transport.Buffer.Bytes()
+	headerBytes := transport.Bytes()
 
 	pageData := []byte{0x7B, 0x00, 0x00, 0x00, 0xC8, 0x01, 0x00, 0x00}
 
@@ -2203,7 +2204,7 @@ func TestReadPageRawData_NilOptsUsesDefaults(t *testing.T) {
 	protocol := thrift.NewTCompactProtocolConf(transport, nil)
 	require.NoError(t, header.Write(context.Background(), protocol))
 	require.NoError(t, protocol.Flush(context.Background()))
-	headerBytes := transport.Buffer.Bytes()
+	headerBytes := transport.Bytes()
 
 	pageData := []byte{0x7B, 0x00, 0x00, 0x00, 0xC8, 0x01, 0x00, 0x00}
 
@@ -2276,7 +2277,7 @@ func TestReadPageV2IsCompressedFalse(t *testing.T) {
 	protocol := thrift.NewTCompactProtocolConf(transport, nil)
 	require.NoError(t, header.Write(context.Background(), protocol))
 	require.NoError(t, protocol.Flush(context.Background()))
-	headerData := transport.Buffer.Bytes()
+	headerData := transport.Bytes()
 
 	var buf bytes.Buffer
 	buf.Write(headerData)
@@ -2284,7 +2285,7 @@ func TestReadPageV2IsCompressedFalse(t *testing.T) {
 	buf.Write([]byte{0x2A, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00})
 
 	mem := thrift.NewTMemoryBufferLen(buf.Len())
-	mem.Buffer.Write(buf.Bytes())
+	mem.Write(buf.Bytes())
 	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
 
 	page, _, _, err := ReadPage(thriftReader, schemaHandler, colMetaData, nil)
@@ -2385,7 +2386,7 @@ func TestReadPageErrorCases(t *testing.T) {
 		if err := protocol.Flush(context.Background()); err != nil {
 			require.NoError(t, err)
 		}
-		headerData := transport.Buffer.Bytes()
+		headerData := transport.Bytes()
 		buf.Write(headerData)
 
 		buf.Write([]byte{0x00, 0x00, 0x00, 0x00})
@@ -2418,7 +2419,7 @@ func TestReadPageErrorCases(t *testing.T) {
 		if err := protocol.Flush(context.Background()); err != nil {
 			require.NoError(t, err)
 		}
-		headerData := transport.Buffer.Bytes()
+		headerData := transport.Bytes()
 		buf.Write(headerData)
 
 		// Add insufficient data (should cause read error)
@@ -2504,7 +2505,7 @@ func TestReadPageHeader(t *testing.T) {
 					return nil
 				}
 
-				return transport.Buffer.Bytes()
+				return transport.Bytes()
 			},
 		},
 		{
@@ -2529,7 +2530,7 @@ func TestReadPageHeader(t *testing.T) {
 					return nil
 				}
 
-				return transport.Buffer.Bytes()
+				return transport.Bytes()
 			},
 		},
 		{
@@ -2552,7 +2553,7 @@ func TestReadPageHeader(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			data := tc.setupData()
 			transport := thrift.NewTMemoryBufferLen(len(data))
-			transport.Buffer.Write(data)
+			transport.Write(data)
 			bufferedTransport := thrift.NewTBufferedTransport(transport, 1024)
 
 			header, err := ReadPageHeader(bufferedTransport)
@@ -2616,7 +2617,7 @@ func TestReadPageRawData(t *testing.T) {
 					return nil
 				}
 
-				headerBytes := transport.Buffer.Bytes()
+				headerBytes := transport.Bytes()
 
 				// Create raw page data (simple int32 values)
 				pageData := []byte{
@@ -2658,7 +2659,7 @@ func TestReadPageRawData(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			data := tc.setupData()
 			transport := thrift.NewTMemoryBufferLen(len(data))
-			transport.Buffer.Write(data)
+			transport.Write(data)
 			bufferedTransport := thrift.NewTBufferedTransport(transport, 1024)
 
 			page, err := ReadPageRawData(bufferedTransport, schemaHandler, tc.colMetadata, nil)
