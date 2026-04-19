@@ -285,7 +285,7 @@ func TestMarshalEmptyContainer(t *testing.T) {
 }
 
 func TestParquetPtrMarshal(t *testing.T) {
-	var integer int = 10
+	integer := 10
 	testData := &marshalCases{
 		integerPtr: &integer,
 	}
