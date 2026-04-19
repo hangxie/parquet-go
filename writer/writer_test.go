@@ -1153,6 +1153,7 @@ func TestPerColumnCompression(t *testing.T) {
 	})
 }
 
+//nolint:gocognit
 func TestDataPageVersion(t *testing.T) {
 	type TestStruct struct {
 		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
@@ -1378,15 +1379,16 @@ func TestDataPageVersion(t *testing.T) {
 			// Value is already decoded to interface{} (map, int64, etc)
 			require.NotNil(t, rec.Val)
 
-			if i == 0 {
+			switch i {
+			case 0:
 				obj, ok := rec.Val.(map[string]any)
 				require.True(t, ok, "Expected map[string]any for row 0")
 				require.Equal(t, "Alice", obj["Name"])
-			} else if i == 1 {
+			case 1:
 				obj, ok := rec.Val.(map[string]any)
 				require.True(t, ok, "Expected map[string]any for row 1")
 				require.Equal(t, "New York", obj["city"])
-			} else if i == 2 {
+			case 2:
 				val, ok := rec.Val.(int64)
 				require.True(t, ok, "Expected int64 for row 2")
 				require.Equal(t, int64(123), val)
