@@ -266,6 +266,98 @@ func decodeVariantValueAt(data []byte, offset int, meta *variantMetadata) (int, 
 }
 
 // decodePrimitiveValue decodes a primitive variant value
+func decodePrimitiveTemporal(data []byte, offset int, primitiveType uint8) (int, any, error) {
+	switch primitiveType {
+	case variantPrimitiveDate:
+		if offset+4 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for date")
+		}
+		days := int32(binary.LittleEndian.Uint32(data[offset:]))
+		return 4, ConvertDateLogicalValue(days), nil
+
+	case variantPrimitiveTimestampMicro, variantPrimitiveTimestampNTZMicro:
+		if offset+8 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for timestamp")
+		}
+		micros := int64(binary.LittleEndian.Uint64(data[offset:]))
+		return 8, TIMESTAMP_MICROSToISO8601(micros, primitiveType == variantPrimitiveTimestampMicro), nil
+
+	case variantPrimitiveTimeNTZ:
+		if offset+8 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for time")
+		}
+		micros := int64(binary.LittleEndian.Uint64(data[offset:]))
+		hours := micros / 3600000000
+		micros %= 3600000000
+		minutes := micros / 60000000
+		micros %= 60000000
+		seconds := micros / 1000000
+		microsFrac := micros % 1000000
+		return 8, fmt.Sprintf("%02d:%02d:%02d.%06d", hours, minutes, seconds, microsFrac), nil
+
+	default: // variantPrimitiveTimestampNano, variantPrimitiveTimestampNTZNano
+		if offset+8 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for timestamp")
+		}
+		nanos := int64(binary.LittleEndian.Uint64(data[offset:]))
+		return 8, TIMESTAMP_NANOSToISO8601(nanos, primitiveType == variantPrimitiveTimestampNano), nil
+	}
+}
+
+func decodePrimitiveVarLen(data []byte, offset int, primitiveType uint8) (int, any, error) {
+	switch primitiveType {
+	case variantPrimitiveString:
+		if offset+4 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for string length")
+		}
+		length := int(binary.LittleEndian.Uint32(data[offset:]))
+		if offset+4+length > len(data) {
+			return 0, nil, fmt.Errorf("string length exceeds data")
+		}
+		return 4 + length, string(data[offset+4 : offset+4+length]), nil
+
+	case variantPrimitiveBinary:
+		if offset+4 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for binary length")
+		}
+		length := int(binary.LittleEndian.Uint32(data[offset:]))
+		if offset+4+length > len(data) {
+			return 0, nil, fmt.Errorf("binary length exceeds data")
+		}
+		return 4 + length, base64.StdEncoding.EncodeToString(data[offset+4 : offset+4+length]), nil
+
+	case variantPrimitiveDecimal4:
+		if offset+5 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for decimal4")
+		}
+		scale := int(data[offset])
+		unscaled := int64(int32(binary.LittleEndian.Uint32(data[offset+1:])))
+		return 5, formatDecimal(unscaled, scale), nil
+
+	case variantPrimitiveDecimal8:
+		if offset+9 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for decimal8")
+		}
+		scale := int(data[offset])
+		unscaled := int64(binary.LittleEndian.Uint64(data[offset+1:]))
+		return 9, formatDecimal(unscaled, scale), nil
+
+	case variantPrimitiveDecimal16:
+		if offset+17 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for decimal16")
+		}
+		scale := int(data[offset])
+		unscaled := readLittleEndianInt128(data[offset+1 : offset+17])
+		return 17, formatDecimal128(unscaled, scale), nil
+
+	default: // variantPrimitiveUUID
+		if offset+16 > len(data) {
+			return 0, nil, fmt.Errorf("not enough data for UUID")
+		}
+		return 16, ConvertUUIDValue(data[offset : offset+16]), nil
+	}
+}
+
 func decodePrimitiveValue(data []byte, offset int, primitiveType uint8) (int, any, error) {
 	switch primitiveType {
 	case variantPrimitiveNull:
@@ -315,100 +407,13 @@ func decodePrimitiveValue(data []byte, offset int, primitiveType uint8) (int, an
 		bits := binary.LittleEndian.Uint32(data[offset:])
 		return 4, math.Float32frombits(bits), nil
 
-	case variantPrimitiveDate:
-		if offset+4 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for date")
-		}
-		days := int32(binary.LittleEndian.Uint32(data[offset:]))
-		return 4, ConvertDateLogicalValue(days), nil
+	case variantPrimitiveDate, variantPrimitiveTimestampMicro, variantPrimitiveTimestampNTZMicro,
+		variantPrimitiveTimeNTZ, variantPrimitiveTimestampNano, variantPrimitiveTimestampNTZNano:
+		return decodePrimitiveTemporal(data, offset, primitiveType)
 
-	case variantPrimitiveTimestampMicro, variantPrimitiveTimestampNTZMicro:
-		if offset+8 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for timestamp")
-		}
-		micros := int64(binary.LittleEndian.Uint64(data[offset:]))
-		// Convert to ISO8601 format (with Z suffix for UTC, without for NTZ)
-		return 8, TIMESTAMP_MICROSToISO8601(micros, primitiveType == variantPrimitiveTimestampMicro), nil
-
-	case variantPrimitiveTimeNTZ:
-		// Time without timezone: 8-byte little-endian microseconds since midnight
-		if offset+8 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for time")
-		}
-		micros := int64(binary.LittleEndian.Uint64(data[offset:]))
-		// Format as HH:MM:SS.ffffff
-		hours := micros / 3600000000
-		micros %= 3600000000
-		minutes := micros / 60000000
-		micros %= 60000000
-		seconds := micros / 1000000
-		microsFrac := micros % 1000000
-		return 8, fmt.Sprintf("%02d:%02d:%02d.%06d", hours, minutes, seconds, microsFrac), nil
-
-	case variantPrimitiveTimestampNano, variantPrimitiveTimestampNTZNano:
-		// Timestamp in nanoseconds
-		if offset+8 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for timestamp")
-		}
-		nanos := int64(binary.LittleEndian.Uint64(data[offset:]))
-		// Convert to ISO8601 format with nanosecond precision
-		return 8, TIMESTAMP_NANOSToISO8601(nanos, primitiveType == variantPrimitiveTimestampNano), nil
-
-	case variantPrimitiveString:
-		// Long string: 4-byte length followed by UTF-8 bytes
-		if offset+4 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for string length")
-		}
-		length := int(binary.LittleEndian.Uint32(data[offset:]))
-		if offset+4+length > len(data) {
-			return 0, nil, fmt.Errorf("string length exceeds data")
-		}
-		return 4 + length, string(data[offset+4 : offset+4+length]), nil
-
-	case variantPrimitiveBinary:
-		// Binary: 4-byte length followed by bytes
-		if offset+4 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for binary length")
-		}
-		length := int(binary.LittleEndian.Uint32(data[offset:]))
-		if offset+4+length > len(data) {
-			return 0, nil, fmt.Errorf("binary length exceeds data")
-		}
-		// Return as base64 for JSON compatibility
-		return 4 + length, base64.StdEncoding.EncodeToString(data[offset+4 : offset+4+length]), nil
-
-	case variantPrimitiveUUID:
-		if offset+16 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for UUID")
-		}
-		return 16, ConvertUUIDValue(data[offset : offset+16]), nil
-
-	case variantPrimitiveDecimal4:
-		// Decimal4: 1 byte scale + 4 bytes unscaled value (little-endian int32)
-		if offset+5 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for decimal4")
-		}
-		scale := int(data[offset])
-		unscaled := int64(int32(binary.LittleEndian.Uint32(data[offset+1:])))
-		return 5, formatDecimal(unscaled, scale), nil
-
-	case variantPrimitiveDecimal8:
-		// Decimal8: 1 byte scale + 8 bytes unscaled value (little-endian int64)
-		if offset+9 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for decimal8")
-		}
-		scale := int(data[offset])
-		unscaled := int64(binary.LittleEndian.Uint64(data[offset+1:]))
-		return 9, formatDecimal(unscaled, scale), nil
-
-	case variantPrimitiveDecimal16:
-		// Decimal16: 1 byte scale + 16 bytes unscaled value (little-endian int128)
-		if offset+17 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for decimal16")
-		}
-		scale := int(data[offset])
-		unscaled := readLittleEndianInt128(data[offset+1 : offset+17])
-		return 17, formatDecimal128(unscaled, scale), nil
+	case variantPrimitiveString, variantPrimitiveBinary, variantPrimitiveUUID,
+		variantPrimitiveDecimal4, variantPrimitiveDecimal8, variantPrimitiveDecimal16:
+		return decodePrimitiveVarLen(data, offset, primitiveType)
 
 	default:
 		return 0, nil, fmt.Errorf("unknown variant primitive type: %d", primitiveType)
@@ -954,6 +959,86 @@ func EncodeGoValueAsVariant(v any) ([]byte, error) {
 	}
 }
 
+func buildFieldNameToID(metadata []byte, context string) (map[string]int, error) {
+	meta, err := decodeVariantMetadata(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("decode metadata for %s encoding: %w", context, err)
+	}
+	fieldNameToID := make(map[string]int)
+	for i, name := range meta.dictionary {
+		fieldNameToID[name] = i
+	}
+	return fieldNameToID, nil
+}
+
+func encodeStructAsVariant(val reflect.Value, metadata []byte) ([]byte, error) {
+	fieldNameToID, err := buildFieldNameToID(metadata, "struct")
+	if err != nil {
+		return nil, err
+	}
+
+	fieldIDs := make([]int, 0, val.NumField())
+	values := make([][]byte, 0, val.NumField())
+
+	t := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" { // unexported
+			continue
+		}
+		name := field.Name
+		id, exists := fieldNameToID[name]
+		if !exists {
+			return nil, fmt.Errorf("struct field %q not in metadata dictionary", name)
+		}
+
+		encoded, err := EncodeGoValueAsVariantWithMetadata(val.Field(i).Interface(), metadata)
+		if err != nil {
+			return nil, fmt.Errorf("encode struct field %q: %w", name, err)
+		}
+		fieldIDs = append(fieldIDs, id)
+		values = append(values, encoded)
+	}
+	return EncodeVariantObject(fieldIDs, values), nil
+}
+
+func encodeMapAsVariant(obj map[string]any, metadata []byte) ([]byte, error) {
+	fieldNameToID, err := buildFieldNameToID(metadata, "object")
+	if err != nil {
+		return nil, err
+	}
+
+	fieldIDs := make([]int, 0, len(obj))
+	values := make([][]byte, 0, len(obj))
+
+	for name, val := range obj {
+		id, exists := fieldNameToID[name]
+		if !exists {
+			return nil, fmt.Errorf("field %q not in metadata dictionary", name)
+		}
+		encoded, err := EncodeGoValueAsVariantWithMetadata(val, metadata)
+		if err != nil {
+			return nil, fmt.Errorf("encode object field %q: %w", name, err)
+		}
+		fieldIDs = append(fieldIDs, id)
+		values = append(values, encoded)
+	}
+
+	return EncodeVariantObject(fieldIDs, values), nil
+}
+
+func encodeSliceAsVariant(arr []any, metadata []byte) ([]byte, error) {
+	encodedElements := make([][]byte, len(arr))
+	for i, elem := range arr {
+		encoded, err := EncodeGoValueAsVariantWithMetadata(elem, metadata)
+		if err != nil {
+			return nil, fmt.Errorf("encode array element %d: %w", i, err)
+		}
+		encodedElements[i] = encoded
+	}
+	return EncodeVariantArray(encodedElements), nil
+}
+
 // EncodeGoValueAsVariantWithMetadata encodes a Go value as variant value bytes,
 // using the provided metadata for field ID lookup in objects.
 // This handles map[string]any by looking up field names in the metadata dictionary.
@@ -962,7 +1047,6 @@ func EncodeGoValueAsVariantWithMetadata(v any, metadata []byte) ([]byte, error) 
 		return EncodeVariantNull(), nil
 	}
 
-	// If already a Variant, return its encoded value directly
 	if variant, ok := v.(Variant); ok {
 		return variant.Value, nil
 	}
@@ -973,96 +1057,18 @@ func EncodeGoValueAsVariantWithMetadata(v any, metadata []byte) ([]byte, error) 
 		return ptr.Value, nil
 	}
 
-	// Use reflection to handle arbitrary structs and slice/maps generically
-	val := reflect.ValueOf(v)
-
-	// Handle structs as objects
-	if val.Kind() == reflect.Struct {
-		meta, err := decodeVariantMetadata(metadata)
-		if err != nil {
-			return nil, fmt.Errorf("decode metadata for struct encoding: %w", err)
-		}
-
-		fieldNameToID := make(map[string]int)
-		for i, name := range meta.dictionary {
-			fieldNameToID[name] = i
-		}
-
-		fieldIDs := make([]int, 0, val.NumField())
-		values := make([][]byte, 0, val.NumField())
-
-		t := val.Type()
-		for i := 0; i < val.NumField(); i++ {
-			field := t.Field(i)
-			if field.PkgPath != "" { // unexported
-				continue
-			}
-			name := field.Name
-			id, exists := fieldNameToID[name]
-			if !exists {
-				// If struct field not in metadata, we can either error or skip.
-				// Since collectKeys should have found it, erroring is appropriate if we expect strict schema.
-				// However, if metadata is partial, skipping might be preferred.
-				// For AnyToVariant consistency, we error if metadata is missing a field present in the value.
-				return nil, fmt.Errorf("struct field %q not in metadata dictionary", name)
-			}
-
-			encoded, err := EncodeGoValueAsVariantWithMetadata(val.Field(i).Interface(), metadata)
-			if err != nil {
-				return nil, fmt.Errorf("encode struct field %q: %w", name, err)
-			}
-			fieldIDs = append(fieldIDs, id)
-			values = append(values, encoded)
-		}
-		return EncodeVariantObject(fieldIDs, values), nil
-	}
-
-	// Handle map[string]any with metadata
 	if obj, ok := v.(map[string]any); ok {
-		meta, err := decodeVariantMetadata(metadata)
-		if err != nil {
-			return nil, fmt.Errorf("decode metadata for object encoding: %w", err)
-		}
-
-		// Build field name to ID mapping
-		fieldNameToID := make(map[string]int)
-		for i, name := range meta.dictionary {
-			fieldNameToID[name] = i
-		}
-
-		fieldIDs := make([]int, 0, len(obj))
-		values := make([][]byte, 0, len(obj))
-
-		for name, val := range obj {
-			id, exists := fieldNameToID[name]
-			if !exists {
-				return nil, fmt.Errorf("field %q not in metadata dictionary", name)
-			}
-			encoded, err := EncodeGoValueAsVariantWithMetadata(val, metadata)
-			if err != nil {
-				return nil, fmt.Errorf("encode object field %q: %w", name, err)
-			}
-			fieldIDs = append(fieldIDs, id)
-			values = append(values, encoded)
-		}
-
-		return EncodeVariantObject(fieldIDs, values), nil
+		return encodeMapAsVariant(obj, metadata)
 	}
-
-	// Handle []any with metadata (to support nested objects)
 	if arr, ok := v.([]any); ok {
-		encodedElements := make([][]byte, len(arr))
-		for i, elem := range arr {
-			encoded, err := EncodeGoValueAsVariantWithMetadata(elem, metadata)
-			if err != nil {
-				return nil, fmt.Errorf("encode array element %d: %w", i, err)
-			}
-			encodedElements[i] = encoded
-		}
-		return EncodeVariantArray(encodedElements), nil
+		return encodeSliceAsVariant(arr, metadata)
 	}
 
-	// For non-objects, use the basic encoder
+	val := reflect.ValueOf(v)
+	if val.Kind() == reflect.Struct {
+		return encodeStructAsVariant(val, metadata)
+	}
+
 	return EncodeGoValueAsVariant(v)
 }
 

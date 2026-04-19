@@ -1695,6 +1695,7 @@ func TestEncodeVariantInt16(t *testing.T) {
 	}
 }
 
+//nolint:gocognit
 func TestEncodeGoValueAsVariant(t *testing.T) {
 	meta := &variantMetadata{dictionary: []string{}}
 
