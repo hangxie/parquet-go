@@ -220,6 +220,87 @@ func (pw *ParquetWriter) RenameSchema() {
 }
 
 // Write the footer and stop writing
+func (pw *ParquetWriter) writeColumnIndexes(ts *thrift.TSerializer) error {
+	if len(pw.columnIndexes) == 0 {
+		return nil
+	}
+	idx := 0
+	for _, rowGroup := range pw.Footer.RowGroups {
+		for _, columnChunk := range rowGroup.Columns {
+			columnIndexBuf, err := ts.Write(context.TODO(), pw.columnIndexes[idx])
+			if err != nil {
+				return fmt.Errorf("serialize column index: %w", err)
+			}
+			if _, err = pw.PFile.Write(columnIndexBuf); err != nil {
+				return fmt.Errorf("write column index: %w", err)
+			}
+
+			idx++
+
+			pos := pw.offset
+			columnChunk.ColumnIndexOffset = &pos
+			columnIndexBufSize := int32(len(columnIndexBuf))
+			columnChunk.ColumnIndexLength = &columnIndexBufSize
+
+			pw.offset += int64(columnIndexBufSize)
+		}
+	}
+	return nil
+}
+
+func (pw *ParquetWriter) writeOffsetIndexes(ts *thrift.TSerializer) error {
+	if len(pw.offsetIndexes) == 0 {
+		return nil
+	}
+	idx := 0
+	for _, rowGroup := range pw.Footer.RowGroups {
+		for _, columnChunk := range rowGroup.Columns {
+			offsetIndexBuf, err := ts.Write(context.TODO(), pw.offsetIndexes[idx])
+			if err != nil {
+				return fmt.Errorf("serialize offset index: %w", err)
+			}
+			if _, err = pw.PFile.Write(offsetIndexBuf); err != nil {
+				return fmt.Errorf("write offset index: %w", err)
+			}
+
+			idx++
+
+			pos := pw.offset
+			columnChunk.OffsetIndexOffset = &pos
+			offsetIndexBufSize := int32(len(offsetIndexBuf))
+			columnChunk.OffsetIndexLength = &offsetIndexBufSize
+
+			pw.offset += int64(offsetIndexBufSize)
+		}
+	}
+	return nil
+}
+
+func (pw *ParquetWriter) writeBloomFilters() error {
+	if len(pw.bloomFilterData) == 0 {
+		return nil
+	}
+	idx := 0
+	for _, rowGroup := range pw.Footer.RowGroups {
+		for _, columnChunk := range rowGroup.Columns {
+			data := pw.bloomFilterData[idx]
+			idx++
+			if data == nil {
+				continue
+			}
+			if _, err := pw.PFile.Write(data); err != nil {
+				return fmt.Errorf("write bloom filter: %w", err)
+			}
+			pos := pw.offset
+			columnChunk.MetaData.BloomFilterOffset = &pos
+			totalLen := int32(len(data))
+			columnChunk.MetaData.BloomFilterLength = &totalLen
+			pw.offset += int64(totalLen)
+		}
+	}
+	return nil
+}
+
 func (pw *ParquetWriter) WriteStop() error {
 	if pw.stopped {
 		return nil
@@ -234,76 +315,16 @@ func (pw *ParquetWriter) WriteStop() error {
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
 	pw.RenameSchema()
 
-	// write ColumnIndex
-	if len(pw.columnIndexes) > 0 {
-		idx := 0
-		for _, rowGroup := range pw.Footer.RowGroups {
-			for _, columnChunk := range rowGroup.Columns {
-				columnIndexBuf, err := ts.Write(context.TODO(), pw.columnIndexes[idx])
-				if err != nil {
-					return fmt.Errorf("serialize column index: %w", err)
-				}
-				if _, err = pw.PFile.Write(columnIndexBuf); err != nil {
-					return fmt.Errorf("write column index: %w", err)
-				}
-
-				idx++
-
-				pos := pw.offset
-				columnChunk.ColumnIndexOffset = &pos
-				columnIndexBufSize := int32(len(columnIndexBuf))
-				columnChunk.ColumnIndexLength = &columnIndexBufSize
-
-				pw.offset += int64(columnIndexBufSize)
-			}
-		}
+	if err = pw.writeColumnIndexes(ts); err != nil {
+		return err
 	}
 
-	// write OffsetIndex
-	if len(pw.offsetIndexes) > 0 {
-		idx := 0
-		for _, rowGroup := range pw.Footer.RowGroups {
-			for _, columnChunk := range rowGroup.Columns {
-				offsetIndexBuf, err := ts.Write(context.TODO(), pw.offsetIndexes[idx])
-				if err != nil {
-					return fmt.Errorf("serialize offset index: %w", err)
-				}
-				if _, err = pw.PFile.Write(offsetIndexBuf); err != nil {
-					return fmt.Errorf("write offset index: %w", err)
-				}
-
-				idx++
-
-				pos := pw.offset
-				columnChunk.OffsetIndexOffset = &pos
-				offsetIndexBufSize := int32(len(offsetIndexBuf))
-				columnChunk.OffsetIndexLength = &offsetIndexBufSize
-
-				pw.offset += int64(offsetIndexBufSize)
-			}
-		}
+	if err = pw.writeOffsetIndexes(ts); err != nil {
+		return err
 	}
 
-	// write BloomFilter
-	if len(pw.bloomFilterData) > 0 {
-		idx := 0
-		for _, rowGroup := range pw.Footer.RowGroups {
-			for _, columnChunk := range rowGroup.Columns {
-				data := pw.bloomFilterData[idx]
-				idx++
-				if data == nil {
-					continue
-				}
-				if _, err = pw.PFile.Write(data); err != nil {
-					return fmt.Errorf("write bloom filter: %w", err)
-				}
-				pos := pw.offset
-				columnChunk.MetaData.BloomFilterOffset = &pos
-				totalLen := int32(len(data))
-				columnChunk.MetaData.BloomFilterLength = &totalLen
-				pw.offset += int64(totalLen)
-			}
-		}
+	if err = pw.writeBloomFilters(); err != nil {
+		return err
 	}
 
 	// Set ColumnOrders so readers can correctly interpret min/max statistics.
@@ -385,8 +406,86 @@ func (pw *ParquetWriter) Write(src any) error {
 	return nil
 }
 
+func (pw *ParquetWriter) insertBloomValues(name string, table *layout.Table, bloomMu *sync.Mutex) {
+	bf, ok := pw.bloomFilters[name]
+	if !ok || table.Schema.Type == nil {
+		return
+	}
+	bloomMu.Lock()
+	defer bloomMu.Unlock()
+	for _, val := range table.Values {
+		if val == nil {
+			continue
+		}
+		if h, hashErr := bloomfilter.HashValue(val, *table.Schema.Type); hashErr == nil {
+			bf.Insert(h)
+		}
+	}
+}
+
+func (pw *ParquetWriter) tableCompressionType(table *layout.Table) parquet.CompressionCodec {
+	if table.Info != nil && table.Info.CompressionType != nil {
+		return *table.Info.CompressionType
+	}
+	return pw.compressionType
+}
+
+func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, compressionType parquet.CompressionCodec, convMu *sync.Mutex) ([]*layout.Page, error) {
+	var dictRec *layout.DictRecType
+	if v, ok := pw.DictRecs.Load(name); ok {
+		dictRec = v.(*layout.DictRecType)
+	} else {
+		newRec := layout.NewDictRec(*table.Schema.Type)
+		actual, _ := pw.DictRecs.LoadOrStore(name, newRec)
+		dictRec = actual.(*layout.DictRecType)
+	}
+
+	convMu.Lock()
+	pages, _, err := layout.TableToDictDataPagesWithOption(dictRec, table, 32, layout.PageWriteOption{
+		PageSize:     int32(pw.pageSize),
+		CompressType: compressionType,
+		WriteCRC:     pw.writeCRC,
+	})
+	convMu.Unlock()
+	return pages, err
+}
+
+func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType parquet.CompressionCodec) ([]*layout.Page, error) {
+	pages, _, err := layout.TableToDataPagesWithOption(table, layout.PageWriteOption{
+		PageSize:        int32(pw.pageSize),
+		CompressType:    compressionType,
+		DataPageVersion: pw.dataPageVersion,
+		WriteCRC:        pw.writeCRC,
+	})
+	return pages, err
+}
+
+func (pw *ParquetWriter) convertTableToPages(name string, table *layout.Table, convMu *sync.Mutex) ([]*layout.Page, error) {
+	compressionType := pw.tableCompressionType(table)
+	if table.Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY ||
+		table.Info.Encoding == parquet.Encoding_RLE_DICTIONARY {
+		return pw.tableToDictPages(name, table, compressionType, convMu)
+	}
+	return pw.tableToPlainPages(table, compressionType)
+}
+
+func (pw *ParquetWriter) mergePageResults(pagesMapList []map[string][]*layout.Page) {
+	for _, pagesMap := range pagesMapList {
+		for name, pages := range pagesMap {
+			if _, ok := pw.pagesMapBuf[name]; !ok {
+				pw.pagesMapBuf[name] = pages
+			} else {
+				pw.pagesMapBuf[name] = append(pw.pagesMapBuf[name], pages...)
+			}
+			for _, page := range pages {
+				pw.size += int64(len(page.RawData))
+				page.DataTable = nil // release memory
+			}
+		}
+	}
+}
+
 func (pw *ParquetWriter) flushObjs() error {
-	var err error
 	l := int64(len(pw.objs))
 	if l <= 0 {
 		return nil
@@ -397,13 +496,10 @@ func (pw *ParquetWriter) flushObjs() error {
 	}
 
 	delta := (l + pw.np - 1) / pw.np
-	// layout.TableTo(Data|Dict)Pages appears not to be thread-safe; guard calls
-	// with a conversion mutex to avoid races observed in tests.
 	var convMu sync.Mutex
-	// bloomMu protects bloom filter Insert calls from concurrent goroutines.
 	var bloomMu sync.Mutex
 	var wg sync.WaitGroup
-	var errs []error = make([]error, pw.np)
+	errs := make([]error, pw.np)
 
 	for c := range pw.np {
 		bgn := c * delta
@@ -424,75 +520,26 @@ func (pw *ParquetWriter) flushObjs() error {
 			}
 
 			tableMap, err2 := pw.marshalFunc(pw.objs[b:e], pw.SchemaHandler)
-
-			if err2 == nil {
-				for name, table := range *tableMap {
-					// Collect values for bloom filter before dict encoding converts them to indices.
-					if bf, ok := pw.bloomFilters[name]; ok && table.Schema.Type != nil {
-						bloomMu.Lock()
-						for _, val := range table.Values {
-							if val == nil {
-								continue
-							}
-							if h, hashErr := bloomfilter.HashValue(val, *table.Schema.Type); hashErr == nil {
-								bf.Insert(h)
-							}
-						}
-						bloomMu.Unlock()
-					}
-
-					// Use per-column compression if specified, otherwise fall back to file-level compression
-					compressionType := pw.compressionType
-					if table.Info != nil && table.Info.CompressionType != nil {
-						compressionType = *table.Info.CompressionType
-					}
-
-					if table.Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY ||
-						table.Info.Encoding == parquet.Encoding_RLE_DICTIONARY {
-						// Load or create the dictionary recorder atomically
-						var dictRec *layout.DictRecType
-						if v, ok := pw.DictRecs.Load(name); ok {
-							dictRec = v.(*layout.DictRecType)
-						} else {
-							newRec := layout.NewDictRec(*table.Schema.Type)
-							actual, _ := pw.DictRecs.LoadOrStore(name, newRec)
-							dictRec = actual.(*layout.DictRecType)
-						}
-
-						// mutiple goroutines may write to same dict page
-						convMu.Lock()
-						pages, _, localErr := layout.TableToDictDataPagesWithOption(dictRec, table, 32, layout.PageWriteOption{
-							PageSize:     int32(pw.pageSize),
-							CompressType: compressionType,
-							WriteCRC:     pw.writeCRC,
-						})
-						convMu.Unlock()
-						if localErr != nil {
-							errs[index] = localErr
-						} else {
-							pagesMapList[index][name] = pages
-						}
-					} else {
-						pages, _, localErr := layout.TableToDataPagesWithOption(table, layout.PageWriteOption{
-							PageSize:        int32(pw.pageSize),
-							CompressType:    compressionType,
-							DataPageVersion: pw.dataPageVersion,
-							WriteCRC:        pw.writeCRC,
-						})
-						if localErr != nil {
-							errs[index] = localErr
-						} else {
-							pagesMapList[index][name] = pages
-						}
-					}
-				}
-			} else {
+			if err2 != nil {
 				errs[index] = err2
+				return
+			}
+
+			for name, table := range *tableMap {
+				pw.insertBloomValues(name, table, &bloomMu)
+				pages, localErr := pw.convertTableToPages(name, table, &convMu)
+				if localErr != nil {
+					errs[index] = localErr
+					return
+				}
+				pagesMapList[index][name] = pages
 			}
 		}(int(bgn), int(end), c)
 	}
 
 	wg.Wait()
+
+	var err error
 	for _, err2 := range errs {
 		if err2 != nil {
 			err = err2
@@ -500,20 +547,7 @@ func (pw *ParquetWriter) flushObjs() error {
 		}
 	}
 
-	for _, pagesMap := range pagesMapList {
-		for name, pages := range pagesMap {
-			if _, ok := pw.pagesMapBuf[name]; !ok {
-				pw.pagesMapBuf[name] = pages
-			} else {
-				pw.pagesMapBuf[name] = append(pw.pagesMapBuf[name], pages...)
-			}
-			for _, page := range pages {
-				pw.size += int64(len(page.RawData))
-				page.DataTable = nil // release memory
-			}
-		}
-	}
-
+	pw.mergePageResults(pagesMapList)
 	pw.numRows += int64(len(pw.objs))
 	if err != nil {
 		return fmt.Errorf("flush objects: %w", err)
@@ -521,200 +555,230 @@ func (pw *ParquetWriter) flushObjs() error {
 	return nil
 }
 
+func (pw *ParquetWriter) buildChunkMap() (map[string]*layout.Chunk, error) {
+	chunkMap := make(map[string]*layout.Chunk)
+	for name, pages := range pw.pagesMapBuf {
+		compressionType := pw.compressionType
+		if idx, ok := pw.SchemaHandler.MapIndex[name]; ok {
+			if info := pw.SchemaHandler.Infos[idx]; info != nil && info.CompressionType != nil {
+				compressionType = *info.CompressionType
+			}
+		}
+
+		if len(pages) > 0 && (pages[0].Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY || pages[0].Info.Encoding == parquet.Encoding_RLE_DICTIONARY) {
+			v, ok := pw.DictRecs.Load(name)
+			if !ok {
+				return nil, fmt.Errorf("missing dictionary recorder for column %s", name)
+			}
+			dictRec := v.(*layout.DictRecType)
+			dictPage, _, err := layout.DictRecToDictPageWithOption(dictRec, layout.PageWriteOption{
+				PageSize:     int32(pw.pageSize),
+				CompressType: compressionType,
+				WriteCRC:     pw.writeCRC,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)
+			}
+			tmp := append([]*layout.Page{dictPage}, pages...)
+			var chunkErr error
+			chunkMap[name], chunkErr = layout.PagesToDictChunk(tmp)
+			if chunkErr != nil {
+				return nil, fmt.Errorf("convert pages to dict chunk for column %s: %w", name, chunkErr)
+			}
+		} else {
+			var err error
+			chunkMap[name], err = layout.PagesToChunk(pages)
+			if err != nil {
+				return nil, fmt.Errorf("convert pages to chunk for column %s: %w", name, err)
+			}
+		}
+	}
+	return chunkMap, nil
+}
+
+func (pw *ParquetWriter) buildRowGroup(chunkMap map[string]*layout.Chunk) *layout.RowGroup {
+	rowGroup := layout.NewRowGroup()
+	rowGroup.RowGroupHeader.Columns = make([]*parquet.ColumnChunk, 0)
+
+	for k := range len(pw.SchemaHandler.SchemaElements) {
+		se := pw.SchemaHandler.SchemaElements[k]
+		if se.GetNumChildren() > 0 {
+			continue
+		}
+		chunk := chunkMap[pw.SchemaHandler.IndexMap[int32(k)]]
+		if chunk == nil {
+			continue
+		}
+		rowGroup.Chunks = append(rowGroup.Chunks, chunk)
+		rowGroup.RowGroupHeader.TotalByteSize += chunk.ChunkHeader.MetaData.TotalUncompressedSize
+		rowGroup.RowGroupHeader.Columns = append(rowGroup.RowGroupHeader.Columns, chunk.ChunkHeader)
+	}
+	rowGroup.RowGroupHeader.NumRows = pw.numRows
+	pw.numRows = 0
+	return rowGroup
+}
+
+type pageStats struct {
+	minVal    []byte
+	maxVal    []byte
+	nullCount *int64
+}
+
+func extractPageStats(page *layout.Page) pageStats {
+	if page.Header.DataPageHeader != nil && page.Header.DataPageHeader.Statistics != nil {
+		s := page.Header.DataPageHeader.Statistics
+		return pageStats{minVal: s.Min, maxVal: s.Max, nullCount: s.NullCount}
+	}
+	if page.Header.DataPageHeaderV2 != nil && page.Header.DataPageHeaderV2.Statistics != nil {
+		s := page.Header.DataPageHeaderV2.Statistics
+		return pageStats{minVal: s.Min, maxVal: s.Max, nullCount: s.NullCount}
+	}
+	return pageStats{}
+}
+
+func dataPageNumValues(page *layout.Page) int64 {
+	if page.Header.DataPageHeader != nil {
+		return int64(page.Header.DataPageHeader.NumValues)
+	}
+	if page.Header.DataPageHeaderV2 != nil {
+		return int64(page.Header.DataPageHeaderV2.NumValues)
+	}
+	return 0
+}
+
+func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.ColumnIndex, offsetIndex *parquet.OffsetIndex, dataPageIdx, dataPageCount int, firstRowIndex *int64) error {
+	if page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil {
+		return fmt.Errorf("unsupported data page: %s", page.Header.String())
+	}
+
+	stats := extractPageStats(page)
+	columnIndex.MinValues[dataPageIdx] = stats.minVal
+	columnIndex.MaxValues[dataPageIdx] = stats.maxVal
+	if stats.nullCount != nil {
+		if columnIndex.NullCounts == nil {
+			columnIndex.NullCounts = make([]int64, dataPageCount)
+		}
+		columnIndex.NullCounts[dataPageIdx] = *stats.nullCount
+	}
+
+	if page.DefinitionLevelHistogram != nil {
+		columnIndex.DefinitionLevelHistograms = append(columnIndex.DefinitionLevelHistograms, page.DefinitionLevelHistogram...)
+	}
+	if page.RepetitionLevelHistogram != nil {
+		columnIndex.RepetitionLevelHistograms = append(columnIndex.RepetitionLevelHistograms, page.RepetitionLevelHistogram...)
+	}
+
+	pageLocation := parquet.NewPageLocation()
+	pageLocation.Offset = pw.offset
+	pageLocation.FirstRowIndex = *firstRowIndex
+	pageLocation.CompressedPageSize = int32(len(page.RawData))
+	offsetIndex.PageLocations = append(offsetIndex.PageLocations, pageLocation)
+
+	*firstRowIndex += dataPageNumValues(page)
+	return nil
+}
+
+func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, _ int) error {
+	chunk.ChunkHeader.MetaData.DataPageOffset = -1
+	chunk.ChunkHeader.FileOffset = pw.offset
+
+	pages := chunk.Pages
+	dataPageCount := 0
+	for _, p := range pages {
+		if p.Header.Type != parquet.PageType_DICTIONARY_PAGE {
+			dataPageCount++
+		}
+	}
+
+	columnIndex := parquet.NewColumnIndex()
+	columnIndex.NullPages = make([]bool, dataPageCount)
+	columnIndex.MinValues = make([][]byte, dataPageCount)
+	columnIndex.MaxValues = make([][]byte, dataPageCount)
+	columnIndex.BoundaryOrder = parquet.BoundaryOrder_UNORDERED
+	pw.columnIndexes = append(pw.columnIndexes, columnIndex)
+
+	offsetIndex := parquet.NewOffsetIndex()
+	offsetIndex.PageLocations = make([]*parquet.PageLocation, 0)
+	pw.offsetIndexes = append(pw.offsetIndexes, offsetIndex)
+
+	firstRowIndex := int64(0)
+	dataPageIdx := 0
+
+	for _, page := range pages {
+		if page.Header.Type == parquet.PageType_DICTIONARY_PAGE {
+			tmp := pw.offset
+			chunk.ChunkHeader.MetaData.DictionaryPageOffset = &tmp
+		} else if chunk.ChunkHeader.MetaData.DataPageOffset <= 0 {
+			chunk.ChunkHeader.MetaData.DataPageOffset = pw.offset
+		}
+
+		if page.Header.Type != parquet.PageType_DICTIONARY_PAGE {
+			if err := pw.recordDataPage(page, columnIndex, offsetIndex, dataPageIdx, dataPageCount, &firstRowIndex); err != nil {
+				return err
+			}
+			dataPageIdx++
+		}
+
+		if _, err := pw.PFile.Write(page.RawData); err != nil {
+			return fmt.Errorf("write page data: %w", err)
+		}
+		pw.offset += int64(len(page.RawData))
+	}
+	return nil
+}
+
+func (pw *ParquetWriter) serializeBloomFilters() error {
+	if len(pw.bloomFilters) == 0 {
+		return nil
+	}
+	ts := thrift.NewTSerializer()
+	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+	for k := range len(pw.SchemaHandler.SchemaElements) {
+		se := pw.SchemaHandler.SchemaElements[k]
+		if se.GetNumChildren() > 0 {
+			continue
+		}
+		path := pw.SchemaHandler.IndexMap[int32(k)]
+		bf, ok := pw.bloomFilters[path]
+		if !ok {
+			pw.bloomFilterData = append(pw.bloomFilterData, nil)
+			continue
+		}
+		headerBuf, err := ts.Write(context.TODO(), bf.Header())
+		if err != nil {
+			return fmt.Errorf("serialize bloom filter header for column %s: %w", path, err)
+		}
+		pw.bloomFilterData = append(pw.bloomFilterData, append(headerBuf, bf.Bitset()...))
+	}
+	pw.initBloomFilters()
+	return nil
+}
+
 // Flush the write buffer to parquet file
 func (pw *ParquetWriter) Flush(flag bool) error {
-	var err error
-
-	if err = pw.flushObjs(); err != nil {
+	if err := pw.flushObjs(); err != nil {
 		return fmt.Errorf("flush objects during flush: %w", err)
 	}
 
 	if (pw.size+pw.objsSize >= pw.rowGroupSize || flag) && len(pw.pagesMapBuf) > 0 {
-		// pages -> chunk
-		chunkMap := make(map[string]*layout.Chunk)
-		for name, pages := range pw.pagesMapBuf {
-			// Determine compression type for this column
-			compressionType := pw.compressionType
-			if idx, ok := pw.SchemaHandler.MapIndex[name]; ok {
-				if info := pw.SchemaHandler.Infos[idx]; info != nil && info.CompressionType != nil {
-					compressionType = *info.CompressionType
-				}
-			}
-
-			if len(pages) > 0 && (pages[0].Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY || pages[0].Info.Encoding == parquet.Encoding_RLE_DICTIONARY) {
-				v, ok := pw.DictRecs.Load(name)
-				if !ok {
-					return fmt.Errorf("missing dictionary recorder for column %s", name)
-				}
-				dictRec := v.(*layout.DictRecType)
-				dictPage, _, err := layout.DictRecToDictPageWithOption(dictRec, layout.PageWriteOption{
-					PageSize:     int32(pw.pageSize),
-					CompressType: compressionType,
-					WriteCRC:     pw.writeCRC,
-				})
-				if err != nil {
-					return fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)
-				}
-				tmp := append([]*layout.Page{dictPage}, pages...)
-				chunkMap[name], err = layout.PagesToDictChunk(tmp)
-				if err != nil {
-					return fmt.Errorf("convert pages to dict chunk for column %s: %w", name, err)
-				}
-			} else {
-				chunkMap[name], err = layout.PagesToChunk(pages)
-				if err != nil {
-					return fmt.Errorf("convert pages to chunk for column %s: %w", name, err)
-				}
-			}
+		chunkMap, err := pw.buildChunkMap()
+		if err != nil {
+			return err
 		}
-
 		pw.DictRecs.Clear()
 
-		// chunks -> rowGroup
-		rowGroup := layout.NewRowGroup()
-		rowGroup.RowGroupHeader.Columns = make([]*parquet.ColumnChunk, 0)
-
-		for k := range len(pw.SchemaHandler.SchemaElements) {
-			// for _, chunk := range chunkMap {
-			schema := pw.SchemaHandler.SchemaElements[k]
-			if schema.GetNumChildren() > 0 {
-				continue
-			}
-			chunk := chunkMap[pw.SchemaHandler.IndexMap[int32(k)]]
-			if chunk == nil {
-				continue
-			}
-			rowGroup.Chunks = append(rowGroup.Chunks, chunk)
-			// rowGroup.RowGroupHeader.TotalByteSize += chunk.ChunkHeader.MetaData.TotalCompressedSize
-			rowGroup.RowGroupHeader.TotalByteSize += chunk.ChunkHeader.MetaData.TotalUncompressedSize
-			rowGroup.RowGroupHeader.Columns = append(rowGroup.RowGroupHeader.Columns, chunk.ChunkHeader)
-		}
-		rowGroup.RowGroupHeader.NumRows = pw.numRows
-		pw.numRows = 0
+		rowGroup := pw.buildRowGroup(chunkMap)
 
 		for k := range len(rowGroup.Chunks) {
-			rowGroup.Chunks[k].ChunkHeader.MetaData.DataPageOffset = -1
-			rowGroup.Chunks[k].ChunkHeader.FileOffset = pw.offset
-
-			pages := rowGroup.Chunks[k].Pages
-			dataPageCount := 0
-			for _, p := range pages {
-				if p.Header.Type != parquet.PageType_DICTIONARY_PAGE {
-					dataPageCount++
-				}
-			}
-
-			// add ColumnIndex
-			columnIndex := parquet.NewColumnIndex()
-			columnIndex.NullPages = make([]bool, dataPageCount)
-			columnIndex.MinValues = make([][]byte, dataPageCount)
-			columnIndex.MaxValues = make([][]byte, dataPageCount)
-			columnIndex.BoundaryOrder = parquet.BoundaryOrder_UNORDERED
-			pw.columnIndexes = append(pw.columnIndexes, columnIndex)
-
-			// add OffsetIndex
-			offsetIndex := parquet.NewOffsetIndex()
-			offsetIndex.PageLocations = make([]*parquet.PageLocation, 0)
-			pw.offsetIndexes = append(pw.offsetIndexes, offsetIndex)
-
-			firstRowIndex := int64(0)
-			dataPageIdx := 0
-
-			for l := range len(pages) {
-				page := pages[l]
-				if page.Header.Type == parquet.PageType_DICTIONARY_PAGE {
-					tmp := pw.offset
-					rowGroup.Chunks[k].ChunkHeader.MetaData.DictionaryPageOffset = &tmp
-				} else if rowGroup.Chunks[k].ChunkHeader.MetaData.DataPageOffset <= 0 {
-					rowGroup.Chunks[k].ChunkHeader.MetaData.DataPageOffset = pw.offset
-				}
-
-				// only record DataPage
-				if page.Header.Type != parquet.PageType_DICTIONARY_PAGE {
-					if page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil {
-						return fmt.Errorf("unsupported data page: %s", page.Header.String())
-					}
-
-					var minVal []byte
-					var maxVal []byte
-					var nullCount *int64
-					if page.Header.DataPageHeader != nil && page.Header.DataPageHeader.Statistics != nil {
-						minVal = page.Header.DataPageHeader.Statistics.Min
-						maxVal = page.Header.DataPageHeader.Statistics.Max
-						nullCount = page.Header.DataPageHeader.Statistics.NullCount
-
-					} else if page.Header.DataPageHeaderV2 != nil && page.Header.DataPageHeaderV2.Statistics != nil {
-						minVal = page.Header.DataPageHeaderV2.Statistics.Min
-						maxVal = page.Header.DataPageHeaderV2.Statistics.Max
-						nullCount = page.Header.DataPageHeaderV2.Statistics.NullCount
-					}
-
-					columnIndex.MinValues[dataPageIdx] = minVal
-					columnIndex.MaxValues[dataPageIdx] = maxVal
-					// Statistics.NullCount is nil when statistics are omitted for the column otherwise for all column page headers it will be populated.
-					if nullCount != nil {
-						if columnIndex.NullCounts == nil {
-							columnIndex.NullCounts = make([]int64, dataPageCount)
-						}
-						columnIndex.NullCounts[dataPageIdx] = *nullCount
-					}
-
-					// Append pre-computed per-page level histograms for ColumnIndex.
-					if page.DefinitionLevelHistogram != nil {
-						columnIndex.DefinitionLevelHistograms = append(columnIndex.DefinitionLevelHistograms, page.DefinitionLevelHistogram...)
-					}
-					if page.RepetitionLevelHistogram != nil {
-						columnIndex.RepetitionLevelHistograms = append(columnIndex.RepetitionLevelHistograms, page.RepetitionLevelHistogram...)
-					}
-
-					pageLocation := parquet.NewPageLocation()
-					pageLocation.Offset = pw.offset
-					pageLocation.FirstRowIndex = firstRowIndex
-					pageLocation.CompressedPageSize = int32(len(page.RawData))
-
-					offsetIndex.PageLocations = append(offsetIndex.PageLocations, pageLocation)
-
-					if page.Header.DataPageHeader != nil {
-						firstRowIndex += int64(page.Header.DataPageHeader.NumValues)
-					} else if page.Header.DataPageHeaderV2 != nil {
-						firstRowIndex += int64(page.Header.DataPageHeaderV2.NumValues)
-					}
-					dataPageIdx++
-				}
-
-				data := page.RawData
-				if _, err = pw.PFile.Write(data); err != nil {
-					return fmt.Errorf("write page data: %w", err)
-				}
-				pw.offset += int64(len(data))
+			if err := pw.writeChunkPages(rowGroup.Chunks[k], k); err != nil {
+				return err
 			}
 		}
 
 		pw.Footer.RowGroups = append(pw.Footer.RowGroups, rowGroup.RowGroupHeader)
 
-		// Serialize bloom filter data for this row group, one entry per column chunk.
-		if len(pw.bloomFilters) > 0 {
-			ts := thrift.NewTSerializer()
-			ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-			for k := range len(pw.SchemaHandler.SchemaElements) {
-				se := pw.SchemaHandler.SchemaElements[k]
-				if se.GetNumChildren() > 0 {
-					continue
-				}
-				path := pw.SchemaHandler.IndexMap[int32(k)]
-				bf, ok := pw.bloomFilters[path]
-				if !ok {
-					pw.bloomFilterData = append(pw.bloomFilterData, nil)
-					continue
-				}
-				headerBuf, err := ts.Write(context.TODO(), bf.Header())
-				if err != nil {
-					return fmt.Errorf("serialize bloom filter header for column %s: %w", path, err)
-				}
-				pw.bloomFilterData = append(pw.bloomFilterData, append(headerBuf, bf.Bitset()...))
-			}
-			// Reset bloom filters for next row group
-			pw.initBloomFilters()
+		if err := pw.serializeBloomFilters(); err != nil {
+			return err
 		}
 
 		pw.size = 0
