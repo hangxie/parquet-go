@@ -237,14 +237,20 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 // It propagates underlying read/decoding errors rather than hiding them.
 // This function is optimized to skip entire row groups when possible, making it
 // efficient for large skip distances.
-func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
-	if num <= 0 {
-		return 0, nil
+func (cbt *ColumnBufferType) resetDataTable() {
+	if cbt.SchemaHandler != nil && cbt.SchemaHandler.MapIndex != nil &&
+		cbt.SchemaHandler.SchemaElements != nil {
+		if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists &&
+			index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
+			cbt.DataTable = layout.NewEmptyTable()
+			cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
+			cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
+		}
 	}
+	cbt.DataTableNumRows = -1
+}
 
-	originalNum := num
-
-	// First, consume any remaining rows in the current data table
+func (cbt *ColumnBufferType) consumeExistingRows(num int64) (int64, bool) {
 	if cbt.DataTableNumRows >= 0 {
 		if num <= cbt.DataTableNumRows {
 			// We have enough rows in the current buffer
@@ -255,62 +261,49 @@ func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
 				cbt.DataTable = layout.NewTableFromTable(tmp)
 				cbt.DataTable.Merge(tmp)
 			}
-			return num, nil
+			return num, true
 		}
 		// Skip all remaining rows in current buffer
 		num -= cbt.DataTableNumRows + 1
-		if cbt.SchemaHandler != nil && cbt.SchemaHandler.MapIndex != nil &&
-			cbt.SchemaHandler.SchemaElements != nil {
-			if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists &&
-				index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
-				cbt.DataTable = layout.NewEmptyTable()
-				cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
-				cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
-			}
-		}
-		cbt.DataTableNumRows = -1
+		cbt.resetDataTable()
 	}
+	return num, false
+}
 
-	// Now skip entire row groups if possible
-	if cbt.Footer != nil && cbt.Footer.RowGroups != nil {
-		for num > 0 && cbt.RowGroupIndex < int64(len(cbt.Footer.RowGroups)) {
-			// Get the number of rows in the current row group (not yet processed)
-			currentRG := cbt.Footer.RowGroups[cbt.RowGroupIndex]
-			if currentRG == nil {
-				break
-			}
-			rgNumRows := currentRG.GetNumRows()
+func (cbt *ColumnBufferType) skipEntireRowGroups(num int64) (int64, error) {
+	if cbt.Footer == nil || cbt.Footer.RowGroups == nil {
+		return num, nil
+	}
+	for num > 0 && cbt.RowGroupIndex < int64(len(cbt.Footer.RowGroups)) {
+		// Get the number of rows in the current row group (not yet processed)
+		currentRG := cbt.Footer.RowGroups[cbt.RowGroupIndex]
+		if currentRG == nil {
+			break
+		}
+		rgNumRows := currentRG.GetNumRows()
 
-			// Calculate remaining rows in current row group
-			// ChunkReadValues tracks how many values we've read from the current chunk
-			var rowsReadInCurrentRG int64
-			if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil {
-				// We need to estimate rows already read in this row group
-				// For simplicity, we'll use the data table state
-				if cbt.DataTableNumRows >= 0 {
-					rowsReadInCurrentRG = 0 // Already accounted above
-				}
-			}
-			remainingInRG := rgNumRows - rowsReadInCurrentRG
+		// Calculate remaining rows in current row group
+		remainingInRG := rgNumRows
 
-			if num < remainingInRG {
-				// We need to skip partial rows in this row group
-				break
-			}
+		if num < remainingInRG {
+			// We need to skip partial rows in this row group
+			break
+		}
 
-			// Skip entire row group
-			num -= remainingInRG
-			if err := cbt.NextRowGroup(); err != nil {
-				if errors.Is(err, io.EOF) {
-					// We've skipped all available rows
-					return originalNum - num, nil
-				}
-				return 0, err
+		// Skip entire row group
+		num -= remainingInRG
+		if err := cbt.NextRowGroup(); err != nil {
+			if errors.Is(err, io.EOF) {
+				// We've skipped all available rows
+				return num, io.EOF
 			}
+			return num, err
 		}
 	}
+	return num, nil
+}
 
-	// Finally, skip remaining rows by reading pages
+func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 	var (
 		err  error
 		page *layout.Page
@@ -319,16 +312,7 @@ func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
 	for cbt.DataTableNumRows < num && err == nil {
 		if cbt.DataTableNumRows >= 0 {
 			num -= cbt.DataTableNumRows + 1
-			if cbt.SchemaHandler != nil && cbt.SchemaHandler.MapIndex != nil &&
-				cbt.SchemaHandler.SchemaElements != nil {
-				if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists &&
-					index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
-					cbt.DataTable = layout.NewEmptyTable()
-					cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
-					cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
-				}
-			}
-			cbt.DataTableNumRows = -1
+			cbt.resetDataTable()
 		}
 		page, err = cbt.ReadPageForSkip()
 		if err != nil {
@@ -360,8 +344,41 @@ func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
 		cbt.DataTable = layout.NewTableFromTable(tmp)
 		cbt.DataTable.Merge(tmp)
 	}
+	return num, nil
+}
 
-	return originalNum - num, nil
+func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
+	if num <= 0 {
+		return 0, nil
+	}
+
+	originalNum := num
+
+	// First, consume any remaining rows in the current data table
+	var done bool
+	if num, done = cbt.consumeExistingRows(num); done {
+		return num, nil
+	}
+
+	// Now skip entire row groups if possible
+	var err error
+	if num, err = cbt.skipEntireRowGroups(num); err != nil {
+		if errors.Is(err, io.EOF) {
+			return originalNum - num, nil
+		}
+		return 0, err
+	}
+
+	// Finally, skip remaining rows by reading pages.
+	// Save remaining before the call: skipByReadingPages returns the count popped,
+	// not the remaining count. Total skipped = (consumed in phases 1+2) + popped here
+	// = (originalNum - remaining) + num = originalNum - remaining + num.
+	remaining := num
+	if num, err = cbt.skipByReadingPages(remaining); err != nil {
+		return 0, err
+	}
+
+	return originalNum - remaining + num, nil
 }
 
 // ReadRowsWithError reads up to num rows into a table and returns any non-EOF error.
