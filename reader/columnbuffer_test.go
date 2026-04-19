@@ -898,6 +898,22 @@ func TestReadPageForSkip_Conditions(t *testing.T) {
 	}
 }
 
+// TestSkipByReadingPages_ReturnsCountPopped documents that skipByReadingPages returns
+// the count of rows actually popped (not the remaining-to-skip count). This is important
+// because SkipRowsWithError must account for this when computing the total-skipped return value.
+func TestSkipByReadingPages_ReturnsCountPopped(t *testing.T) {
+	dt := &layout.Table{
+		Values:           []any{int64(1), int64(2), int64(3), int64(4), int64(5)},
+		DefinitionLevels: []int32{1, 1, 1, 1, 1},
+		RepetitionLevels: []int32{0, 0, 0, 0, 0},
+	}
+	cb := &ColumnBufferType{DataTable: dt, DataTableNumRows: 4} // 4 >= 3, loop won't read new pages
+	n, err := cb.skipByReadingPages(3)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), n) // must return the count popped
+	require.Equal(t, int64(1), cb.DataTableNumRows)
+}
+
 func TestSkipRowsWithError_RowGroupSkipping(t *testing.T) {
 	// Test skipping entire row groups
 	mockFile := newMockColumnBufferFileReader([]byte{})
