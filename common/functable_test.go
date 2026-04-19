@@ -86,6 +86,14 @@ func TestFindFuncTable(t *testing.T) {
 		_, err = FindFuncTable(nil, nil, &parquet.LogicalType{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "find func table for given types")
+		// TIME/TIMESTAMP with nil physical type must propagate error, not silently return nil table
+		_, err = FindFuncTable(nil, nil, &parquet.LogicalType{TIME: &parquet.TimeType{}})
+		require.Error(t, err)
+		_, err = FindFuncTable(nil, nil, &parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{}})
+		require.Error(t, err)
+		// INTEGER(signed) with nil physical type must propagate error
+		_, err = FindFuncTable(nil, nil, &parquet.LogicalType{INTEGER: &parquet.IntType{IsSigned: true}})
+		require.Error(t, err)
 	})
 }
 

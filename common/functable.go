@@ -128,6 +128,73 @@ func halfToFloat32(v any) (float32, bool) {
 	return f, true
 }
 
+func findFuncTableByConvertedType(pT *parquet.Type, cT *parquet.ConvertedType) (FuncTable, bool) {
+	if cT == nil {
+		return nil, false
+	}
+	if table, ok := convertedTypeFuncTable[*cT]; ok {
+		return table, true
+	} else if *cT == parquet.ConvertedType_DECIMAL && pT != nil {
+		switch *pT {
+		case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			return decimalStringFuncTable{}, true
+		case parquet.Type_INT32:
+			return int32FuncTable{}, true
+		case parquet.Type_INT64:
+			return int64FuncTable{}, true
+		}
+	}
+	return nil, false
+}
+
+func findFuncTableByLogicalType(pT *parquet.Type, logT *parquet.LogicalType) (FuncTable, bool) {
+	if logT == nil {
+		return nil, false
+	}
+	if logT.TIME != nil || logT.TIMESTAMP != nil {
+		table, err := FindFuncTable(pT, nil, nil)
+		if err != nil {
+			return nil, false
+		}
+		return table, true
+	} else if logT.DATE != nil {
+		return int32FuncTable{}, true
+	} else if logT.INTEGER != nil {
+		if logT.INTEGER.IsSigned {
+			table, err := FindFuncTable(pT, nil, nil)
+			if err != nil {
+				return nil, false
+			}
+			return table, true
+		} else if pT != nil {
+			switch *pT {
+			case parquet.Type_INT32:
+				return uint32FuncTable{}, true
+			case parquet.Type_INT64:
+				return uint64FuncTable{}, true
+			}
+		}
+	} else if logT.DECIMAL != nil && pT != nil {
+		switch *pT {
+		case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+			return decimalStringFuncTable{}, true
+		case parquet.Type_INT32:
+			return int32FuncTable{}, true
+		case parquet.Type_INT64:
+			return int64FuncTable{}, true
+		}
+	} else if logT.BSON != nil || logT.JSON != nil || logT.STRING != nil || logT.UUID != nil {
+		return stringFuncTable{}, true
+	} else if logT.FLOAT16 != nil {
+		// FLOAT16 stored in FIXED[2]; use numeric ordering
+		return float16FuncTable{}, true
+	} else if logT.VARIANT != nil || logT.GEOMETRY != nil || logT.GEOGRAPHY != nil {
+		// Treat as binary for sizing/min/max
+		return stringFuncTable{}, true
+	}
+	return nil, false
+}
+
 func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.LogicalType) (FuncTable, error) {
 	if pT == nil && cT == nil && logT == nil {
 		return nil, fmt.Errorf("all types are nil")
@@ -139,55 +206,12 @@ func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.Lo
 		}
 	}
 
-	if cT != nil {
-		if table, ok := convertedTypeFuncTable[*cT]; ok {
-			return table, nil
-		} else if *cT == parquet.ConvertedType_DECIMAL {
-			switch *pT {
-			case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
-				return decimalStringFuncTable{}, nil
-			case parquet.Type_INT32:
-				return int32FuncTable{}, nil
-			case parquet.Type_INT64:
-				return int64FuncTable{}, nil
-			}
-		}
+	if table, ok := findFuncTableByConvertedType(pT, cT); ok {
+		return table, nil
 	}
 
-	if logT != nil {
-		if logT.TIME != nil || logT.TIMESTAMP != nil {
-			return FindFuncTable(pT, nil, nil)
-		} else if logT.DATE != nil {
-			return int32FuncTable{}, nil
-		} else if logT.INTEGER != nil {
-			if logT.INTEGER.IsSigned {
-				return FindFuncTable(pT, nil, nil)
-			} else {
-				switch *pT {
-				case parquet.Type_INT32:
-					return uint32FuncTable{}, nil
-				case parquet.Type_INT64:
-					return uint64FuncTable{}, nil
-				}
-			}
-		} else if logT.DECIMAL != nil {
-			switch *pT {
-			case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
-				return decimalStringFuncTable{}, nil
-			case parquet.Type_INT32:
-				return int32FuncTable{}, nil
-			case parquet.Type_INT64:
-				return int64FuncTable{}, nil
-			}
-		} else if logT.BSON != nil || logT.JSON != nil || logT.STRING != nil || logT.UUID != nil {
-			return stringFuncTable{}, nil
-		} else if logT.FLOAT16 != nil {
-			// FLOAT16 stored in FIXED[2]; use numeric ordering
-			return float16FuncTable{}, nil
-		} else if logT.VARIANT != nil || logT.GEOMETRY != nil || logT.GEOGRAPHY != nil {
-			// Treat as binary for sizing/min/max
-			return stringFuncTable{}, nil
-		}
+	if table, ok := findFuncTableByLogicalType(pT, logT); ok {
+		return table, nil
 	}
 
 	return nil, fmt.Errorf("find func table for given types: %v, %v, %v", pT, cT, logT)
@@ -418,42 +442,31 @@ func SizeOf(val reflect.Value) int64 {
 	return 4
 }
 
-func cmpIntBinary(as, bs, order string, signed bool) bool {
-	abs := []byte(as)
-	bbs := []byte(bs)
-	la, lb := len(abs), len(bbs)
-
-	// handle empty slices - empty is treated as zero
+func handleEmptyBinary(la, lb int, abs, bbs []byte, signed bool) (bool, bool) {
 	if la == 0 && lb == 0 {
-		return false // equal, not less than
+		return false, true
 	}
 	if la == 0 {
 		// a is zero, b is non-zero
 		// for signed: zero < positive, zero > negative
 		// for unsigned: zero < any non-zero
 		if signed {
-			return (bbs[0]>>7)&1 == 0 // true if b is positive
+			return (bbs[0]>>7)&1 == 0, true // true if b is positive
 		}
-		return true
+		return true, true
 	}
 	if lb == 0 {
 		// b is zero, a is non-zero
 		if signed {
-			return (abs[0]>>7)&1 == 1 // true if a is negative
+			return (abs[0]>>7)&1 == 1, true // true if a is negative
 		}
-		return false
+		return false, true
 	}
+	return false, false
+}
 
-	// convert to big endian to simplify logic below
-	if order == "LittleEndian" {
-		for i, j := 0, len(abs)-1; i < j; i, j = i+1, j-1 {
-			abs[i], abs[j] = abs[j], abs[i]
-		}
-		for i, j := 0, len(bbs)-1; i < j; i, j = i+1, j-1 {
-			bbs[i], bbs[j] = bbs[j], bbs[i]
-		}
-	}
-
+func padBinary(abs, bbs []byte, signed bool) ([]byte, []byte) {
+	la, lb := len(abs), len(bbs)
 	if !signed {
 		if la < lb {
 			abs = append(make([]byte, lb-la), abs...)
@@ -470,7 +483,6 @@ func cmpIntBinary(as, bs, order string, signed bool) bool {
 				}
 			}
 			abs = append(pre, abs...)
-
 		} else if la > lb {
 			sb := (bbs[0] >> 7) & 1
 			pre := make([]byte, la-lb)
@@ -481,15 +493,41 @@ func cmpIntBinary(as, bs, order string, signed bool) bool {
 			}
 			bbs = append(pre, bbs...)
 		}
+	}
+	return abs, bbs
+}
 
+func reverseBytes(s []byte) []byte {
+	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
+		s[i], s[j] = s[j], s[i]
+	}
+	return s
+}
+
+func cmpIntBinary(as, bs, order string, signed bool) bool {
+	abs := []byte(as)
+	bbs := []byte(bs)
+	la, lb := len(abs), len(bbs)
+
+	if res, ok := handleEmptyBinary(la, lb, abs, bbs, signed); ok {
+		return res
+	}
+
+	// convert to big endian to simplify logic below
+	if order == "LittleEndian" {
+		abs = reverseBytes(abs)
+		bbs = reverseBytes(bbs)
+	}
+
+	abs, bbs = padBinary(abs, bbs, signed)
+
+	if signed {
 		asb, bsb := (abs[0]>>7)&1, (bbs[0]>>7)&1
-
 		if asb < bsb {
 			return false
 		} else if asb > bsb {
 			return true
 		}
-
 	}
 
 	for i := range abs {
