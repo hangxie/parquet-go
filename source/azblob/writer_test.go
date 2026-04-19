@@ -485,7 +485,7 @@ func TestAzBlobWriter_CreateWithUploadFailure(t *testing.T) {
 	// Close should return the upload error
 	err = azWriter.Close()
 	require.Error(t, err) // Should get upload error from goroutine
-	require.Contains(t, err.Error(), "Azure Blob upload")
+	require.Contains(t, err.Error(), "azure blob upload")
 }
 
 func TestAzBlobWriter_ConcurrentOperations(t *testing.T) {
