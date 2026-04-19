@@ -39,10 +39,6 @@ lint: tools  ## Run static code analysis
 	@$(GOBIN)/golangci-lint cache clean
 	@$(GOBIN)/golangci-lint run ./... \
 		--timeout 5m \
-		--exclude-use-default=false
-	@$(GOBIN)/golangci-lint run ./... \
-		--disable-all \
-		--issues-exit-code 0 \
 		--enable gocognit
 
 .PHONY: deps
@@ -54,7 +50,7 @@ deps:  ## Install prerequisite for build
 tools:  ## Install build tools
 	@echo "==> Installing build tools"
 	@(cd /tmp; \
-		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest; \
 		go install github.com/jstemmer/go-junit-report/v2@latest; \
 		go install mvdan.cc/gofumpt@latest; \
 		go install golang.org/x/tools/cmd/goimports@latest; \
