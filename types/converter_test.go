@@ -709,3 +709,79 @@ func TestDECIMAL_BYTE_ARRAY_ToString_DoesNotMutateInput(t *testing.T) {
 	// Verify the input slice was NOT mutated
 	require.Equal(t, inputCopy, input, "DECIMAL_BYTE_ARRAY_ToString should not mutate input slice")
 }
+
+func TestTIMESTAMP_MILLISToISO8601(t *testing.T) {
+	tests := []struct {
+		name          string
+		millis        int64
+		adjustedToUTC bool
+		expected      string
+	}{
+		{
+			name:          "epoch_time",
+			millis:        0,
+			adjustedToUTC: true,
+			expected:      "1970-01-01T00:00:00.000Z",
+		},
+		{
+			name:          "new_year_2022",
+			millis:        1640995200000, // 2022-01-01T00:00:00Z
+			adjustedToUTC: true,
+			expected:      "2022-01-01T00:00:00.000Z",
+		},
+		{
+			name:          "with_milliseconds",
+			millis:        1640995200123, // 2022-01-01T00:00:00.123Z
+			adjustedToUTC: true,
+			expected:      "2022-01-01T00:00:00.123Z",
+		},
+		{
+			name:          "past_timestamp",
+			millis:        946684800000, // 2000-01-01T00:00:00Z
+			adjustedToUTC: true,
+			expected:      "2000-01-01T00:00:00.000Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TIMESTAMP_MILLISToISO8601(tt.millis, tt.adjustedToUTC)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTIMESTAMP_MICROSToISO8601(t *testing.T) {
+	tests := []struct {
+		name          string
+		micros        int64
+		adjustedToUTC bool
+		expected      string
+	}{
+		{
+			name:          "epoch_time",
+			micros:        0,
+			adjustedToUTC: true,
+			expected:      "1970-01-01T00:00:00.000000Z",
+		},
+		{
+			name:          "new_year_2022",
+			micros:        1640995200000000, // 2022-01-01T00:00:00Z
+			adjustedToUTC: true,
+			expected:      "2022-01-01T00:00:00.000000Z",
+		},
+		{
+			name:          "with_microseconds",
+			micros:        1640995200123456, // 2022-01-01T00:00:00.123456Z
+			adjustedToUTC: true,
+			expected:      "2022-01-01T00:00:00.123456Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TIMESTAMP_MICROSToISO8601(tt.micros, tt.adjustedToUTC)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
