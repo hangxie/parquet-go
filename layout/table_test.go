@@ -206,3 +206,80 @@ func TestTable_Pop(t *testing.T) {
 		})
 	}
 }
+
+func TestTable_Pop_ArrayConsistency(t *testing.T) {
+	tests := []struct {
+		name     string
+		table    *Table
+		numRows  int64
+		expected bool // true if should return valid result, false if should return empty
+	}{
+		{
+			name: "inconsistent_array_lengths_repetition_shorter",
+			table: &Table{
+				Values:           []any{"value1", "value2", "value3"},
+				RepetitionLevels: []int32{0, 1}, // Shorter than Values
+				DefinitionLevels: []int32{0, 1, 2},
+			},
+			numRows:  1,
+			expected: false,
+		},
+		{
+			name: "inconsistent_array_lengths_definition_shorter",
+			table: &Table{
+				Values:           []any{"value1", "value2", "value3"},
+				RepetitionLevels: []int32{0, 1, 2},
+				DefinitionLevels: []int32{0, 1}, // Shorter than Values
+			},
+			numRows:  1,
+			expected: false,
+		},
+		{
+			name: "consistent_array_lengths",
+			table: &Table{
+				Values:           []any{"value1", "value2", "value3"},
+				RepetitionLevels: []int32{0, 1, 0},
+				DefinitionLevels: []int32{1, 1, 1},
+			},
+			numRows:  1,
+			expected: true,
+		},
+		{
+			name: "empty_arrays_consistent",
+			table: &Table{
+				Values:           []any{},
+				RepetitionLevels: []int32{},
+				DefinitionLevels: []int32{},
+			},
+			numRows:  1,
+			expected: true,
+		},
+		{
+			name: "inconsistent_empty_arrays",
+			table: &Table{
+				Values:           []any{},
+				RepetitionLevels: []int32{0}, // Non-empty while Values is empty
+				DefinitionLevels: []int32{},
+			},
+			numRows:  1,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.table.Pop(tt.numRows)
+
+			if tt.expected {
+				// Should return a valid result (may be empty if input was empty)
+				require.NotNil(t, result)
+			} else {
+				// Should return an empty table due to inconsistent arrays
+				require.NotNil(t, result)
+				require.Empty(t, result.Values)
+				require.Empty(t, result.RepetitionLevels)
+				require.Empty(t, result.DefinitionLevels)
+			}
+		})
+	}
+}
