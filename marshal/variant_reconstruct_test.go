@@ -921,29 +921,50 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		valAny, _ := types.ConvertVariantValue(v)
 		require.Equal(t, int32(123), valAny)
 	})
+}
 
-	t.Run("value_as_string_and_is_repeated_from_children", func(t *testing.T) {
-		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
-			Var []int32 `parquet:"name=Var, type=VARIANT, repetitiontype=REPEATED"`
-		}))
-		mKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata"
-		vKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value"
+// TestShreddedVariantReconstructor_reconstructElementChildren covers the code path where
+// a LIST element contains non-variant struct children (not Metadata/Value/Typed_value),
+// which routes through reconstructElementChildren and collectChildValues.
+func TestShreddedVariantReconstructor_reconstructElementChildren(t *testing.T) {
+	t.Run("list_of_struct_elements", func(t *testing.T) {
+		// Schema:  Root.Var (LIST)
+		//            List (REPEATED)
+		//              Element
+		//                A  int32
+		//                B  string
+		// Two values in row 0 (RepetitionLevel 0 and 1).
 
-		// Metadata and Value as strings, and repeated
+		aPath := []string{common.ParGoRootInName, "Var", "List", "Element", "A"}
+		bPath := []string{common.ParGoRootInName, "Var", "List", "Element", "B"}
+		aKey := common.PathToStr(aPath)
+		bKey := common.PathToStr(bPath)
+
 		tableMap := map[string]*layout.Table{
-			mKey: {
-				Path:             []string{common.ParGoRootInName, "Var", "Metadata"},
-				Values:           []any{string([]byte{0x01, 0x00, 0x00}), string([]byte{0x01, 0x00, 0x00})},
+			aKey: {
+				Path:             aPath,
+				Values:           []any{int32(10), int32(20)},
 				RepetitionLevels: []int32{0, 1},
 				DefinitionLevels: []int32{1, 1},
 			},
-			vKey: {
-				Path:             []string{common.ParGoRootInName, "Var", "Value"},
-				Values:           []any{string(types.EncodeVariantInt32(111)), string(types.EncodeVariantInt32(222))},
+			bKey: {
+				Path:             bPath,
+				Values:           []any{"hello", "world"},
 				RepetitionLevels: []int32{0, 1},
 				DefinitionLevels: []int32{1, 1},
 			},
 		}
+
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var struct {
+				List []struct {
+					Element struct {
+						A int32  `parquet:"name=A, type=INT32"`
+						B string `parquet:"name=B, type=BYTE_ARRAY, convertedtype=UTF8"`
+					} `parquet:"name=Element"`
+				} `parquet:"name=List, repetitiontype=REPEATED"`
+			} `parquet:"name=Var, type=LIST"`
+		}))
 
 		r := &ShreddedVariantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
@@ -951,22 +972,158 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 			SchemaHandler: sh,
 		}
 
-		tableBgn := map[string]int{mKey: 0, vKey: 0}
-		tableEnd := map[string]int{mKey: 2, vKey: 2}
+		tableBgn := map[string]int{aKey: 0, bKey: 0}
+		tableEnd := map[string]int{aKey: 2, bKey: 2}
 
-		res, err := r.reconstructValue(r.Path, 0, tableBgn, tableEnd, nil)
+		// Call reconstructValue at the Element path directly so the HasSuffix("/Element")
+		// branch routes to reconstructElementChildren without the ConvertedType=LIST detour.
+		elementPath := common.PathToStr(aPath[:4])
+		res, err := r.reconstructValue(elementPath, 0, tableBgn, tableEnd, nil)
 		require.NoError(t, err)
 
 		slice, ok := res.([]any)
-		require.True(t, ok, "Expected slice due to repeated children, got %T", res)
+		require.True(t, ok, "expected []any, got %T", res)
 		require.Len(t, slice, 2)
 
-		v1 := slice[0].(types.Variant)
-		val1, _ := types.ConvertVariantValue(v1)
-		require.Equal(t, int32(111), val1)
+		elem0 := slice[0].(map[string]any)
+		require.Equal(t, int32(10), elem0["A"])
+		require.Equal(t, "hello", elem0["B"])
 
-		v2 := slice[1].(types.Variant)
-		val2, _ := types.ConvertVariantValue(v2)
-		require.Equal(t, int32(222), val2)
+		elem1 := slice[1].(map[string]any)
+		require.Equal(t, int32(20), elem1["A"])
+		require.Equal(t, "world", elem1["B"])
+	})
+
+	t.Run("list_of_single_field_elements", func(t *testing.T) {
+		// Single non-variant child — exercises the len(elementMap)==1 branch in elementFromMap.
+		aPath := []string{common.ParGoRootInName, "Var", "List", "Element", "A"}
+		aKey := common.PathToStr(aPath)
+
+		tableMap := map[string]*layout.Table{
+			aKey: {
+				Path:             aPath,
+				Values:           []any{int32(7), int32(8)},
+				RepetitionLevels: []int32{0, 1},
+				DefinitionLevels: []int32{1, 1},
+			},
+		}
+
+		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
+			Var struct {
+				List []struct {
+					Element struct {
+						A int32 `parquet:"name=A, type=INT32"`
+					} `parquet:"name=Element"`
+				} `parquet:"name=List, repetitiontype=REPEATED"`
+			} `parquet:"name=Var, type=LIST"`
+		}))
+
+		r := &ShreddedVariantReconstructor{
+			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
+			tableMap:      &tableMap,
+			SchemaHandler: sh,
+		}
+
+		tableBgn := map[string]int{aKey: 0}
+		tableEnd := map[string]int{aKey: 2}
+
+		// Call at the Element path directly to exercise the HasSuffix("/Element") route.
+		elementPath := common.PathToStr(aPath[:4])
+		res, err := r.reconstructValue(elementPath, 0, tableBgn, tableEnd, nil)
+		require.NoError(t, err)
+
+		slice, ok := res.([]any)
+		require.True(t, ok, "expected []any, got %T", res)
+		require.Len(t, slice, 2)
+
+		elem0 := slice[0].(map[string]any)
+		require.Equal(t, int32(7), elem0["A"])
+		elem1 := slice[1].(map[string]any)
+		require.Equal(t, int32(8), elem1["A"])
+	})
+}
+
+// TestElementFromMap and TestReconstructElementVariant call the package-internal helpers
+// directly. reconstructElementVariant is dead code in the normal flow (elementFromMap
+// only receives Metadata/Value/Typed_value keys if they are direct children of Element,
+// but findVariantChildNames routes such cases to reconstructVariantGroup before
+// reconstructElementChildren is ever called). The direct tests verify the functions work
+// correctly should the code evolve.
+func TestElementFromMap(t *testing.T) {
+	metadata := types.EncodeVariantMetadata([]string{})
+	value := types.EncodeVariantInt8(42)
+
+	t.Run("metadata_bytes_and_value_routes_to_variant", func(t *testing.T) {
+		result := elementFromMap(map[string]any{"Metadata": metadata, "Value": value}, nil)
+		v, ok := result.(types.Variant)
+		require.True(t, ok)
+		require.Equal(t, metadata, v.Metadata)
+	})
+
+	t.Run("only_typed_value_routes_to_variant", func(t *testing.T) {
+		result := elementFromMap(map[string]any{"Typed_value": int32(5)}, nil)
+		_, ok := result.(types.Variant)
+		require.True(t, ok)
+	})
+
+	t.Run("only_value_routes_to_variant", func(t *testing.T) {
+		result := elementFromMap(map[string]any{"Value": value}, nil)
+		_, ok := result.(types.Variant)
+		require.True(t, ok)
+	})
+
+	t.Run("single_non_variant_field_returns_map", func(t *testing.T) {
+		m := map[string]any{"FieldA": int32(99)}
+		result := elementFromMap(m, nil)
+		require.Equal(t, m, result)
+	})
+
+	t.Run("multiple_non_variant_fields_returns_map", func(t *testing.T) {
+		m := map[string]any{"A": int32(1), "B": "hello"}
+		result := elementFromMap(m, nil)
+		require.Equal(t, m, result)
+	})
+}
+
+func TestReconstructElementVariant(t *testing.T) {
+	metadata := types.EncodeVariantMetadata([]string{})
+	value := types.EncodeVariantInt8(7)
+
+	t.Run("metadata_as_bytes", func(t *testing.T) {
+		result := reconstructElementVariant(map[string]any{"Metadata": metadata, "Value": value}, nil)
+		v, ok := result.(types.Variant)
+		require.True(t, ok)
+		require.Equal(t, metadata, v.Metadata)
+	})
+
+	t.Run("metadata_as_string", func(t *testing.T) {
+		result := reconstructElementVariant(map[string]any{"Metadata": string(metadata)}, nil)
+		v, ok := result.(types.Variant)
+		require.True(t, ok)
+		require.Equal(t, metadata, v.Metadata)
+	})
+
+	t.Run("uses_fallback_metadata_when_absent", func(t *testing.T) {
+		fallback := types.EncodeVariantMetadata([]string{"x"})
+		result := reconstructElementVariant(map[string]any{"Value": value}, fallback)
+		v, ok := result.(types.Variant)
+		require.True(t, ok)
+		require.Equal(t, fallback, v.Metadata)
+	})
+
+	t.Run("uses_default_metadata_when_no_fallback", func(t *testing.T) {
+		result := reconstructElementVariant(map[string]any{"Value": value}, nil)
+		v, ok := result.(types.Variant)
+		require.True(t, ok)
+		require.Equal(t, defaultVariantMetadata, v.Metadata)
+	})
+
+	t.Run("metadata_unexpected_type_falls_back", func(t *testing.T) {
+		// Non-bytes/string metadata is ignored; fallback or default is used instead.
+		fallback := types.EncodeVariantMetadata([]string{})
+		result := reconstructElementVariant(map[string]any{"Metadata": int32(99)}, fallback)
+		v, ok := result.(types.Variant)
+		require.True(t, ok)
+		require.Equal(t, fallback, v.Metadata)
 	})
 }

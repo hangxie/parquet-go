@@ -394,3 +394,101 @@ func TestUnmarshal_ShreddedVariant_NoDuplicateRows(t *testing.T) {
 		require.Nil(t, dst[i].Variant)
 	}
 }
+
+func TestExpandRootForVariants_Coverage(t *testing.T) {
+	// Test slice expansion
+	testSlice := []int32{1}
+	root := reflect.ValueOf(&testSlice).Elem()
+	sliceRecords := make(map[reflect.Value]*SliceRecord)
+
+	expandRootForVariants(root, 5, sliceRecords)
+	require.Equal(t, 5, root.Len())
+	require.Equal(t, int32(1), testSlice[0])
+
+	// Test with sliceRecord already having enough values
+	sliceRecords[root] = &SliceRecord{Values: make([]reflect.Value, 10)}
+	expandRootForVariants(root, 5, sliceRecords)
+	require.Equal(t, 5, root.Len()) // No further expansion
+}
+
+func TestAssignVariant_NullAndInterface(t *testing.T) {
+	nullVariant := types.Variant{Value: []byte{0x00}} // null variant
+
+	t.Run("assignVariantDirect_null_interface", func(t *testing.T) {
+		var i any
+		po := reflect.ValueOf(&i).Elem()
+		err := assignVariantDirect(po, nullVariant)
+		require.NoError(t, err)
+		require.Nil(t, i)
+	})
+
+	t.Run("assignVariantPtr_null", func(t *testing.T) {
+		var v *types.Variant
+		po := reflect.ValueOf(&v).Elem()
+		err := assignVariantPtr(po, nullVariant)
+		require.NoError(t, err)
+		require.Nil(t, v)
+	})
+
+	t.Run("assignVariantPtr_interface_fallback", func(t *testing.T) {
+		var i any
+		pi := &i
+		po := reflect.ValueOf(&pi).Elem()
+
+		variant := types.Variant{
+			Metadata: []byte{0x01, 0x00, 0x00},
+			Value:    []byte{0x02, 0x01, 0x01}, // decodes to something
+		}
+
+		err := assignVariantPtr(po, variant)
+		require.NoError(t, err)
+		require.NotNil(t, i)
+	})
+}
+
+func TestSetDecodedOrFallback_Coverage(t *testing.T) {
+	var i any
+	po := reflect.ValueOf(&i).Elem()
+
+	// Corrupt variant that fails to decode
+	corruptVariant := types.Variant{
+		Metadata: []byte{0xFF},
+		Value:    []byte{0xFF},
+	}
+
+	setDecodedOrFallback(po, corruptVariant)
+	// It seems it decodes to a map if it cannot find a better representation but doesn't error
+	require.NotNil(t, i)
+}
+
+func TestNavigateToVariantTarget_Coverage(t *testing.T) {
+	t.Run("nil_interface_at_end", func(t *testing.T) {
+		var i any
+		root := reflect.ValueOf(&i).Elem()
+		variant := types.Variant{Value: []byte{0x01}}
+		res, err := navigateToVariantTarget(root, []string{"Root"}, 0, variant, 0, nil)
+		require.NoError(t, err)
+		require.Equal(t, variant, i)
+		require.Equal(t, variant, res.Interface())
+	})
+
+	t.Run("nil_interface_middle_error", func(t *testing.T) {
+		var i any
+		root := reflect.ValueOf(&i).Elem()
+		variant := types.Variant{Value: []byte{0x01}}
+		_, err := navigateToVariantTarget(root, []string{"Root", "Child"}, 0, variant, 0, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cannot navigate through nil interface")
+	})
+
+	t.Run("interface_elem", func(t *testing.T) {
+		type S struct{ Var types.Variant }
+		var i any = S{}
+		root := reflect.ValueOf(&i).Elem()
+		variant := types.Variant{Value: []byte{0x01}}
+		// Note: navigateToVariantTarget on interface elem will return a non-settable value if not careful
+		// but we just want to hit the code path.
+		_, err := navigateToVariantTarget(root, []string{"Root", "Var"}, 0, variant, 0, nil)
+		require.Error(t, err) // Struct fields from interface elem are not settable
+	})
+}
