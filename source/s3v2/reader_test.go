@@ -210,6 +210,16 @@ func TestGetBytesRange_UnknownFileSize(t *testing.T) {
 	require.Equal(t, expected, rangeStr)
 }
 
+func TestGetBytesRange_InvalidWhence(t *testing.T) {
+	reader := &s3Reader{
+		offset:   10,
+		fileSize: 1000,
+		whence:   99,
+	}
+
+	require.Empty(t, reader.getBytesRange(100))
+}
+
 func TestNewS3FileReaderWithClient_Success(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
