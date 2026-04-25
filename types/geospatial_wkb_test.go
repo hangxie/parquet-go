@@ -1345,4 +1345,51 @@ func TestParsePolygon_MaximumCoverage(t *testing.T) {
 	})
 }
 
+func TestGeometryCollectionToGeoJSONTruncatedCount(t *testing.T) {
+	gj, ok := geometryCollectionToGeoJSON([]byte{1, 2, 3}, 0, false, 6)
+
+	require.False(t, ok)
+	require.Nil(t, gj)
+}
+
+func TestGeometryCollectionToGeoJSONInvalidSubGeometryBranches(t *testing.T) {
+	t.Run("calculated_size_exceeds_buffer", func(t *testing.T) {
+		wkb := []byte{1}
+		buf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(buf, 1)
+		wkb = append(wkb, buf...)
+		wkb = append(wkb, 1)
+		binary.LittleEndian.PutUint32(buf, WKBMultiPoint)
+		wkb = append(wkb, buf...)
+		binary.LittleEndian.PutUint32(buf, 1)
+		wkb = append(wkb, buf...)
+
+		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6)
+
+		require.False(t, ok)
+		require.Nil(t, gj)
+	})
+
+	t.Run("subgeometry_parse_fails_after_size_calculation", func(t *testing.T) {
+		wkb := []byte{1}
+		buf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(buf, 1)
+		wkb = append(wkb, buf...)
+		wkb = append(wkb, 1)
+		binary.LittleEndian.PutUint32(buf, WKBMultiPoint)
+		wkb = append(wkb, buf...)
+		binary.LittleEndian.PutUint32(buf, 1)
+		wkb = append(wkb, buf...)
+		wkb = append(wkb, 1)
+		binary.LittleEndian.PutUint32(buf, WKBLineString)
+		wkb = append(wkb, buf...)
+		wkb = append(wkb, make([]byte, 16)...)
+
+		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6)
+
+		require.False(t, ok)
+		require.Nil(t, gj)
+	})
+}
+
 // Test edge case where GeometryCollection buffer ends exactly at geometry boundary

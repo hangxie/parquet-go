@@ -1,10 +1,14 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeVariantMetadata_Empty(t *testing.T) {
@@ -1114,14 +1118,7 @@ func TestAnyToVariant_ArrayOfObjects(t *testing.T) {
 	}
 	// Verify metadata collected "key"
 	meta, _ := decodeVariantMetadata(v.Metadata)
-	found := false
-	for _, s := range meta.dictionary {
-		if s == "key" {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(meta.dictionary, "key") {
 		t.Errorf("expected 'key' in metadata dictionary")
 	}
 }
@@ -1204,4 +1201,261 @@ func TestAnyToVariant_NestedStruct(t *testing.T) {
 	if inner["ID"].(int64) != 123 {
 		t.Errorf("expected 123, got %v", inner["ID"])
 	}
+}
+
+// TestEncodeGoValueAsVariant_JSONNumber covers the json.Number case (lines 49-56).
+func TestEncodeGoValueAsVariant_JSONNumber(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+
+	t.Run("json_number_int", func(t *testing.T) {
+		encoded, err := EncodeGoValueAsVariant(json.Number("12345"))
+		require.NoError(t, err)
+		decoded, err := decodeVariantValue(encoded, meta)
+		require.NoError(t, err)
+		require.Equal(t, int64(12345), decoded)
+	})
+
+	t.Run("json_number_float", func(t *testing.T) {
+		encoded, err := EncodeGoValueAsVariant(json.Number("3.14"))
+		require.NoError(t, err)
+		decoded, err := decodeVariantValue(encoded, meta)
+		require.NoError(t, err)
+		require.Equal(t, float64(3.14), decoded)
+	})
+
+	t.Run("json_number_invalid", func(t *testing.T) {
+		_, err := EncodeGoValueAsVariant(json.Number("not_a_number"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid json.Number")
+	})
+}
+
+// TestEncodeGoValueAsVariant_ArrayError covers the error path when an array element fails.
+func TestEncodeGoValueAsVariant_ArrayError(t *testing.T) {
+	type unsupported struct{ Field int }
+	_, err := EncodeGoValueAsVariant([]any{unsupported{Field: 1}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "encode array element 0")
+}
+
+// TestEncodeGoValueAsVariantWithMetadata_Variant covers the Variant and *Variant paths.
+func TestEncodeGoValueAsVariantWithMetadata_Variant(t *testing.T) {
+	metadata := EncodeVariantMetadata([]string{})
+	meta, _ := decodeVariantMetadata(metadata)
+
+	t.Run("variant_value", func(t *testing.T) {
+		v := Variant{Metadata: metadata, Value: EncodeVariantInt32(42)}
+		encoded, err := EncodeGoValueAsVariantWithMetadata(v, metadata)
+		require.NoError(t, err)
+		decoded, err := decodeVariantValue(encoded, meta)
+		require.NoError(t, err)
+		require.Equal(t, int32(42), decoded)
+	})
+
+	t.Run("variant_ptr_nil", func(t *testing.T) {
+		var pv *Variant
+		encoded, err := EncodeGoValueAsVariantWithMetadata(pv, metadata)
+		require.NoError(t, err)
+		decoded, err := decodeVariantValue(encoded, meta)
+		require.NoError(t, err)
+		require.Nil(t, decoded)
+	})
+
+	t.Run("variant_ptr_non_nil", func(t *testing.T) {
+		pv := &Variant{Metadata: metadata, Value: EncodeVariantString("hello")}
+		encoded, err := EncodeGoValueAsVariantWithMetadata(pv, metadata)
+		require.NoError(t, err)
+		decoded, err := decodeVariantValue(encoded, meta)
+		require.NoError(t, err)
+		require.Equal(t, "hello", decoded)
+	})
+}
+
+// TestEncodeGoValueAsVariantWithMetadata_InvalidMetadata covers buildFieldNameToID error path.
+func TestEncodeGoValueAsVariantWithMetadata_InvalidMetadata(t *testing.T) {
+	type testStruct struct {
+		Name string
+	}
+	// Pass malformed metadata bytes that will fail decodeVariantMetadata.
+	invalidMeta := []byte{0xff, 0xff, 0xff}
+
+	_, err := EncodeGoValueAsVariantWithMetadata(testStruct{Name: "hello"}, invalidMeta)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode metadata for struct encoding")
+}
+
+// TestEncodeGoValueAsVariantWithMetadata_SliceError covers the error path in encodeSliceAsVariant.
+func TestEncodeGoValueAsVariantWithMetadata_SliceError(t *testing.T) {
+	type unsupported struct{ Field int }
+	metadata := EncodeVariantMetadata([]string{})
+	_, err := EncodeGoValueAsVariantWithMetadata([]any{unsupported{Field: 1}}, metadata)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "encode array element 0")
+}
+
+// TestEncodeGoValueAsVariantWithMetadata_MapError covers the error path in encodeMapAsVariant.
+func TestEncodeGoValueAsVariantWithMetadata_MapError(t *testing.T) {
+	// Invalid metadata makes encodeMapAsVariant fail at buildFieldNameToID.
+	invalidMeta := []byte{0xff, 0xff, 0xff}
+	_, err := EncodeGoValueAsVariantWithMetadata(map[string]any{"key": "val"}, invalidMeta)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode metadata for object encoding")
+}
+
+// TestAnyToVariant_VariantTypes covers AnyToVariant with Variant and *Variant inputs.
+func TestAnyToVariant_VariantTypes(t *testing.T) {
+	metadata := EncodeVariantMetadata([]string{})
+
+	t.Run("variant_passthrough", func(t *testing.T) {
+		v := Variant{Metadata: metadata, Value: EncodeVariantInt32(99)}
+		result, err := AnyToVariant(v)
+		require.NoError(t, err)
+		require.Equal(t, v, result)
+	})
+
+	t.Run("variant_ptr_nil", func(t *testing.T) {
+		var pv *Variant
+		result, err := AnyToVariant(pv)
+		require.NoError(t, err)
+		require.Equal(t, EncodeVariantNull(), result.Value)
+	})
+}
+
+// TestEncodeGoValueAsVariantWithMetadata_UnexportedField covers the unexported-field skip.
+func TestEncodeGoValueAsVariantWithMetadata_UnexportedField(t *testing.T) {
+	type withPrivate struct {
+		Name    string
+		private int //nolint:unused
+	}
+	dictionary := []string{"Name"}
+	metadata := EncodeVariantMetadata(dictionary)
+	meta, _ := decodeVariantMetadata(metadata)
+
+	s := withPrivate{Name: "hello", private: 42}
+	encoded, err := EncodeGoValueAsVariantWithMetadata(s, metadata)
+	require.NoError(t, err)
+
+	decoded, err := decodeVariantValue(encoded, meta)
+	require.NoError(t, err)
+	obj := decoded.(map[string]any)
+	require.Equal(t, "hello", obj["Name"])
+	_, hasPrivate := obj["private"]
+	require.False(t, hasPrivate, "unexported field should not be encoded")
+}
+
+// TestEncodeGoValueAsVariantWithMetadata_StructFieldNotInDict covers struct field not in metadata.
+func TestEncodeGoValueAsVariantWithMetadata_StructFieldNotInDict(t *testing.T) {
+	type testStruct struct {
+		Name string
+		Age  int
+	}
+	// Metadata only contains "Name", not "Age"
+	dictionary := []string{"Name"}
+	metadata := EncodeVariantMetadata(dictionary)
+
+	_, err := EncodeGoValueAsVariantWithMetadata(testStruct{Name: "hello", Age: 42}, metadata)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not in metadata dictionary")
+}
+
+// TestEncodeGoValueAsVariantWithMetadata_StructFieldEncodeError covers field encoding error.
+func TestEncodeGoValueAsVariantWithMetadata_StructFieldEncodeError(t *testing.T) {
+	type unsupported struct{ Field int }
+	type outer struct {
+		Value any
+	}
+	dictionary := []string{"Value"}
+	metadata := EncodeVariantMetadata(dictionary)
+
+	// Value field contains an unsupported type that will fail encoding
+	_, err := EncodeGoValueAsVariantWithMetadata(outer{Value: unsupported{Field: 1}}, metadata)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "encode struct field")
+}
+
+// TestAnyToVariant_NilInput covers the v==nil early-return in AnyToVariant.
+func TestAnyToVariant_NilInput(t *testing.T) {
+	result, err := AnyToVariant(nil)
+	require.NoError(t, err)
+	require.Equal(t, EncodeVariantNull(), result.Value)
+}
+
+// TestAnyToVariant_NonNilVariantPtr covers the non-nil *Variant return path.
+func TestAnyToVariant_NonNilVariantPtr(t *testing.T) {
+	v := &Variant{
+		Metadata: EncodeVariantMetadata([]string{}),
+		Value:    EncodeVariantInt32(42),
+	}
+	result, err := AnyToVariant(v)
+	require.NoError(t, err)
+	require.Equal(t, v.Value, result.Value)
+}
+
+// TestAnyToVariant_EncodingError covers the error path when EncodeGoValueAsVariantWithMetadata fails.
+func TestAnyToVariant_EncodingError(t *testing.T) {
+	type withChan struct {
+		CH chan bool
+	}
+	_, err := AnyToVariant(withChan{CH: make(chan bool)})
+	require.Error(t, err)
+}
+
+// TestAnyToVariant_NilMapValue covers the nil-v path in collectKeys (via recursive map iteration).
+func TestAnyToVariant_NilMapValue(t *testing.T) {
+	input := map[string]any{"key": nil}
+	v, err := AnyToVariant(input)
+	require.NoError(t, err)
+	decoded, err := ConvertVariantValue(v)
+	require.NoError(t, err)
+	obj := decoded.(map[string]any)
+	require.Nil(t, obj["key"])
+}
+
+// TestCollectKeys_UnexportedField covers the unexported-field skip in collectKeys (struct case).
+// AnyToVariant with a struct triggers collectKeys for the struct kind.
+func TestCollectKeys_UnexportedField(t *testing.T) {
+	type withPrivate struct {
+		Name    string
+		private int //nolint:unused
+	}
+	v, err := AnyToVariant(withPrivate{Name: "hello"})
+	require.NoError(t, err)
+	decoded, err := ConvertVariantValue(v)
+	require.NoError(t, err)
+	obj := decoded.(map[string]any)
+	require.Equal(t, "hello", obj["Name"])
+	_, hasPrivate := obj["private"]
+	require.False(t, hasPrivate)
+}
+
+// TestCollectKeys_PointerField covers the Pointer kind in collectKeys.
+// collectKeys is called directly since AnyToVariant does not dereference pointer-type fields.
+func TestCollectKeys_PointerField(t *testing.T) {
+	type Inner struct {
+		Value string
+	}
+	p := &Inner{Value: "world"}
+	keys := make(map[string]struct{})
+	collectKeys(p, keys)
+	require.Contains(t, keys, "Value")
+}
+
+// TestEncodeMapAsVariant_ValueError covers the field encoding error in encodeMapAsVariant.
+func TestEncodeMapAsVariant_ValueError(t *testing.T) {
+	metadata := EncodeVariantMetadata([]string{"ch"})
+	_, err := EncodeGoValueAsVariantWithMetadata(map[string]any{"ch": make(chan bool)}, metadata)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "encode object field")
+}
+
+// TestMergeVariantWithTypedValue_NonObjectBase covers the branch where base decodes to a
+// non-object value but typedValue is an object — base is replaced with an empty map.
+func TestMergeVariantWithTypedValue_NonObjectBase(t *testing.T) {
+	metadata := EncodeVariantMetadata([]string{"x"})
+	// value bytes that decode to int32(1), not an object
+	valueBytes := EncodeVariantInt32(1)
+	typedValue := map[string]any{"x": int32(2)}
+	merged, err := MergeVariantWithTypedValue(valueBytes, typedValue, metadata)
+	require.NoError(t, err)
+	require.NotNil(t, merged)
 }

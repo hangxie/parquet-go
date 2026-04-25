@@ -667,6 +667,15 @@ func TestSPHERICAL_GeoJSON_Encoding(t *testing.T) {
 	})
 }
 
+func TestBoundingBoxCalculatorAddGeometryCollectionTruncatedCount(t *testing.T) {
+	calc := NewBoundingBoxCalculator()
+
+	calc.addGeometryCollectionWKB([]byte{1, 2, 3}, 0, false)
+
+	_, _, _, _, ok := calc.GetBounds()
+	require.False(t, ok)
+}
+
 func TestEdgeInterpolationAlgorithm_JSON_Marshaling(t *testing.T) {
 	algorithms := []parquet.EdgeInterpolationAlgorithm{
 		parquet.EdgeInterpolationAlgorithm_SPHERICAL,

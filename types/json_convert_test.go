@@ -1298,6 +1298,11 @@ func TestConvertINT96Value(t *testing.T) {
 	res = convertINT96Value(int96)
 	require.Equal(t, timeStr, res)
 
+	// error path: string shorter than 12 bytes causes INT96ToTimeWithError to fail
+	short := "tooshort"
+	res = convertINT96Value(short)
+	require.Equal(t, short, res)
+
 	// default
 	res = convertINT96Value(123)
 	require.Equal(t, 123, res)
@@ -1904,6 +1909,42 @@ func TestConvertTimeLogicalValue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ConvertTimeLogicalValue(tt.value, tt.timeType)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestParquetTypeToJSONTypeWithLogical_Fallthrough(t *testing.T) {
+	// Logical types not explicitly handled (LIST, MAP, ENUM, NULL, JSON) fall through
+	// to "return val", leaving the value unchanged.
+	tests := []struct {
+		name  string
+		value any
+		lT    *parquet.LogicalType
+	}{
+		{
+			name:  "list_logical_type",
+			value: int32(42),
+			lT:    &parquet.LogicalType{LIST: parquet.NewListType()},
+		},
+		{
+			name:  "map_logical_type",
+			value: "data",
+			lT:    &parquet.LogicalType{MAP: parquet.NewMapType()},
+		},
+		{
+			name:  "enum_logical_type",
+			value: "RED",
+			lT:    &parquet.LogicalType{ENUM: parquet.NewEnumType()},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			se := parquet.NewSchemaElement()
+			se.Type = parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+			se.LogicalType = tt.lT
+			result := ConvertToJSONType(tt.value, se)
+			require.Equal(t, tt.value, result)
 		})
 	}
 }

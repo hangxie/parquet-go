@@ -1057,3 +1057,158 @@ func TestDecodeArrayValue_TruncatedNumElements(t *testing.T) {
 		t.Error("expected error for truncated array")
 	}
 }
+
+// TestConvertVariantValue_CorruptValue covers the value decode error path in ConvertVariantValue.
+// Valid metadata + a value byte that claims a longer short string than available triggers the error.
+func TestConvertVariantValue_CorruptValue(t *testing.T) {
+	v := Variant{
+		// Valid empty-dictionary metadata
+		Metadata: EncodeVariantMetadata([]string{}),
+		// basicType=1 (short string), length=1 but no string bytes follow - decode error
+		Value: []byte{0x05},
+	}
+	val, err := ConvertVariantValue(v)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should return base64 fallback map
+	m, ok := val.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any fallback, got %T", val)
+	}
+	if _, exists := m["metadata"]; !exists {
+		t.Error("expected 'metadata' key in fallback")
+	}
+	if _, exists := m["value"]; !exists {
+		t.Error("expected 'value' key in fallback")
+	}
+}
+
+// TestDecodePrimitiveTemporal_TruncatedTimestamp covers the not-enough-data path for timestamps.
+// variantPrimitiveTimestampMicro = 12, value_metadata = (12<<2)|0 = 0x30.
+func TestDecodePrimitiveTemporal_TruncatedTimestamp(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+	// Only the header byte - 8 bytes of timestamp data are missing.
+	data := []byte{0x30}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for truncated timestamp")
+	}
+}
+
+// TestDecodePrimitiveTemporal_TruncatedNanoTimestamp covers the nano-timestamp bounds check.
+// variantPrimitiveTimestampNano = 18, value_metadata = (18<<2)|0 = 0x48.
+func TestDecodePrimitiveTemporal_TruncatedNanoTimestamp(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+	data := []byte{0x48}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for truncated nano timestamp")
+	}
+}
+
+// TestDecodeObjectValue_LargeObjTruncatedNumElements covers the isLarge num_elements bounds check.
+// valueHeader bit4=1 -> isLarge; valueMetadata = (0x10<<2)|2 = 0x42.
+func TestDecodeObjectValue_LargeObjTruncatedNumElements(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+	// Header claims large object but lacks 4 bytes for num_elements.
+	data := []byte{0x42, 0x00, 0x00}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for truncated large object num_elements")
+	}
+}
+
+// TestDecodeObjectValue_TruncatedFieldIDs covers the field-ID bounds check.
+// Non-large object (valueHeader=0), num_elements=1 but only 2 bytes total.
+func TestDecodeObjectValue_TruncatedFieldIDs(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{"x"}}
+	// header + num_elements=1, but fieldID bytes are missing.
+	data := []byte{0x02, 0x01}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for truncated object field IDs")
+	}
+}
+
+// TestDecodeObjectValue_TruncatedFieldOffsets covers the field-offset bounds check.
+// header + num_elements=1 + fieldID=0 but field-offset bytes are missing.
+func TestDecodeObjectValue_TruncatedFieldOffsets(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{"x"}}
+	data := []byte{0x02, 0x01, 0x00}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for truncated object field offsets")
+	}
+}
+
+// TestDecodeObjectValue_FieldIDOutOfRange covers the field-ID-exceeds-dictionary check.
+// Empty dictionary but fieldID=0 in the data.
+func TestDecodeObjectValue_FieldIDOutOfRange(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+	// header + num_elements=1 + fieldID=0 + two fieldOffset bytes (0, 0)
+	data := []byte{0x02, 0x01, 0x00, 0x00, 0x00}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for field ID exceeding dictionary size")
+	}
+}
+
+// TestDecodeArrayValue_LargeArrayTruncatedNumElements covers the large-array num_elements bounds check.
+// valueHeader=4 -> elementOffsetSize=1, isLarge=1; valueMetadata=(4<<2)|3=0x13.
+func TestDecodeArrayValue_LargeArrayTruncatedNumElements(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+	// Header claims large array but only 2 bytes total (need 5 for large num_elements).
+	data := []byte{0x13, 0x00}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for truncated large array num_elements")
+	}
+}
+
+// TestDecodeArrayValue_TruncatedElementOffsets covers the element-offset bounds check.
+// Non-large array (valueHeader=0), num_elements=2 but insufficient bytes for offsets.
+func TestDecodeArrayValue_TruncatedElementOffsets(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+	// header(0x03) + num_elements=2, needs 3 offset bytes but none follow.
+	data := []byte{0x03, 0x02}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for truncated array element offsets")
+	}
+}
+
+// TestDecodePrimitiveTemporal_TruncatedTimeNTZ covers the variantPrimitiveTimeNTZ bounds check.
+// variantPrimitiveTimeNTZ = 17, value_metadata = (17<<2)|0 = 0x44.
+func TestDecodePrimitiveTemporal_TruncatedTimeNTZ(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+	data := []byte{0x44}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for truncated time-ntz value")
+	}
+}
+
+// TestDecodeObjectValue_FieldDecodeError covers the "decode object field" error path.
+// The object header is valid but the embedded value bytes are corrupt (truncated short string).
+func TestDecodeObjectValue_FieldDecodeError(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{"x"}}
+	// object: 1 field, fieldID=0, offset[0]=0, offset[1]=1; value is 0x05 (short string len=1, no data)
+	data := []byte{0x02, 0x01, 0x00, 0x00, 0x01, 0x05}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for corrupt object field value")
+	}
+}
+
+// TestDecodeArrayValue_ElementDecodeError covers the "decode array element" error path.
+// The array header is valid but the embedded value bytes are corrupt (truncated short string).
+func TestDecodeArrayValue_ElementDecodeError(t *testing.T) {
+	meta := &variantMetadata{dictionary: []string{}}
+	// array: 1 element, offset[0]=0, offset[1]=1; value is 0x05 (short string len=1, no data)
+	data := []byte{0x03, 0x01, 0x00, 0x01, 0x05}
+	_, err := decodeVariantValue(data, meta)
+	if err == nil {
+		t.Error("expected error for corrupt array element value")
+	}
+}
