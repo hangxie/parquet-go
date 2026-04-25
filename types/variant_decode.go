@@ -11,21 +11,7 @@ import (
 
 // formatDecimal formats an int64 unscaled value with the given scale as a decimal string
 func formatDecimal(unscaled int64, scale int) string {
-	if scale == 0 {
-		return fmt.Sprintf("%d", unscaled)
-	}
-
-	r := new(big.Rat).SetInt64(unscaled)
-	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(scale)), nil)
-	r.Quo(r, new(big.Rat).SetInt(divisor))
-
-	result := r.FloatString(scale)
-
-	// Remove trailing zeros after decimal point
-	result = strings.TrimRight(result, "0")
-	result = strings.TrimRight(result, ".")
-
-	return result
+	return formatDecimal128(big.NewInt(unscaled), scale)
 }
 
 // formatDecimal128 formats a big.Int unscaled value with the given scale as a decimal string
