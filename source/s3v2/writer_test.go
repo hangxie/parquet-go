@@ -233,6 +233,44 @@ func TestS3Writer_WriteAfterError(t *testing.T) {
 	}
 }
 
+func TestS3Writer_WriteOpensWriter(t *testing.T) {
+	ctx := context.Background()
+	client := newMockS3WriteClient()
+
+	writer := &s3Writer{
+		s3File: s3File{
+			ctx:        ctx,
+			bucketName: "test-bucket",
+			key:        "test-file.parquet",
+		},
+		client:    client,
+		writeDone: make(chan error),
+	}
+
+	n, err := writer.Write(testDataWriter)
+	require.NoError(t, err)
+	require.Equal(t, len(testDataWriter), n)
+	require.True(t, writer.writeOpened)
+
+	require.NoError(t, writer.Close())
+	require.Equal(t, testDataWriter, client.getUploadedData("test-bucket", "test-file.parquet"))
+}
+
+func TestS3Writer_WritePipeError(t *testing.T) {
+	_, pipeWriter := io.Pipe()
+	require.NoError(t, pipeWriter.Close())
+
+	writer := &s3Writer{
+		writeOpened: true,
+		pipeWriter:  pipeWriter,
+	}
+
+	n, err := writer.Write([]byte("data"))
+	require.Error(t, err)
+	require.Equal(t, 0, n)
+	require.ErrorIs(t, writer.err, err)
+}
+
 func TestS3Writer_Write_Multiple(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3WriteClient()
