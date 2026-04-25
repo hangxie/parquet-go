@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gocloud.dev/blob"
 	"gocloud.dev/blob/memblob"
 )
 
@@ -57,6 +58,23 @@ func TestBlobWriter_Write(t *testing.T) {
 	require.Equal(t, 0, n)
 }
 
+func TestBlobWriter_WriteLazyInitError(t *testing.T) {
+	b := blob.NewBucket(&errorBucket{})
+	require.NoError(t, b.Close())
+
+	w := &blobWriter{
+		blobFile: blobFile{
+			ctx:    context.Background(),
+			bucket: b,
+			key:    "lazy-error",
+		},
+	}
+
+	n, err := w.Write([]byte("data"))
+	require.ErrorContains(t, err, "create blob writer key=lazy-error")
+	require.Equal(t, 0, n)
+}
+
 func TestBlobWriter_CloseNilWriter(t *testing.T) {
 	// Close on a writer with no underlying writer should succeed
 	w := &blobWriter{}
@@ -80,6 +98,24 @@ func TestBlobWriter_CreateEmptyName(t *testing.T) {
 	_, err := w.Create("")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "file name empty")
+}
+
+func TestBlobWriter_CreateNewWriterError(t *testing.T) {
+	b := memblob.OpenBucket(nil)
+	defer func() {
+		_ = b.Close()
+	}()
+
+	w := &blobWriter{
+		blobFile: blobFile{
+			ctx:    context.Background(),
+			bucket: b,
+		},
+	}
+
+	_, err := w.Create(string([]byte{0xff}))
+	require.Error(t, err)
+	require.ErrorContains(t, err, "create blob writer")
 }
 
 func TestBlobWriter_WriteLazyInit(t *testing.T) {
