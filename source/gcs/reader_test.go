@@ -64,6 +64,15 @@ func TestGcsReader_Close(t *testing.T) {
 	})
 }
 
+func TestNewGcsFileReaderCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	reader, err := NewGcsFileReader(ctx, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+	require.Error(t, err)
+	require.Nil(t, reader)
+}
+
 func TestGcsReader_Open(t *testing.T) {
 	t.Run("internal-client", func(t *testing.T) {
 		reader := &gcsReader{}
@@ -83,6 +92,28 @@ func TestGcsReader_Open(t *testing.T) {
 		pr, err := reader.Open(gcsObjectName)
 		require.NoError(t, err)
 		require.NotNil(t, pr)
+	})
+
+	t.Run("external-client-error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, err := storage.NewClient(context.Background(), option.WithoutAuthentication())
+		require.NoError(t, err)
+
+		reader := &gcsReader{
+			gcsFile: gcsFile{
+				ctx:        ctx,
+				gcsClient:  client,
+				projectID:  gcsProjectID,
+				bucketName: gcsBucket,
+			},
+		}
+
+		_, err = reader.Open(gcsObjectName)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "open gcs reader with client")
+		require.ErrorIs(t, err, context.Canceled)
 	})
 }
 
@@ -150,6 +181,29 @@ func TestGcsReader_Clone(t *testing.T) {
 
 		require.Equal(t, buf3, buf4)
 	})
+
+	t.Run("error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, err := storage.NewClient(context.Background(), option.WithoutAuthentication())
+		require.NoError(t, err)
+
+		reader := gcsReader{
+			gcsFile: gcsFile{
+				ctx:            ctx,
+				gcsClient:      client,
+				object:         client.Bucket(gcsBucket).Object(gcsObjectName),
+				externalClient: true,
+			},
+		}
+
+		cloned, err := reader.Clone()
+		require.Error(t, err)
+		require.Nil(t, cloned)
+		require.Contains(t, err.Error(), "create new reader")
+		require.ErrorIs(t, err, context.Canceled)
+	})
 }
 
 func TestGcsReader_Seek(t *testing.T) {
@@ -191,4 +245,15 @@ func TestNewGcsFileReaderWithClient(t *testing.T) {
 	reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
 	require.NoError(t, err)
 	require.NotNil(t, reader)
+
+	t.Run("error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		reader, err := NewGcsFileReaderWithClient(ctx, client, gcsProjectID, gcsBucket, gcsObjectName, gcsObjectVersion)
+		require.Error(t, err)
+		require.Nil(t, reader)
+		require.Contains(t, err.Error(), "create new reader")
+		require.ErrorIs(t, err, context.Canceled)
+	})
 }
