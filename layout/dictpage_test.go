@@ -151,3 +151,37 @@ func TestDictRecToDictPageWithOption(t *testing.T) {
 		})
 	}
 }
+
+func TestScanDictPageValues_RequiredNil(t *testing.T) {
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		Values:             []any{nil},
+		DefinitionLevels:   []int32{0},
+		MaxDefinitionLevel: 0,
+	}
+	dictRec := NewDictRec(parquet.Type_INT32)
+	funcTable, _ := common.FindFuncTable(common.ToPtr(parquet.Type_INT32), nil, nil)
+
+	_, err := scanDictPageValues(table, dictRec, 0, 1024, false, funcTable)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil value encountered for REQUIRED field")
+}
+
+func TestScanDictPageValues_OmitStats(t *testing.T) {
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+		},
+		Values:             []any{int32(1), int32(2)},
+		DefinitionLevels:   []int32{1, 1},
+		MaxDefinitionLevel: 1,
+	}
+	dictRec := NewDictRec(parquet.Type_INT32)
+	funcTable, _ := common.FindFuncTable(common.ToPtr(parquet.Type_INT32), nil, nil)
+
+	res, err := scanDictPageValues(table, dictRec, 0, 1024, true, funcTable)
+	require.NoError(t, err)
+	require.Equal(t, int32(2), res.numValues)
+}

@@ -1,12 +1,14 @@
 package layout
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/compress"
+	"github.com/hangxie/parquet-go/v3/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 )
@@ -423,4 +425,33 @@ func TestGetRLDLFromRawDataComplexScenarios(t *testing.T) {
 			require.Equal(t, actualNumRows, numRows)
 		})
 	}
+}
+
+func TestExtractV2LevelBuffers_Errors(t *testing.T) {
+	page := &Page{
+		Header: &parquet.PageHeader{
+			DataPageHeaderV2: &parquet.DataPageHeaderV2{
+				DefinitionLevelsByteLength: -1,
+			},
+		},
+	}
+	_, err := page.extractV2LevelBuffers()
+	require.Error(t, err)
+
+	page.Header.DataPageHeaderV2.DefinitionLevelsByteLength = 10
+	page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = 10
+	page.RawData = make([]byte, 15)
+	_, err = page.extractV2LevelBuffers()
+	require.Error(t, err)
+}
+
+func TestReadLevelValues_MaxLevel(t *testing.T) {
+	// RLE encoded data for levels
+	data, _ := encoding.WriteRLEBitPackedHybrid([]any{int64(1), int64(1)}, 1, parquet.Type_INT64)
+	bytesReader := bytes.NewReader(data)
+
+	res, err := readLevelValues(bytesReader, 1, 2)
+	require.NoError(t, err)
+	require.Len(t, res, 2)
+	require.Equal(t, int64(1), res[0])
 }
