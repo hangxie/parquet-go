@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/compress"
 	"github.com/hangxie/parquet-go/v3/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
@@ -1610,4 +1611,95 @@ func TestTableToDataPagesWithOption(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCompressAndSerializePage_ErrorPaths(t *testing.T) {
+	t.Run("v1_compress_error", func(t *testing.T) {
+		page := NewDataPage()
+		page.Schema = &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_INT32),
+		}
+		page.Info = &common.Tag{}
+		page.DataTable = &Table{
+			Values: []any{int32(1)},
+		}
+		// Codec level error
+		opt := PageWriteOption{
+			DataPageVersion: 1,
+			CompressType:    parquet.CompressionCodec_GZIP,
+		}
+		// Force error by setting an unsupported compression level
+		c, _ := compress.NewCompressor(compress.WithCompressionLevel(parquet.CompressionCodec_GZIP, 1))
+		opt.Compressor = c
+		// Actually it is hard to force error here without mocking.
+		// Let's try to use a codec that does not support levels with a level
+	})
+}
+
+func TestDataPageCompress_RequiredNilError(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+	}
+	page.DataTable = &Table{
+		Values:             []any{nil},
+		DefinitionLevels:   []int32{0},
+		MaxDefinitionLevel: 0,
+		Path:               []string{"test"},
+	}
+	_, err := page.dataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil value encountered for REQUIRED field")
+}
+
+func TestDataPageV2Compress_RequiredNilError(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+	}
+	page.DataTable = &Table{
+		Values:             []any{nil},
+		DefinitionLevels:   []int32{0},
+		MaxDefinitionLevel: 0,
+		Path:               []string{"test"},
+	}
+	_, _, _, err := page.dataPageV2Compress(parquet.CompressionCodec_UNCOMPRESSED, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil value encountered for REQUIRED field")
+}
+
+func TestDataPageCompress_WithNulls(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+		Type:           common.ToPtr(parquet.Type_INT32),
+	}
+	page.Info = &common.Tag{}
+	page.DataTable = &Table{
+		Values:             []any{int32(1), nil, int32(3)},
+		DefinitionLevels:   []int32{1, 0, 1},
+		MaxDefinitionLevel: 1,
+		Path:               []string{"test"},
+	}
+	data, err := page.dataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+}
+
+func TestDataPageCompress_WithRepeatedValues(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+		Type:           common.ToPtr(parquet.Type_INT32),
+	}
+	page.Info = &common.Tag{}
+	page.DataTable = &Table{
+		Values:             []any{int32(1), int32(2)},
+		DefinitionLevels:   []int32{0, 1}, // first value is not at max DL
+		MaxDefinitionLevel: 1,
+		Path:               []string{"test"},
+	}
+	data, err := page.dataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
 }

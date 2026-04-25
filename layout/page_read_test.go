@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/compress"
 	"github.com/hangxie/parquet-go/v3/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
@@ -2049,4 +2050,294 @@ func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 			require.Empty(t, result)
 		})
 	}
+}
+
+func TestProcessDictionaryPage_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name      string
+		setupPage func() *Page
+		errMsg    string
+	}{
+		{
+			name: "nil_schema",
+			setupPage: func() *Page {
+				return &Page{}
+			},
+			errMsg: "page schema is nil",
+		},
+		{
+			name: "nil_schema_type",
+			setupPage: func() *Page {
+				return &Page{Schema: &parquet.SchemaElement{}}
+			},
+			errMsg: "page schema type is nil",
+		},
+		{
+			name: "nil_header",
+			setupPage: func() *Page {
+				return &Page{Schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}}
+			},
+			errMsg: "page header is nil",
+		},
+		{
+			name: "nil_dict_header",
+			setupPage: func() *Page {
+				return &Page{
+					Schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
+					Header: &parquet.PageHeader{},
+				}
+			},
+			errMsg: "page dictionary header is nil",
+		},
+		{
+			name: "nil_data_table",
+			setupPage: func() *Page {
+				return &Page{
+					Schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
+					Header: &parquet.PageHeader{DictionaryPageHeader: &parquet.DictionaryPageHeader{}},
+				}
+			},
+			errMsg: "page data table is nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			page := tt.setupPage()
+			err := page.processDictionaryPage()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.errMsg)
+		})
+	}
+}
+
+func TestReadPageV2Data_InvalidLevels(t *testing.T) {
+	header := &parquet.PageHeader{
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			DefinitionLevelsByteLength: -1,
+		},
+	}
+	_, err := readPageV2Data(nil, header, nil, nil, PageReadOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid level byte lengths")
+
+	header.DataPageHeaderV2.DefinitionLevelsByteLength = 10
+	header.DataPageHeaderV2.RepetitionLevelsByteLength = 10
+	header.CompressedPageSize = 15
+	_, err = readPageV2Data(nil, header, nil, nil, PageReadOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "level byte lengths exceed page size")
+}
+
+func TestAssembleLevelPrefixedBuf_WithRll(t *testing.T) {
+	repBuf := []byte{0x01}
+	defBuf := []byte{0x02}
+	dataBuf := []byte{0x03}
+	res, err := assembleLevelPrefixedBuf(1, 1, repBuf, defBuf, dataBuf)
+	require.NoError(t, err)
+	require.NotEmpty(t, res)
+}
+
+func TestReadPageV1Data_Compressed(t *testing.T) {
+	data := []byte("some data to be compressed")
+	compressed, _ := compress.DefaultCompressor().Compress(data, parquet.CompressionCodec_SNAPPY)
+
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE,
+		CompressedPageSize:   int32(len(compressed)),
+		UncompressedPageSize: int32(len(data)),
+		DataPageHeader: &parquet.DataPageHeader{
+			NumValues: 1,
+			Encoding:  parquet.Encoding_PLAIN,
+		},
+	}
+
+	colMetaData := &parquet.ColumnMetaData{
+		Codec: parquet.CompressionCodec_SNAPPY,
+	}
+
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write(compressed)
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	res, err := readPageV1Data(thriftReader, header, colMetaData, nil, PageReadOptions{})
+	require.NoError(t, err)
+	require.Equal(t, data, res)
+}
+
+func TestProcessDataPageV2_Compressed(t *testing.T) {
+	schemaElements := []*parquet.SchemaElement{
+		{
+			Name: "test_col",
+			Type: common.ToPtr(parquet.Type_INT32),
+		},
+	}
+	schemaHandler := &schema.SchemaHandler{
+		SchemaElements: schemaElements,
+		MapIndex:       map[string]int32{"test_col": 0},
+	}
+
+	data := []byte{0x01, 0x00, 0x00, 0x00} // int32(1)
+	compressed, _ := compress.DefaultCompressor().Compress(data, parquet.CompressionCodec_SNAPPY)
+
+	page := NewDataPage()
+	page.Header = &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   int32(len(compressed)),
+		UncompressedPageSize: int32(len(data)),
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  1,
+			Encoding:                   parquet.Encoding_PLAIN,
+			IsCompressed:               true,
+			DefinitionLevelsByteLength: 0,
+			RepetitionLevelsByteLength: 0,
+		},
+	}
+	page.CompressType = parquet.CompressionCodec_SNAPPY
+	page.RawData = compressed
+	page.Schema = schemaElements[0]
+	page.DataTable = &Table{
+		Path:               []string{"test_col"},
+		MaxDefinitionLevel: 0,
+		Values:             make([]any, 1),
+		DefinitionLevels:   []int32{0},
+	}
+
+	err := page.processDataPageV2(schemaHandler)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), page.DataTable.Values[0])
+}
+
+func TestReadPageV2Data_Compressed(t *testing.T) {
+	data := []byte{0x01, 0x00, 0x00, 0x00}
+	compressed, _ := compress.DefaultCompressor().Compress(data, parquet.CompressionCodec_SNAPPY)
+
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   int32(len(compressed)),
+		UncompressedPageSize: int32(len(data)),
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  1,
+			Encoding:                   parquet.Encoding_PLAIN,
+			IsCompressed:               true,
+			DefinitionLevelsByteLength: 0,
+			RepetitionLevelsByteLength: 0,
+		},
+	}
+
+	colMetaData := &parquet.ColumnMetaData{
+		Codec: parquet.CompressionCodec_SNAPPY,
+	}
+
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write(compressed)
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	res, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{})
+	require.NoError(t, err)
+	// res should be prefixed by 0, 0 (rll, dll) as they are 0
+	require.Equal(t, data, res)
+}
+
+func TestReadPageV1Data_WithCRC(t *testing.T) {
+	data := []byte("some data")
+	crc := common.ComputePageCRC(data)
+
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE,
+		CompressedPageSize:   int32(len(data)),
+		UncompressedPageSize: int32(len(data)),
+		Crc:                  common.ToPtr(int32(crc)),
+		DataPageHeader: &parquet.DataPageHeader{
+			NumValues: 1,
+			Encoding:  parquet.Encoding_PLAIN,
+		},
+	}
+
+	colMetaData := &parquet.ColumnMetaData{
+		Codec: parquet.CompressionCodec_UNCOMPRESSED,
+	}
+
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write(data)
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	res, err := readPageV1Data(thriftReader, header, colMetaData, nil, PageReadOptions{CRCMode: common.CRCAuto})
+	require.NoError(t, err)
+	require.Equal(t, data, res)
+}
+
+func TestReadPageV1Data_ReadError(t *testing.T) {
+	header := &parquet.PageHeader{
+		CompressedPageSize: 10,
+	}
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write([]byte{1, 2, 3}) // less than 10
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	_, err := readPageV1Data(thriftReader, header, nil, nil, PageReadOptions{})
+	require.Error(t, err)
+}
+
+func TestReadByteStreamSplit_Types(t *testing.T) {
+	tests := []struct {
+		name     string
+		dataType parquet.Type
+		setup    func() []byte
+		cnt      uint64
+		bitWidth uint64
+	}{
+		{
+			name:     "double",
+			dataType: parquet.Type_DOUBLE,
+			cnt:      1,
+			setup: func() []byte {
+				data := encoding.WriteByteStreamSplitFloat64([]any{float64(1.0)})
+				return data
+			},
+		},
+		{
+			name:     "int32",
+			dataType: parquet.Type_INT32,
+			cnt:      1,
+			setup: func() []byte {
+				data := encoding.WriteByteStreamSplitINT32([]any{int32(1)})
+				return data
+			},
+		},
+		{
+			name:     "int64",
+			dataType: parquet.Type_INT64,
+			cnt:      1,
+			setup: func() []byte {
+				data := encoding.WriteByteStreamSplitINT64([]any{int64(1)})
+				return data
+			},
+		},
+		{
+			name:     "fixed_len_byte_array",
+			dataType: parquet.Type_FIXED_LEN_BYTE_ARRAY,
+			cnt:      1,
+			bitWidth: 4,
+			setup: func() []byte {
+				data := encoding.WriteByteStreamSplitFixedLenByteArray([]any{"test"})
+				return data
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := tt.setup()
+			reader := bytes.NewReader(data)
+			res, err := readByteStreamSplit(reader, tt.dataType, tt.cnt, tt.bitWidth)
+			require.NoError(t, err)
+			require.Len(t, res, int(tt.cnt))
+		})
+	}
+
+	t.Run("unsupported_type", func(t *testing.T) {
+		_, err := readByteStreamSplit(nil, parquet.Type_BYTE_ARRAY, 1, 0)
+		require.Error(t, err)
+	})
 }

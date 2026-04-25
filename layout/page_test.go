@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/compress"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
@@ -30,4 +31,10 @@ func TestNewPage(t *testing.T) {
 	require.NotNil(t, page.Header)
 	require.NotNil(t, page.Info)
 	require.Nil(t, page.DataTable)
+}
+
+func TestResolveCompressor(t *testing.T) {
+	require.NotNil(t, resolveCompressor(nil))
+	c, _ := compress.NewCompressor()
+	require.Equal(t, c, resolveCompressor(c))
 }
