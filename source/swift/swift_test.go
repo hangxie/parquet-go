@@ -103,6 +103,22 @@ func TestSwiftReaderClone(t *testing.T) {
 	require.NoError(t, cloned.Close())
 }
 
+func TestSwiftReaderCloneError(t *testing.T) {
+	conn := setupSwiftServer(t)
+
+	reader := &swiftReader{
+		swiftFile: swiftFile{
+			connection: conn,
+			container:  testContainer,
+			filePath:   "missing.parquet",
+		},
+	}
+
+	_, err := reader.Clone()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "swift object open")
+}
+
 func TestSwiftReaderOpenError(t *testing.T) {
 	conn := setupSwiftServer(t)
 
@@ -152,6 +168,19 @@ func TestSwiftWriterCreate(t *testing.T) {
 	require.NoError(t, writer.Close())
 }
 
+func TestSwiftWriterCreateError(t *testing.T) {
+	conn := setupSwiftServer(t)
+
+	writer, err := NewSwiftFileWriter("missing-container", "missing.parquet", conn)
+	require.NoError(t, err)
+
+	_, err = writer.Write([]byte("data"))
+	require.Error(t, err)
+	err = writer.Close()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "close Swift writer")
+}
+
 func TestSwiftReaderCloseError(t *testing.T) {
 	conn := setupSwiftServer(t)
 	err := conn.ObjectPutBytes(testContainer, "close.parquet", []byte("data"), "")
@@ -162,4 +191,17 @@ func TestSwiftReaderCloseError(t *testing.T) {
 
 	// Close twice — second close on the underlying swift reader returns an error
 	require.NoError(t, reader.Close())
+	err = reader.Close()
+	require.NoError(t, err)
+}
+
+func TestSwiftWriterCloseError(t *testing.T) {
+	conn := setupSwiftServer(t)
+
+	writer, err := NewSwiftFileWriter(testContainer, "close-writer.parquet", conn)
+	require.NoError(t, err)
+
+	require.NoError(t, writer.Close())
+	err = writer.Close()
+	require.NoError(t, err)
 }
