@@ -13,7 +13,7 @@ var _ source.ParquetFileReader = (*hdfsReader)(nil)
 
 type hdfsReader struct {
 	hdfsFile
-	fileReader *hdfs.FileReader
+	fileReader hdfsFileReaderIface
 }
 
 func NewHdfsFileReader(hosts []string, user, name string) (source.ParquetFileReader, error) {
@@ -25,14 +25,14 @@ func NewHdfsFileReader(hosts []string, user, name string) (source.ParquetFileRea
 		},
 	}
 
-	var err error
-	res.client, err = hdfs.NewClient(hdfs.ClientOptions{
+	rawClient, err := hdfs.NewClient(hdfs.ClientOptions{
 		Addresses: hosts,
 		User:      user,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new hdfs client: %w", err)
 	}
+	res.client = &realHdfsClient{rawClient}
 
 	r, err := res.Open(name)
 	if err != nil {

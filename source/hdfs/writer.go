@@ -13,7 +13,7 @@ var _ source.ParquetFileWriter = (*hdfsWriter)(nil)
 
 type hdfsWriter struct {
 	hdfsFile
-	fileWriter *hdfs.FileWriter
+	fileWriter hdfsFileWriterIface
 }
 
 func NewHdfsFileWriter(hosts []string, user, name string) (source.ParquetFileWriter, error) {
@@ -25,14 +25,14 @@ func NewHdfsFileWriter(hosts []string, user, name string) (source.ParquetFileWri
 		},
 	}
 
-	var err error
-	res.client, err = hdfs.NewClient(hdfs.ClientOptions{
+	rawClient, err := hdfs.NewClient(hdfs.ClientOptions{
 		Addresses: hosts,
 		User:      user,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new hdfs client: %w", err)
 	}
+	res.client = &realHdfsClient{rawClient}
 	w, err := res.Create(name)
 	if err != nil {
 		return nil, fmt.Errorf("create hdfs file: %w", err)
