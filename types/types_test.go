@@ -13,6 +13,9 @@ import (
 )
 
 func TestInterfaceToParquetType(t *testing.T) {
+	type myBool bool
+	type myStr string
+
 	tests := []struct {
 		name     string
 		value    any
@@ -171,6 +174,34 @@ func TestInterfaceToParquetType(t *testing.T) {
 			value:  reflect.ValueOf(true),
 			pT:     parquet.TypePtr(parquet.Type_BOOLEAN),
 			errMsg: "convert reflect.Value to bool",
+		},
+		// Named bool type: exercises convertToBool rv.Bool() path
+		{
+			name:     "named_bool_to_bool",
+			value:    myBool(true),
+			pT:       parquet.TypePtr(parquet.Type_BOOLEAN),
+			expected: true,
+		},
+		// int to int64: exercises convertToInt64 rv.Int() path
+		{
+			name:     "int_to_int64",
+			value:    int(42),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			expected: int64(42),
+		},
+		// []byte to string: exercises convertToString []byte path
+		{
+			name:     "bytes_to_string",
+			value:    []byte("hello"),
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expected: "hello",
+		},
+		// Named string type: exercises convertToString rv.String() path
+		{
+			name:     "named_string_to_string",
+			value:    myStr("hello"),
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expected: "hello",
 		},
 	}
 
@@ -1796,6 +1827,22 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 			lT:       createDecimalLogicalType(9, 2),
 			expected: StrIntToBinary("12345", "BigEndian", 0, true),
 		},
+		// Nil unit: strToTimestampLogical returns error, falls back to StrToParquetType
+		{
+			name:     "timestamp_nil_unit_fallback",
+			s:        "123456789",
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			lT:       &parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{}},
+			expected: int64(123456789),
+		},
+		// Nil unit: strToTimeLogical returns error, falls back to StrToParquetType
+		{
+			name:     "time_nil_unit_fallback",
+			s:        "123456789",
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			lT:       &parquet.LogicalType{TIME: &parquet.TimeType{}},
+			expected: int64(123456789),
+		},
 		{
 			name:     "integer_int8",
 			s:        "123",
@@ -1875,6 +1922,98 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 			case uint64:
 				require.Equal(t, exp, uint64(result.(int64)))
 			default:
+				require.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestJSONTypeToParquetTypeWithLogical_NilInterface covers the nil interface early-return.
+func TestJSONTypeToParquetTypeWithLogical_NilInterface(t *testing.T) {
+	var nilIface any = nil
+	val := reflect.ValueOf(&nilIface).Elem() // Kind=Interface, IsNil=true
+	require.Equal(t, reflect.Interface, val.Kind())
+	require.True(t, val.IsNil())
+
+	result, err := JSONTypeToParquetType(val, parquet.TypePtr(parquet.Type_BYTE_ARRAY), nil, 0, 0)
+	require.NoError(t, err)
+	require.Nil(t, result)
+}
+
+// TestJSONTypeToParquetTypeWithLogical_LogicalDecimal covers the lT decimal scale-override branch.
+func TestJSONTypeToParquetTypeWithLogical_LogicalDecimal(t *testing.T) {
+	lT := createDecimalLogicalType(9, 2)
+	pT := parquet.TypePtr(parquet.Type_INT32)
+	val := reflect.ValueOf(float64(123.45))
+
+	result, err := JSONTypeToParquetTypeWithLogical(val, pT, nil, lT, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, int32(12345), result)
+}
+
+// TestJSONValueToParquetDirect_EdgeCases covers nil pT, base64 BYTE_ARRAY,
+// getNumericValue fallthrough, and jsonConvertedTypeDirect unknown-type fallthrough.
+func TestJSONValueToParquetDirect_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       any
+		pT          *parquet.Type
+		cT          *parquet.ConvertedType
+		expected    any
+		expectError bool
+	}{
+		// nil pT: jsonValueToParquetDirect returns (nil,false) and falls back to StrToParquetType.
+		// With UTF8 cT, StrToParquetType returns the string unchanged.
+		{
+			name:     "nil_pT_with_utf8",
+			value:    "hello",
+			pT:       nil,
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8),
+			expected: "hello",
+		},
+		// BYTE_ARRAY with valid base64 string: jsonPhysicalTypeDirect decodes it.
+		{
+			name:     "byte_array_base64_direct",
+			value:    "SGVsbG8=", // base64("Hello")
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expected: "Hello",
+		},
+		// BSON cT with a string value: jsonConvertedTypeDirect returns (nil,false)
+		// (BSON is not in its switch), then jsonPhysicalTypeDirect also returns false,
+		// and StrToParquetType handles BSON by returning the string as-is.
+		{
+			name:     "bson_ct_fallthrough",
+			value:    "somedata",
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+			expected: "somedata",
+		},
+		// bool value for FLOAT type: getNumericValue returns (0,false),
+		// jsonPhysicalTypeDirect returns false, StrToParquetType fails to parse "true" as float.
+		{
+			name:        "bool_for_float_type",
+			value:       true,
+			pT:          parquet.TypePtr(parquet.Type_FLOAT),
+			expectError: true,
+		},
+		// DATE cT: jsonValueToParquetDirect returns (nil,false), falls back to StrToParquetType.
+		{
+			name:     "date_ct_numeric_fallback",
+			value:    int64(1000),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DATE),
+			expected: int32(1000),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val := reflect.ValueOf(tt.value)
+			result, err := JSONTypeToParquetType(val, tt.pT, tt.cT, 0, 0)
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 				require.Equal(t, tt.expected, result)
 			}
 		})
