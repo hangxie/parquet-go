@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gocloud.dev/blob"
 	"gocloud.dev/blob/memblob"
 )
 
@@ -57,6 +58,26 @@ func TestBlobReader_Read(t *testing.T) {
 	n, err = bf.Read(buf)
 	require.Equal(t, io.EOF, err)
 	require.Equal(t, n, 0)
+}
+
+func TestBlobReader_ReadRangeReaderError(t *testing.T) {
+	b := blob.NewBucket(&errorBucket{})
+	defer func() {
+		_ = b.Close()
+	}()
+
+	reader := &blobReader{
+		blobFile: blobFile{
+			ctx:    context.Background(),
+			bucket: b,
+			key:    "test",
+		},
+	}
+
+	n, err := reader.Read(make([]byte, 1))
+	require.ErrorIs(t, err, errBlobDriver)
+	require.ErrorContains(t, err, "open reader key=test offset=0 len=1")
+	require.Equal(t, 0, n)
 }
 
 func TestBlobReader_Close(t *testing.T) {
@@ -123,6 +144,24 @@ func TestBlobReader_OpenNonexistent(t *testing.T) {
 	_, err := bf.Open("nonexistent")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "blob does not exist")
+}
+
+func TestBlobReader_OpenAttributesError(t *testing.T) {
+	b := blob.NewBucket(&attributesAfterExistsErrorBucket{})
+	defer func() {
+		_ = b.Close()
+	}()
+
+	bf := &blobReader{
+		blobFile: blobFile{
+			ctx:    context.Background(),
+			bucket: b,
+		},
+	}
+
+	_, err := bf.Open("exists-then-errors")
+	require.ErrorIs(t, err, errBlobDriver)
+	require.ErrorContains(t, err, "get attributes for blob exists-then-errors")
 }
 
 func TestBlobReader_Seek(t *testing.T) {
