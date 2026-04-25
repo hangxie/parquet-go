@@ -3,11 +3,9 @@ package types
 import (
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
-	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
@@ -245,113 +243,6 @@ func ConvertBSONLogicalValue(val any) any {
 	return result
 }
 
-// ConvertTimestampValue handles timestamp conversion to ISO8601 format
-func ConvertTimestampValue(val any, convertedType parquet.ConvertedType) any {
-	if val == nil {
-		return nil
-	}
-
-	switch convertedType {
-	case parquet.ConvertedType_TIMESTAMP_MILLIS:
-		if v, ok := val.(int64); ok {
-			return TIMESTAMP_MILLISToISO8601(v, true) // Assume UTC adjusted
-		}
-	case parquet.ConvertedType_TIMESTAMP_MICROS:
-		if v, ok := val.(int64); ok {
-			return TIMESTAMP_MICROSToISO8601(v, true) // Assume UTC adjusted
-		}
-	}
-
-	return val
-}
-
-// convertTimestampLogicalValue handles timestamp LogicalType conversion to ISO8601 format
-func convertTimestampLogicalValue(val any, timestamp *parquet.TimestampType) any {
-	if val == nil || timestamp == nil {
-		return nil
-	}
-
-	v, ok := val.(int64)
-	if !ok {
-		return val
-	}
-
-	// Determine if timestamp is UTC adjusted
-	adjustedToUTC := timestamp.IsAdjustedToUTC
-
-	// Handle different timestamp units
-	if timestamp.Unit != nil {
-		if timestamp.Unit.IsSetMILLIS() {
-			return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
-		}
-		if timestamp.Unit.IsSetMICROS() {
-			return TIMESTAMP_MICROSToISO8601(v, adjustedToUTC)
-		}
-		if timestamp.Unit.IsSetNANOS() {
-			return TIMESTAMP_NANOSToISO8601(v, adjustedToUTC)
-		}
-	}
-
-	// Default to milliseconds if unit is not specified
-	return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
-}
-
-// ConvertTimeLogicalValue handles time LogicalType conversion to time format
-func ConvertTimeLogicalValue(val any, timeType *parquet.TimeType) any {
-	if val == nil || timeType == nil {
-		return val
-	}
-
-	// Handle different time units
-	if timeType.Unit != nil {
-		if timeType.Unit.IsSetMILLIS() {
-			if v, ok := val.(int32); ok {
-				return TIME_MILLISToTimeFormat(v)
-			}
-		}
-		if timeType.Unit.IsSetMICROS() {
-			if v, ok := val.(int64); ok {
-				return TIME_MICROSToTimeFormat(v)
-			}
-		}
-		if timeType.Unit.IsSetNANOS() {
-			// NANOS would be stored as int64, but we can treat it similarly to micros
-			if v, ok := val.(int64); ok {
-				// Convert nanos to the same format but preserve nanosecond precision
-				totalNanos := v
-				hours := totalNanos / int64(time.Hour)
-				totalNanos %= int64(time.Hour)
-				minutes := totalNanos / int64(time.Minute)
-				totalNanos %= int64(time.Minute)
-				seconds := totalNanos / int64(time.Second)
-				totalNanos %= int64(time.Second)
-				nanos := totalNanos
-
-				return fmt.Sprintf("%02d:%02d:%02d.%09d", hours, minutes, seconds, nanos)
-			}
-		}
-	}
-
-	return val
-}
-
-// ConvertDateLogicalValue handles DATE LogicalType conversion to date format "2006-01-02"
-func ConvertDateLogicalValue(val any) any {
-	if val == nil {
-		return val
-	}
-
-	// DATE is stored as int32 days since Unix epoch (1970-01-01)
-	if v, ok := val.(int32); ok {
-		// Convert days since epoch to time.Time
-		epochDate := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
-		resultDate := epochDate.AddDate(0, 0, int(v))
-		return resultDate.Format("2006-01-02")
-	}
-
-	return val
-}
-
 // convertBinaryValue handles base64 encoding for binary data without logical/converted types
 func convertBinaryValue(val any) any {
 	if val == nil {
@@ -518,109 +409,6 @@ func ConvertUUIDValue(val any) any {
 		uint16(bytes[6])<<8|uint16(bytes[7]),
 		uint16(bytes[8])<<8|uint16(bytes[9]),
 		uint64(bytes[10])<<40|uint64(bytes[11])<<32|uint64(bytes[12])<<24|uint64(bytes[13])<<16|uint64(bytes[14])<<8|uint64(bytes[15]))
-}
-
-// ConvertGeometryLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex and CRS.
-func ConvertGeometryLogicalValue(val any, geom *parquet.GeometryType, cfg *GeospatialConfig) any {
-	if val == nil {
-		return nil
-	}
-	var b []byte
-	switch v := val.(type) {
-	case []byte:
-		b = v
-	case string:
-		b = []byte(v)
-	default:
-		return val
-	}
-	crs := "OGC:CRS84"
-	if geom != nil && geom.CRS != nil && *geom.CRS != "" {
-		crs = *geom.CRS
-	}
-	switch cfg.GeometryJSONMode {
-	case GeospatialModeGeoJSON:
-		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
-			if crs != "OGC:CRS84" && cfg.Reprojector != nil {
-				if rj, ok2 := cfg.Reprojector(crs, gj); ok2 {
-					gj = rj
-				}
-			}
-			if cfg.GeoJSONAsFeature {
-				return makeGeoJSONFeature(gj, map[string]any{"crs": crs})
-			}
-			return gj
-		}
-		// fallback
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs}
-	case GeospatialModeBase64:
-		return map[string]any{"wkb_b64": base64.StdEncoding.EncodeToString(b), "crs": crs}
-	case GeospatialModeHybrid:
-		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
-			m := wrapGeoJSONHybrid(gj, b, cfg.HybridUseBase64, true)
-			m["crs"] = crs
-			return m
-		}
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs}
-	default: // hex
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs}
-	}
-}
-
-// ConvertGeographyLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex, CRS and algorithm.
-func ConvertGeographyLogicalValue(val any, geo *parquet.GeographyType, cfg *GeospatialConfig) any {
-	if val == nil {
-		return nil
-	}
-	var b []byte
-	switch v := val.(type) {
-	case []byte:
-		b = v
-	case string:
-		b = []byte(v)
-	default:
-		return val
-	}
-	crs := "OGC:CRS84"
-	if geo != nil && geo.CRS != nil && *geo.CRS != "" {
-		crs = *geo.CRS
-	}
-	algo := "SPHERICAL"
-	if geo != nil && geo.Algorithm != nil {
-		algo = geo.Algorithm.String()
-	}
-	switch cfg.GeographyJSONMode {
-	case GeospatialModeGeoJSON:
-		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
-			if crs != "OGC:CRS84" && cfg.Reprojector != nil {
-				if rj, ok2 := cfg.Reprojector(crs, gj); ok2 {
-					gj = rj
-				}
-			}
-			if cfg.GeoJSONAsFeature {
-				return makeGeoJSONFeature(gj, map[string]any{"crs": crs, "algorithm": algo})
-			}
-			return gj
-		}
-		// fallback
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
-	case GeospatialModeBase64:
-		return map[string]any{"wkb_b64": base64.StdEncoding.EncodeToString(b), "crs": crs, "algorithm": algo}
-	case GeospatialModeHybrid:
-		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
-			if crs != "OGC:CRS84" && cfg.Reprojector != nil {
-				if rj, ok2 := cfg.Reprojector(crs, gj); ok2 {
-					gj = rj
-				}
-			}
-			m := wrapGeoJSONHybrid(gj, b, cfg.HybridUseBase64, true)
-			m["crs"], m["algorithm"] = crs, algo
-			return m
-		}
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
-	default: // hex
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
-	}
 }
 
 // decimalIntToFloat converts a decimal integer value to float64 for JSON output
