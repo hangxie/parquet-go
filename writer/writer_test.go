@@ -14,6 +14,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
@@ -62,6 +63,24 @@ type invalidFileWriter struct {
 
 func (m *invalidFileWriter) Write(data []byte) (n int, err error) {
 	return 0, errWrite
+}
+
+// firstSuccessThenFail writes succeed once (PAR1 magic) then always fail.
+type firstSuccessThenFail struct {
+	written bool
+}
+
+func (w *firstSuccessThenFail) Write(data []byte) (int, error) {
+	if w.written {
+		return 0, errWrite
+	}
+	w.written = true
+	return len(data), nil
+}
+
+func (w *firstSuccessThenFail) Close() error { return nil }
+func (w *firstSuccessThenFail) Create(_ string) (source.ParquetFileWriter, error) {
+	return w, nil
 }
 
 func TestColumnIndex(t *testing.T) {
@@ -1858,4 +1877,96 @@ func TestWriteCRC_DictEncoding_RoundTrip(t *testing.T) {
 	for i, r := range results {
 		require.Equal(t, fmt.Sprintf("cat_%d", i%5), r.Category)
 	}
+}
+
+// TestNewParquetWriter_SchemaHandlerInput covers the *schema.SchemaHandler branch.
+func TestNewParquetWriter_SchemaHandlerInput(t *testing.T) {
+	type S struct {
+		ID   int32  `parquet:"name=id, type=INT32"`
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(S))
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := NewParquetWriter(fw, sh, WithNP(1))
+	require.NoError(t, err)
+	require.NotNil(t, pw)
+	require.NoError(t, pw.WriteStop())
+}
+
+// TestNewParquetWriter_SchemaElementsInput covers the []*parquet.SchemaElement branch.
+func TestNewParquetWriter_SchemaElementsInput(t *testing.T) {
+	type S struct {
+		ID int32 `parquet:"name=id, type=INT32"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(S))
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := NewParquetWriter(fw, sh.SchemaElements, WithNP(1))
+	require.NoError(t, err)
+	require.NotNil(t, pw)
+	require.NoError(t, pw.WriteStop())
+}
+
+// TestNewParquetWriter_InvalidStructInput covers the NewSchemaHandlerFromStruct error branch.
+func TestNewParquetWriter_InvalidStructInput(t *testing.T) {
+	type BadStruct struct {
+		ID int32 `parquet:"name=id, type=INVALID_TYPE"`
+	}
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	_, err := NewParquetWriter(fw, new(BadStruct), WithNP(1))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "build schema handler")
+}
+
+// TestWrite_PointerInput covers the reflect pointer-dereference branch in Write.
+func TestWrite_PointerInput(t *testing.T) {
+	type S struct {
+		ID int32 `parquet:"name=id, type=INT32"`
+	}
+	pw, _, err := createTestParquetWriter(new(S), WithNP(1))
+	require.NoError(t, err)
+
+	val := S{ID: 99}
+	// Pass a pointer — Write should dereference it.
+	require.NoError(t, pw.Write(&val))
+	require.NoError(t, pw.WriteStop())
+}
+
+// TestWriteStop_FooterWriteError covers the "write footer" error path in WriteStop.
+// Uses a writer that succeeds only the first write (PAR1 magic) and fails all subsequent writes.
+func TestWriteStop_FooterWriteError(t *testing.T) {
+	type S struct {
+		ID int32 `parquet:"name=id, type=INT32"`
+	}
+	fw := &firstSuccessThenFail{}
+	pw, err := NewParquetWriter(fw, new(S), WithNP(1))
+	require.NoError(t, err)
+
+	err = pw.WriteStop()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "write footer")
+}
+
+// TestWriteStop_ColumnIndexWriteError covers the writeColumnIndexes write error path.
+// Writes data to populate column indexes, then replaces PFile with a failing writer.
+func TestWriteStop_ColumnIndexWriteError(t *testing.T) {
+	type S struct {
+		ID int32 `parquet:"name=id, type=INT32"`
+	}
+	pw, _, err := createTestParquetWriter(new(S), WithNP(1))
+	require.NoError(t, err)
+
+	require.NoError(t, pw.Write(S{ID: 1}))
+	// Flush to populate column indexes, then replace PFile so WriteStop IO fails.
+	require.NoError(t, pw.Flush(true))
+	pw.PFile = &invalidFileWriter{}
+
+	err = pw.WriteStop()
+	require.Error(t, err)
 }

@@ -302,6 +302,75 @@ func TestNewArrowWriterFromWriter(t *testing.T) {
 	require.Greater(t, buf.Len(), 4)
 }
 
+func TestNewArrowWriterErrors(t *testing.T) {
+	t.Run("init_base_error", func(t *testing.T) {
+		schema := arrow.NewSchema(
+			[]arrow.Field{
+				{Name: "id", Type: arrow.PrimitiveTypes.Int32},
+			}, nil,
+		)
+
+		aw, err := NewArrowWriter(schema, &invalidFileWriter{})
+		require.ErrorIs(t, err, errWrite)
+		require.Nil(t, aw)
+	})
+
+	t.Run("schema_error", func(t *testing.T) {
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+
+		aw, err := NewArrowWriter(nil, fw)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "create schema from arrow definition")
+		require.Nil(t, aw)
+	})
+}
+
+func TestWriteArrowErrors(t *testing.T) {
+	t.Run("column_conversion_error", func(t *testing.T) {
+		schema := arrow.NewSchema(
+			[]arrow.Field{
+				{Name: "unsupported", Type: arrow.Null},
+			}, nil,
+		)
+		col := array.NewNull(1)
+		defer col.Release()
+		record := array.NewRecordBatch(schema, []arrow.Array{col}, 1)
+		defer record.Release()
+
+		aw := &ArrowWriter{}
+		err := aw.WriteArrow(record)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "arrow column conversion")
+	})
+
+	t.Run("write_row_error", func(t *testing.T) {
+		schema := arrow.NewSchema(
+			[]arrow.Field{
+				{Name: "id", Type: arrow.PrimitiveTypes.Int32},
+			}, nil,
+		)
+		mem := memory.NewGoAllocator()
+		builder := array.NewInt32Builder(mem)
+		defer builder.Release()
+		builder.Append(1)
+		col := builder.NewInt32Array()
+		defer col.Release()
+		record := array.NewRecordBatch(schema, []arrow.Array{col}, 1)
+		defer record.Release()
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		aw, err := NewArrowWriter(schema, fw, WithNP(1))
+		require.NoError(t, err)
+		aw.stopped = true
+
+		err = aw.WriteArrow(record)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "write row")
+	})
+}
+
 // testNullableSchema is schema for the testing the support for nullability
 // and covers all the types which we support from the arrow.
 var testNullableSchema = arrow.NewSchema(
