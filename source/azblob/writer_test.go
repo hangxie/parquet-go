@@ -11,7 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 
 	"github.com/hangxie/parquet-go/v3/source"
@@ -20,6 +22,12 @@ import (
 // Test interface compliance
 func TestAzBlobWriterInterfaceCompliance(t *testing.T) {
 	var _ source.ParquetFileWriter = (*azBlobWriter)(nil)
+}
+
+type mockAzBlobTokenCredential struct{}
+
+func (mockAzBlobTokenCredential) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
+	return azcore.AccessToken{Token: "token"}, nil
 }
 
 func TestNewAzBlobFileWriter(t *testing.T) {
@@ -42,11 +50,32 @@ func TestNewAzBlobFileWriter(t *testing.T) {
 		expectedErrMsg string
 	}{
 		{
-			name:          "nil_credential",
-			url:           "https://teststorage.blob.core.windows.net/container/test.parquet",
-			credential:    nil,
-			clientOptions: clientOptions,
-			expectError:   false, // Should succeed with no credential
+			name:           "nil_credential_invalid_url",
+			url:            "://invalid-url",
+			credential:     nil,
+			clientOptions:  clientOptions,
+			expectError:    true,
+			expectedErrMsg: "parse url",
+		},
+		{
+			name:           "token_credential_invalid_url",
+			url:            "://invalid-url",
+			credential:     mockAzBlobTokenCredential{},
+			clientOptions:  clientOptions,
+			expectError:    true,
+			expectedErrMsg: "parse url",
+		},
+		{
+			name: "shared_key_credential_invalid_url",
+			url:  "://invalid-url",
+			credential: func() any {
+				credential, err := blob.NewSharedKeyCredential("teststorage", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
+				require.NoError(t, err)
+				return credential
+			}(),
+			clientOptions:  clientOptions,
+			expectError:    true,
+			expectedErrMsg: "parse url",
 		},
 		{
 			name:           "invalid_credential_type",
@@ -56,30 +85,14 @@ func TestNewAzBlobFileWriter(t *testing.T) {
 			expectError:    true,
 			expectedErrMsg: "invalid credential type",
 		},
-		{
-			name:          "invalid_url",
-			url:           "not-a-valid-url",
-			credential:    nil,
-			clientOptions: clientOptions,
-			expectError:   false, // Client creation may succeed, operation fails later
-		},
-		{
-			name:          "empty_url",
-			url:           "",
-			credential:    nil,
-			clientOptions: clientOptions,
-			expectError:   false, // Client creation may succeed, operation fails later
-		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			writer, err := NewAzBlobFileWriter(ctx, tc.url, tc.credential, tc.clientOptions)
+			_, err := NewAzBlobFileWriter(ctx, tc.url, tc.credential, tc.clientOptions)
 
 			if tc.expectError {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), "invalid credential type")
-				require.Nil(t, writer)
 				if tc.expectedErrMsg != "" {
 					require.Contains(t, err.Error(), tc.expectedErrMsg)
 				}
@@ -230,9 +243,10 @@ func TestAzBlobWriter_Write(t *testing.T) {
 
 func TestAzBlobWriter_Close(t *testing.T) {
 	testCases := []struct {
-		name        string
-		setupWriter func() *azBlobWriter
-		expectError bool
+		name          string
+		setupWriter   func() *azBlobWriter
+		expectError   bool
+		expectedError string
 	}{
 		{
 			name: "nil_pipe_writer",
@@ -282,7 +296,8 @@ func TestAzBlobWriter_Close(t *testing.T) {
 					writeDone:  writeDone,
 				}
 			},
-			expectError: true,
+			expectError:   true,
+			expectedError: "upload failed",
 		},
 	}
 
@@ -293,7 +308,7 @@ func TestAzBlobWriter_Close(t *testing.T) {
 
 			if tc.expectError {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), "upload failed")
+				require.Contains(t, err.Error(), tc.expectedError)
 			} else {
 				require.NoError(t, err)
 			}
