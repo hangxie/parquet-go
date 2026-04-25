@@ -206,9 +206,11 @@ func TestTransposeTable(t *testing.T) {
 		table    [][]any
 		expected [][]any
 	}{
-		"test-case-1": {[][]any{{1, 2, 3}}, [][]any{{1}, {2}, {3}}},
-		"test-case-2": {[][]any{{1, 2, 3}, {4, 5, 6}}, [][]any{{1, 4}, {2, 5}, {3, 6}}},
-		"test-case-3": {[][]any{{1}, {2}, {3}}, [][]any{{1, 2, 3}}},
+		"empty-table":     {[][]any{}, nil},
+		"empty-first-row": {[][]any{{}}, nil},
+		"test-case-1":     {[][]any{{1, 2, 3}}, [][]any{{1}, {2}, {3}}},
+		"test-case-2":     {[][]any{{1, 2, 3}, {4, 5, 6}}, [][]any{{1, 4}, {2, 5}, {3, 6}}},
+		"test-case-3":     {[][]any{{1}, {2}, {3}}, [][]any{{1, 2, 3}}},
 	}
 
 	for name, tc := range testCases {
