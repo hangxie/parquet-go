@@ -9,6 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type closeErrorFile struct {
+	afero.File
+}
+
+func (f closeErrorFile) Close() error {
+	return io.ErrClosedPipe
+}
+
 func TestMemWriter_CloseWithoutOnCloseFunc(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -25,6 +33,24 @@ func TestMemWriter_CloseWithoutOnCloseFunc(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestMemWriter_CloseFileError(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	file, err := fs.Create("close_error.parquet")
+	require.NoError(t, err)
+
+	writer := &memWriter{
+		memFile: memFile{
+			filePath: "close_error.parquet",
+			file:     closeErrorFile{File: file},
+			fs:       fs,
+		},
+	}
+
+	err = writer.Close()
+	require.ErrorIs(t, err, io.ErrClosedPipe)
+	require.ErrorContains(t, err, "close mem file")
+}
+
 func TestMemWriter_Create(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -32,13 +58,40 @@ func TestMemWriter_Create(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, writer)
 
-	// Cast back to memWriter to check internal state
-	mw := writer.(*memWriter)
-	require.Equal(t, "created.parquet", mw.filePath)
-	require.NotNil(t, mw.file)
-
-	err = writer.Close()
+	writer, err = writer.Create("created_again.parquet")
 	require.NoError(t, err)
+
+	_, err = writer.Write([]byte("created again"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	file, err := fs.Open("created_again.parquet")
+	require.NoError(t, err)
+	defer func() {
+		_ = file.Close()
+	}()
+	content, err := io.ReadAll(file)
+	require.NoError(t, err)
+	require.Equal(t, "created again", string(content))
+
+	mw := writer.(*memWriter)
+	require.Equal(t, "created_again.parquet", mw.filePath)
+	require.NotNil(t, mw.file)
+}
+
+func TestMemWriter_CreateError(t *testing.T) {
+	fs := afero.NewReadOnlyFs(afero.NewMemMapFs())
+	writer := &memWriter{
+		memFile: memFile{
+			filePath: "readonly.parquet",
+			fs:       fs,
+		},
+	}
+
+	created, err := writer.Create("created.parquet")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "memfs create")
+	require.Same(t, writer, created)
 }
 
 func TestMemWriter_OnCloseError(t *testing.T) {
