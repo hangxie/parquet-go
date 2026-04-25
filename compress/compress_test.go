@@ -246,10 +246,10 @@ func TestUncompressWithExpectedSize(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrDecompressedSizeExceeded)
 
-	// Test with unsupported codec
-	_, err = c.UncompressWithExpectedSize(compressed, parquet.CompressionCodec(-1), int64(len(testData)))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsupported compress method")
+	// Test top-level UncompressWithExpectedSize
+	decompressed2, err := UncompressWithExpectedSize(compressed, parquet.CompressionCodec_SNAPPY, int64(len(testData)))
+	require.NoError(t, err)
+	require.Equal(t, testData, decompressed2)
 }
 
 func TestNewCompressor(t *testing.T) {
