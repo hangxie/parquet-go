@@ -1258,6 +1258,38 @@ func TestStringToVariableName(t *testing.T) {
 	}
 }
 
+func TestNewSchemaElementFromTagMap_Errors(t *testing.T) {
+	t.Run("invalid convertedtype returns error", func(t *testing.T) {
+		tag := &Tag{
+			fieldAttr: fieldAttr{
+				Type:          "INT32",
+				convertedType: "INVALID_CONVERTED_TYPE",
+			},
+		}
+		schema, err := NewSchemaElementFromTagMap(tag)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "with convertedtype [INVALID_CONVERTED_TYPE]")
+		require.Nil(t, schema)
+	})
+}
+
+func TestGetLogicalTypeFromTag_Errors(t *testing.T) {
+	t.Run("invalid logicaltype returns error", func(t *testing.T) {
+		tag := &Tag{
+			fieldAttr: fieldAttr{
+				logicalTypeFields: map[string]string{
+					"logicaltype":           "DECIMAL",
+					"logicaltype.precision": "abc",
+				},
+			},
+		}
+		lt, err := GetLogicalTypeFromTag(tag)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "parse logicaltype.precision")
+		require.Nil(t, lt)
+	})
+}
+
 func TestHeadToUpper(t *testing.T) {
 	testCases := map[string]struct {
 		str      string

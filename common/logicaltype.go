@@ -10,12 +10,11 @@ import (
 
 // GetLogicalTypeFromTag returns the LogicalType from a Tag.
 // This is used when creating GROUP elements that need LogicalType annotation (e.g., VARIANT).
-func GetLogicalTypeFromTag(info *Tag) *parquet.LogicalType {
+func GetLogicalTypeFromTag(info *Tag) (*parquet.LogicalType, error) {
 	if len(info.logicalTypeFields) > 0 {
-		logicalType, _ := newLogicalTypeFromFieldsMap(info.logicalTypeFields)
-		return logicalType
+		return newLogicalTypeFromFieldsMap(info.logicalTypeFields)
 	}
-	return nil
+	return nil, nil
 }
 
 var logicalIntToConvertedTypeMap = map[struct {

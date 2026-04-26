@@ -548,7 +548,8 @@ func TestGetLogicalTypeFromTag(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetLogicalTypeFromTag(tc.tag)
+			result, err := GetLogicalTypeFromTag(tc.tag)
+			require.NoError(t, err)
 			if tc.hasType {
 				require.NotNil(t, result)
 				if tc.validate != nil {

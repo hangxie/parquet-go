@@ -130,7 +130,10 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			var numChildren int32 = 2
 			schema.NumChildren = &numChildren
 			// Set LogicalType for VARIANT
-			logicalType := common.GetLogicalTypeFromTag(info)
+			logicalType, err := common.GetLogicalTypeFromTag(info)
+			if err != nil {
+				return nil, fmt.Errorf("get logicaltype from tag: %w", err)
+			}
 			if logicalType == nil {
 				logicalType = parquet.NewLogicalType()
 				logicalType.VARIANT = parquet.NewVariantType()
