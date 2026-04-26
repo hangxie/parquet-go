@@ -5,7 +5,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 
-	"github.com/hangxie/parquet-go/v3/encoding"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
