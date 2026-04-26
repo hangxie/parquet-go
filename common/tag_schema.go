@@ -67,8 +67,12 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 		}
 	}
 
-	if ct, err := parquet.ConvertedTypeFromString(info.convertedType); err == nil {
-		schema.ConvertedType = &ct
+	if info.convertedType != "" {
+		if ct, err := parquet.ConvertedTypeFromString(info.convertedType); err == nil {
+			schema.ConvertedType = &ct
+		} else {
+			return nil, fmt.Errorf("field [%s] with convertedtype [%s]: %w", info.InName, info.convertedType, err)
+		}
 	}
 
 	var logicalType *parquet.LogicalType

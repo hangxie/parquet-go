@@ -29,7 +29,10 @@ func createVariantSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.
 
 	// Get the LogicalType from the Tag (handles specification_version)
 	// Always ensure VARIANT LogicalType is set
-	logicalType := common.GetLogicalTypeFromTag(item.Info)
+	logicalType, err := common.GetLogicalTypeFromTag(item.Info)
+	if err != nil {
+		return fmt.Errorf("get logicaltype from tag: %w", err)
+	}
 	if logicalType == nil || logicalType.VARIANT == nil {
 		logicalType = parquet.NewLogicalType()
 		logicalType.VARIANT = parquet.NewVariantType()
