@@ -346,10 +346,17 @@ func convertToInt32(src any) (any, error) {
 		return v, nil
 	}
 	rv := reflect.ValueOf(src)
-	if !rv.IsValid() || rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr {
+	if !rv.IsValid() {
 		return nil, fmt.Errorf("convert %T to int32", src)
 	}
-	return int32(rv.Int()), nil
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return int32(rv.Int()), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return int32(rv.Uint()), nil
+	default:
+		return nil, fmt.Errorf("convert %T to int32", src)
+	}
 }
 
 func convertToInt64(src any) (any, error) {
@@ -357,10 +364,17 @@ func convertToInt64(src any) (any, error) {
 		return v, nil
 	}
 	rv := reflect.ValueOf(src)
-	if !rv.IsValid() || rv.Kind() < reflect.Int || rv.Kind() > reflect.Uintptr {
+	if !rv.IsValid() {
 		return nil, fmt.Errorf("convert %T to int64", src)
 	}
-	return rv.Int(), nil
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return rv.Int(), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return int64(rv.Uint()), nil
+	default:
+		return nil, fmt.Errorf("convert %T to int64", src)
+	}
 }
 
 func convertToFloat32(src any) (any, error) {

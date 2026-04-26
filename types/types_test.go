@@ -189,6 +189,50 @@ func TestInterfaceToParquetType(t *testing.T) {
 			pT:       parquet.TypePtr(parquet.Type_INT64),
 			expected: int64(42),
 		},
+		// unsigned int types to int32
+		{
+			name:     "uint_to_int32",
+			value:    uint(42),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			expected: int32(42),
+		},
+		{
+			name:     "uint8_to_int32",
+			value:    uint8(255),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			expected: int32(255),
+		},
+		{
+			name:     "uint16_to_int32",
+			value:    uint16(1000),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			expected: int32(1000),
+		},
+		{
+			name:     "uint32_to_int32",
+			value:    uint32(42),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			expected: int32(42),
+		},
+		// unsigned int types to int64
+		{
+			name:     "uint_to_int64",
+			value:    uint(42),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			expected: int64(42),
+		},
+		{
+			name:     "uint32_to_int64",
+			value:    uint32(42),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			expected: int64(42),
+		},
+		{
+			name:     "uint64_to_int64",
+			value:    uint64(42),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			expected: int64(42),
+		},
 		// []byte to string: exercises convertToString []byte path
 		{
 			name:     "bytes_to_string",
