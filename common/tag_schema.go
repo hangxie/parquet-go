@@ -109,6 +109,21 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 	return schema, nil
 }
 
+// ValidateTagAnnotations validates converted and logical type annotations supplied on tags.
+func ValidateTagAnnotations(info *Tag) error {
+	if info.convertedType != "" {
+		if _, err := parquet.ConvertedTypeFromString(info.convertedType); err != nil {
+			return fmt.Errorf("field [%s] with convertedtype [%s]: %w", info.InName, info.convertedType, err)
+		}
+	}
+	if len(info.logicalTypeFields) > 0 {
+		if _, err := newLogicalTypeFromFieldsMap(info.logicalTypeFields); err != nil {
+			return fmt.Errorf("create logicaltype from field map: %w", err)
+		}
+	}
+	return nil
+}
+
 // ValidateSchemaElement checks if the ConvertedType and LogicalType are compatible with the physical Type.
 func validateLogicalTime(lt *parquet.LogicalType, pT *parquet.Type) error {
 	if lt.TIME == nil {

@@ -71,6 +71,40 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			errorContains: "MAP needs exactly 2 fields",
 		},
 		{
+			name: "group_invalid_convertedtype",
+			jsonSchema: `
+			{
+			  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
+			  "Fields": [
+				{
+				  "Tag": "name=nested, inname=Nested, convertedtype=INVALID_CONVERTED_TYPE, repetitiontype=REQUIRED",
+				  "Fields": [
+					{"Tag": "name=age, inname=Age, type=INT32, repetitiontype=REQUIRED"}
+				  ]
+				}
+			  ]
+			}
+			`,
+			errorContains: "with convertedtype [INVALID_CONVERTED_TYPE]",
+		},
+		{
+			name: "list_invalid_logicaltype",
+			jsonSchema: `
+			{
+			  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
+			  "Fields": [
+				{
+				  "Tag": "name=items, inname=Items, type=LIST, logicaltype=DECIMAL, logicaltype.precision=bad, repetitiontype=REQUIRED",
+				  "Fields": [
+					{"Tag": "name=element, inname=Element, type=INT32, repetitiontype=REQUIRED"}
+				  ]
+				}
+			  ]
+			}
+			`,
+			errorContains: "parse logicaltype.precision",
+		},
+		{
 			name: "variant_type",
 			jsonSchema: `
 			{
@@ -81,6 +115,18 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			}
 			`,
 			expectedElems: func() *int { e := 4; return &e }(), // root + variant group + metadata + value
+		},
+		{
+			name: "variant_invalid_convertedtype",
+			jsonSchema: `
+			{
+			  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
+			  "Fields": [
+				{"Tag": "name=data, inname=Data, type=VARIANT, logicaltype=VARIANT, convertedtype=INVALID_CONVERTED_TYPE, repetitiontype=REQUIRED"}
+			  ]
+			}
+			`,
+			errorContains: "with convertedtype [INVALID_CONVERTED_TYPE]",
 		},
 		{
 			name: "variant_with_specification_version",

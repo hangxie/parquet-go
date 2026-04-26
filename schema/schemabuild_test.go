@@ -142,6 +142,29 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 			expectedErrorText: "field [Key] with type []: not a valid Type string",
 		},
 		{
+			name: "nested_struct_invalid_convertedtype",
+			structDef: new(struct {
+				Nested struct {
+					Value int32 `parquet:"name=value, type=INT32"`
+				} `parquet:"name=nested, convertedtype=INVALID_CONVERTED_TYPE"`
+			}),
+			expectedErrorText: "with convertedtype [INVALID_CONVERTED_TYPE]",
+		},
+		{
+			name: "list_invalid_logicaltype",
+			structDef: new(struct {
+				Items []int32 `parquet:"name=items, type=LIST, logicaltype=DECIMAL, logicaltype.precision=bad, valuetype=INT32"`
+			}),
+			expectedErrorText: "parse logicaltype.precision",
+		},
+		{
+			name: "variant_invalid_convertedtype",
+			structDef: new(struct {
+				Data any `parquet:"name=data, type=VARIANT, logicaltype=VARIANT, convertedtype=INVALID_CONVERTED_TYPE"`
+			}),
+			expectedErrorText: "with convertedtype [INVALID_CONVERTED_TYPE]",
+		},
+		{
 			name: "map_good",
 			structDef: new(struct {
 				MapField1 map[string]*int32  `parquet:"name=map, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`

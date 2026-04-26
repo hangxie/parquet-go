@@ -17,6 +17,17 @@ func NewJSONSchemaItem() *JSONSchemaItemType {
 	return new(JSONSchemaItemType)
 }
 
+func parseJSONSchemaTag(tag string) (*common.Tag, error) {
+	info, err := common.StringToTag(tag)
+	if err != nil {
+		return nil, fmt.Errorf("parse tag: %w", err)
+	}
+	if err := common.ValidateTagAnnotations(info); err != nil {
+		return nil, fmt.Errorf("validate tag annotations: %w", err)
+	}
+	return info, nil
+}
+
 func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 	schema := NewJSONSchemaItem()
 	if err := json.Unmarshal([]byte(str), schema); err != nil {
@@ -32,9 +43,9 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 		ln := len(stack)
 		item := stack[ln-1]
 		stack = stack[:ln-1]
-		info, err := common.StringToTag(item.Tag)
+		info, err := parseJSONSchemaTag(item.Tag)
 		if err != nil {
-			return nil, fmt.Errorf("parse tag: %w", err)
+			return nil, err
 		}
 		var newInfo *common.Tag
 		switch info.Type {
