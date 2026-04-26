@@ -187,10 +187,7 @@ func (pr *ParquetReader) unmarshalToResult(num int, tmap map[string]*layout.Tabl
 	var wg sync.WaitGroup
 	for c := range pr.np {
 		bgn := c * delta
-		end := bgn + delta
-		if end > int64(num) {
-			end = int64(num)
-		}
+		end := min(bgn+delta, int64(num))
 		if bgn >= int64(num) {
 			bgn, end = int64(num), int64(num)
 		}
@@ -267,10 +264,12 @@ func (pr *ParquetReader) Reset() error {
 func (pr *ParquetReader) ReadStopWithError() error {
 	var errs []error
 	for pathStr, cb := range pr.ColumnBuffers {
-		if cb != nil {
-			if err := cb.PFile.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("close column buffer for path %s: %w", pathStr, err))
-			}
+		if cb == nil {
+			continue
+		}
+
+		if err := cb.PFile.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close column buffer for path %s: %w", pathStr, err))
 		}
 	}
 	return errors.Join(errs...)

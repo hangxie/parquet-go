@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -158,21 +159,15 @@ func DeepCopy(src, dst *Tag) {
 	*dst = *src
 	if src.logicalTypeFields != nil {
 		dst.logicalTypeFields = make(map[string]string)
-		for k, v := range src.logicalTypeFields {
-			dst.logicalTypeFields[k] = v
-		}
+		maps.Copy(dst.logicalTypeFields, src.logicalTypeFields)
 	}
 	if src.Key.logicalTypeFields != nil {
 		dst.Key.logicalTypeFields = make(map[string]string)
-		for k, v := range src.Key.logicalTypeFields {
-			dst.Key.logicalTypeFields[k] = v
-		}
+		maps.Copy(dst.Key.logicalTypeFields, src.Key.logicalTypeFields)
 	}
 	if src.Value.logicalTypeFields != nil {
 		dst.Value.logicalTypeFields = make(map[string]string)
-		for k, v := range src.Value.logicalTypeFields {
-			dst.Value.logicalTypeFields[k] = v
-		}
+		maps.Copy(dst.Value.logicalTypeFields, src.Value.logicalTypeFields)
 	}
 }
 
@@ -184,9 +179,7 @@ func GetKeyTagMap(src *Tag) *Tag {
 	res.fieldAttr = src.Key
 	if src.Key.logicalTypeFields != nil {
 		res.logicalTypeFields = make(map[string]string)
-		for k, v := range src.Key.logicalTypeFields {
-			res.logicalTypeFields[k] = v
-		}
+		maps.Copy(res.logicalTypeFields, src.Key.logicalTypeFields)
 	}
 	return res
 }
@@ -199,9 +192,7 @@ func GetValueTagMap(src *Tag) *Tag {
 	res.fieldAttr = src.Value
 	if src.Value.logicalTypeFields != nil {
 		res.logicalTypeFields = make(map[string]string)
-		for k, v := range src.Value.logicalTypeFields {
-			res.logicalTypeFields[k] = v
-		}
+		maps.Copy(res.logicalTypeFields, src.Value.logicalTypeFields)
 	}
 	return res
 }

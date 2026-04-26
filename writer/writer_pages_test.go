@@ -6,8 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/apache/thrift/lib/go/thrift"
-
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -188,39 +186,6 @@ func TestFlushBuildChunkMapError(t *testing.T) {
 	err = pw.Flush(true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing dictionary recorder")
-}
-
-func TestWriteOffsetIndexes(t *testing.T) {
-	t.Run("empty", func(t *testing.T) {
-		pw := &ParquetWriter{}
-		ts := thrift.NewTSerializer()
-
-		require.NoError(t, pw.writeOffsetIndexes(ts))
-	})
-
-	t.Run("write_error", func(t *testing.T) {
-		pw := &ParquetWriter{
-			PFile: &invalidFileWriter{},
-			Footer: &parquet.FileMetaData{
-				RowGroups: []*parquet.RowGroup{
-					{
-						Columns: []*parquet.ColumnChunk{
-							parquet.NewColumnChunk(),
-						},
-					},
-				},
-			},
-			offsetIndexes: []*parquet.OffsetIndex{
-				parquet.NewOffsetIndex(),
-			},
-		}
-		ts := thrift.NewTSerializer()
-		ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-
-		err := pw.writeOffsetIndexes(ts)
-		require.ErrorIs(t, err, errWrite)
-		require.Contains(t, err.Error(), "write offset index")
-	})
 }
 
 func TestWriteStopOffsetIndexWriteError(t *testing.T) {

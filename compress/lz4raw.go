@@ -35,10 +35,7 @@ func lz4RawCompress(level lz4.CompressionLevel) func([]byte) ([]byte, error) {
 }
 
 func lz4RawUncompress(buf []byte, maxSize int64) ([]byte, error) {
-	estimatedSize := int64(len(buf)) * 10
-	if estimatedSize < 1024 {
-		estimatedSize = 1024
-	}
+	estimatedSize := max(int64(len(buf))*10, 1024)
 	if maxSize > 0 && estimatedSize > maxSize {
 		estimatedSize = maxSize
 	}

@@ -219,7 +219,8 @@ func (sh *SchemaHandler) resolveStructType(idx int32, elements [][]int32, elemen
 	structType := reflect.StructOf(fields)
 	if rT == nil || *rT == parquet.FieldRepetitionType_REQUIRED {
 		return structType
-	} else if *rT == parquet.FieldRepetitionType_OPTIONAL {
+	}
+	if *rT == parquet.FieldRepetitionType_OPTIONAL {
 		return reflect.New(structType).Type()
 	}
 	return reflect.SliceOf(structType)
@@ -298,29 +299,29 @@ func (sh *SchemaHandler) GetType(prefixPath string) (reflect.Type, error) {
 	}
 
 	ts := sh.GetTypes()
-	if idx, ok := sh.MapIndex[prefixPath]; !ok {
+	idx, ok := sh.MapIndex[prefixPath]
+	if !ok {
 		return nil, fmt.Errorf("GetType: path not found: %v", prefixPath)
-	} else {
-		// Use cached children map (built by GetTypes or buildChildrenMap)
-		children := sh.childrenMap
-
-		// Traverse subtree to find any leaf with interface{} type
-		toVisit := []int32{idx}
-		for len(toVisit) > 0 {
-			cur := toVisit[len(toVisit)-1]
-			toVisit = toVisit[:len(toVisit)-1]
-
-			if sh.SchemaElements[cur].GetNumChildren() == 0 {
-				t := ts[cur]
-				if t == nil || t.Kind() == reflect.Interface {
-					path := sh.IndexMap[cur]
-					return nil, fmt.Errorf("corrupt or unsupported schema at %s: unknown physical type", path)
-				}
-				continue
-			}
-			toVisit = append(toVisit, children[cur]...)
-		}
-
-		return ts[idx], nil
 	}
+	// Use cached children map (built by GetTypes or buildChildrenMap)
+	children := sh.childrenMap
+
+	// Traverse subtree to find any leaf with interface{} type
+	toVisit := []int32{idx}
+	for len(toVisit) > 0 {
+		cur := toVisit[len(toVisit)-1]
+		toVisit = toVisit[:len(toVisit)-1]
+
+		if sh.SchemaElements[cur].GetNumChildren() == 0 {
+			t := ts[cur]
+			if t == nil || t.Kind() == reflect.Interface {
+				path := sh.IndexMap[cur]
+				return nil, fmt.Errorf("corrupt or unsupported schema at %s: unknown physical type", path)
+			}
+			continue
+		}
+		toVisit = append(toVisit, children[cur]...)
+	}
+
+	return ts[idx], nil
 }
