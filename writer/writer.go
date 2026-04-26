@@ -184,7 +184,9 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOpt
 		}
 	}
 
-	res.initBloomFilters()
+	if err := res.initBloomFilters(); err != nil {
+		return nil, fmt.Errorf("init bloom filters: %w", err)
+	}
 
 	// Enable writing after init completed successfully
 	res.stopped = false
@@ -199,7 +201,9 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	}
 	pw.Footer.Schema = pw.Footer.Schema[:0]
 	pw.Footer.Schema = append(pw.Footer.Schema, pw.SchemaHandler.SchemaElements...)
-	pw.initBloomFilters()
+	if err := pw.initBloomFilters(); err != nil {
+		return fmt.Errorf("init bloom filters: %w", err)
+	}
 	pw.encodingsValidated = false
 	return nil
 }

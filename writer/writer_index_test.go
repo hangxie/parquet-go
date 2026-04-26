@@ -80,36 +80,29 @@ func TestWriteColumnIndexes(t *testing.T) {
 	})
 }
 
+func makeBloomPW(size int32) *ParquetWriter {
+	info := &common.Tag{}
+	info.BloomFilter = true
+	info.BloomFilterSize = size
+	return &ParquetWriter{
+		SchemaHandler: &schema.SchemaHandler{
+			SchemaElements: []*parquet.SchemaElement{{}, {}},
+			IndexMap:       map[int32]string{0: "root", 1: "root.col"},
+			Infos:          []*common.Tag{nil, info},
+		},
+	}
+}
+
 func TestInitBloomFilters(t *testing.T) {
 	t.Run("nil_schema_handler_is_safe", func(t *testing.T) {
 		pw := &ParquetWriter{}
-		pw.initBloomFilters()
+		require.NoError(t, pw.initBloomFilters())
 		require.Nil(t, pw.bloomFilters)
 	})
 
 	t.Run("bloom_filter_true_default_size", func(t *testing.T) {
-		info := &common.Tag{}
-		info.BloomFilter = true
-		info.BloomFilterSize = 0 // use default
-
-		pw := &ParquetWriter{
-			SchemaHandler: &schema.SchemaHandler{
-				SchemaElements: []*parquet.SchemaElement{
-					{}, // root (index 0)
-					{}, // leaf (index 1)
-				},
-				IndexMap: map[int32]string{
-					0: "root",
-					1: "root.col",
-				},
-				Infos: []*common.Tag{
-					nil,  // root has no info
-					info, // leaf has bloom filter enabled
-				},
-			},
-		}
-
-		pw.initBloomFilters()
+		pw := makeBloomPW(0) // 0 = use default
+		require.NoError(t, pw.initBloomFilters())
 		require.NotNil(t, pw.bloomFilters)
 		bf, ok := pw.bloomFilters["root.col"]
 		require.True(t, ok)
@@ -118,28 +111,8 @@ func TestInitBloomFilters(t *testing.T) {
 	})
 
 	t.Run("bloom_filter_true_custom_size", func(t *testing.T) {
-		info := &common.Tag{}
-		info.BloomFilter = true
-		info.BloomFilterSize = 2048
-
-		pw := &ParquetWriter{
-			SchemaHandler: &schema.SchemaHandler{
-				SchemaElements: []*parquet.SchemaElement{
-					{},
-					{},
-				},
-				IndexMap: map[int32]string{
-					0: "root",
-					1: "root.col",
-				},
-				Infos: []*common.Tag{
-					nil,
-					info,
-				},
-			},
-		}
-
-		pw.initBloomFilters()
+		pw := makeBloomPW(2048)
+		require.NoError(t, pw.initBloomFilters())
 		require.NotNil(t, pw.bloomFilters)
 		bf, ok := pw.bloomFilters["root.col"]
 		require.True(t, ok)
@@ -149,27 +122,46 @@ func TestInitBloomFilters(t *testing.T) {
 	t.Run("bloom_filter_false_skipped", func(t *testing.T) {
 		info := &common.Tag{}
 		info.BloomFilter = false
-
 		pw := &ParquetWriter{
 			SchemaHandler: &schema.SchemaHandler{
-				SchemaElements: []*parquet.SchemaElement{
-					{},
-					{},
-				},
-				IndexMap: map[int32]string{
-					0: "root",
-					1: "root.col",
-				},
-				Infos: []*common.Tag{
-					nil,
-					info,
-				},
+				SchemaElements: []*parquet.SchemaElement{{}, {}},
+				IndexMap:       map[int32]string{0: "root", 1: "root.col"},
+				Infos:          []*common.Tag{nil, info},
 			},
 		}
-
-		pw.initBloomFilters()
+		require.NoError(t, pw.initBloomFilters())
 		require.NotNil(t, pw.bloomFilters)
 		require.Empty(t, pw.bloomFilters)
+	})
+
+	t.Run("size_below_min_returns_error", func(t *testing.T) {
+		pw := makeBloomPW(bloomfilter.MinBytes - 1)
+		err := pw.initBloomFilters()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "bloomfiltersize")
+	})
+
+	t.Run("size_above_max_returns_error", func(t *testing.T) {
+		pw := makeBloomPW(bloomfilter.MaxBytes + 1)
+		err := pw.initBloomFilters()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "bloomfiltersize")
+	})
+
+	t.Run("size_at_min_is_valid", func(t *testing.T) {
+		pw := makeBloomPW(bloomfilter.MinBytes)
+		require.NoError(t, pw.initBloomFilters())
+		bf, ok := pw.bloomFilters["root.col"]
+		require.True(t, ok)
+		require.Equal(t, int32(bloomfilter.MinBytes), bf.NumBytes())
+	})
+
+	t.Run("size_at_max_is_valid", func(t *testing.T) {
+		pw := makeBloomPW(bloomfilter.MaxBytes)
+		require.NoError(t, pw.initBloomFilters())
+		bf, ok := pw.bloomFilters["root.col"]
+		require.True(t, ok)
+		require.Equal(t, int32(bloomfilter.MaxBytes), bf.NumBytes())
 	})
 }
 

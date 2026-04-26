@@ -133,14 +133,15 @@ func (pw *ParquetWriter) serializeBloomFilters() error {
 		}
 		pw.bloomFilterData = append(pw.bloomFilterData, append(headerBuf, bf.Bitset()...))
 	}
-	pw.initBloomFilters()
-	return nil
+	return pw.initBloomFilters()
 }
 
 // initBloomFilters creates bloom filters for columns that have bloomfilter=true in their tags.
-func (pw *ParquetWriter) initBloomFilters() {
+// It returns an error if any column specifies an explicit bloomfiltersize outside the valid
+// range [bloomfilter.MinBytes, bloomfilter.MaxBytes].
+func (pw *ParquetWriter) initBloomFilters() error {
 	if pw.SchemaHandler == nil {
-		return
+		return nil
 	}
 	pw.bloomFilters = make(map[string]*bloomfilter.Filter)
 	for i, info := range pw.SchemaHandler.Infos {
@@ -151,7 +152,11 @@ func (pw *ParquetWriter) initBloomFilters() {
 		numBytes := int(info.BloomFilterSize)
 		if numBytes <= 0 {
 			numBytes = bloomfilter.DefaultNumBytes
+		} else if numBytes < bloomfilter.MinBytes || numBytes > bloomfilter.MaxBytes {
+			return fmt.Errorf("column %q: bloomfiltersize %d is out of valid range [%d, %d]",
+				path, numBytes, bloomfilter.MinBytes, bloomfilter.MaxBytes)
 		}
 		pw.bloomFilters[path] = bloomfilter.New(numBytes)
 	}
+	return nil
 }

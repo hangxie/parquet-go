@@ -35,7 +35,9 @@ func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, opts ...Wr
 	}
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
 	res.marshalFunc = marshal.MarshalJSON
-	res.initBloomFilters()
+	if err = res.initBloomFilters(); err != nil {
+		return nil, fmt.Errorf("init bloom filters: %w", err)
+	}
 
 	res.stopped = false
 	return res, nil

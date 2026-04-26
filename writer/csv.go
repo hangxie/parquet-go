@@ -36,7 +36,9 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOpt
 	}
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
 	res.marshalFunc = marshal.MarshalCSV
-	res.initBloomFilters()
+	if err = res.initBloomFilters(); err != nil {
+		return nil, fmt.Errorf("init bloom filters: %w", err)
+	}
 
 	res.stopped = false
 	return res, nil

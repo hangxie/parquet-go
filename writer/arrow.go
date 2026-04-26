@@ -43,7 +43,9 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, o
 	}
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
 	res.marshalFunc = marshal.MarshalArrow
-	res.initBloomFilters()
+	if err = res.initBloomFilters(); err != nil {
+		return nil, fmt.Errorf("init bloom filters: %w", err)
+	}
 
 	res.stopped = false
 	return res, nil
