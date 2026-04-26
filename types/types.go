@@ -331,9 +331,6 @@ func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.Convert
 }
 
 func convertToBool(src any) (any, error) {
-	if v, ok := src.(bool); ok {
-		return v, nil
-	}
 	rv := reflect.ValueOf(src)
 	if !rv.IsValid() || rv.Kind() != reflect.Bool {
 		return nil, fmt.Errorf("convert %T to bool", src)
@@ -342,9 +339,6 @@ func convertToBool(src any) (any, error) {
 }
 
 func convertToInt32(src any) (any, error) {
-	if v, ok := src.(int32); ok {
-		return v, nil
-	}
 	rv := reflect.ValueOf(src)
 	if !rv.IsValid() {
 		return nil, fmt.Errorf("convert %T to int32", src)
@@ -360,9 +354,6 @@ func convertToInt32(src any) (any, error) {
 }
 
 func convertToInt64(src any) (any, error) {
-	if v, ok := src.(int64); ok {
-		return v, nil
-	}
 	rv := reflect.ValueOf(src)
 	if !rv.IsValid() {
 		return nil, fmt.Errorf("convert %T to int64", src)
@@ -378,9 +369,6 @@ func convertToInt64(src any) (any, error) {
 }
 
 func convertToFloat32(src any) (any, error) {
-	if v, ok := src.(float32); ok {
-		return v, nil
-	}
 	rv := reflect.ValueOf(src)
 	if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
 		return nil, fmt.Errorf("convert %T to float32", src)
@@ -389,9 +377,6 @@ func convertToFloat32(src any) (any, error) {
 }
 
 func convertToFloat64(src any) (any, error) {
-	if v, ok := src.(float64); ok {
-		return v, nil
-	}
 	rv := reflect.ValueOf(src)
 	if !rv.IsValid() || (rv.Kind() != reflect.Float32 && rv.Kind() != reflect.Float64) {
 		return nil, fmt.Errorf("convert %T to float64", src)
@@ -400,9 +385,6 @@ func convertToFloat64(src any) (any, error) {
 }
 
 func convertToString(src any) (any, error) {
-	if v, ok := src.(string); ok {
-		return v, nil
-	}
 	if b, ok := src.([]byte); ok {
 		return string(b), nil
 	}
