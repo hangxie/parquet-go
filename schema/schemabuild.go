@@ -19,6 +19,17 @@ func NewItem() *Item {
 	return item
 }
 
+func parseStructFieldTag(tag string) (*common.Tag, error) {
+	info, err := common.StringToTag(tag)
+	if err != nil {
+		return nil, fmt.Errorf("parse tag: %w", err)
+	}
+	if err := common.ValidateTagAnnotations(info); err != nil {
+		return nil, fmt.Errorf("validate tag annotations: %w", err)
+	}
+	return info, nil
+}
+
 // Create schema handler from a object
 func createVariantSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.SchemaElement, infos *[]*common.Tag) error {
 	// VARIANT is a GROUP with two required BYTE_ARRAY children: Metadata and Value
@@ -68,9 +79,9 @@ func createVariantSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.
 
 			newItem := NewItem()
 			var err error
-			newItem.Info, err = common.StringToTag(tagStr)
+			newItem.Info, err = parseStructFieldTag(tagStr)
 			if err != nil {
-				return fmt.Errorf("parse tag: %w", err)
+				return err
 			}
 			newItem.Info.InName = f.Name
 			newItem.GoType = f.Type
@@ -131,9 +142,9 @@ func createStructSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.S
 
 		newItem := NewItem()
 		var err error
-		newItem.Info, err = common.StringToTag(tagStr)
+		newItem.Info, err = parseStructFieldTag(tagStr)
 		if err != nil {
-			return fmt.Errorf("parse tag: %w", err)
+			return err
 		}
 		newItem.Info.InName = f.Name
 		newItem.GoType = f.Type

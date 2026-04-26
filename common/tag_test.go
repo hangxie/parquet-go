@@ -1290,6 +1290,63 @@ func TestGetLogicalTypeFromTag_Errors(t *testing.T) {
 	})
 }
 
+func TestValidateTagAnnotations(t *testing.T) {
+	tests := []struct {
+		name        string
+		tag         *Tag
+		errContains string
+	}{
+		{
+			name: "valid_empty_annotations",
+			tag:  &Tag{InName: "Group"},
+		},
+		{
+			name: "valid_convertedtype",
+			tag: &Tag{
+				InName: "Group",
+				fieldAttr: fieldAttr{
+					convertedType: "MAP",
+				},
+			},
+		},
+		{
+			name: "invalid_convertedtype",
+			tag: &Tag{
+				InName: "Group",
+				fieldAttr: fieldAttr{
+					convertedType: "INVALID_CONVERTED_TYPE",
+				},
+			},
+			errContains: "with convertedtype [INVALID_CONVERTED_TYPE]",
+		},
+		{
+			name: "invalid_logicaltype",
+			tag: &Tag{
+				InName: "Group",
+				fieldAttr: fieldAttr{
+					logicalTypeFields: map[string]string{
+						"logicaltype":           "DECIMAL",
+						"logicaltype.precision": "bad",
+					},
+				},
+			},
+			errContains: "parse logicaltype.precision",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateTagAnnotations(tc.tag)
+			if tc.errContains != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errContains)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestHeadToUpper(t *testing.T) {
 	testCases := map[string]struct {
 		str      string
