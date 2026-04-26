@@ -55,10 +55,7 @@ func NewShreddedVariantReconstructor(
 
 	// Find all typed_value leaf tables (kept for test compatibility)
 	for tableName, table := range *tableMap {
-		if !strings.HasPrefix(tableName, path+common.ParGoPathDelimiter) {
-			continue
-		}
-		if tableName == metadataPath || (valuePath != "" && tableName == valuePath) {
+		if !strings.HasPrefix(tableName, path+common.ParGoPathDelimiter) || tableName == metadataPath || (valuePath != "" && tableName == valuePath) {
 			continue
 		}
 
@@ -97,19 +94,21 @@ func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx
 		if table.RepetitionLevels[i] == 0 {
 			currentRow++
 		}
-		if currentRow == rowIdx {
-			// Check definition level to see if value is present
-			maxDL, err := r.SchemaHandler.MaxDefinitionLevel(table.Path)
-			if err != nil {
-				return nil, err
-			}
-			if table.DefinitionLevels[i] >= maxDL {
-				values = append(values, table.Values[i])
-			} else {
-				values = append(values, nil)
-			}
-		} else if currentRow > rowIdx {
+		if currentRow < rowIdx {
+			continue
+		}
+		if currentRow > rowIdx {
 			break
+		}
+		// Check definition level to see if value is present
+		maxDL, err := r.SchemaHandler.MaxDefinitionLevel(table.Path)
+		if err != nil {
+			return nil, err
+		}
+		if table.DefinitionLevels[i] >= maxDL {
+			values = append(values, table.Values[i])
+		} else {
+			values = append(values, nil)
 		}
 	}
 

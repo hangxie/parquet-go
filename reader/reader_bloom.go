@@ -35,13 +35,15 @@ func (pr *ParquetReader) detectBloomFilters() {
 				continue
 			}
 			pf, err := pr.PFile.Clone()
-			if err == nil {
-				filter, err := bloomfilter.ReadBloomFilter(pf, cc.MetaData.GetBloomFilterOffset())
-				if err == nil {
-					pr.SchemaHandler.Infos[index].BloomFilterSize = filter.NumBytes()
-				}
-				_ = pf.Close()
+			if err != nil {
+				continue
 			}
+
+			filter, err := bloomfilter.ReadBloomFilter(pf, cc.MetaData.GetBloomFilterOffset())
+			if err == nil {
+				pr.SchemaHandler.Infos[index].BloomFilterSize = filter.NumBytes()
+			}
+			_ = pf.Close()
 		}
 	}
 }

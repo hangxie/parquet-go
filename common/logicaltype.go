@@ -55,29 +55,27 @@ func convertedTypeFromLogicalType(lt *parquet.LogicalType) *parquet.ConvertedTyp
 	case lt.DATE != nil:
 		ct = parquet.ConvertedType_DATE
 	case lt.TIME != nil:
-		if lt.TIME.Unit != nil {
-			if lt.TIME.Unit.MILLIS != nil {
-				ct = parquet.ConvertedType_TIME_MILLIS
-			} else if lt.TIME.Unit.MICROS != nil {
-				ct = parquet.ConvertedType_TIME_MICROS
-			} else {
-				// NANOS has no corresponding ConvertedType
-				return nil
-			}
+		if lt.TIME.Unit == nil {
+			return nil
+		}
+		if lt.TIME.Unit.MILLIS != nil {
+			ct = parquet.ConvertedType_TIME_MILLIS
+		} else if lt.TIME.Unit.MICROS != nil {
+			ct = parquet.ConvertedType_TIME_MICROS
 		} else {
+			// NANOS has no corresponding ConvertedType
 			return nil
 		}
 	case lt.TIMESTAMP != nil:
-		if lt.TIMESTAMP.Unit != nil {
-			if lt.TIMESTAMP.Unit.MILLIS != nil {
-				ct = parquet.ConvertedType_TIMESTAMP_MILLIS
-			} else if lt.TIMESTAMP.Unit.MICROS != nil {
-				ct = parquet.ConvertedType_TIMESTAMP_MICROS
-			} else {
-				// NANOS has no corresponding ConvertedType
-				return nil
-			}
+		if lt.TIMESTAMP.Unit == nil {
+			return nil
+		}
+		if lt.TIMESTAMP.Unit.MILLIS != nil {
+			ct = parquet.ConvertedType_TIMESTAMP_MILLIS
+		} else if lt.TIMESTAMP.Unit.MICROS != nil {
+			ct = parquet.ConvertedType_TIMESTAMP_MICROS
 		} else {
+			// NANOS has no corresponding ConvertedType
 			return nil
 		}
 	case lt.INTEGER != nil:

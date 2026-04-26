@@ -157,7 +157,6 @@ func (cbt *ColumnBufferType) ReadPage() error {
 				}
 
 				cbt.DataTableNumRows = cbt.ChunkHeader.MetaData.NumValues
-
 				for cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
 					cbt.DataTable.Values = append(cbt.DataTable.Values, nil)
 					cbt.DataTable.RepetitionLevels = append(cbt.DataTable.RepetitionLevels, int32(0))
@@ -175,24 +174,21 @@ func (cbt *ColumnBufferType) ReadPage() error {
 		}
 
 		page.Decode(cbt.DictPage)
-
 		if cbt.DataTable == nil {
 			cbt.DataTable = layout.NewTableFromTable(page.DataTable)
 		}
 
 		cbt.DataTable.Merge(page.DataTable)
 		cbt.ChunkReadValues += numValues
-
 		cbt.DataTableNumRows += numRows
-	} else {
-		if err := cbt.NextRowGroup(); err != nil {
-			return fmt.Errorf("move to next row group: %w", err)
-		}
-
-		return cbt.ReadPage()
+		return nil
 	}
 
-	return nil
+	if err := cbt.NextRowGroup(); err != nil {
+		return fmt.Errorf("move to next row group: %w", err)
+	}
+
+	return cbt.ReadPage()
 }
 
 func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
@@ -224,13 +220,13 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 		cbt.DataTableNumRows += numRows
 		return page, nil
 
-	} else {
-		if err := cbt.NextRowGroup(); err != nil {
-			return nil, err
-		}
-
-		return cbt.ReadPageForSkip()
 	}
+
+	if err := cbt.NextRowGroup(); err != nil {
+		return nil, err
+	}
+
+	return cbt.ReadPageForSkip()
 }
 
 // SkipRowsWithError skips up to num rows and returns how many were skipped.
@@ -238,10 +234,8 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 // This function is optimized to skip entire row groups when possible, making it
 // efficient for large skip distances.
 func (cbt *ColumnBufferType) resetDataTable() {
-	if cbt.SchemaHandler != nil && cbt.SchemaHandler.MapIndex != nil &&
-		cbt.SchemaHandler.SchemaElements != nil {
-		if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists &&
-			index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
+	if cbt.SchemaHandler != nil && cbt.SchemaHandler.MapIndex != nil && cbt.SchemaHandler.SchemaElements != nil {
+		if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists && index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
 			cbt.DataTable = layout.NewEmptyTable()
 			cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
 			cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
@@ -251,22 +245,24 @@ func (cbt *ColumnBufferType) resetDataTable() {
 }
 
 func (cbt *ColumnBufferType) consumeExistingRows(num int64) (int64, bool) {
-	if cbt.DataTableNumRows >= 0 {
-		if num <= cbt.DataTableNumRows {
-			// We have enough rows in the current buffer
-			cbt.DataTable.Pop(num)
-			cbt.DataTableNumRows -= num
-			if cbt.DataTableNumRows <= 0 {
-				tmp := cbt.DataTable
-				cbt.DataTable = layout.NewTableFromTable(tmp)
-				cbt.DataTable.Merge(tmp)
-			}
-			return num, true
-		}
-		// Skip all remaining rows in current buffer
-		num -= cbt.DataTableNumRows + 1
-		cbt.resetDataTable()
+	if cbt.DataTableNumRows < 0 {
+		return num, false
 	}
+	if num <= cbt.DataTableNumRows {
+		// We have enough rows in the current buffer
+		cbt.DataTable.Pop(num)
+		cbt.DataTableNumRows -= num
+		if cbt.DataTableNumRows <= 0 {
+			tmp := cbt.DataTable
+			cbt.DataTable = layout.NewTableFromTable(tmp)
+			cbt.DataTable.Merge(tmp)
+		}
+		return num, true
+	}
+
+	// Skip all remaining rows in current buffer
+	num -= cbt.DataTableNumRows + 1
+	cbt.resetDataTable()
 	return num, false
 }
 

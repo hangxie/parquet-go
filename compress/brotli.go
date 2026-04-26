@@ -23,7 +23,6 @@ func init() {
 	}
 
 	codecFactories[parquet.CompressionCodec_BROTLI] = newBrotliCompressor
-
 	defaultCodecs[parquet.CompressionCodec_BROTLI] = &codec{
 		compress:   brotliCompress(&brotliWriterPool),
 		uncompress: brotliUncompress,

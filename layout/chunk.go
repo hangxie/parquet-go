@@ -83,27 +83,30 @@ func aggregatePageMetrics(pages []*Page, statsStartIdx int, funcTable common.Fun
 
 func populateStatistics(metaData *parquet.ColumnMetaData, pT *parquet.Type, minVal, maxVal any, nullCount int64, omitStats bool) error {
 	metaData.Statistics = parquet.NewStatistics()
-	if !omitStats {
-		metaData.Statistics.NullCount = &nullCount
-		if maxVal != nil && minVal != nil {
-			tmpBufMax, err := encoding.WritePlain([]any{maxVal}, *pT)
-			if err != nil {
-				return err
-			}
-			tmpBufMin, err := encoding.WritePlain([]any{minVal}, *pT)
-			if err != nil {
-				return err
-			}
-			if *pT == parquet.Type_BYTE_ARRAY {
-				tmpBufMax = tmpBufMax[4:]
-				tmpBufMin = tmpBufMin[4:]
-			}
-			metaData.Statistics.Max = tmpBufMax
-			metaData.Statistics.Min = tmpBufMin
-			metaData.Statistics.MaxValue = tmpBufMax
-			metaData.Statistics.MinValue = tmpBufMin
-		}
+	if omitStats {
+		return nil
 	}
+	metaData.Statistics.NullCount = &nullCount
+	if maxVal == nil || minVal == nil {
+		return nil
+	}
+	tmpBufMax, err := encoding.WritePlain([]any{maxVal}, *pT)
+	if err != nil {
+		return err
+	}
+	tmpBufMin, err := encoding.WritePlain([]any{minVal}, *pT)
+	if err != nil {
+		return err
+	}
+	if *pT == parquet.Type_BYTE_ARRAY {
+		tmpBufMax = tmpBufMax[4:]
+		tmpBufMin = tmpBufMin[4:]
+	}
+	metaData.Statistics.Max = tmpBufMax
+	metaData.Statistics.Min = tmpBufMin
+	metaData.Statistics.MaxValue = tmpBufMax
+	metaData.Statistics.MinValue = tmpBufMin
+
 	return nil
 }
 
@@ -187,11 +190,12 @@ func DecodeDictChunk(chunk *Chunk) {
 
 		numValues := len(chunk.Pages[i].DataTable.Values)
 		for j := range numValues {
-			if chunk.Pages[i].DataTable.Values[j] != nil {
-				if index, ok := chunk.Pages[i].DataTable.Values[j].(int64); ok &&
-					index >= 0 && index < int64(len(dictPage.DataTable.Values)) {
-					chunk.Pages[i].DataTable.Values[j] = dictPage.DataTable.Values[index]
-				}
+			if chunk.Pages[i].DataTable.Values[j] == nil {
+				continue
+			}
+			if index, ok := chunk.Pages[i].DataTable.Values[j].(int64); ok &&
+				index >= 0 && index < int64(len(dictPage.DataTable.Values)) {
+				chunk.Pages[i].DataTable.Values[j] = dictPage.DataTable.Values[index]
 			}
 		}
 	}

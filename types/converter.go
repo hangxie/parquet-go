@@ -17,16 +17,12 @@ func TimeToTIME_MILLIS(t time.Time, adjustedToUTC bool) int64 {
 
 func TimeToTIME_MICROS(t time.Time, adjustedToUTC bool) int64 {
 	if adjustedToUTC {
-		tu := t.UTC()
-		h, m, s, ns := int64(tu.Hour()), int64(tu.Minute()), int64(tu.Second()), int64(tu.Nanosecond())
-		nanos := h*time.Hour.Nanoseconds() + m*time.Minute.Nanoseconds() + s*time.Second.Nanoseconds() + ns*time.Nanosecond.Nanoseconds()
-		return nanos / time.Microsecond.Nanoseconds()
-
-	} else {
-		h, m, s, ns := int64(t.Hour()), int64(t.Minute()), int64(t.Second()), int64(t.Nanosecond())
-		nanos := h*time.Hour.Nanoseconds() + m*time.Minute.Nanoseconds() + s*time.Second.Nanoseconds() + ns*time.Nanosecond.Nanoseconds()
-		return nanos / time.Microsecond.Nanoseconds()
+		t = t.UTC()
 	}
+
+	h, m, s, ns := int64(t.Hour()), int64(t.Minute()), int64(t.Second()), int64(t.Nanosecond())
+	nanos := h*time.Hour.Nanoseconds() + m*time.Minute.Nanoseconds() + s*time.Second.Nanoseconds() + ns*time.Nanosecond.Nanoseconds()
+	return nanos / time.Microsecond.Nanoseconds()
 }
 
 func TimeToTIMESTAMP_MILLIS(t time.Time, adjustedToUTC bool) int64 {

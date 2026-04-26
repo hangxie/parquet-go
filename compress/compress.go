@@ -124,21 +124,19 @@ func (c *Compressor) MaxDecompressedSize() int64 {
 
 // Compress compresses data using the specified codec.
 func (c *Compressor) Compress(buf []byte, codec parquet.CompressionCodec) ([]byte, error) {
-	impl, ok := c.codecs[codec]
-	if !ok {
-		return nil, fmt.Errorf("unsupported compress method: %v", codec)
+	if impl, ok := c.codecs[codec]; ok {
+		return impl.compress(buf)
 	}
-	return impl.compress(buf)
+	return nil, fmt.Errorf("unsupported compress method: %v", codec)
 }
 
 // Uncompress decompresses data using the specified codec.
 // It validates the output size against the configured maximum.
 func (c *Compressor) Uncompress(buf []byte, codec parquet.CompressionCodec) ([]byte, error) {
-	impl, ok := c.codecs[codec]
-	if !ok {
-		return nil, fmt.Errorf("unsupported compress method: %v", codec)
+	if impl, ok := c.codecs[codec]; ok {
+		return impl.uncompress(buf, c.maxDecompressedSize)
 	}
-	return impl.uncompress(buf, c.maxDecompressedSize)
+	return nil, fmt.Errorf("unsupported compress method: %v", codec)
 }
 
 // UncompressWithExpectedSize decompresses data and validates that the result

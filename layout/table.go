@@ -83,12 +83,9 @@ func (t *Table) Pop(numRows int64) *Table {
 		res.MaxRepetitionLevel = max(res.MaxRepetitionLevel, t.RepetitionLevels[i])
 		res.MaxDefinitionLevel = max(res.MaxDefinitionLevel, t.DefinitionLevels[i])
 	}
-	endIndex = i
 
 	// Validate endIndex is within bounds
-	if endIndex > ln {
-		endIndex = ln
-	}
+	endIndex = min(i, ln)
 
 	res.RepetitionLevels = t.RepetitionLevels[:endIndex]
 	res.DefinitionLevels = t.DefinitionLevels[:endIndex]
