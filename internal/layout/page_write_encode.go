@@ -5,8 +5,8 @@ import (
 	"math/bits"
 	"slices"
 
-	"github.com/hangxie/parquet-go/v3/compress"
-	"github.com/hangxie/parquet-go/v3/encoding"
+	"github.com/hangxie/parquet-go/v3/internal/compress"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 

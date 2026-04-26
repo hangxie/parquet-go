@@ -11,7 +11,7 @@ import (
 	"github.com/apache/thrift/lib/go/thrift"
 
 	"github.com/hangxie/parquet-go/v3/common"
-	"github.com/hangxie/parquet-go/v3/layout"
+	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
