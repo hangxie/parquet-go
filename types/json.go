@@ -9,6 +9,149 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// ConvertToJSONType converts a parquet value to its JSON-friendly representation using the
+// schema element's type information (physical, converted, logical).
+// Options (e.g., WithGeospatialConfig) control type-specific rendering; unset options use defaults.
+// This is the canonical conversion entry point; callers only need the SchemaElement.
+func ConvertToJSONType(val any, se *parquet.SchemaElement, opts ...JSONTypeOption) any {
+	if val == nil || se == nil {
+		return val
+	}
+
+	var cfg JSONTypeConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	pT, cT, lT := se.Type, se.ConvertedType, se.LogicalType
+
+	// Handle INT96 timestamp conversion (before checking logical/converted types)
+	if pT != nil && *pT == parquet.Type_INT96 {
+		return convertINT96Value(val)
+	}
+
+	// LogicalType takes precedence (newer standard)
+	if lT != nil {
+		return parquetTypeToJSONTypeWithLogical(val, pT, lT, cfg.Geospatial)
+	}
+
+	// Fall back to ConvertedType (legacy)
+	return parquetTypeToJSONTypeWithConverted(val, pT, cT, int(se.GetPrecision()), int(se.GetScale()))
+}
+
+// parquetTypeToJSONTypeWithLogical converts a value using its LogicalType.
+func parquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, lT *parquet.LogicalType, geoCfg *GeospatialConfig) any {
+	if lT.IsSetDECIMAL() {
+		decimal := lT.GetDECIMAL()
+		return ConvertDecimalValue(val, pT, int(decimal.GetPrecision()), int(decimal.GetScale()))
+	}
+	if lT.IsSetFLOAT16() {
+		return ConvertFloat16LogicalValue(val)
+	}
+	if lT.IsSetTIMESTAMP() {
+		return convertTimestampLogicalValue(val, lT.GetTIMESTAMP())
+	}
+	if lT.IsSetTIME() {
+		return ConvertTimeLogicalValue(val, lT.GetTIME())
+	}
+	if lT.IsSetDATE() {
+		return ConvertDateLogicalValue(val)
+	}
+	if lT.IsSetSTRING() {
+		return val
+	}
+	if lT.IsSetINTEGER() {
+		return ConvertIntegerLogicalValue(val, pT, lT.GetINTEGER())
+	}
+	if lT.IsSetUUID() {
+		return ConvertUUIDValue(val)
+	}
+	if lT.IsSetGEOMETRY() {
+		if geoCfg == nil {
+			geoCfg = defaultGeospatialConfig
+		}
+		return ConvertGeometryLogicalValue(val, lT.GetGEOMETRY(), geoCfg)
+	}
+	if lT.IsSetGEOGRAPHY() {
+		if geoCfg == nil {
+			geoCfg = defaultGeospatialConfig
+		}
+		return ConvertGeographyLogicalValue(val, lT.GetGEOGRAPHY(), geoCfg)
+	}
+	if lT.IsSetBSON() {
+		return ConvertBSONLogicalValue(val)
+	}
+	return val
+}
+
+// parquetTypeToJSONTypeWithConverted converts a value using its ConvertedType (legacy path).
+func parquetTypeToJSONTypeWithConverted(val any, pT *parquet.Type, cT *parquet.ConvertedType, precision, scale int) any {
+	if cT == nil {
+		if pT != nil && (*pT == parquet.Type_BYTE_ARRAY || *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY) {
+			return convertBinaryValue(val)
+		}
+		return val
+	}
+
+	switch *cT {
+	case parquet.ConvertedType_DECIMAL:
+		return ConvertDecimalValue(val, pT, precision, scale)
+	case parquet.ConvertedType_UTF8, parquet.ConvertedType_DATE,
+		parquet.ConvertedType_INT_32, parquet.ConvertedType_INT_64:
+		return val
+	case parquet.ConvertedType_TIME_MILLIS:
+		if v, ok := val.(int32); ok {
+			return TIME_MILLISToTimeFormat(v)
+		}
+		return val
+	case parquet.ConvertedType_TIME_MICROS:
+		if v, ok := val.(int64); ok {
+			return TIME_MICROSToTimeFormat(v)
+		}
+		return val
+	case parquet.ConvertedType_TIMESTAMP_MILLIS:
+		return ConvertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MILLIS)
+	case parquet.ConvertedType_TIMESTAMP_MICROS:
+		return ConvertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MICROS)
+	case parquet.ConvertedType_INT_8:
+		if v, ok := val.(int32); ok {
+			return int8(v)
+		}
+		return val
+	case parquet.ConvertedType_INT_16:
+		if v, ok := val.(int32); ok {
+			return int16(v)
+		}
+		return val
+	case parquet.ConvertedType_UINT_8:
+		if v, ok := val.(int32); ok {
+			return uint8(v)
+		}
+		return val
+	case parquet.ConvertedType_UINT_16:
+		if v, ok := val.(int32); ok {
+			return uint16(v)
+		}
+		return val
+	case parquet.ConvertedType_UINT_32:
+		if v, ok := val.(int32); ok {
+			return uint32(v)
+		}
+		return val
+	case parquet.ConvertedType_UINT_64:
+		if v, ok := val.(int64); ok {
+			return uint64(v)
+		}
+		return val
+	case parquet.ConvertedType_INTERVAL:
+		return convertIntervalValue(val)
+	case parquet.ConvertedType_BSON:
+		return ConvertBSONLogicalValue(val)
+	default:
+		return val
+	}
+}
+
 func JSONTypeToParquetType(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
 	return JSONTypeToParquetTypeWithLogical(val, pT, cT, nil, length, scale)
 }
