@@ -146,7 +146,7 @@ func writeNested() {
 		}
 		log.Println(stus)
 	}
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }
 

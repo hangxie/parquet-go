@@ -77,7 +77,7 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("%v\n", converted)
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }
 

@@ -279,7 +279,7 @@ func TestWriteArrow_EmptyRecord(t *testing.T) {
 	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 	require.NoError(t, err)
 	require.Equal(t, int64(0), pr.GetNumRows())
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	require.NoError(t, pf.Close())
 }
 
@@ -689,7 +689,7 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStopWithError()
+		err = pr.ReadStop()
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)
@@ -760,7 +760,7 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStopWithError()
+		err = pr.ReadStop()
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)
@@ -803,7 +803,7 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStopWithError()
+		err = pr.ReadStop()
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)

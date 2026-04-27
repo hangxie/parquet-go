@@ -105,9 +105,9 @@ func TimeToINT96(t time.Time) string {
 // int96ByteLength is the required length for INT96 binary data
 const int96ByteLength = 12
 
-// INT96ToTimeWithError converts INT96 binary data to time.Time with error handling.
+// INT96ToTime converts INT96 binary data to time.Time with error handling.
 // Returns an error if the input is shorter than 12 bytes.
-func INT96ToTimeWithError(int96 string) (time.Time, error) {
+func INT96ToTime(int96 string) (time.Time, error) {
 	if len(int96) < int96ByteLength {
 		return time.Time{}, fmt.Errorf("INT96 data too short: got %d bytes, need %d", len(int96), int96ByteLength)
 	}

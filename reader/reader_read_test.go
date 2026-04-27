@@ -48,7 +48,7 @@ func TestParquetReader_ReadPartial(t *testing.T) {
 	buf := buffer.NewBufferReaderFromBytesNoAlloc(data)
 	pr, err := NewParquetReader(buf, new(NestedRecord), WithNP(1))
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// First, let's check what paths are available in the schema
 	require.NotNil(t, pr.SchemaHandler)
@@ -85,7 +85,7 @@ func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 	buf := buffer.NewBufferReaderFromBytesNoAlloc(data)
 	pr, err := NewParquetReader(buf, new(NestedRecord), WithNP(1))
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Use any available field path for testing
 	var nameField string
@@ -131,7 +131,7 @@ func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 func TestParquetReader_ReadByNumber_Negative(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	_, err = pr.ReadByNumber(-1)
 	require.Error(t, err)
@@ -146,63 +146,34 @@ func TestParquetReader_ReadStop(t *testing.T) {
 	require.NotNil(t, pr.ColumnBuffers)
 	require.NotEmpty(t, pr.ColumnBuffers)
 
-	// Call ReadStopWithError
-	_ = pr.ReadStopWithError()
+	// Call ReadStop - should succeed
+	err = pr.ReadStop()
+	require.NoError(t, err)
 
-	// Verify that column buffers are properly cleaned up
-	// ReadStopWithError should close all file handles in column buffers
-	// We can't easily verify this without exposing internal state
-	_ = pr.ReadStopWithError()
+	// Calling again should be safe (files already closed)
+	_ = pr.ReadStop()
+	// May return error because files are already closed, but shouldn't panic
+	// We don't assert on error here as behavior may vary
 
 	// Test ReadStop with nil column buffers
 	pr2, err := parquetReader()
 	require.NoError(t, err)
 	pr2.ColumnBuffers = nil
-	_ = pr2.ReadStopWithError()
+	err = pr2.ReadStop()
+	require.NoError(t, err) // Should not error with nil buffers
 
 	// Test ReadStop with empty column buffers
 	pr3, err := parquetReader()
 	require.NoError(t, err)
 	pr3.ColumnBuffers = make(map[string]*ColumnBufferType)
-	_ = pr3.ReadStopWithError()
-}
-
-func TestParquetReader_ReadStopWithError(t *testing.T) {
-	pr, err := parquetReader()
-	require.NoError(t, err)
-
-	// Ensure column buffers are initialized
-	require.NotNil(t, pr.ColumnBuffers)
-	require.NotEmpty(t, pr.ColumnBuffers)
-
-	// Call ReadStopWithError - should succeed
-	err = pr.ReadStopWithError()
-	require.NoError(t, err)
-
-	// Calling again should be safe (files already closed)
-	_ = pr.ReadStopWithError()
-	// May return error because files are already closed, but shouldn't panic
-	// We don't assert on error here as behavior may vary
-
-	// Test ReadStopWithError with nil column buffers
-	pr2, err := parquetReader()
-	require.NoError(t, err)
-	pr2.ColumnBuffers = nil
-	err = pr2.ReadStopWithError()
-	require.NoError(t, err) // Should not error with nil buffers
-
-	// Test ReadStopWithError with empty column buffers
-	pr3, err := parquetReader()
-	require.NoError(t, err)
-	pr3.ColumnBuffers = make(map[string]*ColumnBufferType)
-	err = pr3.ReadStopWithError()
+	err = pr3.ReadStop()
 	require.NoError(t, err) // Should not error with empty buffers
 }
 
 func TestParquetReader_Reset(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Read first 10 records
 	records1 := make([]Record, 10)
@@ -251,7 +222,7 @@ func TestParquetReader_Reset(t *testing.T) {
 func TestParquetReader_Reset_MultipleResets(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Read and reset multiple times
 	for iteration := range 3 {
@@ -280,7 +251,7 @@ func TestParquetReader_Reset_MultipleResets(t *testing.T) {
 func TestParquetReader_Reset_AfterReadAll(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Read all records
 	allRecords := make([]Record, numRecord)
@@ -416,7 +387,7 @@ func TestNestedListWithEmptyStrings(t *testing.T) {
 				require.Equal(t, expected.Matrix, result[0].Matrix, "Matrix mismatch at row %d", i)
 			}
 
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		})
 	}
 }
@@ -448,7 +419,7 @@ func TestGeospatialConfigRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	data, err := pr.ReadByNumber(1)
 	require.NoError(t, err)
-	require.NoError(t, pr.ReadStopWithError())
+	require.NoError(t, pr.ReadStop())
 
 	tests := []struct {
 		name     string

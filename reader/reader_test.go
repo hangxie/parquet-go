@@ -129,7 +129,7 @@ func createNestedParquetData() ([]byte, error) {
 func TestParquetReader_GetNumRows(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	numRows := pr.GetNumRows()
 	require.Equal(t, numRecord, numRows)
@@ -140,7 +140,7 @@ func TestParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
 	// Create a simple parquet reader using existing data
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Test with invalid JSON first (should fail immediately)
 	invalidJSON := `{"invalid": json}`
@@ -579,7 +579,7 @@ func TestParquetReader_RenameSchema_NilChecks(t *testing.T) {
 	}
 }
 
-func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
+func TestParquetReader_SkipRowsByIndex_NilChecks(t *testing.T) {
 	tests := []struct {
 		name        string
 		setup       func() *ParquetReader
@@ -630,7 +630,7 @@ func TestParquetReader_SkipRowsByIndexWithError_NilChecks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pr := tt.setup()
 
-			err := pr.SkipRowsByIndexWithError(tt.index, 1)
+			err := pr.SkipRowsByIndex(tt.index, 1)
 			if tt.expectError {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
@@ -750,28 +750,28 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	pr, err := NewParquetReader(parquetBuffer, new(Record), WithNP(1), WithCaseInsensitive(true))
 	require.NoError(t, err)
 	require.True(t, pr.caseInsensitive)
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 
 	// Test that WithCaseInsensitive(true) then (false) resets to false
 	parquetBuffer2 := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 	pr2, err := NewParquetReader(parquetBuffer2, new(Record), WithNP(1), WithCaseInsensitive(true), WithCaseInsensitive(false))
 	require.NoError(t, err)
 	require.False(t, pr2.caseInsensitive)
-	_ = pr2.ReadStopWithError()
+	_ = pr2.ReadStop()
 
 	// Test with CRCMode option
 	parquetBuffer3 := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 	pr3, err := NewParquetReader(parquetBuffer3, new(Record), WithNP(1), WithCRCMode(common.CRCStrict))
 	require.NoError(t, err)
 	require.Equal(t, common.CRCStrict, pr3.crcMode)
-	_ = pr3.ReadStopWithError()
+	_ = pr3.ReadStop()
 }
 
 func TestNewParquetReader_DefaultNP(t *testing.T) {
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(parquetBuf)
 	pr, err := NewParquetReader(pf, new(Record))
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	require.Equal(t, int64(4), pr.np)
 }
@@ -813,7 +813,7 @@ func TestNewParquetReader_OptionValidation(t *testing.T) {
 func TestNewParquetColumnReader_OptionValidation(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	tests := []struct {
 		name   string

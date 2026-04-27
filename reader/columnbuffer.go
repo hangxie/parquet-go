@@ -229,7 +229,7 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 	return cbt.ReadPageForSkip()
 }
 
-// SkipRowsWithError skips up to num rows and returns how many were skipped.
+// SkipRows skips up to num rows and returns how many were skipped.
 // It propagates underlying read/decoding errors rather than hiding them.
 // This function is optimized to skip entire row groups when possible, making it
 // efficient for large skip distances.
@@ -343,7 +343,7 @@ func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 	return num, nil
 }
 
-func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
+func (cbt *ColumnBufferType) SkipRows(num int64) (int64, error) {
 	if num <= 0 {
 		return 0, nil
 	}
@@ -377,8 +377,8 @@ func (cbt *ColumnBufferType) SkipRowsWithError(num int64) (int64, error) {
 	return originalNum - remaining + num, nil
 }
 
-// ReadRowsWithError reads up to num rows into a table and returns any non-EOF error.
-func (cbt *ColumnBufferType) ReadRowsWithError(num int64) (*layout.Table, int64, error) {
+// ReadRows reads up to num rows into a table and returns any non-EOF error.
+func (cbt *ColumnBufferType) ReadRows(num int64) (*layout.Table, int64, error) {
 	if cbt.Footer.NumRows == 0 {
 		return &layout.Table{}, 0, nil
 	}

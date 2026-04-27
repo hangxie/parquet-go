@@ -160,9 +160,9 @@ func (c *Compressor) UncompressWithExpectedSize(buf []byte, codec parquet.Compre
 	return result, nil
 }
 
-// CompressWithError compresses data using the specified compression method
+// Compress compresses data using the specified compression method
 // with the default compressor.
-func CompressWithError(buf []byte, compressMethod parquet.CompressionCodec) ([]byte, error) {
+func Compress(buf []byte, compressMethod parquet.CompressionCodec) ([]byte, error) {
 	return DefaultCompressor().Compress(buf, compressMethod)
 }
 

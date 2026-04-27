@@ -102,47 +102,47 @@ func TestDECIMAL(t *testing.T) {
 func TestINT96(t *testing.T) {
 	t1 := time.Now().Truncate(time.Microsecond).UTC()
 	s := TimeToINT96(t1)
-	t2, err := INT96ToTimeWithError(s)
+	t2, err := INT96ToTime(s)
 	require.NoError(t, err)
 	require.True(t, t1.Equal(t2), "INT96 error: expected %v, got %v", t1, t2)
 }
 
 func TestINT96ToTime_InvalidInput(t *testing.T) {
-	// Test that INT96ToTimeWithError returns error for invalid input
-	_, err := INT96ToTimeWithError("")
+	// Test that INT96ToTime returns error for invalid input
+	_, err := INT96ToTime("")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "too short")
 
-	_, err = INT96ToTimeWithError("short")
+	_, err = INT96ToTime("short")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "too short")
 }
 
-func TestINT96ToTimeWithError(t *testing.T) {
+func TestINT96ToTime(t *testing.T) {
 	// Test valid input
 	t1 := time.Now().Truncate(time.Microsecond).UTC()
 	s := TimeToINT96(t1)
-	t2, err := INT96ToTimeWithError(s)
+	t2, err := INT96ToTime(s)
 	require.NoError(t, err)
 	require.True(t, t1.Equal(t2), "INT96 error: expected %v, got %v", t1, t2)
 
 	// Test with empty string
-	_, err = INT96ToTimeWithError("")
+	_, err = INT96ToTime("")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "too short")
 
 	// Test with string too short
-	_, err = INT96ToTimeWithError("short")
+	_, err = INT96ToTime("short")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "too short")
 
 	// Test with exactly 11 bytes (one byte short)
-	_, err = INT96ToTimeWithError("12345678901")
+	_, err = INT96ToTime("12345678901")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "got 11 bytes")
 
 	// Test with exactly 12 bytes (valid)
-	_, err = INT96ToTimeWithError("123456789012")
+	_, err = INT96ToTime("123456789012")
 	require.NoError(t, err)
 }
 

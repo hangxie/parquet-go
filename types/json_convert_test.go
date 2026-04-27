@@ -1298,7 +1298,7 @@ func TestConvertINT96Value(t *testing.T) {
 	res = convertINT96Value(int96)
 	require.Equal(t, timeStr, res)
 
-	// error path: string shorter than 12 bytes causes INT96ToTimeWithError to fail
+	// error path: string shorter than 12 bytes causes INT96ToTime to fail
 	short := "tooshort"
 	res = convertINT96Value(short)
 	require.Equal(t, short, res)

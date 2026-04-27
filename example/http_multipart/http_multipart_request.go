@@ -66,7 +66,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// read contents
 	num := int(pr.GetNumRows())

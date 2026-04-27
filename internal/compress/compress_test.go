@@ -52,7 +52,7 @@ func TestCompress(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actualCompressedData, err := CompressWithError(testCase.rawData, testCase.codec)
+			actualCompressedData, err := Compress(testCase.rawData, testCase.codec)
 
 			if testCase.errMsg != "" {
 				require.Error(t, err)
@@ -86,7 +86,7 @@ func TestCompressLargeData(t *testing.T) {
 		largeData[i] = byte(i % 10) // Repeating pattern for better compression
 	}
 
-	compressed, err := CompressWithError(largeData, parquet.CompressionCodec_SNAPPY)
+	compressed, err := Compress(largeData, parquet.CompressionCodec_SNAPPY)
 	require.NoError(t, err)
 	require.NotNil(t, compressed)
 	require.Less(t, len(compressed), len(largeData))
@@ -102,46 +102,11 @@ func TestErrorHandling(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported compress method")
 
-	// Test CompressWithError with unsupported codec returns error
-	result, err := CompressWithError([]byte{1, 2, 3}, parquet.CompressionCodec(999))
+	// Test Compress with unsupported codec returns error
+	result, err := Compress([]byte{1, 2, 3}, parquet.CompressionCodec(999))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported compress method")
 	require.Nil(t, result)
-}
-
-func TestCompressWithError(t *testing.T) {
-	testData := []byte{1, 2, 3, 4, 5}
-
-	t.Run("supported codec", func(t *testing.T) {
-		compressed, err := CompressWithError(testData, parquet.CompressionCodec_SNAPPY)
-		require.NoError(t, err)
-		require.NotNil(t, compressed)
-
-		// Verify round-trip
-		decompressed, err := Uncompress(compressed, parquet.CompressionCodec_SNAPPY)
-		require.NoError(t, err)
-		require.Equal(t, testData, decompressed)
-	})
-
-	t.Run("uncompressed codec", func(t *testing.T) {
-		compressed, err := CompressWithError(testData, parquet.CompressionCodec_UNCOMPRESSED)
-		require.NoError(t, err)
-		require.Equal(t, testData, compressed)
-	})
-
-	t.Run("unsupported codec returns error", func(t *testing.T) {
-		result, err := CompressWithError(testData, parquet.CompressionCodec(999))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "unsupported compress method")
-		require.Nil(t, result)
-	})
-
-	t.Run("negative codec value", func(t *testing.T) {
-		result, err := CompressWithError(testData, parquet.CompressionCodec(-1))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "unsupported compress method")
-		require.Nil(t, result)
-	})
 }
 
 func TestUncompress(t *testing.T) {
@@ -200,7 +165,7 @@ func TestDecompressionSizeLimit(t *testing.T) {
 	}
 
 	// Compress with snappy using default compressor
-	compressed, err := CompressWithError(testData, parquet.CompressionCodec_SNAPPY)
+	compressed, err := Compress(testData, parquet.CompressionCodec_SNAPPY)
 	require.NoError(t, err)
 	require.NotNil(t, compressed)
 
@@ -223,7 +188,7 @@ func TestDecompressionSizeLimit(t *testing.T) {
 
 func TestUncompressWithExpectedSize(t *testing.T) {
 	testData := []byte("Hello, World! This is test data for compression.")
-	compressed, err := CompressWithError(testData, parquet.CompressionCodec_SNAPPY)
+	compressed, err := Compress(testData, parquet.CompressionCodec_SNAPPY)
 	require.NoError(t, err)
 	require.NotNil(t, compressed)
 

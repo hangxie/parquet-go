@@ -116,7 +116,7 @@ func main() {
     if err != nil {
         log.Fatal("Can't create parquet reader", err)
     }
-    defer func() { _ = pr.ReadStopWithError() }()
+    defer func() { _ = pr.ReadStop() }()
 
     num := int(pr.GetNumRows())
     students := make([]Student, num)

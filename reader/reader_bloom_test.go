@@ -41,7 +41,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Values that were written should return true (might contain)
 		found, err := pr.BloomFilterCheck("id", 0, int64(0))
@@ -76,7 +76,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Test that values NOT written are likely to return false.
 		// With 10 values in a 1024-byte filter, false positive rate should be very low.
@@ -108,7 +108,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Column without bloom filter should return true (conservative)
 		found, err := pr.BloomFilterCheck("name", 0, "test")
@@ -131,7 +131,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		_, err = pr.BloomFilterCheck("id", -1, int64(42))
 		require.Error(t, err)
@@ -157,7 +157,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		_, err = pr.BloomFilterCheck("nonexistent", 0, int64(42))
 		require.Error(t, err)
@@ -186,7 +186,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Verify all written values pass the bloom filter check
 		for i := range 50 {
@@ -222,7 +222,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.Greater(t, len(pr.Footer.RowGroups), 1)
 
@@ -255,7 +255,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Pass a string value for an INT64 column → HashValue encoding error
 		_, err = pr.BloomFilterCheck("id", 0, "not-an-int64")
@@ -278,7 +278,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Replace PFile with a mock that fails on Clone
 		pr.PFile = &failCloneReader{ParquetFileReader: pf}
@@ -302,7 +302,7 @@ func TestBloomFilterCheck(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Corrupt the bloom filter offset to point to the start of the file (PAR1 magic)
 		for _, cc := range pr.Footer.RowGroups[0].Columns {
@@ -442,7 +442,7 @@ func TestDetectBloomFilters(t *testing.T) {
 		fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(fr, nil, WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// BloomFilterSize should be the bitset size (4096), not including Thrift header overhead.
 		// After RenameSchema, the internal name "Name" (Go field name) is used in MapIndex.
@@ -474,7 +474,7 @@ func TestBloomFilterInterop(t *testing.T) {
 
 		pr, err := NewParquetReader(httpReader, nil, WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.NotEmpty(t, pr.Footer.RowGroups)
 		rg := pr.Footer.RowGroups[0]
@@ -507,7 +507,7 @@ func TestBloomFilterInterop(t *testing.T) {
 
 		pr, err := NewParquetReader(httpReader, nil, WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.NotEmpty(t, pr.Footer.RowGroups)
 		rg := pr.Footer.RowGroups[0]
