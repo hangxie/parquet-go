@@ -94,7 +94,7 @@ func readParquetFile(filename string) error {
 		return fmt.Errorf("create parquet reader: %w", err)
 	}
 	defer func() {
-		if stopErr := pr.ReadStopWithError(); stopErr != nil {
+		if stopErr := pr.ReadStop(); stopErr != nil {
 			log.Printf("Warning: stop reader: %v", stopErr)
 		}
 	}()

@@ -421,39 +421,6 @@ func TestParquetReader_SkipRowsByIndex(t *testing.T) {
 		setupReader func() *ParquetReader
 		index       int64
 		num         int64
-		expectCall  bool
-	}{
-		{
-			name: "index_out_of_range",
-			setupReader: func() *ParquetReader {
-				return &ParquetReader{
-					SchemaHandler: &schema.SchemaHandler{
-						ValueColumns: []string{"column1", "column2"},
-					},
-				}
-			},
-			index:      5, // Out of range
-			num:        3,
-			expectCall: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pr := tt.setupReader()
-
-			// SkipRowsByIndexWithError returns error
-			_ = pr.SkipRowsByIndexWithError(tt.index, tt.num)
-		})
-	}
-}
-
-func TestParquetReader_SkipRowsByIndexWithError(t *testing.T) {
-	tests := []struct {
-		name        string
-		setupReader func() *ParquetReader
-		index       int64
-		num         int64
 		errMsg      string
 	}{
 		{
@@ -497,7 +464,7 @@ func TestParquetReader_SkipRowsByIndexWithError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pr := tt.setupReader()
 
-			err := pr.SkipRowsByIndexWithError(tt.index, tt.num)
+			err := pr.SkipRowsByIndex(tt.index, tt.num)
 			if tt.errMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
@@ -512,7 +479,7 @@ func TestNewParquetColumnReader_Success(t *testing.T) {
 	// Create a real parquet file to test with
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Now test NewParquetColumnReader with a real parquet file
 	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
@@ -523,19 +490,19 @@ func TestNewParquetColumnReader_Success(t *testing.T) {
 	require.NotNil(t, columnReader.SchemaHandler)
 	require.NotNil(t, columnReader.ColumnBuffers)
 
-	_ = columnReader.ReadStopWithError()
+	_ = columnReader.ReadStop()
 }
 
 func TestParquetReader_SkipRowsByPath_WithValidData(t *testing.T) {
 	// Create a real parquet reader
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Create column reader to test the successful path
 	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
 	require.NoError(t, err)
-	defer func() { _ = columnReader.ReadStopWithError() }()
+	defer func() { _ = columnReader.ReadStop() }()
 
 	// Test skipping rows with valid path
 	if len(columnReader.SchemaHandler.ValueColumns) > 0 {
@@ -549,54 +516,28 @@ func TestParquetReader_SkipRowsByIndex_Success(t *testing.T) {
 	// Create a real parquet reader
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Create column reader
 	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
 	require.NoError(t, err)
-	defer func() { _ = columnReader.ReadStopWithError() }()
+	defer func() { _ = columnReader.ReadStop() }()
 
 	// Test with valid index
 	if len(columnReader.SchemaHandler.ValueColumns) > 0 {
-		_ = columnReader.SkipRowsByIndexWithError(0, 5)
-		// No error expected
-	}
-
-	// Test with nil SchemaHandler
-	emptyReader := &ParquetReader{SchemaHandler: nil}
-	_ = emptyReader.SkipRowsByIndexWithError(0, 5) // Should return error
-
-	// Test with nil ValueColumns
-	emptyReader.SchemaHandler = &schema.SchemaHandler{ValueColumns: nil}
-	_ = emptyReader.SkipRowsByIndexWithError(0, 5) // Should return error
-}
-
-func TestParquetReader_SkipRowsByIndexWithError_Success(t *testing.T) {
-	// Create a real parquet reader
-	pr, err := parquetReader()
-	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
-
-	// Create column reader
-	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
-	require.NoError(t, err)
-	defer func() { _ = columnReader.ReadStopWithError() }()
-
-	// Test with valid index
-	if len(columnReader.SchemaHandler.ValueColumns) > 0 {
-		err = columnReader.SkipRowsByIndexWithError(0, 5)
+		err = columnReader.SkipRowsByIndex(0, 5)
 		require.NoError(t, err)
 	}
 
 	// Test with nil SchemaHandler - should return error
 	emptyReader := &ParquetReader{SchemaHandler: nil}
-	err = emptyReader.SkipRowsByIndexWithError(0, 5)
+	err = emptyReader.SkipRowsByIndex(0, 5)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "SchemaHandler is nil")
 
 	// Test with nil ValueColumns - should return error
 	emptyReader.SchemaHandler = &schema.SchemaHandler{ValueColumns: nil}
-	err = emptyReader.SkipRowsByIndexWithError(0, 5)
+	err = emptyReader.SkipRowsByIndex(0, 5)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ValueColumns is nil")
 }
@@ -605,12 +546,12 @@ func TestParquetReader_ReadColumnByPath_WithValidData(t *testing.T) {
 	// Create a real parquet reader
 	pr, err := parquetReader()
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	// Create column reader
 	columnReader, err := NewParquetColumnReader(pr.PFile, WithNP(1))
 	require.NoError(t, err)
-	defer func() { _ = columnReader.ReadStopWithError() }()
+	defer func() { _ = columnReader.ReadStop() }()
 
 	// Test reading column with valid path
 	if len(columnReader.SchemaHandler.ValueColumns) > 0 {

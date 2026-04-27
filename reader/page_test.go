@@ -84,7 +84,7 @@ func TestGetAllPageHeaders(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	t.Run("valid indices", func(t *testing.T) {
@@ -139,7 +139,7 @@ func TestReadDictionaryPageValues(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	dictCol := pr.Footer.RowGroups[0].Columns[0]
@@ -191,7 +191,7 @@ func TestGetAllPageHeaders_AllPageTypes(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	// Read all page headers from the first column (which should have dictionary)
@@ -216,7 +216,7 @@ func TestReadAllPageHeaders(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	require.NotEmpty(t, pr.Footer.RowGroups)
@@ -243,7 +243,7 @@ func TestReadPageData(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	require.NotEmpty(t, pr.Footer.RowGroups)
@@ -296,7 +296,7 @@ func TestReadPageData_V2(t *testing.T) {
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(data)
 	pr, err := NewParquetReader(pf, new(Record), WithNP(1))
 	require.NoError(t, err)
-	defer func() { _ = pr.ReadStopWithError() }()
+	defer func() { _ = pr.ReadStop() }()
 
 	headers, err := pr.GetAllPageHeaders(0, 0)
 	require.NoError(t, err)
@@ -346,7 +346,7 @@ func TestDecodeDictionaryPage(t *testing.T) {
 		pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		dictCol := pr.Footer.RowGroups[0].Columns[0]
@@ -797,7 +797,7 @@ func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
 		pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		_, err = pr.GetAllPageHeaders(-1, 0)
@@ -816,7 +816,7 @@ func TestReadAllPageHeaders_NegativeCases(t *testing.T) {
 		pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		_, err = pr.GetAllPageHeaders(0, -1)
@@ -851,7 +851,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		// Get a valid offset
@@ -880,7 +880,7 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 		require.NoError(t, err)
 		defer func() {
-			_ = pr.ReadStopWithError()
+			_ = pr.ReadStop()
 		}()
 
 		col := pr.Footer.RowGroups[0].Columns[0]
@@ -937,7 +937,7 @@ func TestReadDictionaryPageValues_NegativeCases(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	t.Run("invalid offset - cannot read header", func(t *testing.T) {
@@ -993,7 +993,7 @@ func TestGetFirstDataPageHeader(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	t.Run("compare with first data page from GetAllPageHeaders", func(t *testing.T) {
@@ -1145,7 +1145,7 @@ func TestReadFirstDataPageHeader_NegativeCases(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	t.Run("nil column chunk metadata", func(t *testing.T) {
@@ -1181,7 +1181,7 @@ func TestReadAllPageHeaders_ViaGetAllPageHeaders(t *testing.T) {
 	pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(4))
 	require.NoError(t, err)
 	defer func() {
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	}()
 
 	require.NotEmpty(t, pr.Footer.RowGroups)
@@ -1288,7 +1288,7 @@ func TestCRCValidation_ValidFile(t *testing.T) {
 			pr, err := NewParquetReader(pf, nil,
 				WithNP(1), WithCRCMode(tc.mode))
 			require.NoError(t, err)
-			defer func() { _ = pr.ReadStopWithError() }()
+			defer func() { _ = pr.ReadStop() }()
 
 			values, _, _, err := pr.ReadColumnByIndex(0, pr.GetNumRows())
 			require.NoError(t, err)
@@ -1320,7 +1320,7 @@ func TestCRCValidation_CorruptFile(t *testing.T) {
 			pr, err := NewParquetReader(pf, nil,
 				WithNP(1), WithCRCMode(tc.mode))
 			require.NoError(t, err)
-			defer func() { _ = pr.ReadStopWithError() }()
+			defer func() { _ = pr.ReadStop() }()
 
 			_, _, _, err = pr.ReadColumnByIndex(0, pr.GetNumRows())
 			if tc.errMsg == "" {

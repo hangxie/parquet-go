@@ -171,7 +171,7 @@ func TestGetRLDLFromRawData(t *testing.T) {
 			setupPage: func() *Page {
 				// Compress known data and set matching UncompressedPageSize
 				rawData := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-				compressedData, err := compress.CompressWithError(rawData, parquet.CompressionCodec_SNAPPY)
+				compressedData, err := compress.Compress(rawData, parquet.CompressionCodec_SNAPPY)
 				if err != nil {
 					t.Fatalf("compress test data: %v", err)
 				}
@@ -198,7 +198,7 @@ func TestGetRLDLFromRawData(t *testing.T) {
 			setupPage: func() *Page {
 				// Compress data but set wrong UncompressedPageSize
 				rawData := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-				compressedData, err := compress.CompressWithError(rawData, parquet.CompressionCodec_SNAPPY)
+				compressedData, err := compress.Compress(rawData, parquet.CompressionCodec_SNAPPY)
 				if err != nil {
 					t.Fatalf("compress test data: %v", err)
 				}

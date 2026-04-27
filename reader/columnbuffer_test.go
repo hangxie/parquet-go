@@ -510,7 +510,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		sh := newSchemaHandlerWithPath("bogus") // MapIndex includes root.bogus
 		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: "root.bogus", DataTableNumRows: -1}
 
-		_, _, err := cb.ReadRowsWithError(1)
+		_, _, err := cb.ReadRows(1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Column not found")
 	})
@@ -525,7 +525,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		sh := newSchemaHandlerWithPath("bogus")
 		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: "root.bogus", DataTableNumRows: -1}
 
-		_, err := cb.SkipRowsWithError(1)
+		_, err := cb.SkipRows(1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Column not found")
 	})
@@ -560,7 +560,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 	})
 }
 
-func TestReadRowsWithError(t *testing.T) {
+func TestReadRows(t *testing.T) {
 	tests := []struct {
 		name           string
 		setup          func() *ColumnBufferType
@@ -613,7 +613,7 @@ func TestReadRowsWithError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cb := tt.setup()
-			tbl, n, err := cb.ReadRowsWithError(tt.numRows)
+			tbl, n, err := cb.ReadRows(tt.numRows)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -628,7 +628,7 @@ func TestReadRowsWithError(t *testing.T) {
 	}
 }
 
-func TestSkipRowsWithError(t *testing.T) {
+func TestSkipRows(t *testing.T) {
 	tests := []struct {
 		name         string
 		setup        func() *ColumnBufferType
@@ -722,7 +722,7 @@ func TestSkipRowsWithError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cb := tt.setup()
-			n, err := cb.SkipRowsWithError(tt.numRows)
+			n, err := cb.SkipRows(tt.numRows)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -783,7 +783,7 @@ func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 
-	n, _ := cb.SkipRowsWithError(1)
+	n, _ := cb.SkipRows(1)
 	require.Equal(t, int64(0), n)
 }
 
@@ -900,7 +900,7 @@ func TestReadPageForSkip_Conditions(t *testing.T) {
 
 // TestSkipByReadingPages_ReturnsCountPopped documents that skipByReadingPages returns
 // the count of rows actually popped (not the remaining-to-skip count). This is important
-// because SkipRowsWithError must account for this when computing the total-skipped return value.
+// because SkipRows must account for this when computing the total-skipped return value.
 func TestSkipByReadingPages_ReturnsCountPopped(t *testing.T) {
 	dt := &layout.Table{
 		Values:           []any{int64(1), int64(2), int64(3), int64(4), int64(5)},
@@ -914,7 +914,7 @@ func TestSkipByReadingPages_ReturnsCountPopped(t *testing.T) {
 	require.Equal(t, int64(1), cb.DataTableNumRows)
 }
 
-func TestSkipRowsWithError_RowGroupSkipping(t *testing.T) {
+func TestSkipRows_RowGroupSkipping(t *testing.T) {
 	// Test skipping entire row groups
 	mockFile := newMockColumnBufferFileReader([]byte{})
 	footer := &parquet.FileMetaData{
@@ -939,7 +939,7 @@ func TestSkipRowsWithError_RowGroupSkipping(t *testing.T) {
 	}
 
 	// Skip across row groups
-	n, err := cb.SkipRowsWithError(150)
+	n, err := cb.SkipRows(150)
 	// This will fail because we can't actually read pages, but it exercises the row group skipping logic
 	if err == nil || n > 0 {
 		// Some rows were skipped

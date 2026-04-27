@@ -505,7 +505,7 @@ func TestParquetWriter(t *testing.T) {
 		err = pr.Read(&actualRows)
 		require.NoError(t, err)
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	})
 
 	t.Run("set_schema_handler_from_json_valid", func(t *testing.T) {
@@ -928,7 +928,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(3), pr.GetNumRows())
 
@@ -979,7 +979,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(4), pr.GetNumRows())
 
@@ -1019,7 +1019,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		columns := pr.Footer.RowGroups[0].GetColumns()
 		require.Equal(t, parquet.CompressionCodec_UNCOMPRESSED, columns[0].MetaData.GetCodec())
@@ -1050,7 +1050,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// All columns should use file-level compression (GZIP)
 		columns := pr.Footer.RowGroups[0].GetColumns()
@@ -1089,7 +1089,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Verify compression codecs - map has key and value columns
 		columns := pr.Footer.RowGroups[0].GetColumns()
@@ -1122,7 +1122,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		// Verify compression codec - list has one element column
 		columns := pr.Footer.RowGroups[0].GetColumns()
@@ -1155,7 +1155,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		columns := pr.Footer.RowGroups[0].GetColumns()
 		require.Equal(t, parquet.CompressionCodec_GZIP, columns[0].MetaData.GetCodec())
@@ -1201,7 +1201,7 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(4), pr.GetNumRows())
 
@@ -1248,7 +1248,7 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(6), pr.GetNumRows())
 
@@ -1284,7 +1284,7 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(SimpleStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(2), pr.GetNumRows())
 	})
@@ -1315,7 +1315,7 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(ValueStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(3), pr.GetNumRows())
 
@@ -1345,7 +1345,7 @@ func TestDataPageVersion(t *testing.T) {
 
 		pr, err := reader.NewParquetReader(pf, new(ValueStruct), reader.WithNP(1))
 		require.NoError(t, err)
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(100), pr.GetNumRows())
 
@@ -1384,7 +1384,7 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		res := make([]MyStruct, len(records))
 		require.NoError(t, pr.Read(&res))
@@ -1438,7 +1438,7 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
-		defer func() { _ = pr.ReadStopWithError() }()
+		defer func() { _ = pr.ReadStop() }()
 
 		res := make([]MyStruct, 2)
 		require.NoError(t, pr.Read(&res))
@@ -1579,7 +1579,7 @@ func TestBloomFilter(t *testing.T) {
 		nameCol := rg.Columns[1]
 		require.False(t, nameCol.MetaData.IsSetBloomFilterOffset())
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	})
 
 	t.Run("bloom_filter_content_check", func(t *testing.T) {
@@ -1619,7 +1619,7 @@ func TestBloomFilter(t *testing.T) {
 			require.True(t, f.Check(h))
 		}
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	})
 
 	t.Run("bloom_filter_with_dict_encoding", func(t *testing.T) {
@@ -1658,7 +1658,7 @@ func TestBloomFilter(t *testing.T) {
 			require.True(t, f.Check(h))
 		}
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	})
 
 	t.Run("bloom_filter_custom_size", func(t *testing.T) {
@@ -1683,7 +1683,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int32(2048), header.NumBytes)
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	})
 
 	t.Run("bloom_filter_with_nulls", func(t *testing.T) {
@@ -1724,7 +1724,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, f.Check(h2))
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	})
 
 	t.Run("bloom_filter_multiple_row_groups", func(t *testing.T) {
@@ -1757,7 +1757,7 @@ func TestBloomFilter(t *testing.T) {
 			require.True(t, col.MetaData.IsSetBloomFilterOffset())
 		}
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	})
 
 	t.Run("no_bloom_filter_when_not_configured", func(t *testing.T) {
@@ -1780,7 +1780,7 @@ func TestBloomFilter(t *testing.T) {
 			require.False(t, col.MetaData.IsSetBloomFilterOffset())
 		}
 
-		_ = pr.ReadStopWithError()
+		_ = pr.ReadStop()
 	})
 }
 
@@ -1834,7 +1834,7 @@ func TestWriteCRC_RoundTrip(t *testing.T) {
 
 			results := make([]testRecord, 10)
 			require.NoError(t, pr.Read(&results))
-			require.NoError(t, pr.ReadStopWithError())
+			require.NoError(t, pr.ReadStop())
 			_ = pf.Close()
 
 			require.Len(t, results, 10)
@@ -1870,7 +1870,7 @@ func TestWriteCRC_DictEncoding_RoundTrip(t *testing.T) {
 
 	results := make([]testRecord, 20)
 	require.NoError(t, pr.Read(&results))
-	require.NoError(t, pr.ReadStopWithError())
+	require.NoError(t, pr.ReadStop())
 	_ = pf.Close()
 
 	require.Len(t, results, 20)

@@ -181,7 +181,7 @@ func ConvertDecimalValue(val any, pT *parquet.Type, precision, scale int) any {
 func convertINT96Value(val any) any {
 	if v, ok := val.(string); ok {
 		// Convert INT96 binary data to time.Time, then format as ISO 8601 string
-		t, err := INT96ToTimeWithError(v)
+		t, err := INT96ToTime(v)
 		if err != nil {
 			return val // Return original value if conversion fails
 		}

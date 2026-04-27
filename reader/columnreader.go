@@ -58,16 +58,16 @@ func (pr *ParquetReader) SkipRowsByPath(pathStr string, num int64) error {
 
 	if cb, ok := pr.ColumnBuffers[pathStr]; !ok {
 		return errPathNotFound
-	} else if _, err := cb.SkipRowsWithError(int64(num)); err != nil {
+	} else if _, err := cb.SkipRows(int64(num)); err != nil {
 		return fmt.Errorf("skip rows by path %v: %w", pathStr, err)
 	}
 
 	return nil
 }
 
-// SkipRowsByIndexWithError skips rows by index and returns any errors encountered.
+// SkipRowsByIndex skips rows by index and returns any errors encountered.
 // This is the error-returning version of SkipRowsByIndex.
-func (pr *ParquetReader) SkipRowsByIndexWithError(index, num int64) error {
+func (pr *ParquetReader) SkipRowsByIndex(index, num int64) error {
 	if pr.SchemaHandler == nil {
 		return fmt.Errorf("SchemaHandler is nil")
 	}
@@ -108,7 +108,7 @@ func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []a
 	}
 
 	if cb, ok := pr.ColumnBuffers[pathStr]; ok {
-		table, _, rerr := cb.ReadRowsWithError(int64(num))
+		table, _, rerr := cb.ReadRows(int64(num))
 		if rerr != nil {
 			return []any{}, []int32{}, []int32{}, fmt.Errorf("read rows %v: %w", pathStr, rerr)
 		}

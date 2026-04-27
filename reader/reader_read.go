@@ -39,7 +39,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 		sem <- struct{}{}
 		g.Go(func() error {
 			defer func() { <-sem }()
-			if _, err := pr.ColumnBuffers[pathStr].SkipRowsWithError(int64(num)); err != nil && err == io.EOF {
+			if _, err := pr.ColumnBuffers[pathStr].SkipRows(int64(num)); err != nil && err == io.EOF {
 				return nil
 			} else if err != nil {
 				return fmt.Errorf("skip rows for column %s: %w", pathStr, err)
@@ -142,7 +142,7 @@ func (pr *ParquetReader) fetchColumnData(num int, prefixPath string, tmap map[st
 		defer wgCols.Done()
 		for pathStr := range taskChan {
 			cb := pr.ColumnBuffers[pathStr]
-			table, _, rerr := cb.ReadRowsWithError(int64(num))
+			table, _, rerr := cb.ReadRows(int64(num))
 			if rerr != nil {
 				errMu.Lock()
 				if firstErr == nil {
@@ -259,9 +259,9 @@ func (pr *ParquetReader) Reset() error {
 }
 
 // Stop Read
-// ReadStopWithError closes all column buffer file handles and returns any errors encountered.
+// ReadStop closes all column buffer file handles and returns any errors encountered.
 // This is the error-returning version of ReadStop.
-func (pr *ParquetReader) ReadStopWithError() error {
+func (pr *ParquetReader) ReadStop() error {
 	var errs []error
 	for pathStr, cb := range pr.ColumnBuffers {
 		if cb == nil {

@@ -333,7 +333,7 @@ func TestJSONWriter(t *testing.T) {
 					numRows := pr.GetNumRows()
 					require.Equal(t, *tt.expectRows, numRows)
 
-					_ = pr.ReadStopWithError()
+					_ = pr.ReadStop()
 					_ = pf.Close()
 				}
 			})

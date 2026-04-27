@@ -114,7 +114,7 @@ func main() {
 			fmt.Printf("Column '%s': No geospatial statistics\n", colName)
 		}
 	}
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }
 

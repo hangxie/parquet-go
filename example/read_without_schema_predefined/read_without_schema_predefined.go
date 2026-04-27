@@ -89,6 +89,6 @@ func main() {
 
 	log.Println(res)
 
-	_ = pr.ReadStopWithError()
+	_ = pr.ReadStop()
 	_ = fr.Close()
 }
