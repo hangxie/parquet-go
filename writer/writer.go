@@ -12,6 +12,7 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/bloomfilter"
+	"github.com/hangxie/parquet-go/v3/internal/compress"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/marshal"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -43,6 +44,18 @@ func WithCompressionType(ct parquet.CompressionCodec) WriterOption {
 	return func(pw *ParquetWriter) { pw.compressionType = ct }
 }
 
+// WithCompressionLevel sets the compression level for a specific codec.
+// Not all codecs support compression levels; invalid codecs or levels are
+// reported when constructing the writer.
+func WithCompressionLevel(codec parquet.CompressionCodec, level int) WriterOption {
+	return func(pw *ParquetWriter) {
+		if pw.compressionLevels == nil {
+			pw.compressionLevels = make(map[parquet.CompressionCodec]int)
+		}
+		pw.compressionLevels[codec] = level
+	}
+}
+
 // WithDataPageVersion sets the data page version (1 or 2). Default is 1.
 func WithDataPageVersion(v int32) WriterOption {
 	return func(pw *ParquetWriter) { pw.dataPageVersion = v }
@@ -59,13 +72,15 @@ type ParquetWriter struct {
 	Footer        *parquet.FileMetaData
 	PFile         source.ParquetFileWriter
 
-	np              int64 // parallel number
-	pageSize        int64
-	rowGroupSize    int64
-	compressionType parquet.CompressionCodec
-	dataPageVersion int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
-	writeCRC        bool  // compute and write CRC32 checksums on pages (default false)
-	offset          int64
+	np                int64 // parallel number
+	pageSize          int64
+	rowGroupSize      int64
+	compressionType   parquet.CompressionCodec
+	compressionLevels map[parquet.CompressionCodec]int
+	compressor        *compress.Compressor
+	dataPageVersion   int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
+	writeCRC          bool  // compute and write CRC32 checksums on pages (default false)
+	offset            int64
 
 	objs              []any
 	objsSize          int64
@@ -112,6 +127,8 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	pw.pageSize = common.DefaultPageSize         // 8K
 	pw.rowGroupSize = common.DefaultRowGroupSize // 128M
 	pw.compressionType = parquet.CompressionCodec_SNAPPY
+	pw.compressionLevels = nil
+	pw.compressor = nil
 	pw.dataPageVersion = 1 // default to DATA_PAGE (V1)
 	pw.offset = 4
 	pw.PFile = pFile
@@ -147,6 +164,17 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	}
 	if pw.dataPageVersion != 1 && pw.dataPageVersion != 2 {
 		return fmt.Errorf("WithDataPageVersion: value must be 1 or 2, got %d", pw.dataPageVersion)
+	}
+	if len(pw.compressionLevels) > 0 {
+		opts := make([]compress.CompressorOption, 0, len(pw.compressionLevels))
+		for codec, level := range pw.compressionLevels {
+			opts = append(opts, compress.WithCompressionLevel(codec, level))
+		}
+		compressor, err := compress.NewCompressor(opts...)
+		if err != nil {
+			return fmt.Errorf("WithCompressionLevel: %w", err)
+		}
+		pw.compressor = compressor
 	}
 
 	if _, err := pw.PFile.Write([]byte("PAR1")); err != nil {

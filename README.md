@@ -25,7 +25,7 @@ All configuration is per-instance via functional options, enabling safe concurre
 
 ### Writer Options
 
-`WithNP`, `WithPageSize`, `WithRowGroupSize`, `WithCompressionType`, `WithDataPageVersion`, `WithWriteCRC`.
+`WithNP`, `WithPageSize`, `WithRowGroupSize`, `WithCompressionType`, `WithCompressionLevel`, `WithDataPageVersion`, `WithWriteCRC`.
 
 ### Reader Options
 
@@ -216,7 +216,7 @@ func main() {
 ### Compression Notes
 
 * **Default Codec**: For standard writers, the default compression is `SNAPPY`. `NewArrowWriter` defaults to `GZIP`.
-* **Levels**: Codecs that support compression levels can be configured using `compress.WithCompressionLevel(codec, level)` compressor option.
+* **Levels**: Codecs that support compression levels can be configured on writers using `writer.WithCompressionLevel(codec, level)`.
 * **LZ4**: Uses the standard LZ4 frame format with frame headers. This is the legacy Parquet compression type. User-facing levels are mapped via `1 << (8 + level)` to lz4 `CompressionLevel` constants.
 * **LZ4_RAW**: Uses raw LZ4 block compression without framing. This is the preferred LZ4 variant per the Parquet specification. User-facing levels are passed directly to `lz4.CompressorHC`.
 * **Decompression Safety**: All compression codecs enforce decompressed size limits (default 256MB) to prevent decompression bombs. Configure this via `compress.WithMaxDecompressedSize`.
@@ -504,6 +504,7 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, o
 
 Use `WithNP(n)` to set the number of parallel goroutines (default is 4).
 Use `WithCompressionType` to override defaults.
+Use `WithCompressionLevel` to set codec-specific compression levels for codecs that support them.
 
 ## Examples
 

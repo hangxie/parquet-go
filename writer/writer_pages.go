@@ -30,6 +30,7 @@ func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, comp
 		PageSize:     int32(pw.pageSize),
 		CompressType: compressionType,
 		WriteCRC:     pw.writeCRC,
+		Compressor:   pw.compressor,
 	})
 	convMu.Unlock()
 	return pages, err
@@ -41,6 +42,7 @@ func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType 
 		CompressType:    compressionType,
 		DataPageVersion: pw.dataPageVersion,
 		WriteCRC:        pw.writeCRC,
+		Compressor:      pw.compressor,
 	})
 	return pages, err
 }

@@ -677,8 +677,18 @@ func TestOptionValidation(t *testing.T) {
 		"data_page_version_0":  {[]WriterOption{WithDataPageVersion(0)}, "WithDataPageVersion: value must be 1 or 2"},
 		"data_page_version_3":  {[]WriterOption{WithDataPageVersion(3)}, "WithDataPageVersion: value must be 1 or 2"},
 		"data_page_version_-1": {[]WriterOption{WithDataPageVersion(-1)}, "WithDataPageVersion: value must be 1 or 2"},
-		"valid_defaults":       {nil, ""},
-		"valid_custom":         {[]WriterOption{WithNP(2), WithPageSize(4096), WithRowGroupSize(1024), WithDataPageVersion(2)}, ""},
+		"compression_level_unsupported": {[]WriterOption{
+			WithCompressionLevel(parquet.CompressionCodec_SNAPPY, 5),
+		}, "WithCompressionLevel: codec SNAPPY does not support compression levels"},
+		"compression_level_invalid": {[]WriterOption{
+			WithCompressionLevel(parquet.CompressionCodec_GZIP, 100),
+		}, "WithCompressionLevel: set compression level for GZIP"},
+		"valid_defaults": {nil, ""},
+		"valid_custom":   {[]WriterOption{WithNP(2), WithPageSize(4096), WithRowGroupSize(1024), WithDataPageVersion(2)}, ""},
+		"valid_compression_level": {[]WriterOption{
+			WithCompressionType(parquet.CompressionCodec_GZIP),
+			WithCompressionLevel(parquet.CompressionCodec_GZIP, 1),
+		}, ""},
 	}
 
 	for name, tt := range tests {
@@ -695,6 +705,43 @@ func TestOptionValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriterCompressionLevel(t *testing.T) {
+	type Entry struct {
+		ID   int32  `parquet:"name=id, type=INT32"`
+		Text string `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	pw, buf, err := createTestParquetWriter(new(Entry),
+		WithNP(1),
+		WithCompressionType(parquet.CompressionCodec_GZIP),
+		WithCompressionLevel(parquet.CompressionCodec_GZIP, 1),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, pw.compressor)
+
+	want := make([]Entry, 0, 128)
+	for i := range 128 {
+		row := Entry{
+			ID:   int32(i),
+			Text: fmt.Sprintf("compressible row %03d with repeated repeated repeated payload", i%8),
+		}
+		want = append(want, row)
+		require.NoError(t, pw.Write(row))
+	}
+	require.NoError(t, pw.WriteStop())
+
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, pf.Close())
+	}()
+
+	got := make([]Entry, len(want))
+	require.NoError(t, pr.Read(&got))
+	require.Equal(t, want, got)
+	require.Equal(t, parquet.CompressionCodec_GZIP, pr.Footer.RowGroups[0].Columns[0].MetaData.GetCodec())
 }
 
 func TestColumnOrders(t *testing.T) {
