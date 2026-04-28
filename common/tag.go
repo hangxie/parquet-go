@@ -10,16 +10,16 @@ import (
 )
 
 type fieldAttr struct {
-	Type            string
-	Length          int32
-	Scale           int32
-	Precision       int32
-	Encoding        parquet.Encoding
-	OmitStats       bool
-	RepetitionType  parquet.FieldRepetitionType
-	CompressionType *parquet.CompressionCodec // nil means use file-level compression
-	BloomFilter     bool                      // enable bloom filter for this column
-	BloomFilterSize int32                     // bloom filter size in bytes (0 = default)
+	Type             string
+	Length           int32
+	Scale            int32
+	Precision        int32
+	Encoding         parquet.Encoding
+	OmitStats        bool
+	RepetitionType   parquet.FieldRepetitionType
+	CompressionCodec *parquet.CompressionCodec // nil means use file-level compression
+	BloomFilter      bool                      // enable bloom filter for this column
+	BloomFilterSize  int32                     // bloom filter size in bytes (0 = default)
 
 	convertedType     string
 	isAdjustedToUTC   bool
@@ -91,7 +91,7 @@ func (mp *fieldAttr) update(key, val string) error {
 		if err != nil {
 			return fmt.Errorf("parse compression: %w", err)
 		}
-		mp.CompressionType = &codec
+		mp.CompressionCodec = &codec
 	default:
 		if strings.HasPrefix(key, "logicaltype") {
 			if mp.logicalTypeFields == nil {

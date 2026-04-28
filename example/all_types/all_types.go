@@ -190,7 +190,7 @@ func main() {
 	pw, err := writer.NewParquetWriter(fw, new(AllTypes),
 		writer.WithRowGroupSize(128*1024*1024),
 		writer.WithPageSize(8*1024),
-		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
 	if err != nil {
 		fmt.Println("Can't create parquet writer", err)

@@ -362,7 +362,7 @@ func TestNestedListWithEmptyStrings(t *testing.T) {
 			// Write to buffer
 			var buf bytes.Buffer
 			fw := writerfile.NewWriterFile(&buf)
-			pw, err := writer.NewParquetWriter(fw, jsonSchema, writer.WithNP(1), writer.WithCompressionType(parquet.CompressionCodec_UNCOMPRESSED))
+			pw, err := writer.NewParquetWriter(fw, jsonSchema, writer.WithNP(1), writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED))
 			require.NoError(t, err)
 
 			for _, rec := range tc.records {

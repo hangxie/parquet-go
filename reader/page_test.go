@@ -281,7 +281,7 @@ func TestReadPageData_V2(t *testing.T) {
 	pw, err := writer.NewParquetWriterFromWriter(&buf, new(Record),
 		writer.WithNP(1),
 		writer.WithDataPageVersion(2),
-		writer.WithCompressionType(parquet.CompressionCodec_SNAPPY),
+		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
 	require.NoError(t, err)
 

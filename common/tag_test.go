@@ -83,11 +83,11 @@ func TestFieldAttr_Update(t *testing.T) {
 		"repetitiontype-bad":       {"repetitiontype", "foobar", fieldAttr{}, "parse repetitiontype:"},
 		"encoding-good":            {"encoding", "plain", fieldAttr{Encoding: parquet.Encoding_PLAIN}, ""},
 		"encoding-bad":             {"encoding", "foobar", fieldAttr{}, "parse encoding:"},
-		"compression-snappy":       {"compression", "snappy", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_SNAPPY)}, ""},
-		"compression-gzip":         {"compression", "GZIP", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_GZIP)}, ""},
-		"compression-zstd":         {"compression", "zstd", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_ZSTD)}, ""},
-		"compression-lz4":          {"compression", "LZ4_RAW", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_LZ4_RAW)}, ""},
-		"compression-uncompressed": {"compression", "UNCOMPRESSED", fieldAttr{CompressionType: ToPtr(parquet.CompressionCodec_UNCOMPRESSED)}, ""},
+		"compression-snappy":       {"compression", "snappy", fieldAttr{CompressionCodec: ToPtr(parquet.CompressionCodec_SNAPPY)}, ""},
+		"compression-gzip":         {"compression", "GZIP", fieldAttr{CompressionCodec: ToPtr(parquet.CompressionCodec_GZIP)}, ""},
+		"compression-zstd":         {"compression", "zstd", fieldAttr{CompressionCodec: ToPtr(parquet.CompressionCodec_ZSTD)}, ""},
+		"compression-lz4":          {"compression", "LZ4_RAW", fieldAttr{CompressionCodec: ToPtr(parquet.CompressionCodec_LZ4_RAW)}, ""},
+		"compression-uncompressed": {"compression", "UNCOMPRESSED", fieldAttr{CompressionCodec: ToPtr(parquet.CompressionCodec_UNCOMPRESSED)}, ""},
 		"compression-bad":          {"compression", "foobar", fieldAttr{}, "parse compression:"},
 		"bloomfilter-good":         {"bloomfilter", "true", fieldAttr{BloomFilter: true}, ""},
 		"bloomfilter-bad":          {"bloomfilter", "abc", fieldAttr{}, "parse bloomfilter value"},
@@ -827,8 +827,8 @@ func TestStringToTag(t *testing.T) {
 		"key-bad":          {"keyfoo=bar", Tag{}, "parse tag"},
 		"value-good":       {"valuetype=INT32, valuerepetitiontype=REPEATED", Tag{Value: fieldAttr{Type: "INT32", RepetitionType: parquet.FieldRepetitionType_REPEATED}}, ""},
 		"value-bad":        {"valuefoo=bar", Tag{}, "parse tag"},
-		"compression-nil":  {"type=INT32", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionType: nil}}, ""}, // CompressionType is nil when not specified
-		"compression-set":  {"type=INT32,compression=GZIP", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionType: ToPtr(parquet.CompressionCodec_GZIP)}}, ""},
+		"compression-nil":  {"type=INT32", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionCodec: nil}}, ""}, // CompressionCodec is nil when not specified
+		"compression-set":  {"type=INT32,compression=GZIP", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionCodec: ToPtr(parquet.CompressionCodec_GZIP)}}, ""},
 		"bloomfilter":      {"type=INT64,bloomfilter=true", Tag{fieldAttr: fieldAttr{Type: "INT64", BloomFilter: true}}, ""},
 		"bloomfilter-size": {"type=INT64,bloomfilter=true,bloomfiltersize=2048", Tag{fieldAttr: fieldAttr{Type: "INT64", BloomFilter: true, BloomFilterSize: 2048}}, ""},
 	}

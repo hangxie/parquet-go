@@ -39,8 +39,8 @@ func WithRowGroupSize(size int64) WriterOption {
 	return func(pw *ParquetWriter) { pw.rowGroupSize = size }
 }
 
-// WithCompressionType sets the compression codec. Default is SNAPPY.
-func WithCompressionType(ct parquet.CompressionCodec) WriterOption {
+// WithCompressionCodec sets the compression codec. Default is SNAPPY.
+func WithCompressionCodec(ct parquet.CompressionCodec) WriterOption {
 	return func(pw *ParquetWriter) { pw.compressionType = ct }
 }
 
@@ -361,8 +361,8 @@ func (pw *ParquetWriter) buildChunkMap() (map[string]*layout.Chunk, error) {
 	for name, pages := range pw.pagesMapBuf {
 		compressionType := pw.compressionType
 		if idx, ok := pw.SchemaHandler.MapIndex[name]; ok {
-			if info := pw.SchemaHandler.Infos[idx]; info != nil && info.CompressionType != nil {
-				compressionType = *info.CompressionType
+			if info := pw.SchemaHandler.Infos[idx]; info != nil && info.CompressionCodec != nil {
+				compressionType = *info.CompressionCodec
 			}
 		}
 

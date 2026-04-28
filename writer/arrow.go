@@ -27,11 +27,11 @@ func NewArrowWriterFromWriter(arrowSchema *arrow.Schema, w io.Writer, opts ...Wr
 
 // NewArrowWriter creates a parquet writer from an Arrow schema.
 // The default compression for Arrow writers is GZIP (unlike SNAPPY for other writers).
-// Use WithCompressionType to override.
+// Use WithCompressionCodec to override.
 func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, opts ...WriterOption) (*ArrowWriter, error) {
 	res := new(ArrowWriter)
 	// ArrowWriter defaults to GZIP; user opts come after and can override.
-	allOpts := append([]WriterOption{WithCompressionType(parquet.CompressionCodec_GZIP)}, opts...)
+	allOpts := append([]WriterOption{WithCompressionCodec(parquet.CompressionCodec_GZIP)}, opts...)
 	if err := res.initBase(pfile, allOpts...); err != nil {
 		return nil, err
 	}

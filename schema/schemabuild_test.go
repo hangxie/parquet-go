@@ -356,14 +356,14 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 				// Verify Metadata child has encoding and compression
 				require.Equal(t, "Metadata", schema.SchemaElements[2].Name)
 				require.Equal(t, parquet.Encoding_PLAIN, schema.Infos[2].Encoding)
-				require.NotNil(t, schema.Infos[2].CompressionType)
-				require.Equal(t, parquet.CompressionCodec_GZIP, *schema.Infos[2].CompressionType)
+				require.NotNil(t, schema.Infos[2].CompressionCodec)
+				require.Equal(t, parquet.CompressionCodec_GZIP, *schema.Infos[2].CompressionCodec)
 
 				// Verify Value child has encoding and compression
 				require.Equal(t, "Value", schema.SchemaElements[3].Name)
 				require.Equal(t, parquet.Encoding_PLAIN, schema.Infos[3].Encoding)
-				require.NotNil(t, schema.Infos[3].CompressionType)
-				require.Equal(t, parquet.CompressionCodec_GZIP, *schema.Infos[3].CompressionType)
+				require.NotNil(t, schema.Infos[3].CompressionCodec)
+				require.Equal(t, parquet.CompressionCodec_GZIP, *schema.Infos[3].CompressionCodec)
 			},
 		},
 	}
@@ -413,15 +413,15 @@ func TestNewSchemaHandlerFromStruct_VariantInfo(t *testing.T) {
 	require.Equal(t, "Metadata", sh.SchemaElements[2].GetName())
 	require.Equal(t, "metadata", sh.Infos[2].ExName)
 	require.Equal(t, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY, sh.Infos[2].Encoding)
-	require.NotNil(t, sh.Infos[2].CompressionType)
-	require.Equal(t, parquet.CompressionCodec_ZSTD, *sh.Infos[2].CompressionType)
+	require.NotNil(t, sh.Infos[2].CompressionCodec)
+	require.Equal(t, parquet.CompressionCodec_ZSTD, *sh.Infos[2].CompressionCodec)
 
 	// Check value field (index 3)
 	require.Equal(t, "Value", sh.SchemaElements[3].GetName())
 	require.Equal(t, "value", sh.Infos[3].ExName)
 	require.Equal(t, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY, sh.Infos[3].Encoding)
-	require.NotNil(t, sh.Infos[3].CompressionType)
-	require.Equal(t, parquet.CompressionCodec_SNAPPY, *sh.Infos[3].CompressionType)
+	require.NotNil(t, sh.Infos[3].CompressionCodec)
+	require.Equal(t, parquet.CompressionCodec_SNAPPY, *sh.Infos[3].CompressionCodec)
 }
 
 func TestNewSchemaHandlerFromStruct_ByteArraySlice(t *testing.T) {
