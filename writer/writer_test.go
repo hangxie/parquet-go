@@ -686,7 +686,7 @@ func TestOptionValidation(t *testing.T) {
 		"valid_defaults": {nil, ""},
 		"valid_custom":   {[]WriterOption{WithNP(2), WithPageSize(4096), WithRowGroupSize(1024), WithDataPageVersion(2)}, ""},
 		"valid_compression_level": {[]WriterOption{
-			WithCompressionType(parquet.CompressionCodec_GZIP),
+			WithCompressionCodec(parquet.CompressionCodec_GZIP),
 			WithCompressionLevel(parquet.CompressionCodec_GZIP, 1),
 		}, ""},
 	}
@@ -715,7 +715,7 @@ func TestWriterCompressionLevel(t *testing.T) {
 
 	pw, buf, err := createTestParquetWriter(new(Entry),
 		WithNP(1),
-		WithCompressionType(parquet.CompressionCodec_GZIP),
+		WithCompressionCodec(parquet.CompressionCodec_GZIP),
 		WithCompressionLevel(parquet.CompressionCodec_GZIP, 1),
 	)
 	require.NoError(t, err)
@@ -957,7 +957,7 @@ func TestPerColumnCompression(t *testing.T) {
 			Score int64  `parquet:"name=score, type=INT64"` // No compression specified - should use file default
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_ZSTD))
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionCodec(parquet.CompressionCodec_ZSTD))
 		require.NoError(t, err)
 
 		testData := []TestStruct{
@@ -1008,7 +1008,7 @@ func TestPerColumnCompression(t *testing.T) {
 			Value    int32  `parquet:"name=value, type=INT32, compression=SNAPPY"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(DictStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_ZSTD))
+		pw, buf, err := createTestParquetWriter(new(DictStruct), WithNP(1), WithCompressionCodec(parquet.CompressionCodec_ZSTD))
 		require.NoError(t, err)
 
 		testData := []DictStruct{
@@ -1050,7 +1050,7 @@ func TestPerColumnCompression(t *testing.T) {
 			Age  int32  `parquet:"name=age, type=INT32"` // Should use file default
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_SNAPPY))
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionCodec(parquet.CompressionCodec_SNAPPY))
 		require.NoError(t, err)
 
 		testData := []TestStruct{
@@ -1081,7 +1081,7 @@ func TestPerColumnCompression(t *testing.T) {
 			ColC int64  `parquet:"name=col_c, type=INT64"`                          // No compression tag
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_GZIP))
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionCodec(parquet.CompressionCodec_GZIP))
 		require.NoError(t, err)
 
 		testData := []TestStruct{
@@ -1120,7 +1120,7 @@ func TestPerColumnCompression(t *testing.T) {
 			Data map[string]int32 `parquet:"name=data, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, keycompression=GZIP, valuetype=INT32, valuecompression=ZSTD"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_SNAPPY))
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionCodec(parquet.CompressionCodec_SNAPPY))
 		require.NoError(t, err)
 
 		testData := []TestStruct{
@@ -1153,7 +1153,7 @@ func TestPerColumnCompression(t *testing.T) {
 			Items []string `parquet:"name=items, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8, valuecompression=GZIP"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionType(parquet.CompressionCodec_SNAPPY))
+		pw, buf, err := createTestParquetWriter(new(TestStruct), WithNP(1), WithCompressionCodec(parquet.CompressionCodec_SNAPPY))
 		require.NoError(t, err)
 
 		testData := []TestStruct{

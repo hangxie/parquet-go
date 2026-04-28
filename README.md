@@ -25,7 +25,7 @@ All configuration is per-instance via functional options, enabling safe concurre
 
 ### Writer Options
 
-`WithNP`, `WithPageSize`, `WithRowGroupSize`, `WithCompressionType`, `WithCompressionLevel`, `WithDataPageVersion`, `WithWriteCRC`.
+`WithNP`, `WithPageSize`, `WithRowGroupSize`, `WithCompressionCodec`, `WithCompressionLevel`, `WithDataPageVersion`, `WithWriteCRC`.
 
 ### Reader Options
 
@@ -503,7 +503,7 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, o
 ```
 
 Use `WithNP(n)` to set the number of parallel goroutines (default is 4).
-Use `WithCompressionType` to override defaults.
+Use `WithCompressionCodec` to override defaults.
 Use `WithCompressionLevel` to set codec-specific compression levels for codecs that support them.
 
 ## Examples

@@ -8,9 +8,9 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
-func (pw *ParquetWriter) tableCompressionType(table *layout.Table) parquet.CompressionCodec {
-	if table.Info != nil && table.Info.CompressionType != nil {
-		return *table.Info.CompressionType
+func (pw *ParquetWriter) tableCompressionCodec(table *layout.Table) parquet.CompressionCodec {
+	if table.Info != nil && table.Info.CompressionCodec != nil {
+		return *table.Info.CompressionCodec
 	}
 	return pw.compressionType
 }
@@ -48,7 +48,7 @@ func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType 
 }
 
 func (pw *ParquetWriter) convertTableToPages(name string, table *layout.Table, convMu *sync.Mutex) ([]*layout.Page, error) {
-	compressionType := pw.tableCompressionType(table)
+	compressionType := pw.tableCompressionCodec(table)
 	if table.Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY ||
 		table.Info.Encoding == parquet.Encoding_RLE_DICTIONARY {
 		return pw.tableToDictPages(name, table, compressionType, convMu)

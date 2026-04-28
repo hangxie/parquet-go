@@ -175,14 +175,14 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 				// Metadata child
 				require.Equal(t, "Metadata", handler.SchemaElements[2].Name)
 				require.Equal(t, "PLAIN", handler.Infos[2].Encoding.String())
-				require.NotNil(t, handler.Infos[2].CompressionType)
-				require.Equal(t, "GZIP", handler.Infos[2].CompressionType.String())
+				require.NotNil(t, handler.Infos[2].CompressionCodec)
+				require.Equal(t, "GZIP", handler.Infos[2].CompressionCodec.String())
 
 				// Value child
 				require.Equal(t, "Value", handler.SchemaElements[3].Name)
 				require.Equal(t, "PLAIN", handler.Infos[3].Encoding.String())
-				require.NotNil(t, handler.Infos[3].CompressionType)
-				require.Equal(t, "GZIP", handler.Infos[3].CompressionType.String())
+				require.NotNil(t, handler.Infos[3].CompressionCodec)
+				require.Equal(t, "GZIP", handler.Infos[3].CompressionCodec.String())
 			}
 		})
 	}

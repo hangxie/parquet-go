@@ -66,7 +66,7 @@ func TestCSVWriter(t *testing.T) {
 		cw, err := NewCSVWriterFromWriter(schema, bw,
 			WithNP(2),
 			WithPageSize(4096),
-			WithCompressionType(parquet.CompressionCodec_GZIP),
+			WithCompressionCodec(parquet.CompressionCodec_GZIP),
 		)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), cw.np)

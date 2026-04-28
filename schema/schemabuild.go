@@ -101,7 +101,7 @@ func createVariantSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.
 		valueItem.Info.Type = "BYTE_ARRAY"
 		valueItem.Info.RepetitionType = parquet.FieldRepetitionType_REQUIRED
 		valueItem.Info.Encoding = item.Info.Encoding
-		valueItem.Info.CompressionType = item.Info.CompressionType
+		valueItem.Info.CompressionCodec = item.Info.CompressionCodec
 		valueItem.GoType = reflect.TypeOf("")
 		*stack = append(*stack, valueItem)
 
@@ -111,7 +111,7 @@ func createVariantSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.
 		metadataItem.Info.Type = "BYTE_ARRAY"
 		metadataItem.Info.RepetitionType = parquet.FieldRepetitionType_REQUIRED
 		metadataItem.Info.Encoding = item.Info.Encoding
-		metadataItem.Info.CompressionType = item.Info.CompressionType
+		metadataItem.Info.CompressionCodec = item.Info.CompressionCodec
 		metadataItem.GoType = reflect.TypeOf("")
 		*stack = append(*stack, metadataItem)
 	}
