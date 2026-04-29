@@ -74,13 +74,18 @@ func lz4CompressWithLevel(pool *sync.Pool, cl lz4.CompressionLevel) func([]byte)
 	}
 }
 
-func newLZ4Compressor(level int) (*codec, error) {
-	cl := lz4.CompressionLevel(1 << (8 + level))
+func newLZ4Compressor(level *int) (*codec, error) {
+	cl := lz4.CompressionLevel(1 << 12)
+	l := 4
+	if level != nil {
+		l = *level
+		cl = lz4.CompressionLevel(1 << (8 + l))
+	}
 
 	// Validate by creating a writer and applying the option
 	testWriter := lz4.NewWriter(nil)
 	if err := testWriter.Apply(lz4.CompressionLevelOption(cl)); err != nil {
-		return nil, fmt.Errorf("invalid lz4 compression level %d: %w", level, err)
+		return nil, fmt.Errorf("invalid lz4 compression level %d: %w", l, err)
 	}
 
 	writerPool := sync.Pool{

@@ -51,21 +51,25 @@ func brotliUncompress(buf []byte, maxSize int64) ([]byte, error) {
 	return limitedReadAll(brotliReader, maxSize)
 }
 
-func newBrotliCompressor(level int) (*codec, error) {
+func newBrotliCompressor(level *int) (*codec, error) {
+	l := brotli.DefaultCompression
+	if level != nil {
+		l = *level
+	}
 	// brotli.NewWriterLevel does not return an error, so validate via test encode
-	w := brotli.NewWriterLevel(nil, level)
+	w := brotli.NewWriterLevel(nil, l)
 	var testBuf bytes.Buffer
 	w.Reset(&testBuf)
 	if _, err := w.Write([]byte("test")); err != nil {
-		return nil, fmt.Errorf("invalid brotli compression level %d: %w", level, err)
+		return nil, fmt.Errorf("invalid brotli compression level %d: %w", l, err)
 	}
 	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("invalid brotli compression level %d: %w", level, err)
+		return nil, fmt.Errorf("invalid brotli compression level %d: %w", l, err)
 	}
 
 	writerPool := sync.Pool{
 		New: func() any {
-			return brotli.NewWriterLevel(nil, level)
+			return brotli.NewWriterLevel(nil, l)
 		},
 	}
 
