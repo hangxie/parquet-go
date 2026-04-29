@@ -50,11 +50,14 @@ func zstdUncompress(dec *zstd.Decoder) func([]byte, int64) ([]byte, error) {
 	}
 }
 
-func newZSTDCompressor(level int) (*codec, error) {
-	enc, err := zstd.NewWriter(nil,
-		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(level)),
+func newZSTDCompressor(level *int) (*codec, error) {
+	opts := []zstd.EOption{
 		zstd.WithZeroFrames(true),
-	)
+	}
+	if level != nil {
+		opts = append(opts, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(*level)))
+	}
+	enc, err := zstd.NewWriter(nil, opts...)
 	if err != nil {
 		return nil, err
 	}

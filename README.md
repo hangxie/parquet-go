@@ -219,7 +219,7 @@ func main() {
 * **Per-Column Codec**: You can specify a compression codec for a specific column using the `compression` tag in your Go struct (e.g., `parquet:"name=col, compression=GZIP"`). If not specified, the file-level default is used.
 * **Levels**: Codecs that support compression levels can be configured on writers using `writer.WithCompressionLevel(codec, level)`. Note that levels are set **per codec at the writer level**; all columns using a specific codec will share the same compression level. Per-column compression levels are not yet supported.
 * **LZ4**: Uses the standard LZ4 frame format with frame headers. This is the legacy Parquet compression type. User-facing levels are mapped via `1 << (8 + level)` to lz4 `CompressionLevel` constants.
-* **LZ4_RAW**: Uses raw LZ4 block compression without framing. This is the preferred LZ4 variant per the Parquet specification. User-facing levels are passed directly to `lz4.CompressorHC`.
+* **LZ4_RAW**: Uses raw LZ4 block compression without framing. This is the preferred LZ4 variant per the Parquet specification. User-facing levels are passed directly to `lz4.CompressorHC`. Level 0 is a valid compression level and is distinct from the default level (9).
 * **Decompression Safety**: All compression codecs enforce decompressed size limits (default 256MB) to prevent decompression bombs. Configure this via `compress.WithMaxDecompressedSize`.
 
 ## CRC Checksum Handling

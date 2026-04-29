@@ -61,14 +61,22 @@ func lz4RawUncompress(buf []byte, maxSize int64) ([]byte, error) {
 	}
 }
 
-func newLZ4RawCompressor(level int) (*codec, error) {
-	cl := lz4.CompressionLevel(level)
+func lz4RawCompressionLevel(level *int) lz4.CompressionLevel {
+	l := 9
+	if level != nil {
+		l = *level
+	}
+	return lz4.CompressionLevel(l)
+}
+
+func newLZ4RawCompressor(level *int) (*codec, error) {
+	cl := lz4RawCompressionLevel(level)
 	// Validate via test encode — CompressorHC does not validate level on construction
 	testHC := lz4.CompressorHC{Level: cl}
 	testSrc := []byte("test")
 	testDst := make([]byte, lz4.CompressBlockBound(len(testSrc)))
 	if _, err := testHC.CompressBlock(testSrc, testDst); err != nil {
-		return nil, fmt.Errorf("invalid lz4 raw compression level %d: %w", level, err)
+		return nil, fmt.Errorf("invalid lz4 raw compression level %d: %w", int(cl), err)
 	}
 
 	return &codec{

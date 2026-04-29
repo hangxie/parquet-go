@@ -96,6 +96,35 @@ func TestCompressLargeData(t *testing.T) {
 	require.Equal(t, largeData, decompressed)
 }
 
+func TestDefaultCompressorCodecRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name  string
+		codec parquet.CompressionCodec
+	}{
+		{"uncompressed", parquet.CompressionCodec_UNCOMPRESSED},
+		{"snappy", parquet.CompressionCodec_SNAPPY},
+		{"gzip", parquet.CompressionCodec_GZIP},
+		{"lz4", parquet.CompressionCodec_LZ4},
+		{"zstd", parquet.CompressionCodec_ZSTD},
+		{"brotli", parquet.CompressionCodec_BROTLI},
+		{"lz4raw", parquet.CompressionCodec_LZ4_RAW},
+	}
+
+	input := bytes.Repeat([]byte("default codec pool initialization test data "), 128)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			compressed, err := Compress(input, tc.codec)
+			require.NoError(t, err)
+			require.NotNil(t, compressed)
+
+			decompressed, err := Uncompress(compressed, tc.codec)
+			require.NoError(t, err)
+			require.Equal(t, input, decompressed)
+		})
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	// Test Uncompress with unsupported codec
 	_, err := Uncompress([]byte{1, 2, 3}, parquet.CompressionCodec(999))
@@ -269,6 +298,7 @@ func TestCompressorCompressionLevelRoundTrip(t *testing.T) {
 		{"zstd-level-22", parquet.CompressionCodec_ZSTD, 22},
 		{"brotli-level-0", parquet.CompressionCodec_BROTLI, 0},
 		{"brotli-level-11", parquet.CompressionCodec_BROTLI, 11},
+		{"lz4raw-level-0", parquet.CompressionCodec_LZ4_RAW, 0},
 		{"lz4raw-level-1", parquet.CompressionCodec_LZ4_RAW, 1},
 		{"lz4raw-level-9", parquet.CompressionCodec_LZ4_RAW, 9},
 		{"lz4-level-1", parquet.CompressionCodec_LZ4, 1},

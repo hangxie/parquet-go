@@ -23,7 +23,6 @@ func init() {
 	}
 
 	codecFactories[parquet.CompressionCodec_GZIP] = newGZIPCompressor
-
 	defaultCodecs[parquet.CompressionCodec_GZIP] = &codec{
 		compress:   gzipCompress(&gzipWriterPool),
 		uncompress: gzipUncompress,
@@ -81,13 +80,24 @@ func gzipCompressWithLevel(level int) func([]byte) ([]byte, error) {
 	}
 }
 
-func newGZIPCompressor(level int) (*codec, error) {
-	if _, err := gzip.NewWriterLevel(nil, level); err != nil {
+func newGZIPCompressor(level *int) (*codec, error) {
+	l := gzip.DefaultCompression
+	if level != nil {
+		l = *level
+	}
+	if _, err := gzip.NewWriterLevel(nil, l); err != nil {
 		return nil, err
 	}
 
+	pool := &sync.Pool{
+		New: func() any {
+			w, _ := gzip.NewWriterLevel(nil, l)
+			return w
+		},
+	}
+
 	return &codec{
-		compress:   gzipCompressWithLevel(level),
+		compress:   gzipCompress(pool),
 		uncompress: gzipUncompress,
 	}, nil
 }

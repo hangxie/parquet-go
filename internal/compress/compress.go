@@ -28,7 +28,7 @@ var defaultCodecs = map[parquet.CompressionCodec]*codec{}
 
 // codecFactories maps codecs to functions that create a codec at a given level.
 // Each codec file registers its factory in init() if it supports levels.
-var codecFactories = map[parquet.CompressionCodec]func(level int) (*codec, error){}
+var codecFactories = map[parquet.CompressionCodec]func(level *int) (*codec, error){}
 
 // Compressor provides per-instance compression and decompression for Parquet data.
 // Create instances with NewCompressor. Use DefaultCompressor for default settings.
@@ -42,7 +42,7 @@ type CompressorOption func(*compressorConfig) error
 
 type compressorConfig struct {
 	maxDecompressedSize int64
-	levels              map[parquet.CompressionCodec]int
+	levels              map[parquet.CompressionCodec]*int
 }
 
 // WithMaxDecompressedSize sets the maximum allowed decompressed data size.
@@ -59,7 +59,7 @@ func WithMaxDecompressedSize(size int64) CompressorOption {
 // NewCompressor if the codec does not support levels or the level is invalid.
 func WithCompressionLevel(codec parquet.CompressionCodec, level int) CompressorOption {
 	return func(cfg *compressorConfig) error {
-		cfg.levels[codec] = level
+		cfg.levels[codec] = &level
 		return nil
 	}
 }
@@ -69,7 +69,7 @@ func WithCompressionLevel(codec parquet.CompressionCodec, level int) CompressorO
 func NewCompressor(opts ...CompressorOption) (*Compressor, error) {
 	cfg := &compressorConfig{
 		maxDecompressedSize: DefaultMaxDecompressedSize,
-		levels:              make(map[parquet.CompressionCodec]int),
+		levels:              make(map[parquet.CompressionCodec]*int),
 	}
 	for _, opt := range opts {
 		if err := opt(cfg); err != nil {

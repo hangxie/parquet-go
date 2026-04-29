@@ -76,6 +76,46 @@ func TestLz4RawUncompressSizeLimit(t *testing.T) {
 }
 
 func TestLz4RawCompressionLevel(t *testing.T) {
+	t.Run("level 0 round-trip", func(t *testing.T) {
+		c, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_LZ4_RAW, 0))
+		require.NoError(t, err)
+
+		input := []byte("test data for lz4 raw level 0 testing")
+		compressed, err := c.Compress(input, parquet.CompressionCodec_LZ4_RAW)
+		require.NoError(t, err)
+		require.NotNil(t, compressed)
+
+		output, err := c.Uncompress(compressed, parquet.CompressionCodec_LZ4_RAW)
+		require.NoError(t, err)
+		require.Equal(t, input, output)
+	})
+
+	t.Run("default level is distinct from explicit level 0", func(t *testing.T) {
+		defaultCodec, err := newLZ4RawCompressor(nil)
+		require.NoError(t, err)
+
+		zero := 0
+		levelZeroCodec, err := newLZ4RawCompressor(&zero)
+		require.NoError(t, err)
+
+		require.Equal(t, 9, int(lz4RawCompressionLevel(nil)))
+		require.Equal(t, 0, int(lz4RawCompressionLevel(&zero)))
+
+		input := []byte("test data for lz4 raw default and level 0 testing")
+		defaultCompressed, err := defaultCodec.compress(input)
+		require.NoError(t, err)
+		levelZeroCompressed, err := levelZeroCodec.compress(input)
+		require.NoError(t, err)
+
+		defaultOutput, err := defaultCodec.uncompress(defaultCompressed, DefaultMaxDecompressedSize)
+		require.NoError(t, err)
+		require.Equal(t, input, defaultOutput)
+
+		levelZeroOutput, err := levelZeroCodec.uncompress(levelZeroCompressed, DefaultMaxDecompressedSize)
+		require.NoError(t, err)
+		require.Equal(t, input, levelZeroOutput)
+	})
+
 	t.Run("valid level round-trip", func(t *testing.T) {
 		c, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_LZ4_RAW, 4))
 		require.NoError(t, err)

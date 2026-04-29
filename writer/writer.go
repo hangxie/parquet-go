@@ -170,11 +170,11 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 		for codec, level := range pw.compressionLevels {
 			opts = append(opts, compress.WithCompressionLevel(codec, level))
 		}
-		compressor, err := compress.NewCompressor(opts...)
+		c, err := compress.NewCompressor(opts...)
 		if err != nil {
 			return fmt.Errorf("WithCompressionLevel: %w", err)
 		}
-		pw.compressor = compressor
+		pw.compressor = c
 	}
 
 	if _, err := pw.PFile.Write([]byte("PAR1")); err != nil {
