@@ -1,12 +1,14 @@
 package reader
 
 import (
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 )
 
@@ -96,6 +98,78 @@ func TestReadIndexMissingAndErrors(t *testing.T) {
 	badKeyReader := indexTestReader(encryptedColumnIndex, true, []byte("abcdef0123456789"), encryptionAlgorithm(aadPrefix, fileUnique), int32(len(encryptedColumnIndex)), 0)
 	_, err = badKeyReader.ReadColumnIndex(0, 0)
 	require.ErrorContains(t, err, "decrypt index module")
+
+	_, err = (&ParquetReader{}).ReadColumnIndex(0, 0)
+	require.ErrorContains(t, err, "reader footer is nil")
+
+	nilRowGroupReader := indexTestReader(nil, false, nil, nil, 0, 0)
+	nilRowGroupReader.Footer.RowGroups[0] = nil
+	_, err = nilRowGroupReader.ReadColumnIndex(0, 0)
+	require.ErrorContains(t, err, "row group 0 is nil")
+
+	_, err = pr.ReadColumnIndex(0, 1)
+	require.ErrorContains(t, err, "invalid column index")
+
+	plainMissingOffsetReader := indexTestReader(nil, false, nil, nil, 0, 0)
+	plainMissingOffsetReader.Footer.RowGroups[0].Columns[0].OffsetIndexOffset = nil
+	plainMissingOffsetReader.Footer.RowGroups[0].Columns[0].OffsetIndexLength = nil
+	offsetIndex, err := plainMissingOffsetReader.ReadOffsetIndex(0, 0)
+	require.NoError(t, err)
+	require.Nil(t, offsetIndex)
+
+	nilFileReader := indexTestReader(nil, false, nil, nil, 1, 0)
+	nilFileReader.PFile = nil
+	_, err = nilFileReader.ReadColumnIndex(0, 0)
+	require.ErrorContains(t, err, "file reader is nil")
+
+	negativeLengthReader := indexTestReader(nil, false, nil, nil, -1, 0)
+	_, err = negativeLengthReader.ReadColumnIndex(0, 0)
+	require.ErrorContains(t, err, "negative index length")
+
+	invalidPlainReader := indexTestReader([]byte{0xff}, false, nil, nil, 1, 0)
+	_, err = invalidPlainReader.ReadColumnIndex(0, 0)
+	require.ErrorContains(t, err, "read column index")
+
+	missingAlgorithmReader := indexTestReader(encryptedColumnIndex, true, key, nil, int32(len(encryptedColumnIndex)), 0)
+	_, err = missingAlgorithmReader.ReadColumnIndex(0, 0)
+	require.ErrorContains(t, err, "encrypted index missing file encryption algorithm")
+
+	missingKeyReader := indexTestReader(encryptedColumnIndex, true, nil, encryptionAlgorithm(aadPrefix, fileUnique), int32(len(encryptedColumnIndex)), 0)
+	_, err = missingKeyReader.ReadColumnIndex(0, 0)
+	require.ErrorContains(t, err, "footer decryption key is required")
+
+	truncatedEncryptedReader := indexTestReader([]byte{1, 2}, true, key, encryptionAlgorithm(aadPrefix, fileUnique), 2, 0)
+	_, err = truncatedEncryptedReader.ReadColumnIndex(0, 0)
+	require.ErrorContains(t, err, "read encrypted index module")
+}
+
+func TestReadPlainIndexModuleSeekError(t *testing.T) {
+	t.Parallel()
+
+	_, err := readPlainIndexModule(&indexFailSeeker{}, 0, 1)
+	require.ErrorContains(t, err, "seek to index offset")
+}
+
+type indexFailSeeker struct{}
+
+func (f *indexFailSeeker) Read([]byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (f *indexFailSeeker) Seek(int64, int) (int64, error) {
+	return 0, io.ErrClosedPipe
+}
+
+func (f *indexFailSeeker) Close() error {
+	return nil
+}
+
+func (f *indexFailSeeker) Open(string) (source.ParquetFileReader, error) {
+	return nil, io.ErrClosedPipe
+}
+
+func (f *indexFailSeeker) Clone() (source.ParquetFileReader, error) {
+	return nil, io.ErrClosedPipe
 }
 
 func indexTestReader(file []byte, encrypted bool, key []byte, algorithm *parquet.EncryptionAlgorithm, columnIndexLength, offsetIndexLength int32) *ParquetReader {
