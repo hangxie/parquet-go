@@ -25,7 +25,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 	// Ensure column buffers exist
 	for _, pathStr := range pr.SchemaHandler.ValueColumns {
 		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+			if pr.ColumnBuffers[pathStr], err = pr.newColumnBuffer(pathStr); err != nil {
 				return fmt.Errorf("create column buffer for %s: %w", pathStr, err)
 			}
 		}
@@ -249,7 +249,7 @@ func (pr *ParquetReader) Reset() error {
 
 	// Recreate all column buffers from scratch
 	for pathStr := range pr.ColumnBuffers {
-		newCB, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
+		newCB, err := pr.newColumnBuffer(pathStr)
 		if err != nil {
 			return fmt.Errorf("recreate column buffer for %s: %w", pathStr, err)
 		}

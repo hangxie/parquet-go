@@ -3,6 +3,9 @@ package bloomfilter
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/binary"
 	"io"
 	"net/http"
 	"testing"
@@ -10,6 +13,7 @@ import (
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
@@ -159,6 +163,56 @@ func TestReadBloomFilter(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "seek to bloom filter bitset")
 	})
+}
+
+func TestReadEncryptedBloomFilter(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	opt := ReadOptions{
+		Key:             key,
+		AADPrefix:       []byte("prefix"),
+		AADFileUnique:   []byte("file-unique"),
+		RowGroupOrdinal: 2,
+		ColumnOrdinal:   3,
+	}
+	original := New(64)
+	original.Insert(7)
+	headerBuf, err := serializeBloomFilterHeader(original.Header())
+	require.NoError(t, err)
+
+	var data []byte
+	data = append(data, encryptBloomModule(t, key, bloomAAD(opt, encryption.ModuleBloomFilterHeader), headerBuf)...)
+	data = append(data, encryptBloomModule(t, key, bloomAAD(opt, encryption.ModuleBloomFilterBitset), original.Bitset())...)
+
+	restored, err := ReadEncryptedBloomFilter(bytes.NewReader(data), 0, opt)
+	require.NoError(t, err)
+	require.True(t, restored.Check(7))
+	require.Equal(t, original.NumBytes(), restored.NumBytes())
+
+	badOpt := opt
+	badOpt.AADPrefix = []byte("wrong")
+	_, err = ReadEncryptedBloomFilter(bytes.NewReader(data), 0, badOpt)
+	require.ErrorContains(t, err, "decrypt bloom filter header")
+}
+
+func serializeBloomFilterHeader(header *parquet.BloomFilterHeader) ([]byte, error) {
+	ts := thrift.NewTSerializer()
+	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+	return ts.Write(context.TODO(), header)
+}
+
+func encryptBloomModule(t *testing.T, key, aad, plaintext []byte) []byte {
+	t.Helper()
+	nonce := []byte("123456789012")
+	block, err := aes.NewCipher(key)
+	require.NoError(t, err)
+	gcm, err := cipher.NewGCMWithNonceSize(block, len(nonce))
+	require.NoError(t, err)
+	body := append(append([]byte{}, nonce...), gcm.Seal(nil, nonce, plaintext, aad)...)
+	var length [4]byte
+	binary.LittleEndian.PutUint32(length[:], uint32(len(body)))
+	return append(length[:], body...)
 }
 
 // TestReadBloomFilterInterop tests that our ReadBloomFilter and HashValue functions

@@ -17,30 +17,13 @@ import (
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
-// ReaderOption configures a ParquetReader.
-type ReaderOption func(*ParquetReader)
-
-// WithNP sets the number of goroutines for parallel processing. Default is 4.
-func WithNP(np int64) ReaderOption {
-	return func(pr *ParquetReader) { pr.np = np }
-}
-
-// WithCaseInsensitive enables case-insensitive schema matching.
-func WithCaseInsensitive(enabled bool) ReaderOption {
-	return func(pr *ParquetReader) { pr.caseInsensitive = enabled }
-}
-
-// WithCRCMode sets the CRC validation mode when reading pages.
-func WithCRCMode(mode common.CRCMode) ReaderOption {
-	return func(pr *ParquetReader) { pr.crcMode = mode }
-}
-
 // ParquetReader is a reader for parquet files.
 type ParquetReader struct {
 	SchemaHandler *schema.SchemaHandler
 	np            int64 // parallel number
 	Footer        *parquet.FileMetaData
 	PFile         source.ParquetFileReader
+	FileCrypto    *parquet.FileCryptoMetaData
 
 	ColumnBuffers map[string]*ColumnBufferType
 
@@ -48,28 +31,13 @@ type ParquetReader struct {
 	ObjType        reflect.Type
 	ObjPartialType reflect.Type
 
-	caseInsensitive bool           // case-insensitive schema matching
-	crcMode         common.CRCMode // CRC validation when reading pages
-}
-
-// applyReaderDefaults sets defaults, applies functional options, and validates them.
-func applyReaderDefaults(pr *ParquetReader, opts []ReaderOption) error {
-	pr.np = 4 // default parallel number
-
-	for _, opt := range opts {
-		opt(pr)
-	}
-
-	if pr.np <= 0 {
-		return fmt.Errorf("WithNP: value must be positive, got %d", pr.np)
-	}
-	switch pr.crcMode {
-	case common.CRCIgnore, common.CRCAuto, common.CRCStrict:
-		// valid
-	default:
-		return fmt.Errorf("WithCRCMode: unsupported mode %d", pr.crcMode)
-	}
-	return nil
+	caseInsensitive   bool           // case-insensitive schema matching
+	crcMode           common.CRCMode // CRC validation when reading pages
+	footerKey         []byte
+	resolvedFooterKey []byte
+	aadPrefix         []byte
+	keyRetriever      KeyRetriever
+	columnKeys        map[string][]byte
 }
 
 // NewParquetReader creates a parquet reader. obj is an object with schema tags or a JSON schema string.
@@ -118,6 +86,10 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOpt
 				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: res.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 					return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 				}
+				res.ColumnBuffers[pathStr].Reader = res
+				if err := res.reconfigureDecryptorForBuffer(res.ColumnBuffers[pathStr]); err != nil {
+					return res, fmt.Errorf("configure page decryptor for %s: %w", pathStr, err)
+				}
 			}
 		}
 	}
@@ -141,10 +113,27 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
 				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 			}
+			pr.ColumnBuffers[pathStr].Reader = pr
+			if err := pr.reconfigureDecryptorForBuffer(pr.ColumnBuffers[pathStr]); err != nil {
+				return fmt.Errorf("configure page decryptor for %s: %w", pathStr, err)
+			}
 		}
 	}
 	pr.detectBloomFilters()
 	return nil
+}
+
+func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, error) {
+	cb, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
+	if err != nil {
+		return nil, err
+	}
+	cb.Reader = pr
+	if err := pr.reconfigureDecryptorForBuffer(cb); err != nil {
+		_ = cb.PFile.Close()
+		return nil, err
+	}
+	return cb, nil
 }
 
 // Rename schema name to inname
@@ -218,13 +207,45 @@ func (pr *ParquetReader) GetFooterSize() (uint32, error) {
 	return size, err
 }
 
+func (pr *ParquetReader) getFooterTail() (uint32, string, error) {
+	if pr.PFile == nil {
+		return 0, "", fmt.Errorf("PFile is nil")
+	}
+
+	buf := make([]byte, 8)
+	if _, err := pr.PFile.Seek(-8, io.SeekEnd); err != nil {
+		return 0, "", err
+	}
+	if _, err := io.ReadFull(pr.PFile, buf); err != nil {
+		return 0, "", err
+	}
+	return binary.LittleEndian.Uint32(buf[:4]), string(buf[4:]), nil
+}
+
 // Read footer from parquet file
 func (pr *ParquetReader) ReadFooter() error {
-	size, err := pr.GetFooterSize()
+	size, magic, err := pr.getFooterTail()
 	if err != nil {
-		return fmt.Errorf("get footer size: %w", err)
+		return fmt.Errorf("get footer tail: %w", err)
 	}
-	if _, err = pr.PFile.Seek(-int64(8+size), io.SeekEnd); err != nil {
+	switch magic {
+	case "PARE":
+		if err := pr.readEncryptedFooter(size); err != nil {
+			return err
+		}
+	default:
+		if err := pr.readPlainFooter(size); err != nil {
+			return err
+		}
+	}
+	if err := pr.decryptEncryptedColumnMetadata(); err != nil {
+		return fmt.Errorf("decrypt encrypted column metadata: %w", err)
+	}
+	return nil
+}
+
+func (pr *ParquetReader) readPlainFooter(size uint32) error {
+	if _, err := pr.PFile.Seek(-int64(8+size), io.SeekEnd); err != nil {
 		return fmt.Errorf("seek to footer: %w", err)
 	}
 	pr.Footer = parquet.NewFileMetaData()
@@ -234,6 +255,19 @@ func (pr *ParquetReader) ReadFooter() error {
 	protocol := pf.GetProtocol(bufferReader)
 	if err := pr.Footer.Read(context.TODO(), protocol); err != nil {
 		return fmt.Errorf("read footer: %w", err)
+	}
+
+	if pr.Footer.IsSetEncryptionAlgorithm() {
+		if _, err := pr.PFile.Seek(-int64(8+size), io.SeekEnd); err != nil {
+			return fmt.Errorf("seek to plaintext footer section: %w", err)
+		}
+		section := make([]byte, size)
+		if _, err := io.ReadFull(pr.PFile, section); err != nil {
+			return fmt.Errorf("read plaintext footer section: %w", err)
+		}
+		if err := pr.verifyPlaintextFooter(section); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -23,6 +23,7 @@ type ColumnBufferType struct {
 
 	PathStr       string
 	RowGroupIndex int64
+	ColumnOrdinal int16
 	ChunkHeader   *parquet.ColumnChunk
 
 	ChunkReadValues int64
@@ -33,6 +34,7 @@ type ColumnBufferType struct {
 	DataTableNumRows int64
 
 	PageReadOptions layout.PageReadOptions
+	Reader          *ParquetReader
 }
 
 func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions) (*ColumnBufferType, error) {
@@ -115,6 +117,12 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	}
 
 	cbt.ChunkHeader = columnChunks[i]
+	cbt.ColumnOrdinal = int16(i)
+	if cbt.Reader != nil {
+		if err := cbt.Reader.configurePageDecryptor(cbt, rowGroups[cbt.RowGroupIndex-1], int16(i)); err != nil {
+			return err
+		}
+	}
 	if columnChunks[i].FilePath != nil {
 		_ = cbt.PFile.Close()
 		if cbt.PFile, err = cbt.PFile.Open(*columnChunks[i].FilePath); err != nil {
