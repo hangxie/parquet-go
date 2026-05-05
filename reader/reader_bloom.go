@@ -6,6 +6,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/bloomfilter"
 	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // detectBloomFilters scans the first row group's metadata to detect which columns have bloom
@@ -20,7 +21,7 @@ func (pr *ParquetReader) detectBloomFilters() {
 		return
 	}
 
-	for _, cc := range rg.Columns {
+	for columnOrdinal, cc := range rg.Columns {
 		if cc.MetaData == nil || !cc.MetaData.IsSetBloomFilterOffset() {
 			continue
 		}
@@ -39,7 +40,7 @@ func (pr *ParquetReader) detectBloomFilters() {
 				continue
 			}
 
-			filter, err := bloomfilter.ReadBloomFilter(pf, cc.MetaData.GetBloomFilterOffset())
+			filter, err := pr.readBloomFilterForColumn(pf, 0, int16(columnOrdinal), rg, cc)
 			if err == nil {
 				pr.SchemaHandler.Infos[index].BloomFilterSize = filter.NumBytes()
 			}
@@ -69,10 +70,12 @@ func (pr *ParquetReader) BloomFilterCheck(columnPath string, rowGroupIndex int, 
 	// Find the column chunk by matching the internal path
 	var columnChunk *parquet.ColumnChunk
 	var columnType parquet.Type
-	for _, cc := range rg.Columns {
+	columnOrdinal := int16(0)
+	for i, cc := range rg.Columns {
 		ccPath := common.PathToStr(append([]string{pr.SchemaHandler.GetRootInName()}, cc.MetaData.GetPathInSchema()...))
 		if ccPath == inPath {
 			columnChunk = cc
+			columnOrdinal = int16(i)
 			columnType = cc.MetaData.GetType()
 			break
 		}
@@ -92,7 +95,7 @@ func (pr *ParquetReader) BloomFilterCheck(columnPath string, rowGroupIndex int, 
 	}
 	defer func() { _ = pf.Close() }()
 
-	filter, err := bloomfilter.ReadBloomFilter(pf, columnChunk.MetaData.GetBloomFilterOffset())
+	filter, err := pr.readBloomFilterForColumn(pf, rowGroupIndex, columnOrdinal, rg, columnChunk)
 	if err != nil {
 		return false, fmt.Errorf("read bloom filter: %w", err)
 	}
@@ -103,4 +106,38 @@ func (pr *ParquetReader) BloomFilterCheck(columnPath string, rowGroupIndex int, 
 	}
 
 	return filter.Check(hash), nil
+}
+
+func (pr *ParquetReader) readBloomFilterForColumn(pf source.ParquetFileReader, rowGroupIndex int, columnOrdinal int16, rowGroup *parquet.RowGroup, columnChunk *parquet.ColumnChunk) (*bloomfilter.Filter, error) {
+	if columnChunk == nil || columnChunk.MetaData == nil {
+		return nil, fmt.Errorf("column metadata is nil")
+	}
+	offset := columnChunk.MetaData.GetBloomFilterOffset()
+	if columnChunk.GetCryptoMetadata() == nil {
+		return bloomfilter.ReadBloomFilter(pf, offset)
+	}
+
+	algorithm := pr.encryptionAlgorithm()
+	if algorithm == nil {
+		return nil, fmt.Errorf("encrypted bloom filter missing file encryption algorithm")
+	}
+	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
+	if err != nil {
+		return nil, err
+	}
+	key, err := pr.resolveColumnKey(columnChunk)
+	if err != nil {
+		return nil, err
+	}
+	rowGroupOrdinal := int16(rowGroupIndex)
+	if rowGroup != nil && rowGroup.IsSetOrdinal() {
+		rowGroupOrdinal = rowGroup.GetOrdinal()
+	}
+	return bloomfilter.ReadEncryptedBloomFilter(pf, offset, bloomfilter.ReadOptions{
+		Key:             key,
+		AADPrefix:       aadPrefix,
+		AADFileUnique:   aadFileUnique,
+		RowGroupOrdinal: rowGroupOrdinal,
+		ColumnOrdinal:   columnOrdinal,
+	})
 }

@@ -352,6 +352,9 @@ func (pr *ParquetReader) GetAllPageHeaders(rgIndex, colIndex int) ([]PageHeaderI
 	}
 
 	column := rg.Columns[colIndex]
+	if column != nil && column.GetCryptoMetadata() != nil {
+		return nil, fmt.Errorf("page header inspection is not supported for encrypted columns")
+	}
 	return readAllPageHeaders(pr.PFile, column)
 }
 
@@ -368,12 +371,19 @@ func (pr *ParquetReader) GetFirstDataPageHeader(rgIndex, colIndex int) (*PageHea
 	}
 
 	column := rg.Columns[colIndex]
+	if column != nil && column.GetCryptoMetadata() != nil {
+		return nil, fmt.Errorf("page header inspection is not supported for encrypted columns")
+	}
 	return readFirstDataPageHeader(pr.PFile, column)
 }
 
 // ReadDictionaryPageValues reads and decodes dictionary page values at the given offset
 // This is a convenience function for tools that need to inspect dictionary pages directly
 func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.CompressionCodec, physicalType parquet.Type) ([]interface{}, error) {
+	if pr.pageOffsetEncrypted(offset) {
+		return nil, fmt.Errorf("dictionary page inspection is not supported for encrypted columns")
+	}
+
 	// Read page header at the offset
 	pageHeader, _, err := readPageHeader(pr.PFile, offset)
 	if err != nil {
@@ -397,4 +407,27 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	}
 
 	return values, nil
+}
+
+func (pr *ParquetReader) pageOffsetEncrypted(offset int64) bool {
+	if pr == nil || pr.Footer == nil {
+		return false
+	}
+	for _, rowGroup := range pr.Footer.GetRowGroups() {
+		if rowGroup == nil {
+			continue
+		}
+		for _, column := range rowGroup.GetColumns() {
+			if column == nil || column.GetCryptoMetadata() == nil || column.MetaData == nil {
+				continue
+			}
+			if column.MetaData.GetDataPageOffset() == offset {
+				return true
+			}
+			if column.MetaData.IsSetDictionaryPageOffset() && column.MetaData.GetDictionaryPageOffset() == offset {
+				return true
+			}
+		}
+	}
+	return false
 }
