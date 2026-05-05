@@ -244,6 +244,18 @@ func TestUncompressWithExpectedSize(t *testing.T) {
 	decompressed2, err := UncompressWithExpectedSize(compressed, parquet.CompressionCodec_SNAPPY, int64(len(testData)))
 	require.NoError(t, err)
 	require.Equal(t, testData, decompressed2)
+
+	t.Run("unsupported codec returns decompressor error", func(t *testing.T) {
+		_, err := c.UncompressWithExpectedSize([]byte("bad"), parquet.CompressionCodec(-1), int64(len(testData)))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported compress method")
+	})
+
+	t.Run("corrupt compressed data returns decompressor error", func(t *testing.T) {
+		_, err := c.UncompressWithExpectedSize([]byte{1, 2, 3}, parquet.CompressionCodec_SNAPPY, int64(len(testData)))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "corrupt input")
+	})
 }
 
 func TestNewCompressor(t *testing.T) {
