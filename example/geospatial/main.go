@@ -35,7 +35,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw, err := writer.NewParquetWriter(fw, new(Row),
+	pw, err := writer.NewParquetWriter(
+		fw, new(Row),
 		writer.WithNP(1),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
@@ -87,7 +88,8 @@ func main() {
 		types.WithGeometryJSONMode(types.GeospatialModeGeoJSON),
 		types.WithGeographyJSONMode(types.GeospatialModeGeoJSON),
 	)
-	out2, err := marshal.ConvertToJSONFriendly(data, pr.SchemaHandler,
+	out2, err := marshal.ConvertToJSONFriendly(
+		data, pr.SchemaHandler,
 		marshal.WithGeospatialConfig(geoCfg),
 	)
 	if err != nil {

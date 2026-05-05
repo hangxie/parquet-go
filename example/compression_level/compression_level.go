@@ -30,7 +30,8 @@ func main() {
 	// 1. Default compression set to SNAPPY
 	// 2. GZIP compression level set to 9 (will be used by 'Description' column)
 	// 3. ZSTD compression level set to 10 (will be used by 'Content' column)
-	pw, err := writer.NewParquetWriterFromWriter(f, new(Data),
+	pw, err := writer.NewParquetWriterFromWriter(
+		f, new(Data),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 		writer.WithCompressionLevel(parquet.CompressionCodec_GZIP, 9),
 		writer.WithCompressionLevel(parquet.CompressionCodec_ZSTD, 10),

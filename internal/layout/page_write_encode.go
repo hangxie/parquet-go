@@ -177,7 +177,8 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *com
 	if page.DataTable.MaxDefinitionLevel > 0 {
 		definitionLevelBuf, err = encoding.WriteRLEBitPackedHybridInt32(
 			page.DataTable.DefinitionLevels,
-			int32(bits.Len32(uint32(page.DataTable.MaxDefinitionLevel))))
+			int32(bits.Len32(uint32(page.DataTable.MaxDefinitionLevel))),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +188,8 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *com
 	if page.DataTable.MaxRepetitionLevel > 0 {
 		repetitionLevelBuf, err = encoding.WriteRLEBitPackedHybridInt32(
 			page.DataTable.RepetitionLevels,
-			int32(bits.Len32(uint32(page.DataTable.MaxRepetitionLevel))))
+			int32(bits.Len32(uint32(page.DataTable.MaxRepetitionLevel))),
+		)
 		if err != nil {
 			return nil, err
 		}

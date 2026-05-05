@@ -116,7 +116,8 @@ func TestJSONWriter(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		jw, err := NewJSONWriter(jsonSchema, fw,
+		jw, err := NewJSONWriter(
+			jsonSchema, fw,
 			WithNP(8),
 			WithPageSize(16384),
 			WithRowGroupSize(256*1024*1024),

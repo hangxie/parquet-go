@@ -34,7 +34,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pw, err := writer.NewParquetWriter(fw, new(Row),
+	pw, err := writer.NewParquetWriter(
+		fw, new(Row),
 		writer.WithNP(1),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)

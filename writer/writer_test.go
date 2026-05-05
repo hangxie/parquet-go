@@ -713,7 +713,8 @@ func TestWriterCompressionLevel(t *testing.T) {
 		Text string `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
 	}
 
-	pw, buf, err := createTestParquetWriter(new(Entry),
+	pw, buf, err := createTestParquetWriter(
+		new(Entry),
 		WithNP(1),
 		WithCompressionCodec(parquet.CompressionCodec_GZIP),
 		WithCompressionLevel(parquet.CompressionCodec_GZIP, 1),

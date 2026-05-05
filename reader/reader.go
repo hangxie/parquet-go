@@ -224,7 +224,7 @@ func (pr *ParquetReader) ReadFooter() error {
 	if err != nil {
 		return fmt.Errorf("get footer size: %w", err)
 	}
-	if _, err = pr.PFile.Seek(-(int64)(8+size), io.SeekEnd); err != nil {
+	if _, err = pr.PFile.Seek(-int64(8+size), io.SeekEnd); err != nil {
 		return fmt.Errorf("seek to footer: %w", err)
 	}
 	pr.Footer = parquet.NewFileMetaData()

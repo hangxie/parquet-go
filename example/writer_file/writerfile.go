@@ -29,7 +29,8 @@ func main() {
 	fw := writerfile.NewWriterFile(buf)
 
 	// write
-	pw, err := writer.NewParquetWriter(fw, new(Student),
+	pw, err := writer.NewParquetWriter(
+		fw, new(Student),
 		writer.WithRowGroupSize(common.DefaultRowGroupSize),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)

@@ -331,8 +331,8 @@ func TestReadPlain(t *testing.T) {
 
 	t.Run("fixed_len_byte_array", func(t *testing.T) {
 		testData := [][]any{
-			{("hello"), ("world")},
-			{("a"), ("b"), ("c"), ("d")},
+			{"hello", "world"},
+			{"a", "b", "c", "d"},
 		}
 
 		for _, data := range testData {

@@ -630,7 +630,7 @@ func rowToSliceOfValues(s any) []any {
 			res = append(res, nil)
 			continue
 		}
-		if field.Type().Kind() == reflect.Ptr {
+		if field.Type().Kind() == reflect.Pointer {
 			res = append(res, field.Elem().Interface())
 		} else {
 			res = append(res, field.Interface())

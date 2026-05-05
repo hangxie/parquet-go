@@ -223,7 +223,7 @@ func WriteDeltaINT32(nums []any) []byte {
 		res = append(res, bitWidths...)
 
 		for j := range numMiniBlocksInBlock {
-			res = append(res, WriteBitPacked((blockBuf[uint64(j)*numValuesInMiniBlock:uint64(j+1)*numValuesInMiniBlock]), int64(bitWidths[j]), false)...)
+			res = append(res, WriteBitPacked(blockBuf[uint64(j)*numValuesInMiniBlock:uint64(j+1)*numValuesInMiniBlock], int64(bitWidths[j]), false)...)
 		}
 
 	}
@@ -291,7 +291,7 @@ func WriteDeltaINT64(nums []any) []byte {
 		res = append(res, bitWidths...)
 
 		for j := range numMiniBlocksInBlock {
-			res = append(res, WriteBitPacked((blockBuf[uint64(j)*numValuesInMiniBlock:uint64(j+1)*numValuesInMiniBlock]), int64(bitWidths[j]), false)...)
+			res = append(res, WriteBitPacked(blockBuf[uint64(j)*numValuesInMiniBlock:uint64(j+1)*numValuesInMiniBlock], int64(bitWidths[j]), false)...)
 		}
 
 	}
@@ -348,7 +348,7 @@ func WriteDeltaByteArray(arrays []any) []byte {
 			j++
 		}
 		prefixLengths[i] = int32(j)
-		suffixes[i] = (s2[j:])
+		suffixes[i] = s2[j:]
 	}
 
 	prefixBuf := WriteDeltaINT32(prefixLengths)

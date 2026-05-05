@@ -132,9 +132,9 @@ func TestWritePlain(t *testing.T) {
 			expected []byte
 		}{
 			{[]any{}, []byte{}},
-			{[]any{(true)}, []byte{1}},
-			{[]any{(true), (false)}, []byte{1}},
-			{[]any{(true), (false), (false), (true), (false)}, []byte{9}},
+			{[]any{true}, []byte{1}},
+			{[]any{true, false}, []byte{1}},
+			{[]any{true, false, false, true, false}, []byte{9}},
 		}
 
 		for _, data := range testData {
@@ -150,7 +150,7 @@ func TestWritePlain(t *testing.T) {
 			expected []byte
 		}{
 			{[]any{}, []byte{}},
-			{[]any{("a"), ("abc")}, []byte{1, 0, 0, 0, 97, 3, 0, 0, 0, 97, 98, 99}},
+			{[]any{"a", "abc"}, []byte{1, 0, 0, 0, 97, 3, 0, 0, 0, 97, 98, 99}},
 		}
 
 		for _, data := range testData {
@@ -217,7 +217,7 @@ func TestWritePlain(t *testing.T) {
 			expected []byte
 		}{
 			{[]any{}, []byte{}},
-			{[]any{("bca"), ("abc")}, []byte{98, 99, 97, 97, 98, 99}},
+			{[]any{"bca", "abc"}, []byte{98, 99, 97, 97, 98, 99}},
 		}
 
 		for _, data := range testData {

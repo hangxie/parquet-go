@@ -18,7 +18,7 @@ func DECIMAL_INT_ToString(dec int64, precision, scale int) string {
 	}
 	if scale > 0 {
 		if scale > len(ans) {
-			ans = strings.Repeat("0", scale-(len(ans))+1) + ans
+			ans = strings.Repeat("0", scale-len(ans)+1) + ans
 		}
 		radixLoc := len(ans) - scale
 		ans = ans[:radixLoc] + "." + ans[radixLoc:]

@@ -63,7 +63,8 @@ func TestCSVWriter(t *testing.T) {
 		}
 		var buf bytes.Buffer
 		bw := bufio.NewWriter(&buf)
-		cw, err := NewCSVWriterFromWriter(schema, bw,
+		cw, err := NewCSVWriterFromWriter(
+			schema, bw,
 			WithNP(2),
 			WithPageSize(4096),
 			WithCompressionCodec(parquet.CompressionCodec_GZIP),
