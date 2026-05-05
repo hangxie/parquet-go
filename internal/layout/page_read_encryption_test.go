@@ -109,6 +109,65 @@ func TestReadPageRawDataEncryptedDictionaryHeader(t *testing.T) {
 	require.Equal(t, body, page.RawData)
 }
 
+func TestEncryptedPageErrors(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	aadPrefix := []byte("prefix")
+	fileUnique := []byte("file-unique")
+	decryptor := &PageDecryptor{
+		Algorithm:     PageEncryptionAESGCM,
+		Key:           key,
+		AADPrefix:     aadPrefix,
+		AADFileUnique: fileUnique,
+	}
+
+	_, err := readPageHeader(encryptedPageReader([]byte{1, 2}), PageReadOptions{
+		MaxPageSize: 100,
+		Decryptor:   decryptor,
+	})
+	require.ErrorContains(t, err, "read encrypted module length")
+
+	dataHeader := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE,
+		CompressedPageSize:   4,
+		UncompressedPageSize: 4,
+		DataPageHeader: &parquet.DataPageHeader{
+			NumValues:               1,
+			Encoding:                parquet.Encoding_PLAIN,
+			DefinitionLevelEncoding: parquet.Encoding_RLE,
+			RepetitionLevelEncoding: parquet.Encoding_RLE,
+		},
+	}
+	headerModule := encryptPageGCMModule(t, key, pageTestAAD(aadPrefix, fileUnique, encryption.ModuleDataPageHeader), serializePageHeader(t, dataHeader))
+	badDecryptor := *decryptor
+	badDecryptor.AADPrefix = []byte("wrong")
+	_, err = decryptPageHeader(headerModule[4:], &badDecryptor)
+	require.ErrorContains(t, err, "decrypt page header")
+
+	indexHeader := &parquet.PageHeader{
+		Type:                 parquet.PageType_INDEX_PAGE,
+		CompressedPageSize:   0,
+		UncompressedPageSize: 0,
+	}
+	indexHeaderModule := encryptPageGCMModule(t, key, pageTestAAD(aadPrefix, fileUnique, encryption.ModuleDataPageHeader), serializePageHeader(t, indexHeader))
+	_, err = decryptPageHeader(indexHeaderModule[4:], decryptor)
+	require.ErrorContains(t, err, "unsupported encrypted page type")
+
+	_, err = readEncryptedPageBody(encryptedPageReader([]byte{1, 2}), dataHeader, PageReadOptions{
+		MaxPageSize: 100,
+		Decryptor:   decryptor,
+	})
+	require.ErrorContains(t, err, "read encrypted module length")
+
+	badBody := encryptPageGCMModule(t, key, []byte("wrong aad"), []byte{1, 2, 3, 4})
+	_, err = readEncryptedPageBody(encryptedPageReader(badBody), dataHeader, PageReadOptions{
+		MaxPageSize: 100,
+		Decryptor:   decryptor,
+	})
+	require.ErrorContains(t, err, "decrypt AES-GCM module")
+}
+
 func testSchemaHandler() *schema.SchemaHandler {
 	return schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
 		{

@@ -196,6 +196,60 @@ func TestReadEncryptedBloomFilter(t *testing.T) {
 	require.ErrorContains(t, err, "decrypt bloom filter header")
 }
 
+func TestReadEncryptedBloomFilterErrors(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	opt := ReadOptions{
+		Key:             key,
+		AADPrefix:       []byte("prefix"),
+		AADFileUnique:   []byte("file-unique"),
+		RowGroupOrdinal: 2,
+		ColumnOrdinal:   3,
+	}
+	filter := New(64)
+	headerBuf, err := serializeBloomFilterHeader(filter.Header())
+	require.NoError(t, err)
+	headerModule := encryptBloomModule(t, key, bloomAAD(opt, encryption.ModuleBloomFilterHeader), headerBuf)
+	bitsetModule := encryptBloomModule(t, key, bloomAAD(opt, encryption.ModuleBloomFilterBitset), filter.Bitset())
+
+	_, err = ReadEncryptedBloomFilter(&failSeeker{}, 0, opt)
+	require.ErrorContains(t, err, "seek to bloom filter offset")
+
+	_, err = ReadEncryptedBloomFilter(bytes.NewReader([]byte{1, 2}), 0, opt)
+	require.ErrorContains(t, err, "read encrypted bloom filter header")
+
+	invalidHeader := encryptBloomModule(t, key, bloomAAD(opt, encryption.ModuleBloomFilterHeader), []byte{0xff})
+	_, err = ReadEncryptedBloomFilter(bytes.NewReader(invalidHeader), 0, opt)
+	require.ErrorContains(t, err, "read bloom filter header")
+
+	zeroHeader := &parquet.BloomFilterHeader{
+		NumBytes:    0,
+		Algorithm:   &parquet.BloomFilterAlgorithm{BLOCK: parquet.NewSplitBlockAlgorithm()},
+		Hash:        &parquet.BloomFilterHash{XXHASH: parquet.NewXxHash()},
+		Compression: &parquet.BloomFilterCompression{UNCOMPRESSED: parquet.NewUncompressed()},
+	}
+	zeroHeaderBuf, err := serializeBloomFilterHeader(zeroHeader)
+	require.NoError(t, err)
+	zeroHeaderModule := encryptBloomModule(t, key, bloomAAD(opt, encryption.ModuleBloomFilterHeader), zeroHeaderBuf)
+	_, err = ReadEncryptedBloomFilter(bytes.NewReader(zeroHeaderModule), 0, opt)
+	require.ErrorContains(t, err, "invalid bloom filter header")
+
+	_, err = ReadEncryptedBloomFilter(bytes.NewReader(headerModule), 0, opt)
+	require.ErrorContains(t, err, "read encrypted bloom filter bitset")
+
+	wrongBitsetModule := encryptBloomModule(t, key, []byte("wrong aad"), filter.Bitset())
+	_, err = ReadEncryptedBloomFilter(bytes.NewReader(append(append([]byte{}, headerModule...), wrongBitsetModule...)), 0, opt)
+	require.ErrorContains(t, err, "decrypt bloom filter bitset")
+
+	shortBitsetModule := encryptBloomModule(t, key, bloomAAD(opt, encryption.ModuleBloomFilterBitset), filter.Bitset()[:1])
+	_, err = ReadEncryptedBloomFilter(bytes.NewReader(append(append([]byte{}, headerModule...), shortBitsetModule...)), 0, opt)
+	require.ErrorContains(t, err, "does not match header numBytes")
+
+	_, err = ReadEncryptedBloomFilter(bytes.NewReader(append(append([]byte{}, headerModule...), bitsetModule...)), 0, opt)
+	require.NoError(t, err)
+}
+
 func serializeBloomFilterHeader(header *parquet.BloomFilterHeader) ([]byte, error) {
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)

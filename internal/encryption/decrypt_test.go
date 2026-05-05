@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/binary"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,12 @@ func TestReadModule(t *testing.T) {
 
 	_, err = ReadModule(bytes.NewReader([]byte{1, 2}), 0)
 	require.ErrorContains(t, err, "read encrypted module length")
+
+	truncated := make([]byte, 4)
+	binary.LittleEndian.PutUint32(truncated, 4)
+	truncated = append(truncated, []byte("abc")...)
+	_, err = ReadModule(bytes.NewReader(truncated), 0)
+	require.ErrorContains(t, err, "read encrypted module body")
 }
 
 func TestDecryptGCM(t *testing.T) {
@@ -100,6 +107,32 @@ func TestDecryptGCM(t *testing.T) {
 	require.ErrorContains(t, err, "tag verification failed")
 }
 
+func TestDecryptGCMErrors(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	_, err := DecryptGCM(key, nil, make([]byte, gcmNonceSize+gcmTagSize-1))
+	require.ErrorContains(t, err, "AES-GCM module too short")
+}
+
+func TestVerifyGCMTagErrors(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	nonce := []byte("123456789012")
+	plaintext := []byte("footer payload")
+	aad := []byte("aad")
+
+	err := VerifyGCMTag(key, aad, nonce[:len(nonce)-1], plaintext, make([]byte, gcmTagSize))
+	require.ErrorContains(t, err, "invalid AES-GCM nonce size")
+
+	err = VerifyGCMTag(key, aad, nonce, plaintext, make([]byte, gcmTagSize-1))
+	require.ErrorContains(t, err, "invalid AES-GCM tag size")
+
+	err = VerifyGCMTag([]byte("bad"), aad, nonce, plaintext, make([]byte, gcmTagSize))
+	require.ErrorContains(t, err, "invalid AES key size")
+}
+
 func TestDecryptCTR(t *testing.T) {
 	t.Parallel()
 
@@ -121,6 +154,13 @@ func TestDecryptCTR(t *testing.T) {
 	require.Equal(t, plaintext, got)
 }
 
+func TestDecryptCTRErrors(t *testing.T) {
+	t.Parallel()
+
+	_, err := DecryptCTR([]byte("0123456789abcdef"), make([]byte, ctrNonceSize-1))
+	require.ErrorContains(t, err, "AES-CTR module too short")
+}
+
 func TestInvalidAESKeySize(t *testing.T) {
 	t.Parallel()
 
@@ -129,4 +169,16 @@ func TestInvalidAESKeySize(t *testing.T) {
 
 	_, err = DecryptCTR([]byte("bad"), make([]byte, ctrNonceSize))
 	require.ErrorContains(t, err, "invalid AES key size")
+}
+
+func TestNewAESBlockValidKeySizes(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []int{16, 24, 32} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			t.Parallel()
+			_, err := newAESBlock(bytes.Repeat([]byte{0x42}, size))
+			require.NoError(t, err)
+		})
+	}
 }

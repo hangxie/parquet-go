@@ -264,6 +264,9 @@ func TestPageInspectionRejectsEncryptedColumns(t *testing.T) {
 
 	_, err = pr.ReadDictionaryPageValues(4, parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
 	require.ErrorContains(t, err, "not supported for encrypted columns")
+
+	require.False(t, (*ParquetReader)(nil).pageOffsetEncrypted(4))
+	require.False(t, (&ParquetReader{}).pageOffsetEncrypted(4))
 }
 
 func TestConfigurePageDecryptor(t *testing.T) {
@@ -302,6 +305,82 @@ func TestConfigurePageDecryptor(t *testing.T) {
 	require.Equal(t, fileUnique, cbt.PageReadOptions.Decryptor.AADFileUnique)
 	require.Equal(t, int16(7), cbt.PageReadOptions.Decryptor.RowGroupOrdinal)
 	require.Equal(t, int16(3), cbt.PageReadOptions.Decryptor.ColumnOrdinal)
+}
+
+func TestEncryptionHelperErrors(t *testing.T) {
+	t.Parallel()
+
+	pr := &ParquetReader{}
+	_, err := pr.resolveColumnKey(&parquet.ColumnChunk{})
+	require.ErrorContains(t, err, "column crypto metadata is required")
+
+	_, err = pr.resolveColumnKey(&parquet.ColumnChunk{
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{},
+	})
+	require.ErrorContains(t, err, "unsupported column crypto metadata")
+
+	_, err = pr.resolveColumnKey(&parquet.ColumnChunk{
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{
+			ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
+		},
+	})
+	require.ErrorContains(t, err, "column decryption key is required")
+
+	retrieverErr := fmt.Errorf("kms failure")
+	pr = &ParquetReader{}
+	WithKeyRetriever(func([]byte) ([]byte, error) { return nil, retrieverErr })(pr)
+	_, err = pr.resolveColumnKey(&parquet.ColumnChunk{
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{
+			ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
+		},
+	})
+	require.ErrorContains(t, err, "retrieve column key")
+
+	_, _, err = pr.footerAADParts(nil)
+	require.ErrorContains(t, err, "missing encryption algorithm")
+
+	_, _, err = pr.footerAADParts(&parquet.EncryptionAlgorithm{})
+	require.ErrorContains(t, err, "unsupported encryption algorithm")
+
+	require.NoError(t, (&ParquetReader{}).configurePageDecryptor(nil, nil, 0))
+
+	cbt := &ColumnBufferType{}
+	require.NoError(t, (&ParquetReader{}).configurePageDecryptor(cbt, nil, 0))
+	require.Nil(t, cbt.PageReadOptions.Decryptor)
+
+	cbt = &ColumnBufferType{
+		ChunkHeader: &parquet.ColumnChunk{
+			CryptoMetadata: &parquet.ColumnCryptoMetaData{ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey()},
+		},
+	}
+	err = (&ParquetReader{}).configurePageDecryptor(cbt, nil, 0)
+	require.ErrorContains(t, err, "encrypted column missing file encryption algorithm")
+
+	require.NoError(t, (&ParquetReader{}).reconfigureDecryptorForBuffer(nil))
+	require.NoError(t, (&ParquetReader{}).reconfigureDecryptorForBuffer(&ColumnBufferType{}))
+	require.NoError(t, (&ParquetReader{Footer: &parquet.FileMetaData{}}).reconfigureDecryptorForBuffer(&ColumnBufferType{RowGroupIndex: 1}))
+
+	require.NoError(t, (&ParquetReader{}).decryptEncryptedColumnMetadata())
+	require.NoError(t, (&ParquetReader{Footer: &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{nil}}}).decryptEncryptedColumnMetadata())
+}
+
+func TestReadBloomFilterForColumnErrors(t *testing.T) {
+	t.Parallel()
+
+	pr := &ParquetReader{}
+	_, err := pr.readBloomFilterForColumn(nil, 0, 0, nil, nil)
+	require.ErrorContains(t, err, "column metadata is nil")
+
+	chunk := &parquet.ColumnChunk{
+		MetaData:       &parquet.ColumnMetaData{},
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey()},
+	}
+	_, err = pr.readBloomFilterForColumn(nil, 0, 0, nil, chunk)
+	require.ErrorContains(t, err, "encrypted bloom filter missing file encryption algorithm")
+
+	pr.Footer = &parquet.FileMetaData{EncryptionAlgorithm: encryptionAlgorithm([]byte("prefix"), []byte("file-unique"))}
+	_, err = pr.readBloomFilterForColumn(nil, 0, 0, nil, chunk)
+	require.ErrorContains(t, err, "footer decryption key is required")
 }
 
 func minimalFileMetaData() *parquet.FileMetaData {
