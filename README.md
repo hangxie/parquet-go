@@ -29,7 +29,37 @@ All configuration is per-instance via functional options, enabling safe concurre
 
 ### Reader Options
 
-`WithNP`, `WithCaseInsensitive`, `WithCRCMode`.
+`WithNP`, `WithCaseInsensitive`, `WithCRCMode`, `WithFooterKey`, `WithColumnKey`, `WithKeyRetriever`, `WithAADPrefix`.
+
+### Reading Encrypted Files
+
+The reader supports Apache Parquet modular encryption for encrypted footers and plaintext footers signed with AES-GCM. Data page headers, data pages, dictionary pages, column metadata, column indexes, offset indexes, and bloom filter headers/bitsets are decrypted when the footer supplies encryption metadata and the reader is configured with the required keys.
+
+Use `WithFooterKey` for files encrypted with a single footer key:
+
+```go
+pr, err := reader.NewParquetReader(
+    fr,
+    new(Student),
+    reader.WithFooterKey(footerKey),
+)
+```
+
+Use `WithColumnKey` for explicit per-column keys, or `WithKeyRetriever` when keys should be resolved from Parquet `key_metadata`. Both can be provided simultaneously — `WithColumnKey` takes priority over `WithKeyRetriever` for column keys, while `WithKeyRetriever` takes priority over `WithFooterKey` for the footer key:
+
+```go
+pr, err := reader.NewParquetReader(
+    fr,
+    new(Student),
+    reader.WithFooterKey(footerKey),
+    reader.WithColumnKey("address.city", cityKey),
+    reader.WithKeyRetriever(func(keyMetadata []byte) ([]byte, error) {
+        return lookupKey(keyMetadata)
+    }),
+)
+```
+
+For files written with `supply_aad_prefix=true`, pass the external prefix using `WithAADPrefix`.
 
 ## Quick Start
 
