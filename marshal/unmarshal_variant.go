@@ -106,7 +106,7 @@ func assignVariantToTarget(po reflect.Value, variant types.Variant) error {
 	if po.Type() == variantType || po.Kind() == reflect.Interface {
 		return assignVariantDirect(po, variant)
 	}
-	if po.Kind() == reflect.Ptr && (po.Type().Elem() == variantType || po.Type().Elem().Kind() == reflect.Interface) {
+	if po.Kind() == reflect.Pointer && (po.Type().Elem() == variantType || po.Type().Elem().Kind() == reflect.Interface) {
 		return assignVariantPtr(po, variant)
 	}
 	return fmt.Errorf("could not set variant value at path end")
@@ -120,7 +120,7 @@ func navigateToVariantTarget(root reflect.Value, path []string, prefixIndex int,
 		}
 
 		switch po.Kind() {
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if po.IsNil() {
 				po.Set(reflect.New(po.Type().Elem()))
 			}

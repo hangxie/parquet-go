@@ -28,7 +28,8 @@ func main() {
 		log.Println("Can't create local file", err)
 		return
 	}
-	pw, err := writer.NewParquetWriter(fw, new(DateItem),
+	pw, err := writer.NewParquetWriter(
+		fw, new(DateItem),
 		writer.WithNP(2),
 		writer.WithRowGroupSize(common.DefaultRowGroupSize),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),

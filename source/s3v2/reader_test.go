@@ -318,7 +318,8 @@ func TestS3Reader_Clone(t *testing.T) {
 		bucket := "daylight-openstreetmap"
 		key := "parquet/osm_features/release=v1.58/type=way/20241112_191814_00139_grr7u_0041fe64-a5ba-4375-88bf-ef790dfedfff"
 
-		cfg, err := config.LoadDefaultConfig(ctx,
+		cfg, err := config.LoadDefaultConfig(
+			ctx,
 			config.WithRegion("us-west-2"),
 			config.WithCredentialsProvider(aws.AnonymousCredentials{}),
 		)

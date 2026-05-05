@@ -351,7 +351,7 @@ func (s *unmarshalState) processValue(root reflect.Value, prefixIndex int, tc *t
 			po, index, done, err = s.handleSlice(po, tc, index, rl, dl, val)
 		case reflect.Map:
 			po, index, done, err = s.handleMap(po, tc, index, rl, dl)
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if po.IsNil() {
 				po.Set(reflect.New(po.Type().Elem()))
 			}
@@ -405,7 +405,7 @@ func (s *unmarshalState) processTable(root reflect.Value, prefixIndex int, table
 // Convert the table map to objects slice. dstInterface is a slice of pointers of objects
 func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface any, schemaHandler *schema.SchemaHandler, prefixPath string) error {
 	rootValue := reflect.ValueOf(dstInterface)
-	if !rootValue.IsValid() || rootValue.Kind() != reflect.Ptr || rootValue.IsNil() {
+	if !rootValue.IsValid() || rootValue.Kind() != reflect.Pointer || rootValue.IsNil() {
 		return fmt.Errorf("dstInterface must be a non-nil pointer")
 	}
 

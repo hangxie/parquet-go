@@ -85,7 +85,7 @@ func createVariantSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.
 			}
 			newItem.Info.InName = f.Name
 			newItem.GoType = f.Type
-			if f.Type.Kind() == reflect.Ptr {
+			if f.Type.Kind() == reflect.Pointer {
 				newItem.GoType = f.Type.Elem()
 				newItem.Info.RepetitionType = parquet.FieldRepetitionType_OPTIONAL
 			}
@@ -148,7 +148,7 @@ func createStructSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.S
 		}
 		newItem.Info.InName = f.Name
 		newItem.GoType = f.Type
-		if f.Type.Kind() == reflect.Ptr {
+		if f.Type.Kind() == reflect.Pointer {
 			newItem.GoType = f.Type.Elem()
 			newItem.Info.RepetitionType = parquet.FieldRepetitionType_OPTIONAL
 		}
@@ -187,7 +187,7 @@ func createListSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.Sch
 	newItem.Info.InName = "Element"
 	newItem.Info.ExName = "element"
 	newItem.GoType = item.GoType.Elem()
-	if newItem.GoType.Kind() == reflect.Ptr {
+	if newItem.GoType.Kind() == reflect.Pointer {
 		newItem.Info.RepetitionType = parquet.FieldRepetitionType_OPTIONAL
 		newItem.GoType = item.GoType.Elem().Elem()
 	} else {
@@ -227,7 +227,7 @@ func createMapSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.Sche
 	newItem := NewItem()
 	newItem.Info = common.GetValueTagMap(item.Info)
 	newItem.GoType = item.GoType.Elem()
-	if newItem.GoType.Kind() == reflect.Ptr {
+	if newItem.GoType.Kind() == reflect.Pointer {
 		newItem.Info.RepetitionType = parquet.FieldRepetitionType_OPTIONAL
 		newItem.GoType = item.GoType.Elem().Elem()
 	} else {

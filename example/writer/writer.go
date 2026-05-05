@@ -33,7 +33,8 @@ func main() {
 	}
 
 	// write
-	pw, err := writer.NewParquetWriterFromWriter(w, new(Student),
+	pw, err := writer.NewParquetWriterFromWriter(
+		w, new(Student),
 		writer.WithRowGroupSize(common.DefaultRowGroupSize),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)

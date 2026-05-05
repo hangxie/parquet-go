@@ -290,7 +290,7 @@ func selectMarshaler(node *Node, schemaHandler *schema.SchemaHandler) Marshaler 
 	}
 
 	switch tk {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		return &ParquetPtr{}
 	case reflect.Struct:
 		return &ParquetStruct{}
@@ -433,7 +433,7 @@ func HandleVariant(
 	isNil := !node.Val.IsValid()
 	if !isNil {
 		switch node.Val.Kind() {
-		case reflect.Interface, reflect.Ptr, reflect.Slice, reflect.Map:
+		case reflect.Interface, reflect.Pointer, reflect.Slice, reflect.Map:
 			isNil = node.Val.IsNil()
 		}
 	}

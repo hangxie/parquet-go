@@ -278,7 +278,8 @@ func TestReadPageData_V2(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	pw, err := writer.NewParquetWriterFromWriter(&buf, new(Record),
+	pw, err := writer.NewParquetWriterFromWriter(
+		&buf, new(Record),
 		writer.WithNP(1),
 		writer.WithDataPageVersion(2),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),

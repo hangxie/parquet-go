@@ -29,7 +29,8 @@ func main() {
 		return
 	}
 
-	pw, err := writer.NewParquetWriter(fw, new(Shoe),
+	pw, err := writer.NewParquetWriter(
+		fw, new(Shoe),
 		writer.WithNP(2),
 		writer.WithRowGroupSize(common.DefaultRowGroupSize),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),

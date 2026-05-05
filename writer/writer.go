@@ -331,7 +331,7 @@ func (pw *ParquetWriter) Write(src any) error {
 	ln := int64(len(pw.objs))
 
 	val := reflect.ValueOf(src)
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 		src = val.Interface()
 	}

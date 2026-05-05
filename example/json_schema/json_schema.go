@@ -87,7 +87,8 @@ func main() {
 	}
 
 	// write
-	pw, err := writer.NewParquetWriter(fw, jsonSchema,
+	pw, err := writer.NewParquetWriter(
+		fw, jsonSchema,
 		writer.WithRowGroupSize(common.DefaultRowGroupSize),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)

@@ -187,7 +187,8 @@ func main() {
 	//   types.WithGeospatialCoordinatePrecision(6),
 	// )
 
-	pw, err := writer.NewParquetWriter(fw, new(AllTypes),
+	pw, err := writer.NewParquetWriter(
+		fw, new(AllTypes),
 		writer.WithRowGroupSize(128*1024*1024),
 		writer.WithPageSize(8*1024),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),

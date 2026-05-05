@@ -252,7 +252,7 @@ func SizeOf(val reflect.Value) int64 {
 	}
 	var size int64
 	switch val.Type().Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if val.IsNil() {
 			return 0
 		}

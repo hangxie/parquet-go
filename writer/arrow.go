@@ -57,7 +57,8 @@ func (w *ArrowWriter) WriteArrow(batch arrow.RecordBatch) error {
 	table := make([][]any, 0)
 	for i, column := range batch.Columns() {
 		columnFromRecord, err := common.ArrowColToParquetCol(
-			batch.Schema().Field(i), column)
+			batch.Schema().Field(i), column,
+		)
 		if err != nil {
 			return fmt.Errorf("arrow column conversion: %w", err)
 		}

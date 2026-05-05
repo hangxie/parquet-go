@@ -305,7 +305,7 @@ func TestSchemaHandler_GetType(t *testing.T) {
 			path: "list_field",
 			validateType: func(t *testing.T, resultType reflect.Type) {
 				// Should be *[]string
-				require.Equal(t, reflect.Ptr, resultType.Kind())
+				require.Equal(t, reflect.Pointer, resultType.Kind())
 				require.Equal(t, reflect.Slice, resultType.Elem().Kind())
 				require.Equal(t, reflect.String, resultType.Elem().Elem().Kind())
 			},
@@ -452,7 +452,7 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 
 				// Check int32 field (optional -> pointer)
 				int32Type := types[2]
-				require.Equal(t, reflect.Ptr, int32Type.Kind())
+				require.Equal(t, reflect.Pointer, int32Type.Kind())
 				require.Equal(t, reflect.Int32, int32Type.Elem().Kind())
 
 				// Check string field (repeated -> slice)
@@ -501,7 +501,7 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			validateTypes: func(t *testing.T, types []reflect.Type) {
 				// Check list field type (should be *[]int32)
 				listType := types[1]
-				require.Equal(t, reflect.Ptr, listType.Kind())
+				require.Equal(t, reflect.Pointer, listType.Kind())
 				require.Equal(t, reflect.Slice, listType.Elem().Kind())
 				require.Equal(t, reflect.Int32, listType.Elem().Elem().Kind())
 			},
@@ -605,7 +605,7 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			validateTypes: func(t *testing.T, types []reflect.Type) {
 				// Check map field type (should be *map[string]int32)
 				mapType := types[1]
-				require.Equal(t, reflect.Ptr, mapType.Kind())
+				require.Equal(t, reflect.Pointer, mapType.Kind())
 				require.Equal(t, reflect.Map, mapType.Elem().Kind())
 				require.Equal(t, reflect.String, mapType.Elem().Key().Kind())
 				require.Equal(t, reflect.Int32, mapType.Elem().Elem().Kind())
@@ -694,7 +694,7 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			validateTypes: func(t *testing.T, types []reflect.Type) {
 				// Check nested struct type (should be pointer to struct)
 				structType := types[1]
-				require.Equal(t, reflect.Ptr, structType.Kind())
+				require.Equal(t, reflect.Pointer, structType.Kind())
 				require.Equal(t, reflect.Struct, structType.Elem().Kind())
 			},
 		},
@@ -1263,7 +1263,7 @@ func TestSchemaHandler_Caching(t *testing.T) {
 
 				typ2, err := sh.GetType("field2")
 				require.NoError(t, err)
-				require.Equal(t, reflect.Ptr, typ2.Kind())
+				require.Equal(t, reflect.Pointer, typ2.Kind())
 				require.Equal(t, reflect.Int64, typ2.Elem().Kind())
 				require.Equal(t, cachedMap, sh.childrenMap)
 
