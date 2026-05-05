@@ -27,6 +27,19 @@ func TestGzipCompressWithLevelError(t *testing.T) {
 	require.Contains(t, err.Error(), "gzip compress")
 }
 
+func TestGzipCompressWithLevelRoundTrip(t *testing.T) {
+	input := []byte("test data for direct gzip level compression")
+	compress := gzipCompressWithLevel(1)
+
+	compressed, err := compress(input)
+	require.NoError(t, err)
+	require.NotNil(t, compressed)
+
+	output, err := gzipUncompress(compressed, DefaultMaxDecompressedSize)
+	require.NoError(t, err)
+	require.Equal(t, input, output)
+}
+
 func TestGzipCompressionLevel(t *testing.T) {
 	t.Run("valid level round-trip", func(t *testing.T) {
 		c, err := NewCompressor(WithCompressionLevel(parquet.CompressionCodec_GZIP, 1))

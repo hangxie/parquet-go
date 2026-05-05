@@ -14,6 +14,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 	"github.com/hangxie/parquet-go/v3/writer"
@@ -33,6 +34,56 @@ type Record struct {
 var numRecord = int64(50)
 
 var parquetBuf []byte
+
+type shortReadParquetFileReader struct {
+	data   []byte
+	offset int64
+	n      int
+	err    error
+}
+
+func (r *shortReadParquetFileReader) Read(p []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if r.offset >= int64(len(r.data)) {
+		return 0, io.EOF
+	}
+	limit := r.n
+	if limit <= 0 || limit > len(p) {
+		limit = len(p)
+	}
+	if remaining := len(r.data) - int(r.offset); limit > remaining {
+		limit = remaining
+	}
+	n := copy(p[:limit], r.data[r.offset:])
+	r.offset += int64(n)
+	return n, nil
+}
+
+func (r *shortReadParquetFileReader) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		r.offset = offset
+	case io.SeekCurrent:
+		r.offset += offset
+	case io.SeekEnd:
+		r.offset = int64(len(r.data)) + offset
+	}
+	return r.offset, nil
+}
+
+func (r *shortReadParquetFileReader) Close() error {
+	return nil
+}
+
+func (r *shortReadParquetFileReader) Open(string) (source.ParquetFileReader, error) {
+	return &shortReadParquetFileReader{data: r.data, n: r.n, err: r.err}, nil
+}
+
+func (r *shortReadParquetFileReader) Clone() (source.ParquetFileReader, error) {
+	return &shortReadParquetFileReader{data: r.data, offset: r.offset, n: r.n, err: r.err}, nil
+}
 
 func parquetReader() (*ParquetReader, error) {
 	var once sync.Once
@@ -134,6 +185,64 @@ func TestParquetReader_GetNumRows(t *testing.T) {
 	numRows := pr.GetNumRows()
 	require.Equal(t, numRecord, numRows)
 	require.Greater(t, numRows, int64(0))
+}
+
+func TestParquetReader_GetFooterSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		reader   *ParquetReader
+		expected uint32
+		errMsg   string
+	}{
+		{
+			name:   "nil_file",
+			reader: &ParquetReader{},
+			errMsg: "PFile is nil",
+		},
+		{
+			name: "seek_error",
+			reader: &ParquetReader{
+				PFile: buffer.NewBufferReaderFromBytesNoAlloc([]byte("short")),
+			},
+			errMsg: "seek to negative location",
+		},
+		{
+			name: "read_error",
+			reader: &ParquetReader{
+				PFile: &shortReadParquetFileReader{
+					data: []byte{0, 0, 0, 0, 'P', 'A', 'R', '1'},
+					err:  io.ErrUnexpectedEOF,
+				},
+			},
+			errMsg: "unexpected EOF",
+		},
+		{
+			name: "success",
+			reader: &ParquetReader{
+				PFile: buffer.NewBufferReaderFromBytesNoAlloc([]byte{
+					'd', 'a', 't', 'a',
+					0x78, 0x56, 0x34, 0x12,
+					'P', 'A', 'R', '1',
+				}),
+			},
+			expected: 0x12345678,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			actual, err := tc.reader.GetFooterSize()
+
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, actual)
+		})
+	}
 }
 
 func TestParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
