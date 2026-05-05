@@ -12,7 +12,11 @@ VERSION     = $(shell git describe --tags --always)
 TESTDATA_DIR     = $(BUILD_DIR)/testdata
 PARQUET_TESTING  = https://raw.githubusercontent.com/apache/parquet-testing/master/data
 TESTDATA_FILES   = $(TESTDATA_DIR)/datapage_v1-uncompressed-checksum.parquet \
-                   $(TESTDATA_DIR)/datapage_v1-corrupt-checksum.parquet
+                   $(TESTDATA_DIR)/datapage_v1-corrupt-checksum.parquet \
+                   $(TESTDATA_DIR)/encrypt_columns_and_footer.parquet.encrypted \
+                   $(TESTDATA_DIR)/encrypt_columns_and_footer_ctr.parquet.encrypted \
+                   $(TESTDATA_DIR)/encrypt_columns_and_footer_disable_aad_storage.parquet.encrypted \
+                   $(TESTDATA_DIR)/encrypt_columns_plaintext_footer.parquet.encrypted
 
 # go option
 CGO_ENABLED := 0
