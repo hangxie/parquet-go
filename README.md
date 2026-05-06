@@ -587,6 +587,10 @@ go build -tags example ./example/all_types         # Comprehensive sample
 |[new_logical](example/new_logical)|New logical types (FLOAT16, INTEGER)|
 |[geospatial](example/geospatial)|Geospatial types (GEOMETRY, GEOGRAPHY)|
 |[bloom_filter](example/bloom_filter)|Bloom filter|
+|[encrypt_read](example/encrypt_read)|Read encrypted Parquet file|
+|[encrypt_read_aad](example/encrypt_read_aad)|Read encrypted Parquet file with external AAD prefix|
+|[encrypt_read_plaintext_footer](example/encrypt_read_plaintext_footer)|Read encrypted Parquet file with plaintext footer|
+|[encrypt_read_uniform](example/encrypt_read_uniform)|Read uniformly encrypted Parquet file (single key for footer and all columns)|
 |[datapagev2](example/datapagev2)|Data Page V2|
 |[date](example/date)|Date type|
 |[all_types](example/all_types)|All type support|

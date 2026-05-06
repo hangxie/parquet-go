@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	encryptedFooterFile = "../build/testdata/encrypt_columns_and_footer.parquet.encrypted"
-	plaintextFooterFile = "../build/testdata/encrypt_columns_plaintext_footer.parquet.encrypted"
-	aadDisabledFile     = "../build/testdata/encrypt_columns_and_footer_disable_aad_storage.parquet.encrypted"
-	ctrFile             = "../build/testdata/encrypt_columns_and_footer_ctr.parquet.encrypted"
+	encryptedFooterFile  = "../build/testdata/encrypt_columns_and_footer.parquet.encrypted"
+	plaintextFooterFile  = "../build/testdata/encrypt_columns_plaintext_footer.parquet.encrypted"
+	aadDisabledFile      = "../build/testdata/encrypt_columns_and_footer_disable_aad_storage.parquet.encrypted"
+	ctrFile              = "../build/testdata/encrypt_columns_and_footer_ctr.parquet.encrypted"
+	uniformEncryptedFile = "../build/testdata/uniform_encryption.parquet.encrypted"
 )
 
 var encryptionKeys = map[string][]byte{
@@ -157,6 +158,44 @@ func TestInteropCTRMode(t *testing.T) {
 	defer func() { _ = pf.Close() }()
 
 	pr, err := NewParquetReader(pf, nil, WithKeyRetriever(retrieveEncryptionKey))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStop() }()
+
+	require.Positive(t, pr.GetNumRows())
+	rows, err := pr.ReadByNumber(int(pr.GetNumRows()))
+	require.NoError(t, err)
+	require.NotEmpty(t, rows)
+}
+
+func TestInteropUniformEncryption_KeyRetriever(t *testing.T) {
+	t.Parallel()
+	encryptedTestdataAvailable(t)
+
+	pf, err := local.NewLocalFileReader(uniformEncryptedFile)
+	require.NoError(t, err)
+	defer func() { _ = pf.Close() }()
+
+	// uniform encryption uses the footer key (kf) for all columns — retriever is called once
+	pr, err := NewParquetReader(pf, nil, WithKeyRetriever(retrieveEncryptionKey))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStop() }()
+
+	require.Positive(t, pr.GetNumRows())
+	rows, err := pr.ReadByNumber(int(pr.GetNumRows()))
+	require.NoError(t, err)
+	require.NotEmpty(t, rows)
+}
+
+func TestInteropUniformEncryption_FooterKey(t *testing.T) {
+	t.Parallel()
+	encryptedTestdataAvailable(t)
+
+	pf, err := local.NewLocalFileReader(uniformEncryptedFile)
+	require.NoError(t, err)
+	defer func() { _ = pf.Close() }()
+
+	// uniform encryption: supplying the footer key directly decrypts all columns
+	pr, err := NewParquetReader(pf, nil, WithFooterKey(encryptionKeys["kf"]))
 	require.NoError(t, err)
 	defer func() { _ = pr.ReadStop() }()
 

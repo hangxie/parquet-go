@@ -16,7 +16,8 @@ TESTDATA_FILES   = $(TESTDATA_DIR)/datapage_v1-uncompressed-checksum.parquet \
                    $(TESTDATA_DIR)/encrypt_columns_and_footer.parquet.encrypted \
                    $(TESTDATA_DIR)/encrypt_columns_and_footer_ctr.parquet.encrypted \
                    $(TESTDATA_DIR)/encrypt_columns_and_footer_disable_aad_storage.parquet.encrypted \
-                   $(TESTDATA_DIR)/encrypt_columns_plaintext_footer.parquet.encrypted
+                   $(TESTDATA_DIR)/encrypt_columns_plaintext_footer.parquet.encrypted \
+                   $(TESTDATA_DIR)/uniform_encryption.parquet.encrypted
 
 # go option
 CGO_ENABLED := 0
