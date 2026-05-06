@@ -13,6 +13,33 @@ parquet-go is a pure-go implementation of reading and writing the parquet format
 * Comprehensive encoding support
 * New logical types including geospatial types
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Configuration](#configuration)
+  - [Writer Options](#writer-options)
+  - [Reader Options](#reader-options)
+  - [Encryption](#encryption)
+  - [Reading Encrypted Files](#reading-encrypted-files)
+- [Quick Start](#quick-start)
+  - [Writing Parquet Files](#writing-parquet-files)
+  - [Reading Parquet Files](#reading-parquet-files)
+- [Type System](#type-system)
+- [Encoding Support](#encoding-support)
+- [Compression Support](#compression-support)
+- [CRC Checksum Handling](#crc-checksum-handling)
+- [Repetition Types](#repetition-types)
+- [Schema Definition](#schema-definition)
+- [Writers](#writers)
+- [Readers](#readers)
+- [ParquetFile Interfaces](#parquetfile-interfaces)
+- [GeoParquet: Geospatial Logical Types](#geoparquet-geospatial-logical-types)
+- [Concurrency](#concurrency)
+- [Examples](#examples)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Installation
 
 ```sh
