@@ -31,9 +31,24 @@ All configuration is per-instance via functional options, enabling safe concurre
 
 `WithNP`, `WithCaseInsensitive`, `WithCRCMode`, `WithFooterKey`, `WithColumnKey`, `WithKeyRetriever`, `WithAADPrefix`.
 
-### Reading Encrypted Files
+### Encryption
 
-The reader supports Apache Parquet modular encryption for encrypted footers and plaintext footers signed with AES-GCM. Data page headers, data pages, dictionary pages, column metadata, column indexes, offset indexes, and bloom filter headers/bitsets are decrypted when the footer supplies encryption metadata and the reader is configured with the required keys.
+The reader and writer support Apache Parquet modular encryption for encrypted footers (`PARE`) and plaintext footers signed with AES-GCM (`PAR1`). Page headers, data pages, dictionary pages, column metadata, column indexes, offset indexes, and bloom filter headers/bitsets are encrypted and decrypted when encryption metadata and the required keys are available.
+
+Both reader and writer use the same option names for shared key and AAD concepts:
+
+* `WithFooterKey` sets the footer key used for encrypted footers or plaintext-footer signatures.
+* `WithColumnKey` sets a column key for a dot-separated schema path without the root element, such as `name` or `address.city`. Columns without an explicit column key use the footer key.
+* `WithKeyRetriever` sets a `KeyRetriever` callback for KMS-backed key management. The callback receives the `key_metadata` bytes stored in the file (the KMS key ID) and returns the corresponding key bytes.
+* `WithAADPrefix` supplies the AAD prefix. It is required on read when the file was written with `supply_aad_prefix=true`.
+
+**Without a KMS**, supply keys directly with `WithFooterKey` and `WithColumnKey`. Key metadata is not consulted.
+
+**With a KMS**, `key_metadata` in the file stores the KMS key ID for each key. On read, the key ID is already in the file; the reader passes it to `WithKeyRetriever` automatically.
+
+When both explicit keys and `WithKeyRetriever` are configured, explicit keys always take priority: `WithFooterKey` over the retriever for the footer key, and `WithColumnKey` over the retriever for column keys. `WithKeyRetriever` is only called when no direct key is provided.
+
+### Reading Encrypted Files
 
 Use `WithFooterKey` for files encrypted with a single footer key:
 
@@ -45,17 +60,18 @@ pr, err := reader.NewParquetReader(
 )
 ```
 
-Use `WithColumnKey` for explicit per-column keys, or `WithKeyRetriever` when keys should be resolved from Parquet `key_metadata`. Both can be provided simultaneously — `WithColumnKey` takes priority over `WithKeyRetriever` for column keys, while `WithKeyRetriever` takes priority over `WithFooterKey` for the footer key:
+Use `WithColumnKey` for explicit per-column keys, or `WithKeyRetriever` for KMS-backed key management:
 
 ```go
+keyRetriever := func(keyMetadata []byte) ([]byte, error) {
+    // keyMetadata is the KMS key ID stored in the file by the writer
+    return lookupKey(keyMetadata)
+}
+
 pr, err := reader.NewParquetReader(
     fr,
     new(Student),
-    reader.WithFooterKey(footerKey),
-    reader.WithColumnKey("address.city", cityKey),
-    reader.WithKeyRetriever(func(keyMetadata []byte) ([]byte, error) {
-        return lookupKey(keyMetadata)
-    }),
+    reader.WithKeyRetriever(keyRetriever),
 )
 ```
 

@@ -140,6 +140,28 @@ func TestReadFooterDecryptsEncryptedColumnMetadata(t *testing.T) {
 	require.True(t, wantColumnMeta.Equals(pr.Footer.RowGroups[0].Columns[0].MetaData))
 }
 
+func TestReadFooterFooterKeyPrecedence(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	wrongFooterKey := []byte("abcdef0123456789")
+	aadPrefix := []byte("table/part-0")
+	fileUnique := []byte("file-unique")
+	keyMetadata := []byte("footer-key")
+	footer, wantColumnMeta := fileMetaDataWithFooterKeyEncryptedColumnMetadata(t, footerKey, aadPrefix, fileUnique)
+	file := buildEncryptedFooterFileWithKeyMetadata(t, footerKey, keyMetadata, aadPrefix, fileUnique, footer)
+
+	pr := &ParquetReader{PFile: buffer.NewBufferReaderFromBytesNoAlloc(file)}
+	// WithFooterKey wins: retriever returning wrongFooterKey is ignored
+	WithFooterKey(footerKey)(pr)
+	WithKeyRetriever(func([]byte) ([]byte, error) {
+		return wrongFooterKey, nil
+	})(pr)
+
+	require.NoError(t, pr.ReadFooter())
+	require.True(t, wantColumnMeta.Equals(pr.Footer.RowGroups[0].Columns[0].MetaData))
+}
+
 func TestReadFooterReusesRetrievedFooterKeyForColumnMetadata(t *testing.T) {
 	t.Parallel()
 
