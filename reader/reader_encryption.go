@@ -122,6 +122,10 @@ func readColumnMetaDataFromBytes(buf []byte) (*parquet.ColumnMetaData, error) {
 }
 
 func (pr *ParquetReader) resolveFooterKeyFromMetadata(keyMetadata []byte) ([]byte, error) {
+	if len(pr.footerKey) > 0 {
+		pr.resolvedFooterKey = append(pr.resolvedFooterKey[:0], pr.footerKey...)
+		return pr.footerKey, nil
+	}
 	if pr.keyRetriever != nil {
 		key, err := pr.keyRetriever(keyMetadata)
 		if err != nil {
@@ -132,11 +136,7 @@ func (pr *ParquetReader) resolveFooterKeyFromMetadata(keyMetadata []byte) ([]byt
 			return key, nil
 		}
 	}
-	if len(pr.footerKey) == 0 {
-		return nil, fmt.Errorf("footer decryption key is required")
-	}
-	pr.resolvedFooterKey = append(pr.resolvedFooterKey[:0], pr.footerKey...)
-	return pr.footerKey, nil
+	return nil, fmt.Errorf("footer decryption key is required")
 }
 
 func (pr *ParquetReader) resolveFooterKey() ([]byte, error) {
