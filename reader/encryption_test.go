@@ -49,7 +49,7 @@ func TestReadFooterEncryptedFooterErrors(t *testing.T) {
 		opts    []ReaderOption
 		wantErr string
 	}{
-		{name: "missing key", wantErr: "footer decryption key is required"},
+		{name: "missing key", wantErr: "decryption key required"},
 		{name: "wrong key", opts: []ReaderOption{WithFooterKey([]byte("abcdef0123456789"))}, wantErr: "decrypt footer"},
 	}
 
@@ -198,7 +198,7 @@ func TestReadFooterEncryptedColumnMetadataMissingKey(t *testing.T) {
 	WithFooterKey(footerKey)(pr)
 
 	err := pr.ReadFooter()
-	require.ErrorContains(t, err, "column decryption key is required for leaf")
+	require.ErrorContains(t, err, "decryption key required for column leaf")
 }
 
 func TestNewColumnBufferConfiguresPageDecryptor(t *testing.T) {
@@ -346,7 +346,7 @@ func TestEncryptionHelperErrors(t *testing.T) {
 			ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
 		},
 	})
-	require.ErrorContains(t, err, "column decryption key is required")
+	require.ErrorContains(t, err, "decryption key required")
 
 	retrieverErr := fmt.Errorf("kms failure")
 	pr = &ParquetReader{}
@@ -402,7 +402,7 @@ func TestReadBloomFilterForColumnErrors(t *testing.T) {
 
 	pr.Footer = &parquet.FileMetaData{EncryptionAlgorithm: encryptionAlgorithm([]byte("prefix"), []byte("file-unique"))}
 	_, err = pr.readBloomFilterForColumn(nil, 0, 0, nil, chunk)
-	require.ErrorContains(t, err, "footer decryption key is required")
+	require.ErrorContains(t, err, "decryption key required")
 }
 
 func minimalFileMetaData() *parquet.FileMetaData {

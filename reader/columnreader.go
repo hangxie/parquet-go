@@ -1,7 +1,11 @@
 package reader
 
 import (
+	"context"
 	"fmt"
+	"io"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
@@ -23,6 +27,39 @@ func NewParquetColumnReader(pFile source.ParquetFileReader, opts ...ReaderOption
 	res.RenameSchema()
 
 	return res, nil
+}
+
+// SkipRows skips num rows across all value columns in parallel.
+func (pr *ParquetReader) SkipRows(num int64) error {
+	var err error
+	if num <= 0 {
+		return nil
+	}
+
+	for _, pathStr := range pr.SchemaHandler.ValueColumns {
+		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
+			if pr.ColumnBuffers[pathStr], err = pr.newColumnBuffer(pathStr); err != nil {
+				return fmt.Errorf("create column buffer for %s: %w", pathStr, err)
+			}
+		}
+	}
+
+	g, _ := errgroup.WithContext(context.Background())
+	sem := make(chan struct{}, max(1, int(pr.np)))
+	for key := range pr.ColumnBuffers {
+		pathStr := key
+		sem <- struct{}{}
+		g.Go(func() error {
+			defer func() { <-sem }()
+			if _, err := pr.ColumnBuffers[pathStr].SkipRows(int64(num)); err != nil && err == io.EOF {
+				return nil
+			} else if err != nil {
+				return fmt.Errorf("skip rows for column %s: %w", pathStr, err)
+			}
+			return nil
+		})
+	}
+	return g.Wait()
 }
 
 func (pr *ParquetReader) SkipRowsByPath(pathStr string, num int64) error {

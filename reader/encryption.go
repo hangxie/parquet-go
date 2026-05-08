@@ -136,7 +136,7 @@ func (pr *ParquetReader) resolveFooterKeyFromMetadata(keyMetadata []byte) ([]byt
 			return key, nil
 		}
 	}
-	return nil, fmt.Errorf("footer decryption key is required")
+	return nil, fmt.Errorf("decryption key required for footer")
 }
 
 func (pr *ParquetReader) resolveFooterKey() ([]byte, error) {
@@ -229,7 +229,7 @@ func (pr *ParquetReader) resolveColumnKey(chunk *parquet.ColumnChunk) ([]byte, e
 			return key, nil
 		}
 	}
-	return nil, fmt.Errorf("column decryption key is required for %s", path)
+	return nil, fmt.Errorf("decryption key required for column %s", path)
 }
 
 func (pr *ParquetReader) configurePageDecryptor(cbt *ColumnBufferType, rowGroup *parquet.RowGroup, columnOrdinal int16) error {

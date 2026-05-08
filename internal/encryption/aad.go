@@ -1,3 +1,8 @@
+// Package encryption provides stateless AES-GCM and AES-CTR primitives for
+// Parquet modular encryption, including module encoding/decoding, AAD
+// construction, and the Parquet-specified module type constants. Callers are
+// responsible for key selection, ordinal tracking, and wiring these primitives
+// into the read and write paths.
 package encryption
 
 import "encoding/binary"

@@ -53,13 +53,9 @@ func DecryptGCM(key, aad, module []byte) ([]byte, error) {
 	if len(module) < gcmNonceSize+gcmTagSize {
 		return nil, fmt.Errorf("AES-GCM module too short: %d", len(module))
 	}
-	block, err := newAESBlock(key)
+	gcm, err := newGCMCipher(key)
 	if err != nil {
 		return nil, err
-	}
-	gcm, err := cipher.NewGCMWithNonceSize(block, gcmNonceSize)
-	if err != nil {
-		return nil, fmt.Errorf("create AES-GCM: %w", err)
 	}
 	nonce := module[:gcmNonceSize]
 	ciphertextAndTag := module[gcmNonceSize:]
@@ -80,14 +76,13 @@ func VerifyGCMTag(key, aad, nonce, plaintext, tag []byte) error {
 	if len(tag) != gcmTagSize {
 		return fmt.Errorf("invalid AES-GCM tag size %d", len(tag))
 	}
-	block, err := newAESBlock(key)
+	gcm, err := newGCMCipher(key)
 	if err != nil {
 		return err
 	}
-	gcm, err := cipher.NewGCMWithNonceSize(block, gcmNonceSize)
-	if err != nil {
-		return fmt.Errorf("create AES-GCM: %w", err)
-	}
+	// gcm.Seal re-encrypts the plaintext to derive the tag for comparison.
+	// Go's cipher.AEAD interface has no tag-only (GHASH-only) path, so the
+	// ciphertext allocation is unavoidable with the standard library.
 	sealed := gcm.Seal(nil, nonce, plaintext, aad)
 	gotTag := sealed[len(sealed)-gcmTagSize:]
 	if subtle.ConstantTimeCompare(gotTag, tag) != 1 {
@@ -108,7 +103,7 @@ func DecryptCTR(key, module []byte) ([]byte, error) {
 	}
 	iv := make([]byte, aes.BlockSize)
 	copy(iv, module[:ctrNonceSize])
-	iv[aes.BlockSize-1] = 1
+	binary.BigEndian.PutUint32(iv[12:], 1) // 4-byte big-endian counter initialized to 1
 
 	ciphertext := module[ctrNonceSize:]
 	plaintext := make([]byte, len(ciphertext))
@@ -116,6 +111,9 @@ func DecryptCTR(key, module []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+// newAESBlock creates an AES cipher block. Go's crypto/aes uses AES-NI
+// hardware instructions on supported platforms, which provide constant-time
+// execution and protection against cache-timing side-channel attacks.
 func newAESBlock(key []byte) (cipher.Block, error) {
 	switch len(key) {
 	case 16, 24, 32:
@@ -127,4 +125,17 @@ func newAESBlock(key []byte) (cipher.Block, error) {
 		return nil, fmt.Errorf("create AES cipher: %w", err)
 	}
 	return block, nil
+}
+
+// newGCMCipher creates an AES-GCM cipher with the Parquet nonce size.
+func newGCMCipher(key []byte) (cipher.AEAD, error) {
+	block, err := newAESBlock(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCMWithNonceSize(block, gcmNonceSize)
+	if err != nil {
+		return nil, fmt.Errorf("create AES-GCM: %w", err)
+	}
+	return gcm, nil
 }
