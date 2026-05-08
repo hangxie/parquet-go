@@ -2,9 +2,8 @@ package encryption
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"encoding/binary"
+	"encoding/hex"
 	"strconv"
 	"testing"
 
@@ -87,9 +86,7 @@ func TestDecryptGCM(t *testing.T) {
 	aad := AAD([]byte("prefix"), []byte("file-id"), ModuleFooter, 0, 0, 0)
 	plaintext := []byte("footer payload")
 
-	block, err := aes.NewCipher(key)
-	require.NoError(t, err)
-	gcm, err := cipher.NewGCMWithNonceSize(block, 12)
+	gcm, err := newGCMCipher(key)
 	require.NoError(t, err)
 	module := append(append([]byte{}, nonce...), gcm.Seal(nil, nonce, plaintext, aad)...)
 
@@ -104,7 +101,7 @@ func TestDecryptGCM(t *testing.T) {
 	require.NoError(t, err)
 
 	err = VerifyGCMTag(key, []byte("wrong aad"), nonce, plaintext, module[len(module)-gcmTagSize:])
-	require.ErrorContains(t, err, "tag verification failed")
+	require.ErrorContains(t, err, "AES-GCM tag verification failed")
 }
 
 func TestDecryptGCMErrors(t *testing.T) {
@@ -137,18 +134,10 @@ func TestDecryptCTR(t *testing.T) {
 	t.Parallel()
 
 	key := []byte("0123456789abcdef")
-	nonce := []byte("123456789012")
 	plaintext := []byte("page payload")
 
-	block, err := aes.NewCipher(key)
+	module, err := EncryptCTR(key, plaintext)
 	require.NoError(t, err)
-	iv := make([]byte, aes.BlockSize)
-	copy(iv, nonce)
-	iv[aes.BlockSize-1] = 1
-	ciphertext := make([]byte, len(plaintext))
-	cipher.NewCTR(block, iv).XORKeyStream(ciphertext, plaintext)
-
-	module := append(append([]byte{}, nonce...), ciphertext...)
 	got, err := DecryptCTR(key, module)
 	require.NoError(t, err)
 	require.Equal(t, plaintext, got)
@@ -169,6 +158,58 @@ func TestInvalidAESKeySize(t *testing.T) {
 
 	_, err = DecryptCTR([]byte("bad"), make([]byte, ctrNonceSize))
 	require.ErrorContains(t, err, "invalid AES key size")
+}
+
+// TestDecryptGCMKnownAnswerVectors validates DecryptGCM against NIST SP 800-38D
+// GCM test cases, providing wire-format correctness independent of EncryptGCM.
+func TestDecryptGCMKnownAnswerVectors(t *testing.T) {
+	t.Parallel()
+
+	mustHex := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		require.NoError(t, err)
+		return b
+	}
+
+	tests := []struct {
+		name      string
+		key       []byte
+		nonce     []byte
+		aad       []byte
+		tag       string
+		ct        string
+		wantPlain []byte
+	}{
+		{
+			// NIST SP 800-38D Appendix B, Test Case 1: empty plaintext, no AAD.
+			name:      "TC1 empty plaintext",
+			key:       make([]byte, 16),
+			nonce:     make([]byte, 12),
+			tag:       "58e2fccefa7e3061367f1d57a4e7455a",
+			ct:        "",
+			wantPlain: nil, // gcm.Open returns nil for empty plaintext
+		},
+		{
+			// NIST SP 800-38D Appendix B, Test Case 2: 16-byte plaintext, no AAD.
+			name:      "TC2 16-byte plaintext",
+			key:       make([]byte, 16),
+			nonce:     make([]byte, 12),
+			tag:       "ab6e47d42cec13bdf53a67b21257bddf",
+			ct:        "0388dace60b6a392f328c2b971b2fe78",
+			wantPlain: make([]byte, 16),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			module := append(tt.nonce, mustHex(tt.ct)...)
+			module = append(module, mustHex(tt.tag)...)
+			got, err := DecryptGCM(tt.key, tt.aad, module)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantPlain, got)
+		})
+	}
 }
 
 func TestNewAESBlockValidKeySizes(t *testing.T) {

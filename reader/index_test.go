@@ -136,7 +136,7 @@ func TestReadIndexMissingAndErrors(t *testing.T) {
 
 	missingKeyReader := indexTestReader(encryptedColumnIndex, true, nil, encryptionAlgorithm(aadPrefix, fileUnique), int32(len(encryptedColumnIndex)), 0)
 	_, err = missingKeyReader.ReadColumnIndex(0, 0)
-	require.ErrorContains(t, err, "footer decryption key is required")
+	require.ErrorContains(t, err, "decryption key required")
 
 	truncatedEncryptedReader := indexTestReader([]byte{1, 2}, true, key, encryptionAlgorithm(aadPrefix, fileUnique), 2, 0)
 	_, err = truncatedEncryptedReader.ReadColumnIndex(0, 0)
