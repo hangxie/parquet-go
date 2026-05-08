@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 )
@@ -91,7 +92,7 @@ func createMinimalValidParquetData() []byte {
 	// In real tests, you'd use actual parquet files
 	data := make([]byte, 1000)
 	// Add parquet magic number at the end
-	copy(data[len(data)-4:], []byte("PAR1"))
+	copy(data[len(data)-4:], []byte(common.MagicBytes))
 	// Add minimal footer length
 	footerLength := make([]byte, 4)
 	footerLength[0] = 100 // Mock footer length

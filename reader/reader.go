@@ -232,7 +232,7 @@ func (pr *ParquetReader) ReadFooter() error {
 		return fmt.Errorf("get footer tail: %w", err)
 	}
 	switch magic {
-	case "PARE":
+	case common.MagicBytesEncrypted:
 		if err := pr.readEncryptedFooter(size); err != nil {
 			return err
 		}

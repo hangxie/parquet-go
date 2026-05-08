@@ -419,6 +419,8 @@ Shared reader/writer concepts:
 
 Without a KMS, supply keys directly with `WithFooterKey` and `WithColumnKey`. With a KMS, `key_metadata` stores the KMS key ID for each key.
 
+On write, the key ID must be specified explicitly because there is no file to read from. Use the optional metadata argument to `WithFooterKey` or `WithColumnKey`, or use `WithFooterKeyMetadata` and `WithColumnKeyMetadata` when key bytes come from `WithKeyRetriever`. On read, the key ID is already in the file and is passed to `WithKeyRetriever`.
+
 When explicit keys and `WithKeyRetriever` are both configured, explicit keys take priority. `WithKeyRetriever` is called only when no direct key is provided.
 
 Read a file encrypted with a single footer key:
@@ -444,6 +446,78 @@ pr, err := reader.NewParquetReader(
     reader.WithKeyRetriever(keyRetriever),
 )
 ```
+
+Write a file encrypted with a single footer key:
+
+```go
+pw, err := writer.NewParquetWriter(
+    fw,
+    new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithAADPrefix([]byte("dataset/part-0")),
+    writer.WithAADFileUnique([]byte("unique-file-id")),
+)
+```
+
+Write with KMS-backed key management:
+
+```go
+keyRetriever := func(keyMetadata []byte) ([]byte, error) {
+    return lookupKey(keyMetadata)
+}
+
+pw, err := writer.NewParquetWriter(
+    fw,
+    new(Student),
+    writer.WithFooterKeyMetadata([]byte("footer-key")),
+    writer.WithColumnKeyMetadata("name", []byte("name-key")),
+    writer.WithKeyRetriever(keyRetriever),
+    writer.WithAADPrefix([]byte("dataset/part-0")),
+    writer.WithAADFileUnique([]byte("unique-file-id")),
+)
+```
+
+Write encrypted columns with a plaintext footer:
+
+```go
+pw, err := writer.NewParquetWriter(
+    fw,
+    new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithColumnKey("name", nameKey),
+    writer.WithAADPrefix([]byte("dataset/part-0")),
+    writer.WithAADFileUnique([]byte("unique-file-id")),
+    writer.WithPlaintextFooter(true),
+)
+```
+
+Use AES-GCM-CTR page encryption and an external AAD prefix:
+
+```go
+pw, err := writer.NewParquetWriter(
+    fw,
+    new(Student),
+    writer.WithEncryptionAlgorithm(writer.EncryptionAESGCMCTRV1),
+    writer.WithFooterKey(footerKey),
+    writer.WithAADPrefix([]byte("external-prefix")),
+    writer.WithAADFileUnique([]byte("unique-file-id")),
+    writer.WithSupplyAADPrefix(true),
+)
+```
+
+When `WithSupplyAADPrefix(true)` is used, readers must pass the same value with `reader.WithAADPrefix`. See [example/encrypt_write](example/encrypt_write) for complete encrypted write/read-back examples.
+
+#### Security notes
+
+**Footer mode**: The default is encrypted footer (`PARE`). The entire file metadata — including schema (column names and types), row counts, and statistics — is encrypted and invisible to readers without the footer key. Use `WithPlaintextFooter(true)` to write a `PAR1` file where the footer is plaintext but signed with AES-GCM. This is appropriate when downstream readers need schema or statistics access without possessing column keys, accepting that schema information (column names) is exposed.
+
+**AAD uniqueness**: Each file should have a unique `(AADPrefix, AADFileUnique)` pair. The AAD binds each encrypted module to its intended file so that ciphertext from one file cannot be replayed into another. Omitting `WithAADFileUnique` generates a random 12-byte value automatically; supply it explicitly for deterministic file identity. Reusing the same pair with the same key across different files breaks this binding.
+
+**Per-page IVs and random access**: Each encrypted module (page header, page body, column metadata, bloom filter, column index, offset index) receives its own independently generated random nonce. Because IVs are per-module rather than per-column-chunk, individual pages can be decrypted in isolation — the reader does not need to process the entire column chunk from the start to reach a single page.
+
+**Algorithm choice**: `AES_GCM_V1` (default) uses AES-GCM for every module and provides authenticated encryption for data and metadata alike. `AES_GCM_CTR_V1` uses AES-GCM for metadata modules and AES-CTR for data pages; CTR page bodies have no authentication tag, so tampering with the body ciphertext produces corrupted plaintext without being detected by the cipher. The GCM-authenticated page header covers only header bytes and does not protect the body. Use `AES_GCM_V1` when integrity detection for page data is required.
+
+**Compatibility**: The implementation follows the Apache Parquet Encryption Specification. Files produced by this library are interoperable with other spec-compliant readers — including Apache Arrow (C++/Python) and Apache Spark — when the same keys and AAD configuration are used.
 
 ### GeoParquet
 
@@ -515,6 +589,7 @@ go build -tags example ./example/csv_write
 go build -tags example ./example/new_logical
 go build -tags example ./example/geospatial
 go build -tags example ./example/bloom_filter
+go build -tags example ./example/encrypt_write
 go build -tags example ./example/all_types
 ```
 
@@ -527,7 +602,7 @@ go build -tags example ./example/all_types
 | [read_without_schema_predefined](example/read_without_schema_predefined) | Read without predefined schema |
 | [read_partial_without_schema_predefined](example/read_partial_without_schema_predefined) | Read partial without predefined schema |
 | [json_schema](example/json_schema) | Define schema with JSON |
-| [json_write](example/json_write) | Convert JSON rows to Parquet |
+| [json_write](example/json_write) | Convert JSON to Parquet |
 | [convert_to_json](example/convert_to_json) | Convert Parquet to JSON |
 | [csv_write](example/csv_write) | CSV writer |
 | [csv_to_parquet](example/csv_to_parquet) | CSV file to Parquet |
@@ -537,6 +612,7 @@ go build -tags example ./example/all_types
 | [new_logical](example/new_logical) | New logical types including FLOAT16 and INTEGER |
 | [geospatial](example/geospatial) | GEOMETRY and GEOGRAPHY examples |
 | [bloom_filter](example/bloom_filter) | Bloom filter |
+| [encrypt_write](example/encrypt_write) | Write and read back encrypted Parquet files |
 | [encrypt_read](example/encrypt_read) | Read encrypted Parquet file |
 | [encrypt_read_aad](example/encrypt_read_aad) | Read encrypted Parquet file with external AAD prefix |
 | [encrypt_read_plaintext_footer](example/encrypt_read_plaintext_footer) | Read encrypted Parquet file with plaintext footer |

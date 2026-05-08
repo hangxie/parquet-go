@@ -9,6 +9,8 @@ import (
 	"google.golang.org/api/option"
 
 	"cloud.google.com/go/storage"
+
+	"github.com/hangxie/parquet-go/v3/common"
 )
 
 var (
@@ -233,7 +235,7 @@ func TestGcsReader_Read(t *testing.T) {
 	bytesRead, err := reader.Read(buf)
 	require.NoError(t, err)
 	require.Equal(t, 4, bytesRead)
-	require.Equal(t, "PAR1", string(buf))
+	require.Equal(t, common.MagicBytes, string(buf))
 }
 
 func TestNewGcsFileReaderWithClient(t *testing.T) {

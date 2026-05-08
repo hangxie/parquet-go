@@ -38,6 +38,9 @@ func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, opts ...Wr
 	if err = res.initBloomFilters(); err != nil {
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
+	if err = res.validateEncryptionColumnKeys(); err != nil {
+		return nil, err
+	}
 
 	res.stopped = false
 	return res, nil
