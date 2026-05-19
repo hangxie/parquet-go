@@ -7,66 +7,10 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/bloomfilter"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 )
-
-// Write the footer and stop writing
-func (pw *ParquetWriter) writeColumnIndexes(ts *thrift.TSerializer) error {
-	if len(pw.columnIndexes) == 0 {
-		return nil
-	}
-	idx := 0
-	for _, rowGroup := range pw.Footer.RowGroups {
-		for _, columnChunk := range rowGroup.Columns {
-			columnIndexBuf, err := ts.Write(context.TODO(), pw.columnIndexes[idx])
-			if err != nil {
-				return fmt.Errorf("serialize column index: %w", err)
-			}
-			if _, err = pw.PFile.Write(columnIndexBuf); err != nil {
-				return fmt.Errorf("write column index: %w", err)
-			}
-
-			idx++
-
-			pos := pw.offset
-			columnChunk.ColumnIndexOffset = &pos
-			columnIndexBufSize := int32(len(columnIndexBuf))
-			columnChunk.ColumnIndexLength = &columnIndexBufSize
-
-			pw.offset += int64(columnIndexBufSize)
-		}
-	}
-	return nil
-}
-
-func (pw *ParquetWriter) writeOffsetIndexes(ts *thrift.TSerializer) error {
-	if len(pw.offsetIndexes) == 0 {
-		return nil
-	}
-	idx := 0
-	for _, rowGroup := range pw.Footer.RowGroups {
-		for _, columnChunk := range rowGroup.Columns {
-			offsetIndexBuf, err := ts.Write(context.TODO(), pw.offsetIndexes[idx])
-			if err != nil {
-				return fmt.Errorf("serialize offset index: %w", err)
-			}
-			if _, err = pw.PFile.Write(offsetIndexBuf); err != nil {
-				return fmt.Errorf("write offset index: %w", err)
-			}
-
-			idx++
-
-			pos := pw.offset
-			columnChunk.OffsetIndexOffset = &pos
-			offsetIndexBufSize := int32(len(offsetIndexBuf))
-			columnChunk.OffsetIndexLength = &offsetIndexBufSize
-
-			pw.offset += int64(offsetIndexBufSize)
-		}
-	}
-	return nil
-}
 
 func (pw *ParquetWriter) writeBloomFilters() error {
 	if len(pw.bloomFilterData) == 0 {
@@ -116,12 +60,12 @@ func (pw *ParquetWriter) serializeBloomFilters() error {
 	}
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	for k := range len(pw.SchemaHandler.SchemaElements) {
-		se := pw.SchemaHandler.SchemaElements[k]
-		if se.GetNumChildren() > 0 {
-			continue
-		}
-		path := pw.SchemaHandler.IndexMap[int32(k)]
+	rowGroup := pw.Footer.RowGroups[len(pw.Footer.RowGroups)-1]
+	// Iterate rg.Columns so serialized bloom filters stay aligned with the
+	// footer columns. Walking SchemaElements would count dropped leaves and
+	// diverge from the reader when buildRowGroup skips a column.
+	for _, cc := range rowGroup.Columns {
+		path := common.PathToStr(cc.MetaData.GetPathInSchema())
 		bf, ok := pw.bloomFilters[path]
 		if !ok {
 			pw.bloomFilterData = append(pw.bloomFilterData, nil)
