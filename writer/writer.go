@@ -75,6 +75,8 @@ type ParquetWriter struct {
 	compressor        *compress.Compressor
 	dataPageVersion   int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
 	writeCRC          bool  // compute and write CRC32 checksums on pages (default false)
+	encryptionConfig  *EncryptionConfig
+	encryptionState   *encryptionState
 	offset            int64
 
 	objs              []any
@@ -112,8 +114,9 @@ func NewParquetWriterFromWriter(w io.Writer, obj any, opts ...WriterOption) (*Pa
 }
 
 // initBase sets up the ParquetWriter with defaults, applies and validates
-// functional options, and writes the PAR1 magic header. Options are validated
-// before any IO so that invalid options never produce partial output.
+// functional options, and writes the magic header. It writes PARE when
+// encryption is enabled with an encrypted footer, otherwise PAR1. Options are
+// validated before any IO so that invalid options never produce partial output.
 //
 // Callers must still set SchemaHandler, marshalFunc, call initBloomFilters,
 // and set stopped = false after successful schema init.
@@ -126,6 +129,8 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	pw.compressor = nil
 	pw.dataPageVersion = 1 // default to DATA_PAGE (V1)
 	pw.offset = 4
+	pw.encryptionConfig = nil
+	pw.encryptionState = nil
 	pw.PFile = pFile
 	pw.pagesMapBuf = make(map[string][]*layout.Page)
 	// DictRecs sync.Map zero value is ready to use
@@ -171,7 +176,19 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 		}
 		pw.compressor = c
 	}
-	if _, err := pw.PFile.Write([]byte(common.MagicBytes)); err != nil {
+	if pw.encryptionConfig != nil {
+		state, err := newEncryptionState(*pw.encryptionConfig)
+		if err != nil {
+			return err
+		}
+		pw.encryptionState = state
+	}
+
+	magic := common.MagicBytes
+	if pw.encryptionState != nil && !pw.encryptionState.plaintextFooter {
+		magic = common.MagicBytesEncrypted
+	}
+	if _, err := pw.PFile.Write([]byte(magic)); err != nil {
 		return fmt.Errorf("write magic header: %w", err)
 	}
 	return nil
@@ -209,6 +226,9 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOpt
 	if err := res.initBloomFilters(); err != nil {
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
+	if err := res.validateEncryptionColumnKeys(); err != nil {
+		return nil, err
+	}
 
 	// Enable writing after init completed successfully
 	res.stopped = false
@@ -225,6 +245,9 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	pw.Footer.Schema = append(pw.Footer.Schema, pw.SchemaHandler.SchemaElements...)
 	if err := pw.initBloomFilters(); err != nil {
 		return fmt.Errorf("init bloom filters: %w", err)
+	}
+	if err := pw.validateEncryptionColumnKeys(); err != nil {
+		return err
 	}
 	pw.encodingsValidated = false
 	return nil

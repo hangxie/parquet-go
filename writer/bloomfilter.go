@@ -9,6 +9,7 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/bloomfilter"
+	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 )
 
@@ -61,10 +62,14 @@ func (pw *ParquetWriter) serializeBloomFilters() error {
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
 	rowGroup := pw.Footer.RowGroups[len(pw.Footer.RowGroups)-1]
-	// Iterate rg.Columns so serialized bloom filters stay aligned with the
-	// footer columns. Walking SchemaElements would count dropped leaves and
-	// diverge from the reader when buildRowGroup skips a column.
-	for _, cc := range rowGroup.Columns {
+	rowGroupOrdinal := int16(len(pw.Footer.RowGroups) - 1)
+	if rowGroup.IsSetOrdinal() {
+		rowGroupOrdinal = rowGroup.GetOrdinal()
+	}
+	// Iterate rg.Columns so that columnOrdinal matches the reader's rg.Columns
+	// index. Walking SchemaElements would count dropped leaves and diverge from
+	// the reader when buildRowGroup skips a column (e.g. empty dict chunk).
+	for columnOrdinal, cc := range rowGroup.Columns {
 		path := common.PathToStr(cc.MetaData.GetPathInSchema())
 		bf, ok := pw.bloomFilters[path]
 		if !ok {
@@ -75,7 +80,20 @@ func (pw *ParquetWriter) serializeBloomFilters() error {
 		if err != nil {
 			return fmt.Errorf("serialize bloom filter header for column %s: %w", path, err)
 		}
-		pw.bloomFilterData = append(pw.bloomFilterData, append(headerBuf, bf.Bitset()...))
+		if pw.encryptionState != nil {
+			key, _, _ := pw.columnKey(cc.MetaData.GetPathInSchema())
+			headerModule, err := pw.encryptThriftModule(key, encryption.ModuleBloomFilterHeader, rowGroupOrdinal, int16(columnOrdinal), headerBuf)
+			if err != nil {
+				return err
+			}
+			bitsetModule, err := pw.encryptThriftModule(key, encryption.ModuleBloomFilterBitset, rowGroupOrdinal, int16(columnOrdinal), bf.Bitset())
+			if err != nil {
+				return err
+			}
+			pw.bloomFilterData = append(pw.bloomFilterData, append(headerModule, bitsetModule...))
+		} else {
+			pw.bloomFilterData = append(pw.bloomFilterData, append(headerBuf, bf.Bitset()...))
+		}
 	}
 	return pw.initBloomFilters()
 }

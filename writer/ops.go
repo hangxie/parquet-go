@@ -51,9 +51,31 @@ func (pw *ParquetWriter) WriteStop() error {
 		}
 	}
 
+	if pw.encryptionState != nil {
+		if pw.encryptionState.plaintextFooter {
+			pw.Footer.EncryptionAlgorithm = pw.encryptionState.parquetAlgorithm()
+			pw.Footer.FooterSigningKeyMetadata = append([]byte(nil), pw.encryptionState.footerKeyMetadata...)
+		}
+		for rowGroupIndex, rowGroup := range pw.Footer.RowGroups {
+			rowGroupOrdinal := int16(rowGroupIndex)
+			if rowGroup.IsSetOrdinal() {
+				rowGroupOrdinal = rowGroup.GetOrdinal()
+			}
+			for columnOrdinal, column := range rowGroup.Columns {
+				if err := pw.encryptColumnMetadata(rowGroupOrdinal, int16(columnOrdinal), column); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	footerBuf, err := ts.Write(context.TODO(), pw.Footer)
 	if err != nil {
 		return fmt.Errorf("serialize footer: %w", err)
+	}
+	footerBuf, tailMagic, err := pw.encryptFooter(footerBuf)
+	if err != nil {
+		return err
 	}
 
 	if _, err = pw.PFile.Write(footerBuf); err != nil {
@@ -65,7 +87,7 @@ func (pw *ParquetWriter) WriteStop() error {
 	if _, err = pw.PFile.Write(footerSizeBuf); err != nil {
 		return fmt.Errorf("write footer size: %w", err)
 	}
-	if _, err = pw.PFile.Write([]byte(common.MagicBytes)); err != nil {
+	if _, err = pw.PFile.Write([]byte(tailMagic)); err != nil {
 		return fmt.Errorf("write magic tail: %w", err)
 	}
 
@@ -196,8 +218,9 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 
 		rowGroup := pw.buildRowGroup(chunkMap)
 
+		rowGroupOrdinal := int16(len(pw.Footer.RowGroups))
 		for k := range len(rowGroup.Chunks) {
-			if err := pw.writeChunkPages(rowGroup.Chunks[k]); err != nil {
+			if err := pw.writeChunkPages(rowGroup.Chunks[k], rowGroupOrdinal, int16(k)); err != nil {
 				return err
 			}
 		}
