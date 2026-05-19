@@ -202,9 +202,14 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 	return nil
 }
 
-func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk) error {
+func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, columnOrdinal int16) error {
 	chunk.ChunkHeader.MetaData.DataPageOffset = -1
 	chunk.ChunkHeader.FileOffset = pw.offset
+	columnPath := pw.fullColumnPath(chunk.ChunkHeader.MetaData.GetPathInSchema())
+	key, keyMetadata, footerKey := pw.columnKey(columnPath)
+	if pw.encryptionState != nil {
+		chunk.ChunkHeader.CryptoMetadata = pw.columnCryptoMetadata(columnPath, footerKey, keyMetadata)
+	}
 
 	pages := chunk.Pages
 	dataPageCount := 0
@@ -229,6 +234,7 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk) error {
 	dataPageIdx := 0
 
 	for _, page := range pages {
+		pageOrdinal := int16(dataPageIdx)
 		isDataPage := page.Header.Type != parquet.PageType_DICTIONARY_PAGE
 		if page.Header.Type == parquet.PageType_DICTIONARY_PAGE {
 			tmp := pw.offset
@@ -237,6 +243,13 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk) error {
 			chunk.ChunkHeader.MetaData.DataPageOffset = pw.offset
 		}
 
+		plainRawLen := len(page.RawData)
+		if pw.encryptionState != nil {
+			if err := pw.encryptPage(page, key, rowGroupOrdinal, columnOrdinal, pageOrdinal); err != nil {
+				return err
+			}
+			chunk.ChunkHeader.MetaData.TotalCompressedSize += int64(len(page.RawData) - plainRawLen)
+		}
 		if isDataPage {
 			if err := pw.recordDataPage(page, columnIndex, offsetIndex, dataPageIdx, dataPageCount, &firstRowIndex); err != nil {
 				return err
