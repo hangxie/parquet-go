@@ -10,6 +10,8 @@ const (
 	ParGoRootExName     = "parquet_go_root"
 	DefaultPageSize     = 8 * 1024
 	DefaultRowGroupSize = 128 * 1024 * 1024
+	MagicBytes          = "PAR1"
+	MagicBytesEncrypted = "PARE"
 )
 
 // . -> \x01

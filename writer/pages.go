@@ -202,7 +202,7 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 	return nil
 }
 
-func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, _ int) error {
+func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk) error {
 	chunk.ChunkHeader.MetaData.DataPageOffset = -1
 	chunk.ChunkHeader.FileOffset = pw.offset
 
@@ -229,6 +229,7 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, _ int) error {
 	dataPageIdx := 0
 
 	for _, page := range pages {
+		isDataPage := page.Header.Type != parquet.PageType_DICTIONARY_PAGE
 		if page.Header.Type == parquet.PageType_DICTIONARY_PAGE {
 			tmp := pw.offset
 			chunk.ChunkHeader.MetaData.DictionaryPageOffset = &tmp
@@ -236,13 +237,12 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, _ int) error {
 			chunk.ChunkHeader.MetaData.DataPageOffset = pw.offset
 		}
 
-		if page.Header.Type != parquet.PageType_DICTIONARY_PAGE {
+		if isDataPage {
 			if err := pw.recordDataPage(page, columnIndex, offsetIndex, dataPageIdx, dataPageCount, &firstRowIndex); err != nil {
 				return err
 			}
 			dataPageIdx++
 		}
-
 		if _, err := pw.PFile.Write(page.RawData); err != nil {
 			return fmt.Errorf("write page data: %w", err)
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -527,11 +528,11 @@ func buildEncryptedFooterFileWithKeyMetadata(t *testing.T, key, keyMetadata, aad
 	encryptedFooter := encryptGCMModule(t, key, encryption.AAD(aadPrefix, fileUnique, encryption.ModuleFooter, 0, 0, 0), footerBytes)
 
 	section := append(append([]byte{}, cryptoMetaBytes...), encryptedFooter...)
-	file := append([]byte("PARE"), section...)
+	file := append([]byte(common.MagicBytesEncrypted), section...)
 	var footerSize [4]byte
 	binary.LittleEndian.PutUint32(footerSize[:], uint32(len(section)))
 	file = append(file, footerSize[:]...)
-	file = append(file, []byte("PARE")...)
+	file = append(file, []byte(common.MagicBytesEncrypted)...)
 	return file
 }
 
@@ -544,11 +545,11 @@ func buildEncryptedFooterFileWithAlgorithm(t *testing.T, key, aadPrefix, fileUni
 	encryptedFooter := encryptGCMModule(t, key, encryption.AAD(aadPrefix, fileUnique, encryption.ModuleFooter, 0, 0, 0), footerBytes)
 
 	section := append(append([]byte{}, cryptoMetaBytes...), encryptedFooter...)
-	file := append([]byte("PARE"), section...)
+	file := append([]byte(common.MagicBytesEncrypted), section...)
 	var footerSize [4]byte
 	binary.LittleEndian.PutUint32(footerSize[:], uint32(len(section)))
 	file = append(file, footerSize[:]...)
-	file = append(file, []byte("PARE")...)
+	file = append(file, []byte(common.MagicBytesEncrypted)...)
 	return file
 }
 
@@ -557,11 +558,11 @@ func buildPlaintextEncryptedFooterFile(t *testing.T, key, aadPrefix, fileUnique 
 	footerBytes := serializeThrift(t, footer)
 	signature := signPlaintextFooter(t, key, encryption.AAD(aadPrefix, fileUnique, encryption.ModuleFooter, 0, 0, 0), footerBytes)
 	section := append(append([]byte{}, footerBytes...), signature...)
-	file := append([]byte("PAR1"), section...)
+	file := append([]byte(common.MagicBytes), section...)
 	var footerSize [4]byte
 	binary.LittleEndian.PutUint32(footerSize[:], uint32(len(section)))
 	file = append(file, footerSize[:]...)
-	file = append(file, []byte("PAR1")...)
+	file = append(file, []byte(common.MagicBytes)...)
 	return file
 }
 
