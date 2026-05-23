@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"math"
 )
 
 // EncryptGCM encrypts a Parquet AES-GCM module body as nonce, ciphertext, and
@@ -72,9 +71,6 @@ func EncryptCTR(key, plaintext []byte) ([]byte, error) {
 // EncodeModule wraps an encrypted Parquet module with a 4-byte little-endian
 // body length prefix.
 func EncodeModule(module []byte) ([]byte, error) {
-	if len(module) > math.MaxUint32 {
-		return nil, fmt.Errorf("encryption module too large: %d bytes exceeds 4 GiB limit", len(module))
-	}
 	buf := make([]byte, lengthSize, lengthSize+len(module))
 	binary.LittleEndian.PutUint32(buf, uint32(len(module)))
 	return append(buf, module...), nil
