@@ -97,6 +97,46 @@ func TestInteropPlaintextFooter(t *testing.T) {
 	require.NotEmpty(t, rows)
 }
 
+func TestInteropPlaintextFooter_NoKey_OpensWithSchema(t *testing.T) {
+	t.Parallel()
+	encryptedTestdataAvailable(t)
+
+	pf, err := local.NewLocalFileReader(plaintextFooterFile)
+	require.NoError(t, err)
+	defer func() { _ = pf.Close() }()
+
+	pr, err := NewParquetReader(pf, nil)
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStop() }()
+
+	require.Positive(t, pr.GetNumRows())
+	require.NotEmpty(t, pr.SchemaHandler.ValueColumns)
+}
+
+func TestInteropPlaintextFooter_NoKey_PartialColumnRead(t *testing.T) {
+	t.Parallel()
+	encryptedTestdataAvailable(t)
+
+	pf, err := local.NewLocalFileReader(plaintextFooterFile)
+	require.NoError(t, err)
+	defer func() { _ = pf.Close() }()
+
+	pr, err := NewParquetReader(pf, nil)
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStop() }()
+
+	plaintextPath := valueColumnPathWithLeaf(t, pr, "boolean_field")
+	values, _, _, err := pr.ReadColumnByPath(plaintextPath, 1)
+	require.NoError(t, err)
+	require.NotEmpty(t, values)
+
+	require.NoError(t, pr.Reset())
+
+	encryptedPath := valueColumnPathWithLeaf(t, pr, "double_field")
+	_, _, _, err = pr.ReadColumnByPath(encryptedPath, 1)
+	require.ErrorContains(t, err, "decryption key required for column double_field")
+}
+
 func TestInteropPlaintextFooter_WrongFooterKey(t *testing.T) {
 	t.Parallel()
 	encryptedTestdataAvailable(t)
@@ -112,7 +152,7 @@ func TestInteropPlaintextFooter_WrongFooterKey(t *testing.T) {
 		WithColumnKey("double_field", encryptionKeys["kc1"]),
 		WithColumnKey("float_field", encryptionKeys["kc2"]),
 	)
-	require.ErrorContains(t, err, "read footer")
+	require.ErrorContains(t, err, "verify plaintext footer signature")
 }
 
 func TestInteropAADPrefix(t *testing.T) {
