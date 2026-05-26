@@ -123,6 +123,72 @@ func TestReadFooterVerifiesPlaintextFooterSignature(t *testing.T) {
 	require.ErrorContains(t, badKeyReader.ReadFooter(), "verify plaintext footer signature")
 }
 
+func TestReadFooterPlaintextFooterDoesNotRequireKey(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	aadPrefix := []byte("table/part-0")
+	fileUnique := []byte("file-unique")
+	footer := minimalFileMetaData()
+	footer.EncryptionAlgorithm = encryptionAlgorithm(aadPrefix, fileUnique)
+	file := buildPlaintextEncryptedFooterFile(t, key, aadPrefix, fileUnique, footer)
+
+	pr := &ParquetReader{PFile: buffer.NewBufferReaderFromBytesNoAlloc(file)}
+	require.NoError(t, pr.ReadFooter())
+	require.True(t, footer.Equals(pr.Footer))
+}
+
+func TestReadFooterPlaintextFooterMixedColumnsSkipsMissingColumnKeys(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	columnKey := []byte("abcdef0123456789")
+	aadPrefix := []byte("table/part-0")
+	fileUnique := []byte("file-unique")
+	footer, plaintextMeta, encryptedPlaceholder, wantEncryptedMeta := fileMetaDataWithMixedPlainAndEncryptedColumns(
+		t,
+		columnKey,
+		aadPrefix,
+		fileUnique,
+	)
+	file := buildPlaintextEncryptedFooterFile(t, footerKey, aadPrefix, fileUnique, footer)
+
+	pr := &ParquetReader{PFile: buffer.NewBufferReaderFromBytesNoAlloc(file)}
+	require.NoError(t, pr.ReadFooter())
+	require.True(t, plaintextMeta.Equals(pr.Footer.RowGroups[0].Columns[0].MetaData))
+	require.True(t, encryptedPlaceholder.Equals(pr.Footer.RowGroups[0].Columns[1].MetaData))
+
+	withColumnKey := &ParquetReader{PFile: buffer.NewBufferReaderFromBytesNoAlloc(file)}
+	WithColumnKey("encrypted_leaf", columnKey)(withColumnKey)
+	require.NoError(t, withColumnKey.ReadFooter())
+	require.True(t, plaintextMeta.Equals(withColumnKey.Footer.RowGroups[0].Columns[0].MetaData))
+	require.True(t, wantEncryptedMeta.Equals(withColumnKey.Footer.RowGroups[0].Columns[1].MetaData))
+}
+
+func TestReadFooterPlaintextFooterFooterKeyColumnMetadata(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	aadPrefix := []byte("table/part-0")
+	fileUnique := []byte("file-unique")
+	footer, placeholderMeta, wantColumnMeta := fileMetaDataWithFooterKeyEncryptedColumnMetadataAndPlaintextPlaceholder(
+		t,
+		footerKey,
+		aadPrefix,
+		fileUnique,
+	)
+	file := buildPlaintextEncryptedFooterFile(t, footerKey, aadPrefix, fileUnique, footer)
+
+	noKeyReader := &ParquetReader{PFile: buffer.NewBufferReaderFromBytesNoAlloc(file)}
+	require.NoError(t, noKeyReader.ReadFooter())
+	require.True(t, placeholderMeta.Equals(noKeyReader.Footer.RowGroups[0].Columns[0].MetaData))
+
+	withFooterKey := &ParquetReader{PFile: buffer.NewBufferReaderFromBytesNoAlloc(file)}
+	WithFooterKey(footerKey)(withFooterKey)
+	require.NoError(t, withFooterKey.ReadFooter())
+	require.True(t, wantColumnMeta.Equals(withFooterKey.Footer.RowGroups[0].Columns[0].MetaData))
+}
+
 func TestReadFooterDecryptsEncryptedColumnMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -387,6 +453,117 @@ func TestEncryptionHelperErrors(t *testing.T) {
 	require.NoError(t, (&ParquetReader{Footer: &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{nil}}}).decryptEncryptedColumnMetadata())
 }
 
+func TestOptionalKeyResolutionHelpers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("footer key from retriever", func(t *testing.T) {
+		t.Parallel()
+		key := []byte("0123456789abcdef")
+		pr := &ParquetReader{}
+		WithKeyRetriever(func([]byte) ([]byte, error) { return key, nil })(pr)
+
+		got, err := pr.resolveOptionalFooterKeyFromMetadata([]byte("meta"))
+		require.NoError(t, err)
+		require.Equal(t, key, got)
+		require.Equal(t, key, pr.resolvedFooterKey)
+	})
+
+	t.Run("footer key retriever returns empty", func(t *testing.T) {
+		t.Parallel()
+		pr := &ParquetReader{}
+		WithKeyRetriever(func([]byte) ([]byte, error) { return nil, nil })(pr)
+
+		got, err := pr.resolveOptionalFooterKeyFromMetadata(nil)
+		require.NoError(t, err)
+		require.Nil(t, got)
+	})
+
+	t.Run("footer key retriever returns error", func(t *testing.T) {
+		t.Parallel()
+		retrieverErr := errors.New("kms unavailable")
+		pr := &ParquetReader{}
+		WithKeyRetriever(func([]byte) ([]byte, error) { return nil, retrieverErr })(pr)
+
+		_, err := pr.resolveOptionalFooterKeyFromMetadata(nil)
+		require.ErrorIs(t, err, retrieverErr)
+		require.ErrorContains(t, err, "retrieve footer key")
+	})
+
+	t.Run("optional column key nil crypto", func(t *testing.T) {
+		t.Parallel()
+		_, _, err := (&ParquetReader{}).resolveOptionalColumnKey(&parquet.ColumnChunk{})
+		require.ErrorContains(t, err, "column crypto metadata is required")
+	})
+
+	t.Run("optional column key unsupported", func(t *testing.T) {
+		t.Parallel()
+		chunk := &parquet.ColumnChunk{CryptoMetadata: &parquet.ColumnCryptoMetaData{}}
+		_, _, err := (&ParquetReader{}).resolveOptionalColumnKey(chunk)
+		require.ErrorContains(t, err, "unsupported column crypto metadata")
+	})
+
+	t.Run("optional column key footer-key path with retriever error", func(t *testing.T) {
+		t.Parallel()
+		retrieverErr := errors.New("kms unavailable")
+		pr := &ParquetReader{}
+		WithKeyRetriever(func([]byte) ([]byte, error) { return nil, retrieverErr })(pr)
+		chunk := &parquet.ColumnChunk{
+			CryptoMetadata: &parquet.ColumnCryptoMetaData{ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey()},
+		}
+		_, _, err := pr.resolveOptionalColumnKey(chunk)
+		require.ErrorIs(t, err, retrieverErr)
+	})
+
+	t.Run("optional column key from retriever", func(t *testing.T) {
+		t.Parallel()
+		key := []byte("0123456789abcdef")
+		pr := &ParquetReader{}
+		WithKeyRetriever(func([]byte) ([]byte, error) { return key, nil })(pr)
+		chunk := &parquet.ColumnChunk{
+			CryptoMetadata: &parquet.ColumnCryptoMetaData{
+				ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{
+					PathInSchema: []string{"leaf"},
+					KeyMetadata:  []byte("meta"),
+				},
+			},
+		}
+		got, found, err := pr.resolveOptionalColumnKey(chunk)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, key, got)
+	})
+
+	t.Run("optional column key retriever returns empty", func(t *testing.T) {
+		t.Parallel()
+		pr := &ParquetReader{}
+		WithKeyRetriever(func([]byte) ([]byte, error) { return nil, nil })(pr)
+		chunk := &parquet.ColumnChunk{
+			CryptoMetadata: &parquet.ColumnCryptoMetaData{
+				ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
+			},
+		}
+		got, found, err := pr.resolveOptionalColumnKey(chunk)
+		require.NoError(t, err)
+		require.False(t, found)
+		require.Nil(t, got)
+	})
+
+	t.Run("optional column key retriever returns error", func(t *testing.T) {
+		t.Parallel()
+		retrieverErr := errors.New("kms unavailable")
+		pr := &ParquetReader{}
+		WithKeyRetriever(func([]byte) ([]byte, error) { return nil, retrieverErr })(pr)
+		chunk := &parquet.ColumnChunk{
+			CryptoMetadata: &parquet.ColumnCryptoMetaData{
+				ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
+			},
+		}
+		_, _, err := pr.resolveOptionalColumnKey(chunk)
+		require.ErrorIs(t, err, retrieverErr)
+		require.ErrorContains(t, err, "retrieve column key for leaf")
+	})
+}
+
 func TestReadBloomFilterForColumnErrors(t *testing.T) {
 	t.Parallel()
 
@@ -501,6 +678,131 @@ func fileMetaDataWithFooterKeyEncryptedColumnMetadata(t *testing.T, footerKey, a
 			},
 		},
 	}, columnMeta
+}
+
+func fileMetaDataWithMixedPlainAndEncryptedColumns(t *testing.T, columnKey, aadPrefix, fileUnique []byte) (*parquet.FileMetaData, *parquet.ColumnMetaData, *parquet.ColumnMetaData, *parquet.ColumnMetaData) {
+	t.Helper()
+
+	plaintextMeta := &parquet.ColumnMetaData{
+		Type:                  parquet.Type_INT32,
+		Encodings:             []parquet.Encoding{parquet.Encoding_PLAIN},
+		PathInSchema:          []string{"plain_leaf"},
+		Codec:                 parquet.CompressionCodec_UNCOMPRESSED,
+		NumValues:             0,
+		TotalUncompressedSize: 0,
+		TotalCompressedSize:   0,
+		DataPageOffset:        4,
+	}
+	encryptedPlaceholder := &parquet.ColumnMetaData{
+		Type:                  parquet.Type_INT32,
+		Encodings:             []parquet.Encoding{parquet.Encoding_PLAIN},
+		PathInSchema:          []string{"encrypted_leaf"},
+		Codec:                 parquet.CompressionCodec_UNCOMPRESSED,
+		NumValues:             0,
+		TotalUncompressedSize: 0,
+		TotalCompressedSize:   0,
+		DataPageOffset:        4,
+	}
+	encryptedMeta := &parquet.ColumnMetaData{
+		Type:                  parquet.Type_INT32,
+		Encodings:             []parquet.Encoding{parquet.Encoding_PLAIN},
+		PathInSchema:          []string{"encrypted_leaf"},
+		Codec:                 parquet.CompressionCodec_UNCOMPRESSED,
+		NumValues:             7,
+		TotalUncompressedSize: 11,
+		TotalCompressedSize:   13,
+		DataPageOffset:        4,
+		Statistics:            &parquet.Statistics{NullCount: int64Ptr(1)},
+	}
+	encryptedColumnMeta := encryptGCMModule(
+		t,
+		columnKey,
+		encryption.AAD(aadPrefix, fileUnique, encryption.ModuleColumnMetaData, 0, 1, 0),
+		serializeThrift(t, encryptedMeta),
+	)
+	footer := &parquet.FileMetaData{
+		Version:             2,
+		EncryptionAlgorithm: encryptionAlgorithm(aadPrefix, fileUnique),
+		Schema: []*parquet.SchemaElement{
+			{Name: "schema", NumChildren: int32Ptr(2)},
+			{Name: "plain_leaf", Type: parquet.TypePtr(parquet.Type_INT32), RepetitionType: parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_REQUIRED)},
+			{Name: "encrypted_leaf", Type: parquet.TypePtr(parquet.Type_INT32), RepetitionType: parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_REQUIRED)},
+		},
+		NumRows: 0,
+		RowGroups: []*parquet.RowGroup{
+			{
+				Columns: []*parquet.ColumnChunk{
+					{FileOffset: 4, MetaData: plaintextMeta},
+					{
+						FileOffset:              4,
+						MetaData:                encryptedPlaceholder,
+						CryptoMetadata:          &parquet.ColumnCryptoMetaData{ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"encrypted_leaf"}}},
+						EncryptedColumnMetadata: encryptedColumnMeta,
+					},
+				},
+				TotalByteSize: 0,
+				NumRows:       0,
+				Ordinal:       int16Ptr(0),
+			},
+		},
+	}
+	return footer, plaintextMeta, encryptedPlaceholder, encryptedMeta
+}
+
+func fileMetaDataWithFooterKeyEncryptedColumnMetadataAndPlaintextPlaceholder(t *testing.T, footerKey, aadPrefix, fileUnique []byte) (*parquet.FileMetaData, *parquet.ColumnMetaData, *parquet.ColumnMetaData) {
+	t.Helper()
+
+	placeholderMeta := &parquet.ColumnMetaData{
+		Type:                  parquet.Type_INT32,
+		Encodings:             []parquet.Encoding{parquet.Encoding_PLAIN},
+		PathInSchema:          []string{"leaf"},
+		Codec:                 parquet.CompressionCodec_UNCOMPRESSED,
+		NumValues:             0,
+		TotalUncompressedSize: 0,
+		TotalCompressedSize:   0,
+		DataPageOffset:        4,
+	}
+	columnMeta := &parquet.ColumnMetaData{
+		Type:                  parquet.Type_INT32,
+		Encodings:             []parquet.Encoding{parquet.Encoding_PLAIN},
+		PathInSchema:          []string{"leaf"},
+		Codec:                 parquet.CompressionCodec_UNCOMPRESSED,
+		NumValues:             3,
+		TotalUncompressedSize: 5,
+		TotalCompressedSize:   7,
+		DataPageOffset:        4,
+		Statistics:            &parquet.Statistics{NullCount: int64Ptr(1)},
+	}
+	encryptedColumnMeta := encryptGCMModule(
+		t,
+		footerKey,
+		encryption.AAD(aadPrefix, fileUnique, encryption.ModuleColumnMetaData, 0, 0, 0),
+		serializeThrift(t, columnMeta),
+	)
+	return &parquet.FileMetaData{
+		Version:             2,
+		EncryptionAlgorithm: encryptionAlgorithm(aadPrefix, fileUnique),
+		Schema: []*parquet.SchemaElement{
+			{Name: "schema", NumChildren: int32Ptr(1)},
+			{Name: "leaf", Type: parquet.TypePtr(parquet.Type_INT32), RepetitionType: parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_REQUIRED)},
+		},
+		NumRows: 0,
+		RowGroups: []*parquet.RowGroup{
+			{
+				Columns: []*parquet.ColumnChunk{
+					{
+						FileOffset:              4,
+						MetaData:                placeholderMeta,
+						CryptoMetadata:          &parquet.ColumnCryptoMetaData{ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey()},
+						EncryptedColumnMetadata: encryptedColumnMeta,
+					},
+				},
+				TotalByteSize: 0,
+				NumRows:       0,
+				Ordinal:       int16Ptr(0),
+			},
+		},
+	}, placeholderMeta, columnMeta
 }
 
 func buildEncryptedFooterFile(t *testing.T, key, aadPrefix, fileUnique []byte, footer *parquet.FileMetaData) []byte {
