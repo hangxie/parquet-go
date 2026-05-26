@@ -90,7 +90,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOpt
 					return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 				}
 				res.ColumnBuffers[pathStr].Reader = res
-				if err := res.reconfigureDecryptorForBuffer(res.ColumnBuffers[pathStr]); err != nil {
+				if err := res.reconfigureOptionalDecryptorForBuffer(res.ColumnBuffers[pathStr]); err != nil {
 					return res, fmt.Errorf("configure page decryptor for %s: %w", pathStr, err)
 				}
 			}
@@ -117,7 +117,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 			}
 			pr.ColumnBuffers[pathStr].Reader = pr
-			if err := pr.reconfigureDecryptorForBuffer(pr.ColumnBuffers[pathStr]); err != nil {
+			if err := pr.reconfigureOptionalDecryptorForBuffer(pr.ColumnBuffers[pathStr]); err != nil {
 				return fmt.Errorf("configure page decryptor for %s: %w", pathStr, err)
 			}
 		}

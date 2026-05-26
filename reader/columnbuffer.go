@@ -152,6 +152,11 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 
 func (cbt *ColumnBufferType) ReadPage() error {
 	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
+		if cbt.Reader != nil {
+			if err := cbt.Reader.requirePageDecryptor(cbt); err != nil {
+				return fmt.Errorf("require page decryptor: %w", err)
+			}
+		}
 		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, &cbt.PageReadOptions)
 		if err != nil {
 			// data is nil and rl/dl=0, no pages in file
