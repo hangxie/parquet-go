@@ -165,6 +165,30 @@ func TestReadFooterPlaintextFooterMixedColumnsSkipsMissingColumnKeys(t *testing.
 	require.True(t, wantEncryptedMeta.Equals(withColumnKey.Footer.RowGroups[0].Columns[1].MetaData))
 }
 
+func TestNewParquetReaderPlaintextFooterMixedColumnsDoesNotRequireUnreadColumnKey(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	columnKey := []byte("abcdef0123456789")
+	aadPrefix := []byte("table/part-0")
+	fileUnique := []byte("file-unique")
+	footer, _, _, _ := fileMetaDataWithMixedPlainAndEncryptedColumns(t, columnKey, aadPrefix, fileUnique)
+	file := buildPlaintextEncryptedFooterFile(t, footerKey, aadPrefix, fileUnique, footer)
+
+	pr, err := NewParquetReader(buffer.NewBufferReaderFromBytesNoAlloc(file), nil)
+	require.NoError(t, err)
+	require.Len(t, pr.ColumnBuffers, 2)
+	var encryptedBuffer *ColumnBufferType
+	for _, columnBuffer := range pr.ColumnBuffers {
+		if columnBuffer.ChunkHeader != nil && columnBuffer.ChunkHeader.GetCryptoMetadata() != nil {
+			encryptedBuffer = columnBuffer
+		}
+	}
+	require.NotNil(t, encryptedBuffer)
+	require.Nil(t, encryptedBuffer.PageReadOptions.Decryptor)
+	require.NoError(t, pr.ReadStop())
+}
+
 func TestReadFooterPlaintextFooterFooterKeyColumnMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -187,6 +211,26 @@ func TestReadFooterPlaintextFooterFooterKeyColumnMetadata(t *testing.T) {
 	WithFooterKey(footerKey)(withFooterKey)
 	require.NoError(t, withFooterKey.ReadFooter())
 	require.True(t, wantColumnMeta.Equals(withFooterKey.Footer.RowGroups[0].Columns[0].MetaData))
+}
+
+func TestReadEncryptedColumnWithoutKeyFailsBeforePageRead(t *testing.T) {
+	t.Parallel()
+
+	cbt := &ColumnBufferType{
+		ChunkHeader: &parquet.ColumnChunk{
+			MetaData: &parquet.ColumnMetaData{
+				NumValues:      1,
+				PathInSchema:   []string{"leaf"},
+				DataPageOffset: 4,
+			},
+			CryptoMetadata: &parquet.ColumnCryptoMetaData{
+				ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
+			},
+		},
+		Reader: &ParquetReader{},
+	}
+
+	require.ErrorContains(t, cbt.ReadPage(), "decryption key required for column leaf")
 }
 
 func TestReadFooterDecryptsEncryptedColumnMetadata(t *testing.T) {
@@ -491,14 +535,14 @@ func TestOptionalKeyResolutionHelpers(t *testing.T) {
 
 	t.Run("optional column key nil crypto", func(t *testing.T) {
 		t.Parallel()
-		_, _, err := (&ParquetReader{}).resolveOptionalColumnKey(&parquet.ColumnChunk{})
+		_, err := (&ParquetReader{}).resolveOptionalColumnKey(&parquet.ColumnChunk{})
 		require.ErrorContains(t, err, "column crypto metadata is required")
 	})
 
 	t.Run("optional column key unsupported", func(t *testing.T) {
 		t.Parallel()
 		chunk := &parquet.ColumnChunk{CryptoMetadata: &parquet.ColumnCryptoMetaData{}}
-		_, _, err := (&ParquetReader{}).resolveOptionalColumnKey(chunk)
+		_, err := (&ParquetReader{}).resolveOptionalColumnKey(chunk)
 		require.ErrorContains(t, err, "unsupported column crypto metadata")
 	})
 
@@ -510,7 +554,7 @@ func TestOptionalKeyResolutionHelpers(t *testing.T) {
 		chunk := &parquet.ColumnChunk{
 			CryptoMetadata: &parquet.ColumnCryptoMetaData{ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey()},
 		}
-		_, _, err := pr.resolveOptionalColumnKey(chunk)
+		_, err := pr.resolveOptionalColumnKey(chunk)
 		require.ErrorIs(t, err, retrieverErr)
 	})
 
@@ -527,9 +571,8 @@ func TestOptionalKeyResolutionHelpers(t *testing.T) {
 				},
 			},
 		}
-		got, found, err := pr.resolveOptionalColumnKey(chunk)
+		got, err := pr.resolveOptionalColumnKey(chunk)
 		require.NoError(t, err)
-		require.True(t, found)
 		require.Equal(t, key, got)
 	})
 
@@ -542,10 +585,9 @@ func TestOptionalKeyResolutionHelpers(t *testing.T) {
 				ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
 			},
 		}
-		got, found, err := pr.resolveOptionalColumnKey(chunk)
+		got, err := pr.resolveOptionalColumnKey(chunk)
 		require.NoError(t, err)
-		require.False(t, found)
-		require.Nil(t, got)
+		require.Empty(t, got)
 	})
 
 	t.Run("optional column key retriever returns error", func(t *testing.T) {
@@ -558,9 +600,37 @@ func TestOptionalKeyResolutionHelpers(t *testing.T) {
 				ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
 			},
 		}
-		_, _, err := pr.resolveOptionalColumnKey(chunk)
+		_, err := pr.resolveOptionalColumnKey(chunk)
 		require.ErrorIs(t, err, retrieverErr)
 		require.ErrorContains(t, err, "retrieve column key for leaf")
+	})
+}
+
+func TestOptionalPageDecryptorHelpers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reconfigureOptionalDecryptorForBuffer guards", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, (&ParquetReader{}).reconfigureOptionalDecryptorForBuffer(nil))
+		require.NoError(t, (&ParquetReader{}).reconfigureOptionalDecryptorForBuffer(&ColumnBufferType{}))
+		require.NoError(t, (&ParquetReader{Footer: &parquet.FileMetaData{}}).reconfigureOptionalDecryptorForBuffer(&ColumnBufferType{RowGroupIndex: 1}))
+	})
+
+	t.Run("configurePageDecryptor missing column key", func(t *testing.T) {
+		t.Parallel()
+		pr := &ParquetReader{
+			Footer: &parquet.FileMetaData{EncryptionAlgorithm: encryptionAlgorithm([]byte("prefix"), []byte("file-unique"))},
+		}
+		cbt := &ColumnBufferType{
+			ChunkHeader: &parquet.ColumnChunk{
+				CryptoMetadata: &parquet.ColumnCryptoMetaData{
+					ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{PathInSchema: []string{"leaf"}},
+				},
+			},
+		}
+		err := pr.configurePageDecryptor(cbt, nil, 0)
+		require.ErrorContains(t, err, "decryption key required")
+		require.Nil(t, cbt.PageReadOptions.Decryptor)
 	})
 }
 

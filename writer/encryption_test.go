@@ -273,15 +273,22 @@ func TestEncryptedWriterColumnKeyProtectsBloomAndIndex(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, notFound)
 
-	// Without the name column key: reader cannot open the file because the
-	// name column metadata (which carries the bloom filter and index offsets)
-	// is encrypted with the column key.
-	_, err = reader.NewParquetReader(
+	// Without the name column key: the reader can open the file because
+	// the encrypted footer contains plaintext column metadata, but reading
+	// encrypted name-column modules still requires the name key.
+	prMissingNameKey, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(encryptedWriterRecord),
 		reader.WithFooterKey(footerKey),
 	)
-	require.Error(t, err)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, prMissingNameKey.ReadStop()) }()
+
+	_, err = prMissingNameKey.ReadColumnIndex(0, 1)
+	require.ErrorContains(t, err, "decryption key required for column name")
+
+	_, err = prMissingNameKey.BloomFilterCheck("name", 0, "alpha")
+	require.ErrorContains(t, err, "decryption key required for column name")
 }
 
 func TestEncryptedFooterColumnMetadataLayout(t *testing.T) {

@@ -209,11 +209,11 @@ func (pr *ParquetReader) decryptEncryptedColumnMetadataChunk(chunk *parquet.Colu
 	if chunk == nil || !chunk.IsSetEncryptedColumnMetadata() {
 		return nil
 	}
-	key, ok, err := pr.resolveOptionalColumnKey(chunk)
+	key, err := pr.resolveOptionalColumnKey(chunk)
 	if err != nil {
 		return fmt.Errorf("row group %d column %d: %w", rowGroupIndex, columnOrdinal, err)
 	}
-	if !ok {
+	if len(key) == 0 {
 		if chunk.MetaData != nil {
 			return nil
 		}
@@ -275,40 +275,41 @@ func (pr *ParquetReader) resolveColumnKey(chunk *parquet.ColumnChunk) ([]byte, e
 	return nil, fmt.Errorf("decryption key required for column %s", path)
 }
 
-func (pr *ParquetReader) resolveOptionalColumnKey(chunk *parquet.ColumnChunk) ([]byte, bool, error) {
+func (pr *ParquetReader) resolveOptionalColumnKey(chunk *parquet.ColumnChunk) ([]byte, error) {
 	cryptoMeta := chunk.GetCryptoMetadata()
 	if cryptoMeta == nil {
-		return nil, false, fmt.Errorf("column crypto metadata is required")
+		return nil, fmt.Errorf("column crypto metadata is required")
 	}
 	if cryptoMeta.IsSetENCRYPTION_WITH_FOOTER_KEY() {
-		key, err := pr.resolveOptionalFooterKeyFromMetadata(nil)
-		if err != nil {
-			return nil, false, err
-		}
-		return key, len(key) > 0, nil
+		return pr.resolveOptionalFooterKeyFromMetadata(nil)
 	}
 	columnKeyMeta := cryptoMeta.GetENCRYPTION_WITH_COLUMN_KEY()
 	if columnKeyMeta == nil {
-		return nil, false, fmt.Errorf("unsupported column crypto metadata")
+		return nil, fmt.Errorf("unsupported column crypto metadata")
 	}
 	path := common.PathToStr(columnKeyMeta.GetPathInSchema())
 	if key, ok := pr.columnKeys[path]; ok {
-		return key, true, nil
+		return key, nil
 	}
 	if pr.keyRetriever == nil {
-		return nil, false, nil
+		return nil, nil
 	}
 	key, err := pr.keyRetriever(columnKeyMeta.GetKeyMetadata())
 	if err != nil {
-		return nil, false, fmt.Errorf("retrieve column key for %s: %w", path, err)
+		return nil, fmt.Errorf("retrieve column key for %s: %w", path, err)
 	}
-	if len(key) == 0 {
-		return nil, false, nil
-	}
-	return key, true, nil
+	return key, nil
 }
 
 func (pr *ParquetReader) configurePageDecryptor(cbt *ColumnBufferType, rowGroup *parquet.RowGroup, columnOrdinal int16) error {
+	return pr.configurePageDecryptorWithKeyRequirement(cbt, rowGroup, columnOrdinal, true)
+}
+
+func (pr *ParquetReader) configureOptionalPageDecryptor(cbt *ColumnBufferType, rowGroup *parquet.RowGroup, columnOrdinal int16) error {
+	return pr.configurePageDecryptorWithKeyRequirement(cbt, rowGroup, columnOrdinal, false)
+}
+
+func (pr *ParquetReader) configurePageDecryptorWithKeyRequirement(cbt *ColumnBufferType, rowGroup *parquet.RowGroup, columnOrdinal int16, requireKey bool) error {
 	if cbt == nil {
 		return nil
 	}
@@ -324,9 +325,16 @@ func (pr *ParquetReader) configurePageDecryptor(cbt *ColumnBufferType, rowGroup 
 	if err != nil {
 		return err
 	}
-	key, err := pr.resolveColumnKey(cbt.ChunkHeader)
+	key, err := pr.resolveOptionalColumnKey(cbt.ChunkHeader)
 	if err != nil {
 		return err
+	}
+	if len(key) == 0 {
+		if requireKey {
+			_, err := pr.resolveColumnKey(cbt.ChunkHeader)
+			return err
+		}
+		return nil
 	}
 	pageAlgorithm := layout.PageEncryptionAESGCM
 	if algorithm.IsSetAES_GCM_CTR_V1() {
@@ -348,6 +356,14 @@ func (pr *ParquetReader) configurePageDecryptor(cbt *ColumnBufferType, rowGroup 
 	return nil
 }
 
+func (pr *ParquetReader) requirePageDecryptor(cbt *ColumnBufferType) error {
+	if cbt == nil || cbt.ChunkHeader == nil || cbt.ChunkHeader.GetCryptoMetadata() == nil || cbt.PageReadOptions.Decryptor != nil {
+		return nil
+	}
+	_, err := pr.resolveColumnKey(cbt.ChunkHeader)
+	return err
+}
+
 func (pr *ParquetReader) reconfigureDecryptorForBuffer(cbt *ColumnBufferType) error {
 	if cbt == nil || cbt.RowGroupIndex <= 0 {
 		return nil
@@ -357,6 +373,17 @@ func (pr *ParquetReader) reconfigureDecryptorForBuffer(cbt *ColumnBufferType) er
 		return nil
 	}
 	return pr.configurePageDecryptor(cbt, pr.Footer.RowGroups[rgIdx], cbt.ColumnOrdinal)
+}
+
+func (pr *ParquetReader) reconfigureOptionalDecryptorForBuffer(cbt *ColumnBufferType) error {
+	if cbt == nil || cbt.RowGroupIndex <= 0 {
+		return nil
+	}
+	rgIdx := cbt.RowGroupIndex - 1
+	if int(rgIdx) >= len(pr.Footer.RowGroups) {
+		return nil
+	}
+	return pr.configureOptionalPageDecryptor(cbt, pr.Footer.RowGroups[rgIdx], cbt.ColumnOrdinal)
 }
 
 func (pr *ParquetReader) footerAADParts(algorithm *parquet.EncryptionAlgorithm) ([]byte, []byte, error) {

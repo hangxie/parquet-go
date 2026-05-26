@@ -412,8 +412,8 @@ The reader and writer support Apache Parquet modular encryption for encrypted fo
 
 Shared reader/writer concepts:
 
-- `WithFooterKey` sets the footer key used for encrypted footers or plaintext-footer signatures.
-- `WithColumnKey` sets a column key for a dot-separated schema path without the root element, such as `name` or `address.city`. Columns without an explicit column key use the footer key.
+- `WithFooterKey` sets the footer key used for encrypted footers, plaintext-footer signatures, and columns encrypted with the footer key.
+- `WithColumnKey` sets a column key for a dot-separated schema path without the root element, such as `name` or `address.city`.
 - `WithKeyRetriever` sets a callback for KMS-backed key management. The callback receives the `key_metadata` bytes stored in the file and returns key bytes.
 - `WithAADPrefix` supplies the AAD prefix. It is required on read when the file was written with `supply_aad_prefix=true`.
 
@@ -422,6 +422,14 @@ Without a KMS, supply keys directly with `WithFooterKey` and `WithColumnKey`. Wi
 On write, the key ID must be specified explicitly because there is no file to read from. Use the optional metadata argument to `WithFooterKey` or `WithColumnKey`, or use `WithFooterKeyMetadata` and `WithColumnKeyMetadata` when key bytes come from `WithKeyRetriever`. On read, the key ID is already in the file and is passed to `WithKeyRetriever`.
 
 When explicit keys and `WithKeyRetriever` are both configured, explicit keys take priority. `WithKeyRetriever` is called only when no direct key is provided.
+
+Reader behavior by footer and column mode:
+
+- Encrypted footer (`PARE`): the footer key is required to open the file because schema and row-group metadata are encrypted.
+- Plaintext footer (`PAR1`): the file can be opened without keys. If a footer key is supplied or resolved, the reader verifies the plaintext-footer AES-GCM signature; without the footer key, the footer is readable but not authenticated by this reader.
+- Mixed plaintext/encrypted columns: plaintext columns can be read without encryption keys. Encrypted columns require either the column key from `WithColumnKey`/`WithKeyRetriever` or the footer key when the column metadata says it uses the footer key.
+- Encrypted column indexes, offset indexes, and bloom filters require the key for that encrypted column. The plain versions can be read without keys.
+- Low-level page-header inspection helpers do not inspect encrypted columns; use normal row reads with the required keys instead.
 
 Read a file encrypted with a single footer key:
 
@@ -445,6 +453,15 @@ pr, err := reader.NewParquetReader(
     new(Student),
     reader.WithKeyRetriever(keyRetriever),
 )
+```
+
+Read only plaintext columns from a plaintext-footer file that also has encrypted columns:
+
+```go
+pr, err := reader.NewParquetReader(fr, new(StudentPublicFields))
+if err == nil {
+    err = pr.ReadPartial(&rows, "public")
+}
 ```
 
 Write a file encrypted with a single footer key:
@@ -509,7 +526,7 @@ When `WithSupplyAADPrefix(true)` is used, readers must pass the same value with 
 
 #### Security notes
 
-**Footer mode**: The default is encrypted footer (`PARE`). The entire file metadata — including schema (column names and types), row counts, and statistics — is encrypted and invisible to readers without the footer key. Use `WithPlaintextFooter(true)` to write a `PAR1` file where the footer is plaintext but signed with AES-GCM. This is appropriate when downstream readers need schema or statistics access without possessing column keys, accepting that schema information (column names) is exposed.
+**Footer mode**: The default writer mode is encrypted footer (`PARE`). The entire file metadata - including schema (column names and types), row counts, and statistics - is encrypted and invisible to readers without the footer key. Use `WithPlaintextFooter(true)` to write a `PAR1` file where the footer is plaintext but signed with AES-GCM. This is appropriate when downstream readers need schema or statistics access without possessing column keys, accepting that schema information (column names) is exposed. Readers without the footer key can parse plaintext footers, but cannot verify the footer signature.
 
 **AAD uniqueness**: Each file should have a unique `(AADPrefix, AADFileUnique)` pair. The AAD binds each encrypted module to its intended file so that ciphertext from one file cannot be replayed into another. Omitting `WithAADFileUnique` generates a random 12-byte value automatically; supply it explicitly for deterministic file identity. Reusing the same pair with the same key across different files breaks this binding.
 
@@ -517,7 +534,7 @@ When `WithSupplyAADPrefix(true)` is used, readers must pass the same value with 
 
 **Algorithm choice**: `AES_GCM_V1` (default) uses AES-GCM for every module and provides authenticated encryption for data and metadata alike. `AES_GCM_CTR_V1` uses AES-GCM for metadata modules and AES-CTR for data pages; CTR page bodies have no authentication tag, so tampering with the body ciphertext produces corrupted plaintext without being detected by the cipher. The GCM-authenticated page header covers only header bytes and does not protect the body. Use `AES_GCM_V1` when integrity detection for page data is required.
 
-**Compatibility**: The implementation follows the Apache Parquet Encryption Specification. Files produced by this library are interoperable with other spec-compliant readers — including Apache Arrow (C++/Python) and Apache Spark — when the same keys and AAD configuration are used.
+**Compatibility**: The reader follows the Apache Parquet Encryption Specification for plaintext-footer files with mixed plaintext/encrypted columns. The current writer encrypts every column when encryption is enabled; columns without an explicit column key use the footer key. Files produced by this library are interoperable with other spec-compliant readers - including Apache Arrow (C++/Python) and Apache Spark - when the same keys and AAD configuration are used.
 
 ### GeoParquet
 
