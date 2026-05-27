@@ -30,7 +30,7 @@ LDFLAGS     := -w -s
 .EXPORT_ALL_VARIABLES:
 
 .PHONY: all
-all: deps tools format lint test example build  ## Build all common targets
+all: deps tools format lint test example  ## Build all common targets
 
 .PHONY: format
 format: tools  ## Format all go code

@@ -41,6 +41,7 @@ type ParquetReader struct {
 	aadPrefix         []byte
 	keyRetriever      KeyRetriever
 	columnKeys        map[string][]byte
+	keyCache          sync.Map
 }
 
 // NewParquetReader creates a parquet reader. obj is an object with schema tags or a JSON schema string.
@@ -132,7 +133,7 @@ func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, err
 		return nil, err
 	}
 	cb.Reader = pr
-	if err := pr.reconfigureDecryptorForBuffer(cb); err != nil {
+	if err := pr.reconfigureOptionalDecryptorForBuffer(cb); err != nil {
 		_ = cb.PFile.Close()
 		return nil, err
 	}
