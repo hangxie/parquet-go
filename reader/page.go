@@ -607,12 +607,12 @@ func (pr *ParquetReader) pageOffsetEncrypted(offset int64) bool {
 	if pr == nil || pr.Footer == nil {
 		return false
 	}
-	pr.encOffsetOnce.Do(pr.buildEncryptedOffsets)
-	_, ok := pr.encOffsets[offset]
+	pr.encryptedPageOffsetOnce.Do(pr.buildEncryptedPageOffsets)
+	_, ok := pr.encryptedPageOffsets[offset]
 	return ok
 }
 
-func (pr *ParquetReader) buildEncryptedOffsets() {
+func (pr *ParquetReader) buildEncryptedPageOffsets() {
 	offsets := make(map[int64]struct{})
 	for _, rowGroup := range pr.Footer.GetRowGroups() {
 		if rowGroup == nil {
@@ -628,5 +628,5 @@ func (pr *ParquetReader) buildEncryptedOffsets() {
 			}
 		}
 	}
-	pr.encOffsets = offsets
+	pr.encryptedPageOffsets = offsets
 }

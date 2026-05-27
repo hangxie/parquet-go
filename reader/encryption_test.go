@@ -60,6 +60,25 @@ func TestReadFooterEncryptedFooter(t *testing.T) {
 	require.True(t, footer.Equals(pr.Footer))
 }
 
+func TestReadFooterDoesNotReloadAfterSuccessfulRead(t *testing.T) {
+	t.Parallel()
+
+	firstFooter := minimalFileMetaData()
+	firstFooter.NumRows = 1
+	secondFooter := minimalFileMetaData()
+	secondFooter.NumRows = 2
+
+	pr := &ParquetReader{PFile: buffer.NewBufferReaderFromBytesNoAlloc(buildPlainFooterFile(t, firstFooter))}
+	require.NoError(t, pr.ReadFooter())
+	loadedFooter := pr.Footer
+	require.Equal(t, int64(1), pr.Footer.GetNumRows())
+
+	pr.PFile = buffer.NewBufferReaderFromBytesNoAlloc(buildPlainFooterFile(t, secondFooter))
+	require.NoError(t, pr.ReadFooter())
+	require.Same(t, loadedFooter, pr.Footer)
+	require.Equal(t, int64(1), pr.Footer.GetNumRows())
+}
+
 func TestReadFooterEncryptedFooterErrors(t *testing.T) {
 	t.Parallel()
 
@@ -1000,7 +1019,7 @@ func encryptedColumnIndex(t *testing.T, pr *ParquetReader, leaf string) int {
 	return -1
 }
 
-func TestPageOffsetEncryptedCachesFooterScan(t *testing.T) {
+func TestPageOffsetEncryptedCachesDataAndDictionaryOffsets(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -1008,37 +1027,39 @@ func TestPageOffsetEncryptedCachesFooterScan(t *testing.T) {
 		dataPageOffset       int64 = 8
 	)
 
-	column := &parquet.ColumnChunk{
-		MetaData: &parquet.ColumnMetaData{
-			Type:                 parquet.Type_INT32,
-			PathInSchema:         []string{"leaf"},
-			Codec:                parquet.CompressionCodec_UNCOMPRESSED,
-			DataPageOffset:       dataPageOffset,
-			DictionaryPageOffset: int64Ptr(dictionaryPageOffset),
-		},
-		CryptoMetadata: &parquet.ColumnCryptoMetaData{
-			ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
-		},
-	}
 	pr := &ParquetReader{
 		Footer: &parquet.FileMetaData{
 			RowGroups: []*parquet.RowGroup{
-				{Columns: []*parquet.ColumnChunk{column}},
+				{Columns: []*parquet.ColumnChunk{encryptedOffsetTestColumn(dictionaryPageOffset, dataPageOffset)}},
 			},
 		},
 	}
 
 	require.True(t, pr.pageOffsetEncrypted(dictionaryPageOffset))
 	require.True(t, pr.pageOffsetEncrypted(dataPageOffset))
+	require.Len(t, pr.encryptedPageOffsets, 2)
+}
 
-	column.CryptoMetadata = nil
-	column.MetaData.DataPageOffset = 80
-	column.MetaData.DictionaryPageOffset = int64Ptr(40)
+func TestPageOffsetEncryptedBuildsAfterFooterSet(t *testing.T) {
+	t.Parallel()
 
+	const (
+		dictionaryPageOffset int64 = 4
+		dataPageOffset       int64 = 8
+	)
+
+	pr := &ParquetReader{}
+	require.False(t, pr.pageOffsetEncrypted(dictionaryPageOffset))
+	require.Nil(t, pr.encryptedPageOffsets)
+
+	pr.Footer = &parquet.FileMetaData{
+		RowGroups: []*parquet.RowGroup{
+			{Columns: []*parquet.ColumnChunk{encryptedOffsetTestColumn(dictionaryPageOffset, dataPageOffset)}},
+		},
+	}
 	require.True(t, pr.pageOffsetEncrypted(dictionaryPageOffset))
 	require.True(t, pr.pageOffsetEncrypted(dataPageOffset))
-	require.False(t, pr.pageOffsetEncrypted(40))
-	require.False(t, pr.pageOffsetEncrypted(80))
+	require.Len(t, pr.encryptedPageOffsets, 2)
 }
 
 func TestConfigurePageDecryptor(t *testing.T) {
@@ -1560,6 +1581,21 @@ func encryptedTestColumnChunk(path string) *parquet.ColumnChunk {
 	}
 }
 
+func encryptedOffsetTestColumn(dictionaryPageOffset, dataPageOffset int64) *parquet.ColumnChunk {
+	return &parquet.ColumnChunk{
+		MetaData: &parquet.ColumnMetaData{
+			Type:                 parquet.Type_INT32,
+			PathInSchema:         []string{"leaf"},
+			Codec:                parquet.CompressionCodec_UNCOMPRESSED,
+			DataPageOffset:       dataPageOffset,
+			DictionaryPageOffset: int64Ptr(dictionaryPageOffset),
+		},
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{
+			ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
+		},
+	}
+}
+
 func valueColumnPathWithLeaf(t *testing.T, pr *ParquetReader, leaf string) string {
 	t.Helper()
 
@@ -1581,6 +1617,18 @@ func buildEncryptedFooterFile(t *testing.T, key, aadPrefix, fileUnique []byte, f
 			AadFileUnique: fileUnique,
 		},
 	})
+}
+
+func buildPlainFooterFile(t *testing.T, footer *parquet.FileMetaData) []byte {
+	t.Helper()
+
+	footerBytes := serializeThrift(t, footer)
+	file := append([]byte(common.MagicBytes), footerBytes...)
+	var footerSize [4]byte
+	binary.LittleEndian.PutUint32(footerSize[:], uint32(len(footerBytes)))
+	file = append(file, footerSize[:]...)
+	file = append(file, []byte(common.MagicBytes)...)
+	return file
 }
 
 func buildEncryptedFooterFileWithKeyMetadata(t *testing.T, key, keyMetadata, aadPrefix, fileUnique []byte, footer *parquet.FileMetaData) []byte {
