@@ -42,6 +42,8 @@ type ParquetReader struct {
 	keyRetriever      KeyRetriever
 	columnKeys        map[string][]byte
 	keyCache          sync.Map
+	encOffsetOnce     sync.Once
+	encOffsets        map[int64]struct{}
 }
 
 // NewParquetReader creates a parquet reader. obj is an object with schema tags or a JSON schema string.
