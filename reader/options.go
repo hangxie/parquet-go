@@ -6,74 +6,78 @@ import (
 	"github.com/hangxie/parquet-go/v3/common"
 )
 
-// ReaderOption configures a ParquetReader.
-type ReaderOption func(*ParquetReader)
+// ReaderOption configures a ParquetReader when passed to constructors such as
+// NewParquetReader or NewParquetColumnReader. ReaderOption values are opaque;
+// callers should not use them to mutate an already-created reader.
+type ReaderOption interface {
+	apply(*ParquetReader)
+}
+
+type readerOptionFunc func(*ParquetReader)
+
+func (fn readerOptionFunc) apply(pr *ParquetReader) {
+	fn(pr)
+}
 
 // KeyRetriever resolves a Parquet encryption key from file key metadata.
 type KeyRetriever func(keyMetadata []byte) ([]byte, error)
 
 // WithNP sets the number of goroutines for parallel processing. Default is 4.
 func WithNP(np int64) ReaderOption {
-	return func(pr *ParquetReader) { pr.np = np }
+	return readerOptionFunc(func(pr *ParquetReader) { pr.np = np })
 }
 
 // WithCaseInsensitive enables case-insensitive schema matching.
 func WithCaseInsensitive(enabled bool) ReaderOption {
-	return func(pr *ParquetReader) { pr.caseInsensitive = enabled }
+	return readerOptionFunc(func(pr *ParquetReader) { pr.caseInsensitive = enabled })
 }
 
 // WithCRCMode sets the CRC validation mode when reading pages.
 func WithCRCMode(mode common.CRCMode) ReaderOption {
-	return func(pr *ParquetReader) { pr.crcMode = mode }
+	return readerOptionFunc(func(pr *ParquetReader) { pr.crcMode = mode })
 }
 
 // WithFooterKey sets the key used to decrypt encrypted footers or verify
 // plaintext-footer signatures when no key retriever is configured.
 func WithFooterKey(key []byte) ReaderOption {
-	return func(pr *ParquetReader) {
+	return readerOptionFunc(func(pr *ParquetReader) {
 		pr.footerKey = append(pr.footerKey[:0], key...)
-		pr.resolvedFooterKey = nil
-	}
+	})
 }
 
 // WithKeyRetriever sets a callback for resolving encryption keys from Parquet
 // key_metadata fields.
 func WithKeyRetriever(retriever KeyRetriever) ReaderOption {
-	return func(pr *ParquetReader) {
+	return readerOptionFunc(func(pr *ParquetReader) {
 		pr.keyRetriever = retriever
-		pr.resolvedFooterKey = nil
-		pr.keyCache.Range(func(key, _ any) bool {
-			pr.keyCache.Delete(key)
-			return true
-		})
-	}
+	})
 }
 
 // WithAADPrefix supplies an external AAD prefix for files whose encryption
 // algorithm requires readers to supply it.
 func WithAADPrefix(prefix []byte) ReaderOption {
-	return func(pr *ParquetReader) {
+	return readerOptionFunc(func(pr *ParquetReader) {
 		pr.aadPrefix = append(pr.aadPrefix[:0], prefix...)
-	}
+	})
 }
 
 // WithColumnKey sets the key used to decrypt a column. The path is the
 // dot-separated schema path without the root element.
 func WithColumnKey(path string, key []byte) ReaderOption {
-	return func(pr *ParquetReader) {
+	return readerOptionFunc(func(pr *ParquetReader) {
 		if pr.columnKeys == nil {
 			pr.columnKeys = make(map[string][]byte)
 		}
 		pr.columnKeys[common.ReformPathStr(path)] = append([]byte(nil), key...)
-	}
+	})
 }
 
-// applyReaderDefaults sets defaults, applies functional options, and validates them.
+// applyReaderDefaults sets defaults, applies constructor options, and validates them.
 func applyReaderDefaults(pr *ParquetReader, opts []ReaderOption) error {
 	pr.np = 4 // default parallel number
 
 	for _, opt := range opts {
-		opt(pr)
+		opt.apply(pr)
 	}
 
 	if pr.np <= 0 {

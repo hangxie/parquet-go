@@ -16,49 +16,59 @@ import (
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
-// WriterOption configures a ParquetWriter.
-type WriterOption func(*ParquetWriter)
+// WriterOption configures a ParquetWriter when passed to constructors such as
+// NewParquetWriter. WriterOption values are opaque; callers should not use them
+// to mutate an already-created writer.
+type WriterOption interface {
+	apply(*ParquetWriter)
+}
+
+type writerOptionFunc func(*ParquetWriter)
+
+func (fn writerOptionFunc) apply(pw *ParquetWriter) {
+	fn(pw)
+}
 
 // WithNP sets the number of goroutines for parallel processing. Default is 4.
 func WithNP(np int64) WriterOption {
-	return func(pw *ParquetWriter) { pw.np = np }
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.np = np })
 }
 
 // WithPageSize sets the page size in bytes. Default is 8KB.
 func WithPageSize(size int64) WriterOption {
-	return func(pw *ParquetWriter) { pw.pageSize = size }
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.pageSize = size })
 }
 
 // WithRowGroupSize sets the row group size in bytes. Default is 128MB.
 func WithRowGroupSize(size int64) WriterOption {
-	return func(pw *ParquetWriter) { pw.rowGroupSize = size }
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.rowGroupSize = size })
 }
 
 // WithCompressionCodec sets the compression codec. Default is SNAPPY.
 func WithCompressionCodec(ct parquet.CompressionCodec) WriterOption {
-	return func(pw *ParquetWriter) { pw.compressionType = ct }
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.compressionType = ct })
 }
 
 // WithCompressionLevel sets the compression level for a specific codec.
 // Not all codecs support compression levels; invalid codecs or levels are
 // reported when constructing the writer.
 func WithCompressionLevel(codec parquet.CompressionCodec, level int) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		if pw.compressionLevels == nil {
 			pw.compressionLevels = make(map[parquet.CompressionCodec]int)
 		}
 		pw.compressionLevels[codec] = level
-	}
+	})
 }
 
 // WithDataPageVersion sets the data page version (1 or 2). Default is 1.
 func WithDataPageVersion(v int32) WriterOption {
-	return func(pw *ParquetWriter) { pw.dataPageVersion = v }
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.dataPageVersion = v })
 }
 
 // WithWriteCRC enables or disables CRC32 page checksums. Default is false.
 func WithWriteCRC(enabled bool) WriterOption {
-	return func(pw *ParquetWriter) { pw.writeCRC = enabled }
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.writeCRC = enabled })
 }
 
 // ParquetWriter is a writer  parquet file
@@ -114,7 +124,7 @@ func NewParquetWriterFromWriter(w io.Writer, obj any, opts ...WriterOption) (*Pa
 }
 
 // initBase sets up the ParquetWriter with defaults, applies and validates
-// functional options, and writes the magic header. It writes PARE when
+// constructor options, and writes the magic header. It writes PARE when
 // encryption is enabled with an encrypted footer, otherwise PAR1. Options are
 // validated before any IO so that invalid options never produce partial output.
 //
@@ -147,9 +157,9 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	// schema failure) rejects Write calls rather than panicking.
 	pw.stopped = true
 
-	// Apply functional options
+	// Apply constructor options.
 	for _, opt := range opts {
-		opt(pw)
+		opt.apply(pw)
 	}
 
 	// Validate options before any IO to avoid partial writes on invalid input.

@@ -66,36 +66,36 @@ type EncryptionConfig struct {
 
 // WithEncryption enables Parquet modular encryption for writer output.
 func WithEncryption(config EncryptionConfig) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		pw.encryptionConfig = &config
-	}
+	})
 }
 
 // WithFooterKey sets the footer encryption key and optional key metadata.
 func WithFooterKey(key []byte, keyMetadata ...[]byte) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.FooterKey = append(config.FooterKey[:0], key...)
 		if len(keyMetadata) > 0 {
 			config.FooterKeyMetadata = append(config.FooterKeyMetadata[:0], keyMetadata[0]...)
 		}
-	}
+	})
 }
 
 // WithFooterKeyMetadata sets footer key metadata. WithKeyRetriever resolves the
 // footer key from this metadata and takes priority when it returns a non-empty
 // key.
 func WithFooterKeyMetadata(keyMetadata []byte) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.FooterKeyMetadata = append(config.FooterKeyMetadata[:0], keyMetadata...)
-	}
+	})
 }
 
 // WithColumnKey sets an encryption key and optional key metadata for a column.
 // The path is the dot-separated schema path without the root element.
 func WithColumnKey(path string, key []byte, keyMetadata ...[]byte) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		if config.ColumnKeys == nil {
 			config.ColumnKeys = make(map[string]EncryptionColumnKey)
@@ -106,13 +106,13 @@ func WithColumnKey(path string, key []byte, keyMetadata ...[]byte) WriterOption 
 			columnKey.KeyMetadata = append(columnKey.KeyMetadata[:0], keyMetadata[0]...)
 		}
 		config.ColumnKeys[common.ReformPathStr(path)] = columnKey
-	}
+	})
 }
 
 // WithColumnKeyMetadata sets column key metadata. When the column key is not
 // set directly, WithKeyRetriever resolves the key from this metadata.
 func WithColumnKeyMetadata(path string, keyMetadata []byte) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		if config.ColumnKeys == nil {
 			config.ColumnKeys = make(map[string]EncryptionColumnKey)
@@ -120,7 +120,7 @@ func WithColumnKeyMetadata(path string, keyMetadata []byte) WriterOption {
 		columnKey := config.ColumnKeys[common.ReformPathStr(path)]
 		columnKey.KeyMetadata = append(columnKey.KeyMetadata[:0], keyMetadata...)
 		config.ColumnKeys[common.ReformPathStr(path)] = columnKey
-	}
+	})
 }
 
 // WithKeyRetriever sets a callback for resolving encryption keys from Parquet
@@ -128,52 +128,52 @@ func WithColumnKeyMetadata(path string, keyMetadata []byte) WriterOption {
 // WithColumnKey always take priority; the retriever is only called when no
 // direct key is provided.
 func WithKeyRetriever(retriever KeyRetriever) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.KeyRetriever = retriever
-	}
+	})
 }
 
 // WithAADPrefix sets the AAD prefix used for encrypted modules.
 func WithAADPrefix(prefix []byte) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.AADPrefix = append(config.AADPrefix[:0], prefix...)
-	}
+	})
 }
 
 // WithAADFileUnique sets the unique file identifier portion of AAD.
 func WithAADFileUnique(fileUnique []byte) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.AADFileUnique = append(config.AADFileUnique[:0], fileUnique...)
-	}
+	})
 }
 
 // WithSupplyAADPrefix controls whether the AAD prefix is stored in file
 // metadata. When true, readers must supply the prefix with reader.WithAADPrefix.
 func WithSupplyAADPrefix(enabled bool) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.SupplyAADPrefix = enabled
-	}
+	})
 }
 
 // WithPlaintextFooter writes an encrypted file with plaintext footer metadata
 // and an AES-GCM footer signature.
 func WithPlaintextFooter(enabled bool) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.PlaintextFooter = enabled
-	}
+	})
 }
 
 // WithEncryptionAlgorithm sets the modular encryption algorithm.
 func WithEncryptionAlgorithm(algorithm EncryptionAlgorithm) WriterOption {
-	return func(pw *ParquetWriter) {
+	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.Algorithm = algorithm
-	}
+	})
 }
 
 func (pw *ParquetWriter) ensureEncryptionConfig() *EncryptionConfig {
