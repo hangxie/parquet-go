@@ -144,7 +144,7 @@ func main() {
 
 ## Configuration
 
-Readers and writers are configured per instance with functional options. This keeps independent readers and writers safe to use with different settings in the same process.
+Readers and writers are configured per instance by passing functional options to their constructors. This keeps independent readers and writers safe to use with different settings in the same process. Options are construction inputs, not a public API for mutating an already-created reader or writer.
 
 Common writer options:
 
