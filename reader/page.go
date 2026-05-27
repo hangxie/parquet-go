@@ -607,6 +607,13 @@ func (pr *ParquetReader) pageOffsetEncrypted(offset int64) bool {
 	if pr == nil || pr.Footer == nil {
 		return false
 	}
+	pr.encOffsetOnce.Do(pr.buildEncryptedOffsets)
+	_, ok := pr.encOffsets[offset]
+	return ok
+}
+
+func (pr *ParquetReader) buildEncryptedOffsets() {
+	offsets := make(map[int64]struct{})
 	for _, rowGroup := range pr.Footer.GetRowGroups() {
 		if rowGroup == nil {
 			continue
@@ -615,13 +622,11 @@ func (pr *ParquetReader) pageOffsetEncrypted(offset int64) bool {
 			if column == nil || column.GetCryptoMetadata() == nil || column.MetaData == nil {
 				continue
 			}
-			if column.MetaData.GetDataPageOffset() == offset {
-				return true
-			}
-			if column.MetaData.IsSetDictionaryPageOffset() && column.MetaData.GetDictionaryPageOffset() == offset {
-				return true
+			offsets[column.MetaData.GetDataPageOffset()] = struct{}{}
+			if column.MetaData.IsSetDictionaryPageOffset() {
+				offsets[column.MetaData.GetDictionaryPageOffset()] = struct{}{}
 			}
 		}
 	}
-	return false
+	pr.encOffsets = offsets
 }

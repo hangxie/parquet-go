@@ -1000,6 +1000,47 @@ func encryptedColumnIndex(t *testing.T, pr *ParquetReader, leaf string) int {
 	return -1
 }
 
+func TestPageOffsetEncryptedCachesFooterScan(t *testing.T) {
+	t.Parallel()
+
+	const (
+		dictionaryPageOffset int64 = 4
+		dataPageOffset       int64 = 8
+	)
+
+	column := &parquet.ColumnChunk{
+		MetaData: &parquet.ColumnMetaData{
+			Type:                 parquet.Type_INT32,
+			PathInSchema:         []string{"leaf"},
+			Codec:                parquet.CompressionCodec_UNCOMPRESSED,
+			DataPageOffset:       dataPageOffset,
+			DictionaryPageOffset: int64Ptr(dictionaryPageOffset),
+		},
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{
+			ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
+		},
+	}
+	pr := &ParquetReader{
+		Footer: &parquet.FileMetaData{
+			RowGroups: []*parquet.RowGroup{
+				{Columns: []*parquet.ColumnChunk{column}},
+			},
+		},
+	}
+
+	require.True(t, pr.pageOffsetEncrypted(dictionaryPageOffset))
+	require.True(t, pr.pageOffsetEncrypted(dataPageOffset))
+
+	column.CryptoMetadata = nil
+	column.MetaData.DataPageOffset = 80
+	column.MetaData.DictionaryPageOffset = int64Ptr(40)
+
+	require.True(t, pr.pageOffsetEncrypted(dictionaryPageOffset))
+	require.True(t, pr.pageOffsetEncrypted(dataPageOffset))
+	require.False(t, pr.pageOffsetEncrypted(40))
+	require.False(t, pr.pageOffsetEncrypted(80))
+}
+
 func TestConfigurePageDecryptor(t *testing.T) {
 	t.Parallel()
 
