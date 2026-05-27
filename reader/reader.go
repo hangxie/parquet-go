@@ -24,9 +24,11 @@ import (
 type ParquetReader struct {
 	SchemaHandler *schema.SchemaHandler
 	np            int64 // parallel number
-	Footer        *parquet.FileMetaData
-	PFile         source.ParquetFileReader
-	FileCrypto    *parquet.FileCryptoMetaData
+	// Footer is loaded once by ReadFooter and then treated as immutable for the
+	// reader lifetime. Direct mutation or reassignment by callers is unsupported.
+	Footer     *parquet.FileMetaData
+	PFile      source.ParquetFileReader
+	FileCrypto *parquet.FileCryptoMetaData
 
 	ColumnBuffers map[string]*ColumnBufferType
 
@@ -42,8 +44,12 @@ type ParquetReader struct {
 	keyRetriever      KeyRetriever
 	columnKeys        map[string][]byte
 	keyCache          sync.Map
-	encOffsetOnce     sync.Once
-	encOffsets        map[int64]struct{}
+	footerMu          sync.Mutex
+	footerLoaded      bool
+	// encryptedPageOffsets is populated once from the immutable footer and then
+	// treated as read-only. It only tracks data-page and dictionary-page offsets.
+	encryptedPageOffsetOnce sync.Once
+	encryptedPageOffsets    map[int64]struct{}
 }
 
 // NewParquetReader creates a parquet reader. obj is an object with schema tags or a JSON schema string.
@@ -226,8 +232,18 @@ func (pr *ParquetReader) getFooterTail() (uint32, string, error) {
 	return binary.LittleEndian.Uint32(buf[:4]), string(buf[4:]), nil
 }
 
-// Read footer from parquet file
+// ReadFooter reads and publishes the file footer once.
+//
+// After a successful read, the reader treats Footer as immutable. Repeated calls
+// return without reloading so internal caches remain tied to the same footer.
 func (pr *ParquetReader) ReadFooter() error {
+	pr.footerMu.Lock()
+	defer pr.footerMu.Unlock()
+
+	if pr.footerLoaded {
+		return nil
+	}
+
 	size, magic, err := pr.getFooterTail()
 	if err != nil {
 		return fmt.Errorf("get footer tail: %w", err)
@@ -245,6 +261,7 @@ func (pr *ParquetReader) ReadFooter() error {
 	if err := pr.decryptEncryptedColumnMetadata(); err != nil {
 		return fmt.Errorf("decrypt encrypted column metadata: %w", err)
 	}
+	pr.footerLoaded = true
 	return nil
 }
 
