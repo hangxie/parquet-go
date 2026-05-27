@@ -81,7 +81,7 @@ func ReadEncryptedBloomFilter(r io.ReadSeeker, offset int64, opt ReadOptions) (*
 	}
 	header, err := readBloomFilterHeader(bytes.NewReader(headerBytes))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode decrypted bloom filter header: %w", err)
 	}
 	if header.NumBytes <= 0 {
 		return nil, fmt.Errorf("invalid bloom filter header: numBytes=%d", header.NumBytes)

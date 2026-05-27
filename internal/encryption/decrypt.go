@@ -55,7 +55,7 @@ func DecryptGCM(key, aad, module []byte) ([]byte, error) {
 	}
 	gcm, err := newGCMCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init AES-GCM cipher: %w", err)
 	}
 	nonce := module[:gcmNonceSize]
 	ciphertextAndTag := module[gcmNonceSize:]
@@ -78,7 +78,7 @@ func VerifyGCMTag(key, aad, nonce, plaintext, tag []byte) error {
 	}
 	gcm, err := newGCMCipher(key)
 	if err != nil {
-		return err
+		return fmt.Errorf("init AES-GCM cipher: %w", err)
 	}
 	// gcm.Seal re-encrypts the plaintext to derive the tag for comparison.
 	// Go's cipher.AEAD interface has no tag-only (GHASH-only) path, so the
@@ -99,7 +99,7 @@ func DecryptCTR(key, module []byte) ([]byte, error) {
 	}
 	block, err := newAESBlock(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init AES block: %w", err)
 	}
 	iv := make([]byte, aes.BlockSize)
 	copy(iv, module[:ctrNonceSize])
@@ -131,7 +131,7 @@ func newAESBlock(key []byte) (cipher.Block, error) {
 func newGCMCipher(key []byte) (cipher.AEAD, error) {
 	block, err := newAESBlock(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init AES block: %w", err)
 	}
 	gcm, err := cipher.NewGCMWithNonceSize(block, gcmNonceSize)
 	if err != nil {

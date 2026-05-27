@@ -25,7 +25,7 @@ func NewJSONWriterFromWriter(jsonSchema string, w io.Writer, opts ...WriterOptio
 func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, opts ...WriterOption) (*JSONWriter, error) {
 	res := new(JSONWriter)
 	if err := res.initBase(pfile, opts...); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init JSON writer base: %w", err)
 	}
 
 	var err error
@@ -39,7 +39,7 @@ func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, opts ...Wr
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
 	if err = res.validateEncryptionColumnKeys(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate encryption column keys: %w", err)
 	}
 
 	res.stopped = false

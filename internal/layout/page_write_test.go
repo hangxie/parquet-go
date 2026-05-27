@@ -1636,6 +1636,35 @@ func TestCompressAndSerializePage_ErrorPaths(t *testing.T) {
 	})
 }
 
+// TestTableToDataPagesWithOption_ErrorPaths exercises the wrapped errors in
+// TableToDataPagesWithOption: the scanPageValues "page scan index" wrap
+// triggered by checkRequiredNil.
+func TestTableToDataPagesWithOption_ErrorPaths(t *testing.T) {
+	t.Run("scan_required_nil", func(t *testing.T) {
+		table := &Table{
+			Schema: &parquet.SchemaElement{
+				Type:           common.ToPtr(parquet.Type_INT32),
+				RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				Name:           "test_col",
+			},
+			Values:             []any{nil}, // nil at REQUIRED max DL triggers checkRequiredNil
+			DefinitionLevels:   []int32{0},
+			RepetitionLevels:   []int32{0},
+			MaxDefinitionLevel: 0,
+			Path:               []string{"test_col"},
+			Info:               &common.Tag{},
+		}
+		_, _, err := TableToDataPagesWithOption(table, PageWriteOption{
+			PageSize:        1024,
+			CompressType:    parquet.CompressionCodec_UNCOMPRESSED,
+			DataPageVersion: 1,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "scan page values")
+		require.Contains(t, err.Error(), "page scan index")
+	})
+}
+
 func TestDataPageCompress_RequiredNilError(t *testing.T) {
 	page := NewDataPage()
 	page.Schema = &parquet.SchemaElement{

@@ -9,6 +9,29 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// TestPopulateStatistics_EncodeErrors exercises the wrapped error paths for
+// max- and min-value encoding when the value type does not match the parquet
+// type (WritePlain returns a type-assertion error).
+func TestPopulateStatistics_EncodeErrors(t *testing.T) {
+	pT := common.ToPtr(parquet.Type_INT32)
+
+	t.Run("max_encode_error", func(t *testing.T) {
+		meta := parquet.NewColumnMetaData()
+		// maxVal is a string but the type is INT32, so WritePlain fails.
+		err := populateStatistics(meta, pT, int32(1), "not-an-int", 0, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "encode chunk max statistic")
+	})
+
+	t.Run("min_encode_error", func(t *testing.T) {
+		meta := parquet.NewColumnMetaData()
+		// maxVal is valid INT32, but minVal is a string, so the min encode fails.
+		err := populateStatistics(meta, pT, "not-an-int", int32(1), 0, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "encode chunk min statistic")
+	})
+}
+
 func TestDecodeDictChunk(t *testing.T) {
 	// Create a chunk with dictionary and data pages
 	dictPage := NewDictPage()

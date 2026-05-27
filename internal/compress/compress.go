@@ -73,7 +73,7 @@ func NewCompressor(opts ...CompressorOption) (*Compressor, error) {
 	}
 	for _, opt := range opts {
 		if err := opt(cfg); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("apply compressor option: %w", err)
 		}
 	}
 
@@ -150,7 +150,7 @@ func (c *Compressor) UncompressWithExpectedSize(buf []byte, codec parquet.Compre
 
 	result, err := c.Uncompress(buf, codec)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("uncompress %v: %w", codec, err)
 	}
 
 	if int64(len(result)) != expectedSize {
@@ -188,7 +188,7 @@ func limitedReadAll(r io.Reader, maxSize int64) ([]byte, error) {
 	limited := io.LimitReader(r, maxSize+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read decompressed data: %w", err)
 	}
 
 	if int64(len(data)) > maxSize {

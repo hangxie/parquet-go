@@ -26,7 +26,7 @@ func NewCSVWriterFromWriter(md []string, w io.Writer, opts ...WriterOption) (*CS
 func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOption) (*CSVWriter, error) {
 	res := new(CSVWriter)
 	if err := res.initBase(pfile, opts...); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init CSV writer base: %w", err)
 	}
 
 	var err error
@@ -40,7 +40,7 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOpt
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
 	if err = res.validateEncryptionColumnKeys(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate encryption column keys: %w", err)
 	}
 
 	res.stopped = false

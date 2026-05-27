@@ -2,6 +2,7 @@ package reader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -17,7 +18,7 @@ func NewParquetColumnReader(pFile source.ParquetFileReader, opts ...ReaderOption
 	res.PFile = pFile
 
 	if err := applyReaderDefaults(res, opts); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("apply reader options: %w", err)
 	}
 	if err := res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
@@ -51,7 +52,7 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 		sem <- struct{}{}
 		g.Go(func() error {
 			defer func() { <-sem }()
-			if _, err := pr.ColumnBuffers[pathStr].SkipRows(int64(num)); err != nil && err == io.EOF {
+			if _, err := pr.ColumnBuffers[pathStr].SkipRows(int64(num)); err != nil && errors.Is(err, io.EOF) {
 				return nil
 			} else if err != nil {
 				return fmt.Errorf("skip rows for column %s: %w", pathStr, err)
@@ -129,7 +130,7 @@ func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []a
 		if err != nil {
 			return []any{}, []int32{}, []int32{}, fmt.Errorf("convert path %v: %w", pathStr, err)
 		}
-		return []any{}, []int32{}, []int32{}, err
+		return []any{}, []int32{}, []int32{}, nil
 	}
 
 	if _, ok := pr.SchemaHandler.MapIndex[pathStr]; !ok {

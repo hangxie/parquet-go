@@ -51,7 +51,7 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOpt
 	res.PFile = pFile
 
 	if err = applyReaderDefaults(res, opts); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("apply reader options: %w", err)
 	}
 	if err = res.ReadFooter(); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
@@ -130,12 +130,12 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, error) {
 	cb, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new column buffer for %s: %w", pathStr, err)
 	}
 	cb.Reader = pr
 	if err := pr.reconfigureOptionalDecryptorForBuffer(cb); err != nil {
 		_ = cb.PFile.Close()
-		return nil, err
+		return nil, fmt.Errorf("configure decryptor for %s: %w", pathStr, err)
 	}
 	return cb, nil
 }
@@ -199,16 +199,14 @@ func (pr *ParquetReader) GetFooterSize() (uint32, error) {
 		return 0, fmt.Errorf("PFile is nil")
 	}
 
-	var err error
 	buf := make([]byte, 4)
-	if _, err = pr.PFile.Seek(-8, io.SeekEnd); err != nil {
-		return 0, err
+	if _, err := pr.PFile.Seek(-8, io.SeekEnd); err != nil {
+		return 0, fmt.Errorf("seek to footer size: %w", err)
 	}
-	if _, err = io.ReadFull(pr.PFile, buf); err != nil {
-		return 0, err
+	if _, err := io.ReadFull(pr.PFile, buf); err != nil {
+		return 0, fmt.Errorf("read footer size: %w", err)
 	}
-	size := binary.LittleEndian.Uint32(buf)
-	return size, err
+	return binary.LittleEndian.Uint32(buf), nil
 }
 
 func (pr *ParquetReader) getFooterTail() (uint32, string, error) {
@@ -218,10 +216,10 @@ func (pr *ParquetReader) getFooterTail() (uint32, string, error) {
 
 	buf := make([]byte, 8)
 	if _, err := pr.PFile.Seek(-8, io.SeekEnd); err != nil {
-		return 0, "", err
+		return 0, "", fmt.Errorf("seek to footer tail: %w", err)
 	}
 	if _, err := io.ReadFull(pr.PFile, buf); err != nil {
-		return 0, "", err
+		return 0, "", fmt.Errorf("read footer tail: %w", err)
 	}
 	return binary.LittleEndian.Uint32(buf[:4]), string(buf[4:]), nil
 }
@@ -235,11 +233,11 @@ func (pr *ParquetReader) ReadFooter() error {
 	switch magic {
 	case common.MagicBytesEncrypted:
 		if err := pr.readEncryptedFooter(size); err != nil {
-			return err
+			return fmt.Errorf("read encrypted footer: %w", err)
 		}
 	default:
 		if err := pr.readPlainFooter(size); err != nil {
-			return err
+			return fmt.Errorf("read plain footer: %w", err)
 		}
 	}
 	if err := pr.decryptEncryptedColumnMetadata(); err != nil {
@@ -270,7 +268,7 @@ func (pr *ParquetReader) readPlainFooter(size uint32) error {
 			return fmt.Errorf("read plaintext footer section: %w", err)
 		}
 		if err := pr.verifyPlaintextFooter(section); err != nil {
-			return err
+			return fmt.Errorf("verify plaintext footer: %w", err)
 		}
 	}
 	return nil
@@ -361,7 +359,7 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 		return nil
 	}
 	if err := pr.fetchColumnData(num, prefixPath, tmap); err != nil {
-		return err
+		return fmt.Errorf("fetch column data: %w", err)
 	}
 	return pr.unmarshalToResult(num, tmap, dstInterface, prefixPath)
 }

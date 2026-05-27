@@ -33,7 +33,10 @@ func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, comp
 		Compressor:   pw.compressor,
 	})
 	convMu.Unlock()
-	return pages, err
+	if err != nil {
+		return nil, fmt.Errorf("build dict pages: %w", err)
+	}
+	return pages, nil
 }
 
 func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType parquet.CompressionCodec) ([]*layout.Page, error) {
@@ -44,7 +47,10 @@ func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType 
 		WriteCRC:        pw.writeCRC,
 		Compressor:      pw.compressor,
 	})
-	return pages, err
+	if err != nil {
+		return nil, fmt.Errorf("build data pages: %w", err)
+	}
+	return pages, nil
 }
 
 func (pw *ParquetWriter) convertTableToPages(name string, table *layout.Table, convMu *sync.Mutex) ([]*layout.Page, error) {
@@ -246,13 +252,13 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 		plainRawLen := len(page.RawData)
 		if pw.encryptionState != nil {
 			if err := pw.encryptPage(page, key, rowGroupOrdinal, columnOrdinal, pageOrdinal); err != nil {
-				return err
+				return fmt.Errorf("encrypt page row group %d column %d page %d: %w", rowGroupOrdinal, columnOrdinal, pageOrdinal, err)
 			}
 			chunk.ChunkHeader.MetaData.TotalCompressedSize += int64(len(page.RawData) - plainRawLen)
 		}
 		if isDataPage {
 			if err := pw.recordDataPage(page, columnIndex, offsetIndex, dataPageIdx, dataPageCount, &firstRowIndex); err != nil {
-				return err
+				return fmt.Errorf("record data page %d: %w", dataPageIdx, err)
 			}
 			dataPageIdx++
 		}

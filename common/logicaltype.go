@@ -163,7 +163,7 @@ func newTimeLogicalType(mp map[string]string) (*parquet.TimeType, error) {
 		return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
 	}
 	if timeType.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse TIME unit: %w", err)
 	}
 	return timeType, nil
 }
@@ -175,7 +175,7 @@ func newTimestampLogicalType(mp map[string]string) (*parquet.TimestampType, erro
 		return nil, fmt.Errorf("parse logicaltype.isadjustedtoutc as boolean: %w", err)
 	}
 	if timestampType.Unit, err = newTimeUnitFromString(mp["logicaltype.unit"]); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse TIMESTAMP unit: %w", err)
 	}
 	return timestampType, nil
 }
@@ -222,7 +222,7 @@ func newGeographyLogicalType(mp map[string]string) (*parquet.GeographyType, erro
 	if algoStr, ok := mp["logicaltype.algorithm"]; ok && algoStr != "" {
 		algo, err := newEdgeInterpolationAlgorithmFromString(algoStr)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("parse GEOGRAPHY algorithm: %w", err)
 		}
 		geographyType.Algorithm = algo
 	}
@@ -248,21 +248,21 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		logicalType.ENUM = parquet.NewEnumType()
 	case "DECIMAL":
 		if logicalType.DECIMAL, err = newDecimalLogicalType(mp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build DECIMAL logical type: %w", err)
 		}
 	case "DATE":
 		logicalType.DATE = parquet.NewDateType()
 	case "TIME":
 		if logicalType.TIME, err = newTimeLogicalType(mp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build TIME logical type: %w", err)
 		}
 	case "TIMESTAMP":
 		if logicalType.TIMESTAMP, err = newTimestampLogicalType(mp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build TIMESTAMP logical type: %w", err)
 		}
 	case "INTEGER":
 		if logicalType.INTEGER, err = newIntegerLogicalType(mp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build INTEGER logical type: %w", err)
 		}
 	case "JSON":
 		logicalType.JSON = parquet.NewJsonType()
@@ -274,15 +274,15 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		logicalType.FLOAT16 = parquet.NewFloat16Type()
 	case "VARIANT":
 		if logicalType.VARIANT, err = newVariantLogicalType(mp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build VARIANT logical type: %w", err)
 		}
 	case "GEOMETRY":
 		if logicalType.GEOMETRY, err = newGeometryLogicalType(mp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build GEOMETRY logical type: %w", err)
 		}
 	case "GEOGRAPHY":
 		if logicalType.GEOGRAPHY, err = newGeographyLogicalType(mp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build GEOGRAPHY logical type: %w", err)
 		}
 	default:
 		return nil, fmt.Errorf("unknown logicaltype: %s", val)

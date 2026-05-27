@@ -33,7 +33,7 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, o
 	// ArrowWriter defaults to GZIP; user opts come after and can override.
 	allOpts := append([]WriterOption{WithCompressionCodec(parquet.CompressionCodec_GZIP)}, opts...)
 	if err := res.initBase(pfile, allOpts...); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init arrow writer base: %w", err)
 	}
 
 	var err error
@@ -47,7 +47,7 @@ func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, o
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
 	if err = res.validateEncryptionColumnKeys(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate encryption column keys: %w", err)
 	}
 
 	res.stopped = false

@@ -176,7 +176,7 @@ func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *sche
 
 	po, err := navigateToVariantTarget(root, path, prefixIndex, variant, rowIdx, sliceRecords)
 	if err != nil {
-		return err
+		return fmt.Errorf("navigate variant target %s: %w", variantPath, err)
 	}
 
 	return assignVariantToTarget(po, variant)

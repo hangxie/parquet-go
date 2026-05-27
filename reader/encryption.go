@@ -34,11 +34,11 @@ func (pr *ParquetReader) readEncryptedFooter(size uint32) error {
 
 	key, err := pr.resolveFooterKeyFromMetadata(fileCrypto.GetKeyMetadata())
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve footer key: %w", err)
 	}
 	aadPrefix, aadFileUnique, err := pr.footerAADParts(fileCrypto.GetEncryptionAlgorithm())
 	if err != nil {
-		return err
+		return fmt.Errorf("footer AAD: %w", err)
 	}
 
 	module, err := encryption.DecodeModule(section[consumed:])
@@ -62,12 +62,12 @@ func (pr *ParquetReader) readEncryptedFooter(size uint32) error {
 func readFileCryptoMetaData(buf []byte) (*parquet.FileCryptoMetaData, int, error) {
 	mem := thrift.NewTMemoryBufferLen(len(buf))
 	if _, err := mem.Write(buf); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("buffer file crypto metadata: %w", err)
 	}
 	protocol := thrift.NewTCompactProtocolConf(mem, &thrift.TConfiguration{})
 	meta := parquet.NewFileCryptoMetaData()
 	if err := meta.Read(context.TODO(), protocol); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("decode file crypto metadata: %w", err)
 	}
 	remaining := int(mem.RemainingBytes())
 	return meta, len(buf) - remaining, nil
@@ -77,7 +77,7 @@ func readFileMetaDataFromBytes(buf []byte) (*parquet.FileMetaData, error) {
 	footer := parquet.NewFileMetaData()
 	protocol := thrift.NewTCompactProtocolConf(thrift.NewTBufferedTransport(thrift.NewStreamTransportR(bytes.NewReader(buf)), len(buf)), &thrift.TConfiguration{})
 	if err := footer.Read(context.TODO(), protocol); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode file metadata: %w", err)
 	}
 	return footer, nil
 }
@@ -94,7 +94,7 @@ func (pr *ParquetReader) verifyPlaintextFooter(section []byte) error {
 	}
 	key, err := pr.resolveOptionalFooterKeyFromMetadata(footer.GetFooterSigningKeyMetadata())
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve footer signing key: %w", err)
 	}
 	if len(key) == 0 {
 		pr.Footer = footer
@@ -102,7 +102,7 @@ func (pr *ParquetReader) verifyPlaintextFooter(section []byte) error {
 	}
 	aadPrefix, aadFileUnique, err := pr.footerAADParts(footer.GetEncryptionAlgorithm())
 	if err != nil {
-		return err
+		return fmt.Errorf("footer AAD: %w", err)
 	}
 	if err := encryption.VerifyGCMTag(
 		key,
@@ -121,7 +121,7 @@ func readColumnMetaDataFromBytes(buf []byte) (*parquet.ColumnMetaData, error) {
 	meta := parquet.NewColumnMetaData()
 	protocol := thrift.NewTCompactProtocolConf(thrift.NewStreamTransportR(bytes.NewReader(buf)), &thrift.TConfiguration{})
 	if err := meta.Read(context.TODO(), protocol); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode column metadata: %w", err)
 	}
 	return meta, nil
 }
@@ -204,7 +204,7 @@ func (pr *ParquetReader) retrieveKeyFromMetadata(keyMetadata []byte) ([]byte, er
 		entry.key = append([]byte(nil), key...)
 	})
 	if entry.err != nil {
-		return nil, entry.err
+		return nil, fmt.Errorf("retrieve key: %w", entry.err)
 	}
 	return append([]byte(nil), entry.key...), nil
 }
@@ -219,7 +219,7 @@ func (pr *ParquetReader) decryptEncryptedColumnMetadata() error {
 	}
 	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
 	if err != nil {
-		return err
+		return fmt.Errorf("footer AAD: %w", err)
 	}
 
 	for rowGroupIndex, rowGroup := range pr.Footer.RowGroups {
@@ -232,7 +232,7 @@ func (pr *ParquetReader) decryptEncryptedColumnMetadata() error {
 		}
 		for columnOrdinal, chunk := range rowGroup.GetColumns() {
 			if err := pr.decryptEncryptedColumnMetadataChunk(chunk, rowGroupIndex, int16(columnOrdinal), rowGroupOrdinal, aadPrefix, aadFileUnique); err != nil {
-				return err
+				return fmt.Errorf("decrypt column metadata: %w", err)
 			}
 		}
 	}
@@ -359,16 +359,16 @@ func (pr *ParquetReader) configurePageDecryptorWithKeyRequirement(cbt *ColumnBuf
 	}
 	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
 	if err != nil {
-		return err
+		return fmt.Errorf("footer AAD: %w", err)
 	}
 	key, err := pr.resolveOptionalColumnKey(cbt.ChunkHeader)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve column key: %w", err)
 	}
 	if len(key) == 0 {
 		if requireKey {
 			_, err := pr.resolveColumnKey(cbt.ChunkHeader)
-			return err
+			return fmt.Errorf("require column key: %w", err)
 		}
 		return nil
 	}
@@ -396,8 +396,10 @@ func (pr *ParquetReader) requirePageDecryptor(cbt *ColumnBufferType) error {
 	if cbt == nil || cbt.ChunkHeader == nil || cbt.ChunkHeader.GetCryptoMetadata() == nil || cbt.PageReadOptions.Decryptor != nil {
 		return nil
 	}
-	_, err := pr.resolveColumnKey(cbt.ChunkHeader)
-	return err
+	if _, err := pr.resolveColumnKey(cbt.ChunkHeader); err != nil {
+		return fmt.Errorf("require column key: %w", err)
+	}
+	return nil
 }
 
 func (pr *ParquetReader) reconfigureDecryptorForBuffer(cbt *ColumnBufferType) error {

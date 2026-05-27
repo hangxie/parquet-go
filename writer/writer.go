@@ -189,7 +189,7 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	if pw.encryptionConfig != nil {
 		state, err := newEncryptionState(*pw.encryptionConfig)
 		if err != nil {
-			return err
+			return fmt.Errorf("init encryption state: %w", err)
 		}
 		pw.encryptionState = state
 	}
@@ -208,7 +208,7 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error) {
 	res := new(ParquetWriter)
 	if err := res.initBase(pFile, opts...); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init writer base: %w", err)
 	}
 	res.marshalFunc = marshal.Marshal
 
@@ -237,7 +237,7 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOpt
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
 	if err := res.validateEncryptionColumnKeys(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate encryption column keys: %w", err)
 	}
 
 	// Enable writing after init completed successfully
@@ -257,7 +257,7 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 		return fmt.Errorf("init bloom filters: %w", err)
 	}
 	if err := pw.validateEncryptionColumnKeys(); err != nil {
-		return err
+		return fmt.Errorf("validate encryption column keys: %w", err)
 	}
 	pw.encodingsValidated = false
 	return nil

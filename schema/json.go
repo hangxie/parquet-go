@@ -45,7 +45,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 		stack = stack[:ln-1]
 		info, err := parseJSONSchemaTag(item.Tag)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("parse JSON schema tag: %w", err)
 		}
 		var newInfo *common.Tag
 		switch info.Type {

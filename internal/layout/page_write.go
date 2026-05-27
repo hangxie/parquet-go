@@ -35,7 +35,7 @@ func serializePage(page *Page, opt PageWriteOption, compressedData ...[]byte) er
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
 	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
 	if err != nil {
-		return err
+		return fmt.Errorf("serialize page header: %w", err)
 	}
 
 	for _, d := range compressedData {
@@ -68,7 +68,7 @@ func scanPageValues(table *Table, startIdx int, pageSize int32, omitStats bool, 
 	for r.endIdx < totalLn && r.size < pageSize {
 		if table.Values[r.endIdx] == nil {
 			if err := checkRequiredNil(table, r.endIdx); err != nil {
-				return r, err
+				return r, fmt.Errorf("page scan index %d: %w", r.endIdx, err)
 			}
 			r.nullCount++
 			r.endIdx++
@@ -114,13 +114,13 @@ func compressAndSerializePage(page *Page, opt PageWriteOption) error {
 	if opt.DataPageVersion == 2 {
 		repLevels, defLevels, compressedValues, err := page.dataPageV2Compress(opt.CompressType, opt.Compressor)
 		if err != nil {
-			return err
+			return fmt.Errorf("compress data page v2: %w", err)
 		}
 		return serializePage(page, opt, repLevels, defLevels, compressedValues)
 	}
 	compressedData, err := page.dataPageCompress(opt.CompressType, opt.Compressor)
 	if err != nil {
-		return err
+		return fmt.Errorf("compress data page: %w", err)
 	}
 	return serializePage(page, opt, compressedData)
 }
@@ -143,7 +143,7 @@ func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int
 
 		scan, err := scanPageValues(table, i, opt.PageSize, omitStats, funcTable)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("scan page values at %d: %w", i, err)
 		}
 
 		page := NewDataPage()
@@ -170,7 +170,7 @@ func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int
 		page.computeLevelHistograms()
 
 		if err = compressAndSerializePage(page, opt); err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("compress and serialize page at %d: %w", i, err)
 		}
 
 		totSize += int64(len(page.RawData))

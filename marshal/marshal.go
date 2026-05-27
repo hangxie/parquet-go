@@ -179,7 +179,7 @@ func (p *ParquetSlice) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) 
 
 	rlNow, err := p.schemaHandler.MaxRepetitionLevel(common.StrToPath(path))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("max repetition level for %s: %w", path, err)
 	}
 	for j := ln - 1; j >= 0; j-- {
 		newNode := nodeBuf.GetNode()
@@ -214,7 +214,7 @@ func (p *ParquetMap) Marshal(node *Node, nodeBuf *NodeBufType, stack []*Node) ([
 
 	rlNow, err := p.schemaHandler.MaxRepetitionLevel(common.StrToPath(path))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("max repetition level for %s: %w", path, err)
 	}
 	for j := len(keys) - 1; j >= 0; j-- {
 		key := keys[j]
@@ -255,7 +255,7 @@ func marshalPrimitiveValue(node *Node, res map[string]*layout.Table, schemaHandl
 	}
 	val, err := types.InterfaceToParquetType(v, se.Type)
 	if err != nil {
-		return err
+		return fmt.Errorf("convert value for %s: %w", node.PathMap.Path, err)
 	}
 	table.Values = append(table.Values, val)
 	table.DefinitionLevels = append(table.DefinitionLevels, node.DL)
@@ -325,7 +325,7 @@ func processNode(node *Node, res map[string]*layout.Table, schemaHandler *schema
 	// []byte should be treated as primitive BYTE_ARRAY, not as a LIST
 	if isByteSlice(node) {
 		if err := marshalPrimitiveValue(node, res, schemaHandler); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("marshal byte slice for %s: %w", node.PathMap.Path, err)
 		}
 		return stack, nil
 	}
@@ -333,7 +333,7 @@ func processNode(node *Node, res map[string]*layout.Table, schemaHandler *schema
 	m := selectMarshaler(node, schemaHandler)
 	if m == nil {
 		if err := marshalPrimitiveValue(node, res, schemaHandler); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("marshal primitive for %s: %w", node.PathMap.Path, err)
 		}
 		return stack, nil
 	}
@@ -341,7 +341,7 @@ func processNode(node *Node, res map[string]*layout.Table, schemaHandler *schema
 	oldLen := len(stack)
 	var err error
 	if stack, err = m.Marshal(node, nodeBuf, stack); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal %s: %w", node.PathMap.Path, err)
 	}
 	if len(stack) == oldLen {
 		appendNilToChildren(node, res, schemaHandler)
@@ -353,7 +353,7 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 	src := reflect.ValueOf(srcInterface)
 	res, err := setupTableMap(schemaHandler, len(srcInterface))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("setup table map: %w", err)
 	}
 	pathMap := schemaHandler.PathMap
 	nodeBuf := NewNodeBuf(1)
@@ -381,7 +381,7 @@ func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[s
 			}
 
 			if stack, err = processNode(node, res, schemaHandler, nodeBuf, stack); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("process node %s: %w", node.PathMap.Path, err)
 			}
 		}
 	}
@@ -400,10 +400,10 @@ func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) (map[st
 			table.Path = common.StrToPath(pathStr)
 			var err error
 			if table.MaxDefinitionLevel, err = schemaHandler.MaxDefinitionLevel(table.Path); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("max definition level for %v: %w", table.Path, err)
 			}
 			if table.MaxRepetitionLevel, err = schemaHandler.MaxRepetitionLevel(table.Path); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("max repetition level for %v: %w", table.Path, err)
 			}
 			table.RepetitionType = schema.GetRepetitionType()
 			table.Schema = schemaHandler.SchemaElements[schemaHandler.MapIndex[pathStr]]
@@ -467,7 +467,7 @@ func HandleVariant(
 	// If the variant group is present, its definition level should be at its max
 	childDL, err := schemaHandler.MaxDefinitionLevel(common.StrToPath(node.PathMap.Path))
 	if err != nil {
-		return nil, true, err
+		return nil, true, fmt.Errorf("max definition level for variant %s: %w", node.PathMap.Path, err)
 	}
 
 	// Push Metadata

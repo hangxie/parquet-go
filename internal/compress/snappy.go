@@ -29,7 +29,7 @@ func init() {
 			}
 			result, err := snappy.Decode(nil, buf)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("snappy decode: %w", err)
 			}
 			return result, nil
 		},

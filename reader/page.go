@@ -94,7 +94,7 @@ func readPageHeader(pFile io.ReadSeeker, offset int64) (*parquet.PageHeader, int
 
 	pageHeader := parquet.NewPageHeader()
 	if err := pageHeader.Read(context.Background(), proto); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("decode page header: %w", err)
 	}
 
 	headerSize := trackingTransport.pos - offset

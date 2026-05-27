@@ -84,11 +84,11 @@ func (pw *ParquetWriter) serializeBloomFilters() error {
 			key, _, _ := pw.columnKey(cc.MetaData.GetPathInSchema())
 			headerModule, err := pw.encryptThriftModule(key, encryption.ModuleBloomFilterHeader, rowGroupOrdinal, int16(columnOrdinal), headerBuf)
 			if err != nil {
-				return err
+				return fmt.Errorf("encrypt bloom filter header for column %s: %w", path, err)
 			}
 			bitsetModule, err := pw.encryptThriftModule(key, encryption.ModuleBloomFilterBitset, rowGroupOrdinal, int16(columnOrdinal), bf.Bitset())
 			if err != nil {
-				return err
+				return fmt.Errorf("encrypt bloom filter bitset for column %s: %w", path, err)
 			}
 			pw.bloomFilterData = append(pw.bloomFilterData, append(headerModule, bitsetModule...))
 		} else {

@@ -25,7 +25,7 @@ var defaultVariantMetadata = []byte{0x01, 0x00, 0x00}
 func resolveMetadata(val any, fallback []byte) ([]byte, error) {
 	b, err := toByteSlice(val, "metadata")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve variant metadata: %w", err)
 	}
 	if len(b) > 0 {
 		return b, nil
@@ -61,14 +61,14 @@ func buildVariantResults(maxLen int, metadataValues, valueValues, typedValueValu
 		}
 		elMetadata, err := resolveMetadata(metaVal, metadata)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("variant element %d metadata: %w", i, err)
 		}
 
 		var elValue []byte
 		if i < len(valueValues) && valueValues[i] != nil {
 			elValue, err = toByteSlice(valueValues[i], "value")
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("variant element %d value: %w", i, err)
 			}
 		}
 

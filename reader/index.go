@@ -18,7 +18,7 @@ import (
 func (pr *ParquetReader) ReadColumnIndex(rowGroupIndex, columnIndex int) (*parquet.ColumnIndex, error) {
 	column, rowGroupOrdinal, columnOrdinal, err := pr.indexColumn(rowGroupIndex, columnIndex)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("locate column for column index: %w", err)
 	}
 	if !column.IsSetColumnIndexOffset() || !column.IsSetColumnIndexLength() {
 		return nil, nil
@@ -26,7 +26,7 @@ func (pr *ParquetReader) ReadColumnIndex(rowGroupIndex, columnIndex int) (*parqu
 
 	buf, err := pr.readIndexModule(column, rowGroupOrdinal, columnOrdinal, column.GetColumnIndexOffset(), column.GetColumnIndexLength(), encryption.ModuleColumnIndex)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read column index module: %w", err)
 	}
 	index := parquet.NewColumnIndex()
 	if err := readCompactThrift(buf, index); err != nil {
@@ -40,7 +40,7 @@ func (pr *ParquetReader) ReadColumnIndex(rowGroupIndex, columnIndex int) (*parqu
 func (pr *ParquetReader) ReadOffsetIndex(rowGroupIndex, columnIndex int) (*parquet.OffsetIndex, error) {
 	column, rowGroupOrdinal, columnOrdinal, err := pr.indexColumn(rowGroupIndex, columnIndex)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("locate column for offset index: %w", err)
 	}
 	if !column.IsSetOffsetIndexOffset() || !column.IsSetOffsetIndexLength() {
 		return nil, nil
@@ -48,7 +48,7 @@ func (pr *ParquetReader) ReadOffsetIndex(rowGroupIndex, columnIndex int) (*parqu
 
 	buf, err := pr.readIndexModule(column, rowGroupOrdinal, columnOrdinal, column.GetOffsetIndexOffset(), column.GetOffsetIndexLength(), encryption.ModuleOffsetIndex)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read offset index module: %w", err)
 	}
 	index := parquet.NewOffsetIndex()
 	if err := readCompactThrift(buf, index); err != nil {
@@ -99,11 +99,11 @@ func (pr *ParquetReader) readIndexModule(column *parquet.ColumnChunk, rowGroupOr
 	}
 	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("footer AAD: %w", err)
 	}
 	key, err := pr.resolveColumnKey(column)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve column key: %w", err)
 	}
 	if _, err := pf.Seek(offset, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("seek to index offset %d: %w", offset, err)

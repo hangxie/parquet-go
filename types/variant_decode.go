@@ -40,7 +40,10 @@ func decodeVariantValue(data []byte, meta *variantMetadata) (any, error) {
 	}
 
 	_, val, err := decodeVariantValueAt(data, 0, meta)
-	return val, err
+	if err != nil {
+		return val, fmt.Errorf("decode variant value: %w", err)
+	}
+	return val, nil
 }
 
 // decodeVariantValueAt decodes a variant value starting at the given offset

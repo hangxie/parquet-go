@@ -53,13 +53,13 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	if schemaHandler.MapIndex != nil {
 		if _, exists := schemaHandler.MapIndex[pathStr]; exists {
 			if _, err := schemaHandler.GetType(pathStr); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("get type for %s: %w", pathStr, err)
 			}
 		}
 	}
 	newPFile, err := pFile.Clone()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("clone file reader: %w", err)
 	}
 	var opt layout.PageReadOptions
 	if opts != nil {
@@ -74,12 +74,10 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 		PageReadOptions:  opt,
 	}
 
-	if err = res.NextRowGroup(); err == io.EOF {
-		err = nil
-	} else if err != nil {
-		return nil, err
+	if err := res.NextRowGroup(); err != nil && err != io.EOF {
+		return nil, fmt.Errorf("advance to first row group: %w", err)
 	}
-	return res, err
+	return res, nil
 }
 
 func (cbt *ColumnBufferType) NextRowGroup() error {
@@ -120,7 +118,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	cbt.ColumnOrdinal = int16(i)
 	if cbt.Reader != nil {
 		if err := cbt.Reader.configureOptionalPageDecryptor(cbt, rowGroups[cbt.RowGroupIndex-1], int16(i)); err != nil {
-			return err
+			return fmt.Errorf("configure page decryptor: %w", err)
 		}
 	}
 	if columnChunks[i].FilePath != nil {
@@ -213,17 +211,17 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 		}
 		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, &cbt.PageReadOptions)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read page raw data: %w", err)
 		}
 
 		numValues, numRows, err := page.GetRLDLFromRawData(cbt.SchemaHandler)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read repetition/definition levels: %w", err)
 		}
 
 		if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
 			if err := page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("decode dictionary page: %w", err)
 			}
 			cbt.DictPage = page
 			return page, nil
@@ -241,7 +239,7 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 	}
 
 	if err := cbt.NextRowGroup(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("move to next row group: %w", err)
 	}
 
 	return cbt.ReadPageForSkip()
@@ -311,7 +309,7 @@ func (cbt *ColumnBufferType) skipEntireRowGroups(num int64) (int64, error) {
 				// We've skipped all available rows
 				return num, io.EOF
 			}
-			return num, err
+			return num, fmt.Errorf("skip row group: %w", err)
 		}
 	}
 	return num, nil
@@ -330,7 +328,7 @@ func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 		}
 		page, err = cbt.ReadPageForSkip()
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("read page for skip: %w", err)
 		}
 	}
 
@@ -340,7 +338,7 @@ func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 
 	if page != nil {
 		if err = page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("decode page values during skip: %w", err)
 		}
 
 		page.Decode(cbt.DictPage)
@@ -380,7 +378,7 @@ func (cbt *ColumnBufferType) SkipRows(num int64) (int64, error) {
 		if errors.Is(err, io.EOF) {
 			return originalNum - num, nil
 		}
-		return 0, err
+		return 0, fmt.Errorf("skip row groups: %w", err)
 	}
 
 	// Finally, skip remaining rows by reading pages.
@@ -389,7 +387,7 @@ func (cbt *ColumnBufferType) SkipRows(num int64) (int64, error) {
 	// = (originalNum - remaining) + num = originalNum - remaining + num.
 	remaining := num
 	if num, err = cbt.skipByReadingPages(remaining); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("skip by reading pages: %w", err)
 	}
 
 	return originalNum - remaining + num, nil
@@ -426,7 +424,7 @@ func (cbt *ColumnBufferType) ReadRows(num int64) (*layout.Table, int64, error) {
 	}
 	// Propagate non-EOF errors; treat io.EOF as normal completion
 	if err != nil && !errors.Is(err, io.EOF) {
-		return res, num, err
+		return res, num, fmt.Errorf("read rows: %w", err)
 	}
 	return res, num, nil
 }

@@ -114,8 +114,10 @@ func strToTimestampLogical(s string, ts *parquet.TimestampType) (any, error) {
 			}
 		}
 		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, err
+		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+			return v, fmt.Errorf("parse timestamp %q: %w", s, err)
+		}
+		return v, nil
 	}
 	return nil, fmt.Errorf("timestamp unit not set")
 }

@@ -81,7 +81,7 @@ func createVariantSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.
 			var err error
 			newItem.Info, err = parseStructFieldTag(tagStr)
 			if err != nil {
-				return err
+				return fmt.Errorf("parse tag for field %s: %w", f.Name, err)
 			}
 			newItem.Info.InName = f.Name
 			newItem.GoType = f.Type
@@ -144,7 +144,7 @@ func createStructSchema(item *Item, stack *[]*Item, schemaElements *[]*parquet.S
 		var err error
 		newItem.Info, err = parseStructFieldTag(tagStr)
 		if err != nil {
-			return err
+			return fmt.Errorf("parse tag for field %s: %w", f.Name, err)
 		}
 		newItem.Info.InName = f.Name
 		newItem.GoType = f.Type
@@ -262,11 +262,11 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 
 		if item.Info.Type == "VARIANT" {
 			if err = createVariantSchema(item, &stack, &schemaElements, &infos); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("create variant schema for %s: %w", item.Info.InName, err)
 			}
 		} else if item.GoType.Kind() == reflect.Struct {
 			if err = createStructSchema(item, &stack, &schemaElements, &infos); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("create struct schema for %s: %w", item.Info.InName, err)
 			}
 		} else if item.GoType.Kind() == reflect.Slice &&
 			item.Info.Type != "BYTE_ARRAY" && item.Info.Type != "FIXED_LEN_BYTE_ARRAY" &&

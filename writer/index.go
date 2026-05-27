@@ -24,7 +24,7 @@ func (pw *ParquetWriter) writeColumnIndexes(ts *thrift.TSerializer) error {
 			if pw.encryptionState != nil && columnChunk.GetCryptoMetadata() != nil {
 				key, err := pw.keyForEncryptedColumn(columnChunk)
 				if err != nil {
-					return err
+					return fmt.Errorf("column index key row group %d column %d: %w", rowGroupIndex, columnOrdinal, err)
 				}
 				rowGroupOrdinal := int16(rowGroupIndex)
 				if rowGroup.IsSetOrdinal() {
@@ -32,7 +32,7 @@ func (pw *ParquetWriter) writeColumnIndexes(ts *thrift.TSerializer) error {
 				}
 				module, err := pw.encryptThriftModule(key, encryption.ModuleColumnIndex, rowGroupOrdinal, int16(columnOrdinal), columnIndexBuf)
 				if err != nil {
-					return err
+					return fmt.Errorf("encrypt column index row group %d column %d: %w", rowGroupOrdinal, columnOrdinal, err)
 				}
 				columnIndexBuf = module
 			}
@@ -67,7 +67,7 @@ func (pw *ParquetWriter) writeOffsetIndexes(ts *thrift.TSerializer) error {
 			if pw.encryptionState != nil && columnChunk.GetCryptoMetadata() != nil {
 				key, err := pw.keyForEncryptedColumn(columnChunk)
 				if err != nil {
-					return err
+					return fmt.Errorf("offset index key row group %d column %d: %w", rowGroupIndex, columnOrdinal, err)
 				}
 				rowGroupOrdinal := int16(rowGroupIndex)
 				if rowGroup.IsSetOrdinal() {
@@ -75,7 +75,7 @@ func (pw *ParquetWriter) writeOffsetIndexes(ts *thrift.TSerializer) error {
 				}
 				module, err := pw.encryptThriftModule(key, encryption.ModuleOffsetIndex, rowGroupOrdinal, int16(columnOrdinal), offsetIndexBuf)
 				if err != nil {
-					return err
+					return fmt.Errorf("encrypt offset index row group %d column %d: %w", rowGroupOrdinal, columnOrdinal, err)
 				}
 				offsetIndexBuf = module
 			}

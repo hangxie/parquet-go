@@ -112,10 +112,10 @@ func buildTableContext(path []string, sh *schema.SchemaHandler) (tableContext, e
 		tc.schemaIndexs[i] = int(sh.MapIndex[curPathStr])
 		var err error
 		if tc.repetitionLevels[i], err = sh.MaxRepetitionLevel(path[:i+1]); err != nil {
-			return tc, err
+			return tc, fmt.Errorf("max repetition level for %s: %w", curPathStr, err)
 		}
 		if tc.definitionLevels[i], err = sh.MaxDefinitionLevel(path[:i+1]); err != nil {
-			return tc, err
+			return tc, fmt.Errorf("max definition level for %s: %w", curPathStr, err)
 		}
 	}
 	return tc, nil
@@ -366,7 +366,7 @@ func (s *unmarshalState) processValue(root reflect.Value, prefixIndex int, tc *t
 			return setPrimitiveValue(po, val)
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("process value at index %d for %v: %w", index, tc.path, err)
 		}
 		if done {
 			return nil
@@ -378,7 +378,7 @@ func (s *unmarshalState) processValue(root reflect.Value, prefixIndex int, tc *t
 func (s *unmarshalState) processTable(root reflect.Value, prefixIndex int, table *layout.Table, bgn, end int) error {
 	tc, err := buildTableContext(table.Path, s.schemaHandler)
 	if err != nil {
-		return err
+		return fmt.Errorf("build table context for %s: %w", table.Path, err)
 	}
 
 	for _, rc := range s.sliceRecords {
@@ -396,7 +396,7 @@ func (s *unmarshalState) processTable(root reflect.Value, prefixIndex int, table
 
 	for i := bgn; i < end; i++ {
 		if err := s.processValue(root, prefixIndex, &tc, table.RepetitionLevels[i], table.DefinitionLevels[i], table.Values[i]); err != nil {
-			return err
+			return fmt.Errorf("process row %d of %v: %w", i, table.Path, err)
 		}
 	}
 	return nil
@@ -429,12 +429,12 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 			continue
 		}
 		if err := state.processTable(root, prefixIndex, table, tableBgn[name], tableEnd[name]); err != nil {
-			return err
+			return fmt.Errorf("process table %s: %w", name, err)
 		}
 	}
 
 	if err := processVariantReconstruction(variantReconstructors, root, prefixPath, schemaHandler, tableBgn, tableEnd, state.sliceRecords); err != nil {
-		return err
+		return fmt.Errorf("reconstruct variants: %w", err)
 	}
 
 	for i := len(state.sliceRecordsStack) - 1; i >= 0; i-- {

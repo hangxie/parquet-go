@@ -123,11 +123,11 @@ func (pr *ParquetReader) readBloomFilterForColumn(pf source.ParquetFileReader, r
 	}
 	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("footer AAD: %w", err)
 	}
 	key, err := pr.resolveColumnKey(columnChunk)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve column key: %w", err)
 	}
 	rowGroupOrdinal := int16(rowGroupIndex)
 	if rowGroup != nil && rowGroup.IsSetOrdinal() {

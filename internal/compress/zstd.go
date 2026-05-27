@@ -38,7 +38,7 @@ func zstdUncompress(dec *zstd.Decoder) func([]byte, int64) ([]byte, error) {
 
 		result, err := dec.DecodeAll(buf, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("zstd decode: %w", err)
 		}
 
 		// Fallback for frames without content size in header (HasFCS=false)
@@ -59,7 +59,7 @@ func newZSTDCompressor(level *int) (*codec, error) {
 	}
 	enc, err := zstd.NewWriter(nil, opts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create zstd encoder: %w", err)
 	}
 	dec, _ := zstd.NewReader(nil)
 	return &codec{
