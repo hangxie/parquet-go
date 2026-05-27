@@ -29,7 +29,6 @@ func ConvertArrowToParquetSchema(schema *arrow.Schema) ([]string, error) {
 	}
 
 	metaData := make([]string, len(schema.Fields()))
-	var err error
 	for k, v := range schema.Fields() {
 		repetitionType := parquet.FieldRepetitionType_REQUIRED
 		if v.Nullable {
@@ -106,7 +105,7 @@ func ConvertArrowToParquetSchema(schema *arrow.Schema) ([]string, error) {
 				fmt.Errorf("unsupported arrow format: %s", fieldType.Name())
 		}
 	}
-	return metaData, err
+	return metaData, nil
 }
 
 // NewSchemaHandlerFromArrow creates a schema handler from arrow format.
@@ -121,7 +120,7 @@ func NewSchemaHandlerFromArrow(arrowSchema *arrow.Schema) (
 
 	fields, err := ConvertArrowToParquetSchema(arrowSchema)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("convert arrow to parquet schema: %w", err)
 	}
 
 	rootSchema := parquet.NewSchemaElement()
@@ -141,12 +140,12 @@ func NewSchemaHandlerFromArrow(arrowSchema *arrow.Schema) (
 	for _, field := range fields {
 		info, err := common.StringToTag(field)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("parse tag %q: %w", field, err)
 		}
 		infos = append(infos, info)
 		schema, err := common.NewSchemaElementFromTagMap(info)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build schema element for %s: %w", info.InName, err)
 		}
 		schemaList = append(schemaList, schema)
 	}

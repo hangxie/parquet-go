@@ -29,20 +29,20 @@ func (p *Page) extractV2LevelBuffers() ([]byte, error) {
 	repetitionLevelsBuf, definitionLevelsBuf := make([]byte, rll), make([]byte, dll)
 	dataBuf := make([]byte, len(p.RawData)-int(rll)-int(dll))
 	if _, err := bytesReader.Read(repetitionLevelsBuf); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read v2 repetition levels: %w", err)
 	}
 	if _, err := bytesReader.Read(definitionLevelsBuf); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read v2 definition levels: %w", err)
 	}
 	if _, err := bytesReader.Read(dataBuf); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read v2 data: %w", err)
 	}
 
 	buf := make([]byte, 0)
 	if rll > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(rll)})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode repetition level length: %w", err)
 		}
 		buf = append(buf, tmpBuf...)
 		buf = append(buf, repetitionLevelsBuf...)
@@ -50,7 +50,7 @@ func (p *Page) extractV2LevelBuffers() ([]byte, error) {
 	if dll > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(dll)})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode definition level length: %w", err)
 		}
 		buf = append(buf, tmpBuf...)
 		buf = append(buf, definitionLevelsBuf...)
@@ -65,7 +65,7 @@ func readLevelValues(bytesReader *bytes.Reader, maxLevel int32, numValues uint64
 		bitWidth := uint64(bits.Len32(uint32(maxLevel)))
 		levels, err := ReadDataPageValues(bytesReader, parquet.Encoding_RLE, parquet.Type_INT64, -1, numValues, bitWidth)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode level values: %w", err)
 		}
 		if uint64(len(levels)) > numValues {
 			levels = levels[:numValues]
@@ -87,7 +87,7 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 	if p.Header.GetType() == parquet.PageType_DATA_PAGE_V2 {
 		buf, err = p.extractV2LevelBuffers()
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, fmt.Errorf("extract v2 level buffers: %w", err)
 		}
 	} else if p.CompressType != parquet.CompressionCodec_UNCOMPRESSED {
 		buf, err = resolveCompressor(p.compressor).UncompressWithExpectedSize(p.RawData, p.CompressType, int64(p.Header.GetUncompressedPageSize()))
@@ -126,11 +126,11 @@ func (p *Page) decodeDataPageLevels(buf []byte, schemaHandler *schema.SchemaHand
 	bytesReader := bytes.NewReader(buf)
 	repetitionLevels, err := readLevelValues(bytesReader, maxRepetitionLevel, numValues)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("read repetition levels: %w", err)
 	}
 	definitionLevels, err := readLevelValues(bytesReader, maxDefinitionLevel, numValues)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("read definition levels: %w", err)
 	}
 
 	table := new(Table)

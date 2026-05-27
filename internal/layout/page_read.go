@@ -68,7 +68,7 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 
 	pageHeader, err := readPageHeader(thriftReader, opt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read page header: %w", err)
 	}
 
 	var page *Page
@@ -88,12 +88,12 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	if opt.Decryptor != nil {
 		buf, err = readEncryptedPageBody(thriftReader, pageHeader, opt)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read encrypted page body: %w", err)
 		}
 	} else {
 		buf = make([]byte, compressedPageSize)
 		if _, err := io.ReadFull(thriftReader, buf); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read page body: %w", err)
 		}
 	}
 
@@ -220,8 +220,10 @@ func (p *Page) processDataPage(schemaHandler *schema.SchemaHandler, encodingType
 func ReadPageHeader(thriftReader *thrift.TBufferedTransport) (*parquet.PageHeader, error) {
 	protocol := thrift.NewTCompactProtocolConf(thriftReader, &thrift.TConfiguration{})
 	pageHeader := parquet.NewPageHeader()
-	err := pageHeader.Read(context.TODO(), protocol)
-	return pageHeader, err
+	if err := pageHeader.Read(context.TODO(), protocol); err != nil {
+		return pageHeader, fmt.Errorf("decode page header: %w", err)
+	}
+	return pageHeader, nil
 }
 
 func readPageHeader(thriftReader *thrift.TBufferedTransport, opt PageReadOptions) (*parquet.PageHeader, error) {
@@ -230,11 +232,11 @@ func readPageHeader(thriftReader *thrift.TBufferedTransport, opt PageReadOptions
 	}
 	module, err := encryption.ReadModule(thriftReader, opt.MaxPageSize)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read encrypted page header module: %w", err)
 	}
 	pageHeader, err := decryptPageHeader(module, opt.Decryptor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decrypt page header: %w", err)
 	}
 	return pageHeader, nil
 }
@@ -251,7 +253,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 
 	pageHeader, err := readPageHeader(thriftReader, opt)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, fmt.Errorf("read page header: %w", err)
 	}
 
 	compressedPageSize := pageHeader.GetCompressedPageSize()
@@ -266,7 +268,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 		buf, err = readPageV1Data(thriftReader, pageHeader, colMetaData, opt.Compressor, opt)
 	}
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, fmt.Errorf("read page data: %w", err)
 	}
 
 	path := make([]string, 0)
@@ -278,7 +280,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 	case parquet.PageType_DICTIONARY_PAGE:
 		page, err := readDictionaryPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
 		if err != nil {
-			return nil, 0, 0, err
+			return nil, 0, 0, fmt.Errorf("read dictionary page body: %w", err)
 		}
 		return page, 0, 0, nil
 	case parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2:
@@ -286,7 +288,10 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 		if err == nil && opt.Decryptor != nil {
 			opt.Decryptor.PageOrdinal++
 		}
-		return page, numValues, numRows, err
+		if err != nil {
+			return page, numValues, numRows, fmt.Errorf("read data page body: %w", err)
+		}
+		return page, numValues, numRows, nil
 	case parquet.PageType_INDEX_PAGE:
 		return nil, 0, 0, fmt.Errorf("unsupported page type: INDEX_PAGE")
 	default:

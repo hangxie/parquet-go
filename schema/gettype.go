@@ -295,7 +295,7 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 func (sh *SchemaHandler) GetType(prefixPath string) (reflect.Type, error) {
 	prefixPath, err := sh.ConvertToInPathStr(prefixPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("convert path %s: %w", prefixPath, err)
 	}
 
 	ts := sh.GetTypes()

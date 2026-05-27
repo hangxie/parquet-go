@@ -11,6 +11,14 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// wrapScanErr returns a contextualized parse error or nil when err is nil.
+func wrapScanErr(typeName, s string, err error) error {
+	if err != nil {
+		return fmt.Errorf("parse %s %q: %w", typeName, s, err)
+	}
+	return nil
+}
+
 // Scan a string to parquet value; length and scale just for decimal
 func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
 	if cT == nil {
@@ -18,15 +26,15 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		case parquet.Type_BOOLEAN:
 			var v bool
 			_, err := fmt.Sscanf(s, "%t", &v)
-			return v, err
+			return v, wrapScanErr("BOOLEAN", s, err)
 		case parquet.Type_INT32:
 			var v int32
 			_, err := fmt.Sscanf(s, "%d", &v)
-			return v, err
+			return v, wrapScanErr("INT32", s, err)
 		case parquet.Type_INT64:
 			var v int64
 			_, err := fmt.Sscanf(s, "%d", &v)
-			return v, err
+			return v, wrapScanErr("INT64", s, err)
 		case parquet.Type_INT96:
 			if res, err := ParseINT96String(s); err == nil {
 				return res, nil
@@ -36,11 +44,11 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		case parquet.Type_FLOAT:
 			var v float32
 			_, err := fmt.Sscanf(s, "%f", &v)
-			return v, err
+			return v, wrapScanErr("FLOAT", s, err)
 		case parquet.Type_DOUBLE:
 			var v float64
 			_, err := fmt.Sscanf(s, "%f", &v)
-			return v, err
+			return v, wrapScanErr("DOUBLE", s, err)
 		case parquet.Type_BYTE_ARRAY:
 			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
 				return string(decoded), nil
@@ -62,70 +70,70 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 	case parquet.ConvertedType_INT_8:
 		var v int8
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), err
+		return int32(v), wrapScanErr("INT_8", s, err)
 	case parquet.ConvertedType_INT_16:
 		var v int16
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), err
+		return int32(v), wrapScanErr("INT_16", s, err)
 	case parquet.ConvertedType_INT_32:
 		var v int32
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), err
+		return int32(v), wrapScanErr("INT_32", s, err)
 	case parquet.ConvertedType_UINT_8:
 		var v uint8
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), err
+		return int32(v), wrapScanErr("UINT_8", s, err)
 	case parquet.ConvertedType_UINT_16:
 		var v uint16
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), err
+		return int32(v), wrapScanErr("UINT_16", s, err)
 	case parquet.ConvertedType_UINT_32:
 		var v uint32
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), err
+		return int32(v), wrapScanErr("UINT_32", s, err)
 	case parquet.ConvertedType_DATE:
 		if v, err := ParseDateString(s); err == nil {
 			return v, nil
 		}
 		var v int32
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), err
+		return int32(v), wrapScanErr("DATE", s, err)
 	case parquet.ConvertedType_TIME_MILLIS:
 		if nanos, err := ParseTimeString(s); err == nil {
 			return int32(nanos / int64(time.Millisecond)), nil
 		}
 		var v int32
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), err
+		return int32(v), wrapScanErr("TIME_MILLIS", s, err)
 	case parquet.ConvertedType_UINT_64:
 		var vt uint64
 		_, err := fmt.Sscanf(s, "%d", &vt)
-		return int64(vt), err
+		return int64(vt), wrapScanErr("UINT_64", s, err)
 	case parquet.ConvertedType_INT_64:
 		var v int64
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, err
+		return v, wrapScanErr("INT_64", s, err)
 	case parquet.ConvertedType_TIME_MICROS:
 		if nanos, err := ParseTimeString(s); err == nil {
 			return nanos / int64(time.Microsecond), nil
 		}
 		var v int64
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, err
+		return v, wrapScanErr("TIME_MICROS", s, err)
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			return t.UnixNano() / int64(time.Millisecond), nil
 		}
 		var v int64
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, err
+		return v, wrapScanErr("TIMESTAMP_MILLIS", s, err)
 	case parquet.ConvertedType_TIMESTAMP_MICROS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			return t.UnixNano() / int64(time.Microsecond), nil
 		}
 		var v int64
 		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, err
+		return v, wrapScanErr("TIMESTAMP_MICROS", s, err)
 	case parquet.ConvertedType_INTERVAL:
 		if res, err := ParseIntervalString(s); err == nil {
 			return res, nil
@@ -168,7 +176,10 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, length int) (any, bool, error) {
 	if lT.IsSetFLOAT16() {
 		v, err := ParseFloat16String(s)
-		return v, true, err
+		if err != nil {
+			return v, true, fmt.Errorf("parse FLOAT16 %q: %w", s, err)
+		}
+		return v, true, nil
 	}
 	if lT.IsSetUUID() {
 		if u, err := uuid.Parse(s); err == nil {
@@ -189,8 +200,10 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 			return v, true, nil
 		}
 		var v int32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), true, err
+		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+			return int32(v), true, fmt.Errorf("parse DATE %q: %w", s, err)
+		}
+		return int32(v), true, nil
 	}
 	if lT.IsSetDECIMAL() {
 		v, err := strToDecimalLogical(s, lT.GetDECIMAL(), pT, length)

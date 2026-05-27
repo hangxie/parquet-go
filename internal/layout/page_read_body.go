@@ -31,7 +31,7 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 	if opt.Decryptor != nil {
 		plain, err := readEncryptedPageBody(thriftReader, pageHeader, opt)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read encrypted v2 body: %w", err)
 		}
 		if int32(len(plain)) < rll+dll {
 			return nil, fmt.Errorf("ReadPage: decrypted data page v2 body too small")
@@ -45,13 +45,13 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 		dataBuf = make([]byte, compressedPageSize-rll-dll)
 
 		if _, err := io.ReadFull(thriftReader, repetitionLevelsBuf); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read v2 repetition levels: %w", err)
 		}
 		if _, err := io.ReadFull(thriftReader, definitionLevelsBuf); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read v2 definition levels: %w", err)
 		}
 		if _, err := io.ReadFull(thriftReader, dataBuf); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read v2 data: %w", err)
 		}
 	}
 
@@ -63,7 +63,7 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 		expectedDataSize := int64(pageHeader.GetUncompressedPageSize()) - int64(rll) - int64(dll)
 		var err error
 		if dataBuf, err = resolveCompressor(c).UncompressWithExpectedSize(dataBuf, colMetaData.GetCodec(), expectedDataSize); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decompress v2 data: %w", err)
 		}
 	}
 
@@ -76,7 +76,7 @@ func assembleLevelPrefixedBuf(rll, dll int32, repBuf, defBuf, dataBuf []byte) ([
 	if rll > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(rll)})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode repetition level length: %w", err)
 		}
 		buf = append(buf, tmpBuf...)
 		buf = append(buf, repBuf...)
@@ -84,7 +84,7 @@ func assembleLevelPrefixedBuf(rll, dll int32, repBuf, defBuf, dataBuf []byte) ([
 	if dll > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(dll)})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode definition level length: %w", err)
 		}
 		buf = append(buf, tmpBuf...)
 		buf = append(buf, defBuf...)
@@ -100,12 +100,12 @@ func readPageV1Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 	if opt.Decryptor != nil {
 		buf, err = readEncryptedPageBody(thriftReader, pageHeader, opt)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read encrypted page body: %w", err)
 		}
 	} else {
 		buf = make([]byte, pageHeader.GetCompressedPageSize())
 		if _, err := io.ReadFull(thriftReader, buf); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read page body: %w", err)
 		}
 	}
 	if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), opt.CRCMode, buf); err != nil {
@@ -128,7 +128,7 @@ func readDictionaryPageBody(pageHeader *parquet.PageHeader, buf []byte, path []s
 	table.Values, err = encoding.ReadPlain(bytes.NewReader(buf), colMetaData.GetType(),
 		uint64(pageHeader.DictionaryPageHeader.GetNumValues()), uint64(bitWidth))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode dictionary values: %w", err)
 	}
 	page.DataTable = table
 	return page, nil
@@ -152,11 +152,11 @@ func readDataPageBody(pageHeader *parquet.PageHeader, buf []byte, path []string,
 	bytesReader := bytes.NewReader(buf)
 	repetitionLevels, err := readLevelValues(bytesReader, maxRepetitionLevel, numValues)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, fmt.Errorf("read repetition levels: %w", err)
 	}
 	definitionLevels, err := readLevelValues(bytesReader, maxDefinitionLevel, numValues)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, fmt.Errorf("read definition levels: %w", err)
 	}
 
 	var numNulls uint64 = 0
@@ -174,7 +174,7 @@ func readDataPageBody(pageHeader *parquet.PageHeader, buf []byte, path []string,
 	values, err := ReadDataPageValues(bytesReader, encodingType, colMetaData.GetType(), ct,
 		uint64(len(definitionLevels))-numNulls, uint64(se.GetTypeLength()))
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, fmt.Errorf("read data page values: %w", err)
 	}
 
 	table := new(Table)

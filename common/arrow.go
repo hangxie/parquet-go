@@ -91,7 +91,10 @@ func ArrowColToParquetCol(field arrow.Field, col arrow.Array) ([]any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported Arrow type: %v", field.Type)
 	}
-	return recs, err
+	if err != nil {
+		return nil, fmt.Errorf("convert Arrow column %s: %w", field.Name, err)
+	}
+	return recs, nil
 }
 
 func nonNullableFieldContainsNullError(field arrow.Field, idx int) error {

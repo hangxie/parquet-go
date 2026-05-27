@@ -42,7 +42,7 @@ func decryptPageHeader(module []byte, decryptor *PageDecryptor) (*parquet.PageHe
 		}
 		pageHeader, err := readPageHeaderFromBytes(plain)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode decrypted page header: %w", err)
 		}
 		if pageHeader.GetType() == parquet.PageType_DATA_PAGE || pageHeader.GetType() == parquet.PageType_DATA_PAGE_V2 {
 			return pageHeader, nil
@@ -59,7 +59,7 @@ func readPageHeaderFromBytes(buf []byte) (*parquet.PageHeader, error) {
 	protocol := thrift.NewTCompactProtocolConf(thrift.NewStreamTransportR(bytes.NewReader(buf)), &thrift.TConfiguration{})
 	pageHeader := parquet.NewPageHeader()
 	if err := pageHeader.Read(context.TODO(), protocol); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode page header: %w", err)
 	}
 	return pageHeader, nil
 }
@@ -67,7 +67,7 @@ func readPageHeaderFromBytes(buf []byte) (*parquet.PageHeader, error) {
 func readEncryptedPageBody(thriftReader *thrift.TBufferedTransport, pageHeader *parquet.PageHeader, opt PageReadOptions) ([]byte, error) {
 	module, err := encryption.ReadModule(thriftReader, opt.MaxPageSize)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read encrypted page module: %w", err)
 	}
 
 	moduleType := encryptedPageModuleType(pageHeader)

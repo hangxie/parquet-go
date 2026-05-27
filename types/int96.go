@@ -38,7 +38,7 @@ func INT96ToTime(int96 string) (time.Time, error) {
 func ParseINT96String(s string) (string, error) {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("parse INT96 timestamp %q: %w", s, err)
 	}
 	return TimeToINT96(t.UTC()), nil
 }

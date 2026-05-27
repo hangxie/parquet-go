@@ -52,7 +52,7 @@ func gzipUncompress(buf []byte, maxSize int64) ([]byte, error) {
 	rbuf := bytes.NewReader(buf)
 	gzipReader, err := gzip.NewReader(rbuf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gzip reader: %w", err)
 	}
 	defer func() {
 		_ = gzipReader.Close()
@@ -86,7 +86,7 @@ func newGZIPCompressor(level *int) (*codec, error) {
 		l = *level
 	}
 	if _, err := gzip.NewWriterLevel(nil, l); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate gzip level %d: %w", l, err)
 	}
 
 	pool := &sync.Pool{

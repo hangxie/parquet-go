@@ -103,7 +103,7 @@ func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx
 		// Check definition level to see if value is present
 		maxDL, err := r.SchemaHandler.MaxDefinitionLevel(table.Path)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("max definition level for %v: %w", table.Path, err)
 		}
 		if table.DefinitionLevels[i] >= maxDL {
 			values = append(values, table.Values[i])
@@ -120,7 +120,7 @@ func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx
 	isRepeated := false
 	maxRL, err := r.SchemaHandler.MaxRepetitionLevel(table.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("max repetition level for %v: %w", table.Path, err)
 	}
 	if maxRL > 0 {
 		isRepeated = true
@@ -169,7 +169,7 @@ func (r *ShreddedVariantReconstructor) reconstructChildValues(pathPrefix, childN
 	}
 	val, err := r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+childName, rowIdx, tableBgn, tableEnd, metadata)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("reconstruct child %s/%s: %w", pathPrefix, childName, err)
 	}
 	if slice, ok := val.([]any); ok {
 		return slice, true, nil
@@ -185,7 +185,7 @@ func (r *ShreddedVariantReconstructor) isChildTablesRepeated(childTables map[str
 		for _, table := range tables {
 			maxRL, err := r.SchemaHandler.MaxRepetitionLevel(table.Path)
 			if err != nil {
-				return false, err
+				return false, fmt.Errorf("max repetition level for %v: %w", table.Path, err)
 			}
 			if maxRL > 0 {
 				return true, nil
@@ -201,17 +201,17 @@ func (r *ShreddedVariantReconstructor) reconstructVariantGroup(
 ) (any, error) {
 	metadataValues, metadataSet, err := r.reconstructChildValues(pathPrefix, names.meta, rowIdx, tableBgn, tableEnd, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("variant %s metadata: %w", pathPrefix, err)
 	}
 	valueValues, valueSet, err := r.reconstructChildValues(pathPrefix, names.value, rowIdx, tableBgn, tableEnd, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("variant %s value: %w", pathPrefix, err)
 	}
 
 	typedMeta := effectiveMetadataForTyped(metadataValues, metadataSet, metadata)
 	typedValueValues, typedValueSet, err := r.reconstructChildValues(pathPrefix, names.typed, rowIdx, tableBgn, tableEnd, typedMeta)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("variant %s typed value: %w", pathPrefix, err)
 	}
 
 	if !metadataSet && !valueSet && !typedValueSet {
@@ -227,13 +227,13 @@ func (r *ShreddedVariantReconstructor) reconstructVariantGroup(
 	if !isRepeated {
 		isRepeated, err = r.isChildTablesRepeated(childTables)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("check child repeatedness: %w", err)
 		}
 	}
 
 	results, err := buildVariantResults(maxLen, metadataValues, valueValues, typedValueValues, metadata)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build variant results: %w", err)
 	}
 	return variantResultsToAny(results, isRepeated)
 }
@@ -244,7 +244,7 @@ func (r *ShreddedVariantReconstructor) reconstructElementChildren(
 ) (any, error) {
 	tableValues, maxLen, err := r.collectChildValues(pathPrefix, rowIdx, tableBgn, tableEnd, metadata, childTables)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("collect child values for %s: %w", pathPrefix, err)
 	}
 	if maxLen == 0 {
 		return nil, nil
@@ -272,7 +272,7 @@ func (r *ShreddedVariantReconstructor) collectChildValues(
 	for childName := range childTables {
 		val, err := r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+childName, rowIdx, tableBgn, tableEnd, metadata)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("reconstruct child %s/%s: %w", pathPrefix, childName, err)
 		}
 		if slice, ok := val.([]any); ok {
 			tableValues[childName] = slice
@@ -309,7 +309,7 @@ func (r *ShreddedVariantReconstructor) reconstructMapChildren(
 		childPath := pathPrefix + common.ParGoPathDelimiter + childName
 		val, err := r.reconstructValue(childPath, rowIdx, tableBgn, tableEnd, metadata)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("reconstruct map child %s: %w", childPath, err)
 		}
 		if val == nil {
 			continue
@@ -397,7 +397,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 func (r *ShreddedVariantReconstructor) Reconstruct(rowIdx int, tableBgn, tableEnd map[string]int) (types.Variant, error) {
 	val, err := r.reconstructValue(r.Path, rowIdx, tableBgn, tableEnd, nil)
 	if err != nil {
-		return types.Variant{}, err
+		return types.Variant{}, fmt.Errorf("reconstruct variant at %s row %d: %w", r.Path, rowIdx, err)
 	}
 	if val == nil {
 		// Return a NULL variant

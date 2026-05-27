@@ -42,10 +42,10 @@ func DictRecToDictPageWithOption(dictRec *DictRecType, opt PageWriteOption) (*Pa
 
 	compressedData, err := page.dictPageCompress(opt.CompressType, dictRec.Type, opt.Compressor)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("compress dictionary page: %w", err)
 	}
 	if err = serializePage(page, opt, compressedData); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("serialize dictionary page: %w", err)
 	}
 	totSize += int64(len(page.RawData))
 	return page, totSize, nil
@@ -54,11 +54,11 @@ func DictRecToDictPageWithOption(dictRec *DictRecType, opt PageWriteOption) (*Pa
 func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT parquet.Type, c *compress.Compressor) ([]byte, error) {
 	dataBuf, err := encoding.WritePlain(page.DataTable.Values, pT)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode dictionary values: %w", err)
 	}
 	dataEncodeBuf, err := resolveCompressor(c).Compress(dataBuf, compressType)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compress dictionary buffer: %w", err)
 	}
 
 	page.Header = parquet.NewPageHeader()
@@ -95,7 +95,7 @@ func scanDictPageValues(table *Table, dictRec *DictRecType, startIdx int, pageSi
 	for r.endIdx < totalLn && r.size < pageSize {
 		if table.Values[r.endIdx] == nil {
 			if err := checkRequiredNil(table, r.endIdx); err != nil {
-				return r, err
+				return r, fmt.Errorf("dictionary scan index %d: %w", r.endIdx, err)
 			}
 			r.nullCount++
 			r.endIdx++
@@ -157,7 +157,7 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 
 		scan, err := scanDictPageValues(table, dictRec, i, opt.PageSize, omitStats, funcTable)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("scan dict page values at %d: %w", i, err)
 		}
 
 		page := NewDataPage()
@@ -190,10 +190,10 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 
 		compressedData, compressErr := page.dictDataPageCompress(opt.CompressType, bitWidth, scan.values, opt.Compressor)
 		if compressErr != nil {
-			return nil, 0, compressErr
+			return nil, 0, fmt.Errorf("compress dict data page: %w", compressErr)
 		}
 		if err = serializePage(page, opt, compressedData); err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("serialize dict data page: %w", err)
 		}
 
 		totSize += int64(len(page.RawData))
@@ -215,7 +215,7 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 			int32(bits.Len32(uint32(page.DataTable.MaxDefinitionLevel))),
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode definition levels: %w", err)
 		}
 	}
 
@@ -226,7 +226,7 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 			int32(bits.Len32(uint32(page.DataTable.MaxRepetitionLevel))),
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode repetition levels: %w", err)
 		}
 	}
 
@@ -238,7 +238,7 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 
 	dataEncodeBuf, err := resolveCompressor(c).Compress(dataBuf, compressType)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compress dict data: %w", err)
 	}
 
 	page.Header = parquet.NewPageHeader()
@@ -255,7 +255,7 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 	if page.MaxVal != nil {
 		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode dict page max statistic: %w", err)
 		}
 		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
 			tmpBuf = tmpBuf[4:]
@@ -266,7 +266,7 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 	if page.MinVal != nil {
 		tmpBuf, err := encoding.WritePlain([]any{page.MinVal}, *page.Schema.Type)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode dict page min statistic: %w", err)
 		}
 		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
 			tmpBuf = tmpBuf[4:]

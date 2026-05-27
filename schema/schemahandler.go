@@ -96,7 +96,7 @@ func (sh *SchemaHandler) ValidateEncodingsForDataPageVersion(version int32) erro
 			continue
 		}
 		if err := common.ValidateEncodingForDataPageVersion(info.InName, info.Encoding, version); err != nil {
-			return err
+			return fmt.Errorf("validate encoding for %s: %w", info.InName, err)
 		}
 	}
 	return nil
@@ -164,7 +164,7 @@ func (sh *SchemaHandler) MaxDefinitionLevel(path []string) (int32, error) {
 	for i := 2; i <= ln; i++ {
 		rt, err := sh.GetRepetitionType(path[:i])
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("get repetition type for %v: %w", path[:i], err)
 		}
 		if rt != parquet.FieldRepetitionType_REQUIRED {
 			res++
@@ -180,7 +180,7 @@ func (sh *SchemaHandler) GetRepetitionLevelIndex(path []string, rl int32) (int32
 	for i := 2; i <= ln; i++ {
 		rt, err := sh.GetRepetitionType(path[:i])
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("get repetition type for %v: %w", path[:i], err)
 		}
 		if rt == parquet.FieldRepetitionType_REPEATED {
 			res++
@@ -200,7 +200,7 @@ func (sh *SchemaHandler) MaxRepetitionLevel(path []string) (int32, error) {
 	for i := 2; i <= ln; i++ {
 		rt, err := sh.GetRepetitionType(path[:i])
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("get repetition type for %v: %w", path[:i], err)
 		}
 		if rt == parquet.FieldRepetitionType_REPEATED {
 			res++

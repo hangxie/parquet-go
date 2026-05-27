@@ -112,7 +112,7 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 	if page.MaxVal != nil {
 		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
 		if err != nil {
-			return err
+			return fmt.Errorf("encode page max statistic: %w", err)
 		}
 		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
 			tmpBuf = tmpBuf[4:]
@@ -123,7 +123,7 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 	if page.MinVal != nil {
 		tmpBuf, err := encoding.WritePlain([]any{page.MinVal}, *page.Schema.Type)
 		if err != nil {
-			return err
+			return fmt.Errorf("encode page min statistic: %w", err)
 		}
 		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
 			tmpBuf = tmpBuf[4:]
@@ -170,7 +170,7 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *com
 	// valuesRawBuf := encoding.WritePlain(valuesBuf)
 	valuesRawBuf, err := page.EncodingValues(valuesBuf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode data page values: %w", err)
 	}
 
 	var definitionLevelBuf []byte
@@ -180,7 +180,7 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *com
 			int32(bits.Len32(uint32(page.DataTable.MaxDefinitionLevel))),
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode definition levels: %w", err)
 		}
 	}
 
@@ -191,14 +191,14 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *com
 			int32(bits.Len32(uint32(page.DataTable.MaxRepetitionLevel))),
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("encode repetition levels: %w", err)
 		}
 	}
 
 	dataBuf := slices.Concat(repetitionLevelBuf, definitionLevelBuf, valuesRawBuf)
 	dataEncodeBuf, err := resolveCompressor(c).Compress(dataBuf, compressType)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compress data page: %w", err)
 	}
 
 	page.Header = parquet.NewPageHeader()
@@ -213,7 +213,7 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *com
 
 	page.Header.DataPageHeader.Statistics = parquet.NewStatistics()
 	if err = page.setPageStatistics(page.Header.DataPageHeader.Statistics); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set page statistics: %w", err)
 	}
 
 	return dataEncodeBuf, nil
@@ -243,7 +243,7 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec, c *c
 	// valuesRawBuf := encoding.WritePlain(valuesBuf)
 	valuesRawBuf, err := page.EncodingValues(valuesBuf)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("encode v2 page values: %w", err)
 	}
 
 	var definitionLevelBuf []byte
@@ -256,7 +256,7 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec, c *c
 			int32(bits.Len32(uint32(page.DataTable.MaxDefinitionLevel))),
 			parquet.Type_INT64)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, fmt.Errorf("encode v2 definition levels: %w", err)
 		}
 	}
 
@@ -274,7 +274,7 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec, c *c
 			int32(bits.Len32(uint32(page.DataTable.MaxRepetitionLevel))),
 			parquet.Type_INT64)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, fmt.Errorf("encode v2 repetition levels: %w", err)
 		}
 	} else {
 		// When MaxRepetitionLevel is 0, every entry is a top-level row
@@ -283,7 +283,7 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec, c *c
 
 	dataEncodeBuf, err := resolveCompressor(c).Compress(valuesRawBuf, compressType)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("compress v2 page: %w", err)
 	}
 
 	// If compression didn't reduce size, store data uncompressed and set
@@ -311,7 +311,7 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec, c *c
 
 	page.Header.DataPageHeaderV2.Statistics = parquet.NewStatistics()
 	if err = page.setPageStatistics(page.Header.DataPageHeaderV2.Statistics); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("set v2 page statistics: %w", err)
 	}
 
 	return repetitionLevelBuf, definitionLevelBuf, dataEncodeBuf, nil

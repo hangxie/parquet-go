@@ -92,7 +92,7 @@ func buildFieldNameToID(metadata []byte, context string) (map[string]int, error)
 func encodeStructAsVariant(val reflect.Value, metadata []byte) ([]byte, error) {
 	fieldNameToID, err := buildFieldNameToID(metadata, "struct")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build struct field map: %w", err)
 	}
 
 	fieldIDs := make([]int, 0, val.NumField())
@@ -123,7 +123,7 @@ func encodeStructAsVariant(val reflect.Value, metadata []byte) ([]byte, error) {
 func encodeMapAsVariant(obj map[string]any, metadata []byte) ([]byte, error) {
 	fieldNameToID, err := buildFieldNameToID(metadata, "object")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build object field map: %w", err)
 	}
 
 	fieldIDs := make([]int, 0, len(obj))
@@ -225,7 +225,7 @@ func AnyToVariant(v any) (Variant, error) {
 	// 3. Encode value with metadata
 	val, err := EncodeGoValueAsVariantWithMetadata(v, metadata)
 	if err != nil {
-		return Variant{}, err
+		return Variant{}, fmt.Errorf("encode value as variant: %w", err)
 	}
 
 	return Variant{

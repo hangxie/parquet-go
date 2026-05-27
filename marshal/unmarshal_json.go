@@ -108,7 +108,7 @@ func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaH
 	for i := range val.Len() {
 		converted, err := convertValueToJSONFriendlyWithContext(val.Index(i), schemaHandler, elementPath, converter)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("convert list element %d: %w", i, err)
 		}
 		result[i] = converted
 	}
@@ -141,13 +141,13 @@ func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHan
 	for _, key := range val.MapKeys() {
 		converted, err := convertValueToJSONFriendlyWithContext(key, schemaHandler, keyPath, converter)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("convert map key: %w", err)
 		}
 		keyStr := fmt.Sprint(converted)
 
 		converted, err = convertValueToJSONFriendlyWithContext(val.MapIndex(key), schemaHandler, valuePath, converter)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("convert map value for key %q: %w", keyStr, err)
 		}
 		result[keyStr] = converted
 	}
@@ -220,7 +220,7 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 
 		converted, err := convertValueToJSONFriendlyWithContext(fieldVal, schemaHandler, fieldPath, converter)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("convert field %s: %w", field.Name, err)
 		}
 		result[fInfo.name] = converted
 	}

@@ -103,7 +103,7 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 	}
 
 	if err := ValidateSchemaElement(schema); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate schema element: %w", err)
 	}
 
 	return schema, nil
@@ -178,7 +178,7 @@ func validateLogicalType(schema *parquet.SchemaElement) error {
 		}
 	}
 	if err := validateLogicalTime(lt, schema.Type); err != nil {
-		return err
+		return fmt.Errorf("validate logical TIME: %w", err)
 	}
 	if lt.TIMESTAMP != nil {
 		if *schema.Type != parquet.Type_INT64 {
@@ -226,11 +226,11 @@ func ValidateSchemaElement(schema *parquet.SchemaElement) error {
 	}
 
 	if err := validateLogicalType(schema); err != nil {
-		return err
+		return fmt.Errorf("validate logical type: %w", err)
 	}
 
 	if err := validateConvertedType(schema); err != nil {
-		return err
+		return fmt.Errorf("validate converted type: %w", err)
 	}
 
 	return nil

@@ -1,12 +1,15 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // ParseDateString parses a date string in format "2006-01-02" and returns days since Unix epoch.
 func ParseDateString(s string) (int32, error) {
 	t, err := time.Parse("2006-01-02", s)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse date %q: %w", s, err)
 	}
 	epochDate := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	days := int32(t.Sub(epochDate).Hours() / 24)

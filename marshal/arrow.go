@@ -1,6 +1,8 @@
 package marshal
 
 import (
+	"fmt"
+
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/schema"
@@ -24,10 +26,10 @@ func MarshalArrow(records []any, schemaHandler *schema.SchemaHandler) (*map[stri
 
 		var err error
 		if table.MaxDefinitionLevel, err = schemaHandler.MaxDefinitionLevel(table.Path); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("max definition level for %s: %w", pathStr, err)
 		}
 		if table.MaxRepetitionLevel, err = schemaHandler.MaxRepetitionLevel(table.Path); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("max repetition level for %s: %w", pathStr, err)
 		}
 
 		table.Schema = schemaHandler.SchemaElements[schemaHandler.MapIndex[pathStr]]

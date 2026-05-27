@@ -55,7 +55,7 @@ func lz4RawUncompress(buf []byte, maxSize int64) ([]byte, error) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("lz4 decompress: %w", err)
 		}
 		return nil, fmt.Errorf("lz4 decompression failed unexpectedly")
 	}

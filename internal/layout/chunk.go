@@ -92,11 +92,11 @@ func populateStatistics(metaData *parquet.ColumnMetaData, pT *parquet.Type, minV
 	}
 	tmpBufMax, err := encoding.WritePlain([]any{maxVal}, *pT)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode chunk max statistic: %w", err)
 	}
 	tmpBufMin, err := encoding.WritePlain([]any{minVal}, *pT)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode chunk min statistic: %w", err)
 	}
 	if *pT == parquet.Type_BYTE_ARRAY {
 		tmpBufMax = tmpBufMax[4:]
@@ -113,7 +113,7 @@ func populateStatistics(metaData *parquet.ColumnMetaData, pT *parquet.Type, minV
 func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 	metadataPageIdx, statsStartIdx, err := validatePagesAndGetMetadataIdx(pages, hasDictPage)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validate pages: %w", err)
 	}
 	if pages == nil || (hasDictPage && len(pages) < 2) {
 		return nil, nil
@@ -140,7 +140,7 @@ func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 	metaData.PathInSchema = pages[metadataPageIdx].Path
 
 	if err := populateStatistics(metaData, pT, minVal, maxVal, nullCount, omitStats); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("populate chunk statistics: %w", err)
 	}
 
 	// Aggregate geospatial statistics from pages

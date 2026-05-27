@@ -13,11 +13,11 @@ import (
 func EncryptGCM(key, aad, plaintext []byte) ([]byte, error) {
 	gcm, err := newGCMCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init AES-GCM cipher: %w", err)
 	}
 	nonce, err := randomNonce(gcmNonceSize)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GCM nonce: %w", err)
 	}
 	module := append([]byte{}, nonce...)
 	module = gcm.Seal(module, nonce, plaintext, aad)
@@ -29,11 +29,11 @@ func EncryptGCM(key, aad, plaintext []byte) ([]byte, error) {
 func SignGCM(key, aad, plaintext []byte) ([]byte, error) {
 	gcm, err := newGCMCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init AES-GCM cipher: %w", err)
 	}
 	nonce, err := randomNonce(gcmNonceSize)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GCM nonce: %w", err)
 	}
 	// gcm.Seal encrypts the full plaintext; only the appended tag is kept.
 	// Go's cipher.AEAD interface has no tag-only (GHASH-only) path, so the
@@ -51,11 +51,11 @@ func SignGCM(key, aad, plaintext []byte) ([]byte, error) {
 func EncryptCTR(key, plaintext []byte) ([]byte, error) {
 	block, err := newAESBlock(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init AES block: %w", err)
 	}
 	nonce, err := randomNonce(ctrNonceSize)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("CTR nonce: %w", err)
 	}
 	iv := make([]byte, aes.BlockSize)
 	copy(iv, nonce)

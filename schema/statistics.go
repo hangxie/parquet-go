@@ -48,7 +48,7 @@ func DecodeStatisticsMinMax(se *parquet.SchemaElement, stats *parquet.Statistics
 		}
 		vals, err := encoding.ReadPlain(bytes.NewReader(data), pT, 1, bitWidth)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode statistic value: %w", err)
 		}
 		if len(vals) == 0 {
 			return nil, nil

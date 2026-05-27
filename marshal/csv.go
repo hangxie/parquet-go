@@ -26,10 +26,10 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 
 		var err error
 		if table.MaxDefinitionLevel, err = schemaHandler.MaxDefinitionLevel(table.Path); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("max definition level for %s: %w", pathStr, err)
 		}
 		if table.MaxRepetitionLevel, err = schemaHandler.MaxRepetitionLevel(table.Path); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("max repetition level for %s: %w", pathStr, err)
 		}
 
 		table.RepetitionType = parquet.FieldRepetitionType_OPTIONAL

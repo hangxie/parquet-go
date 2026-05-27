@@ -768,3 +768,87 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 		})
 	}
 }
+
+// TestStrToParquetTypeWithLogical_Errors covers wrap paths reachable via the
+// public API: FLOAT16 and DATE in strToLogicalType propagate errors with
+// handled=true.
+func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
+	tests := []struct {
+		name   string
+		s      string
+		pT     *parquet.Type
+		lT     *parquet.LogicalType
+		errMsg string
+	}{
+		{
+			name:   "float16_invalid",
+			s:      "not-a-float",
+			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:     &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			errMsg: "parse FLOAT16",
+		},
+		{
+			name:   "date_invalid",
+			s:      "not-a-date",
+			pT:     parquet.TypePtr(parquet.Type_INT32),
+			lT:     &parquet.LogicalType{DATE: &parquet.DateType{}},
+			errMsg: "parse DATE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := StrToParquetTypeWithLogical(tt.s, tt.pT, nil, tt.lT, 12, 0)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.errMsg)
+		})
+	}
+}
+
+// TestStrToTimeLogical_Errors covers the wrapped Sscanf-failure paths in
+// strToTimeLogical. Reached directly because strToLogicalType swallows these
+// errors as fallthrough signals to StrToParquetType.
+func TestStrToTimeLogical_Errors(t *testing.T) {
+	tests := []struct {
+		name   string
+		s      string
+		t      *parquet.TimeType
+		errMsg string
+	}{
+		{
+			name:   "millis_invalid",
+			s:      "not-a-time",
+			t:      createTimeLogicalType(true, false, false).GetTIME(),
+			errMsg: "parse TIME_MILLIS",
+		},
+		{
+			name:   "micros_invalid",
+			s:      "not-a-time",
+			t:      createTimeLogicalType(false, true, false).GetTIME(),
+			errMsg: "parse time",
+		},
+		{
+			name:   "nanos_invalid",
+			s:      "not-a-time",
+			t:      createTimeLogicalType(false, false, true).GetTIME(),
+			errMsg: "parse time",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := strToTimeLogical(tt.s, tt.t)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.errMsg)
+		})
+	}
+}
+
+// TestStrToTimestampLogical_Errors covers the wrapped Sscanf-failure path in
+// strToTimestampLogical. Reached directly for the same reason as
+// TestStrToTimeLogical_Errors.
+func TestStrToTimestampLogical_Errors(t *testing.T) {
+	ts := createTimestampLogicalType(true, false, false, true).GetTIMESTAMP()
+	_, err := strToTimestampLogical("not-a-timestamp", ts)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "parse timestamp")
+}

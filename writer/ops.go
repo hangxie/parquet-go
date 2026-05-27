@@ -28,15 +28,15 @@ func (pw *ParquetWriter) WriteStop() error {
 	pw.RenameSchema()
 
 	if err = pw.writeColumnIndexes(ts); err != nil {
-		return err
+		return fmt.Errorf("write column indexes: %w", err)
 	}
 
 	if err = pw.writeOffsetIndexes(ts); err != nil {
-		return err
+		return fmt.Errorf("write offset indexes: %w", err)
 	}
 
 	if err = pw.writeBloomFilters(); err != nil {
-		return err
+		return fmt.Errorf("write bloom filters: %w", err)
 	}
 
 	// Set ColumnOrders so readers can correctly interpret min/max statistics.
@@ -63,7 +63,7 @@ func (pw *ParquetWriter) WriteStop() error {
 			}
 			for columnOrdinal, column := range rowGroup.Columns {
 				if err := pw.encryptColumnMetadata(rowGroupOrdinal, int16(columnOrdinal), column); err != nil {
-					return err
+					return fmt.Errorf("encrypt column metadata row group %d column %d: %w", rowGroupOrdinal, columnOrdinal, err)
 				}
 			}
 		}
@@ -75,7 +75,7 @@ func (pw *ParquetWriter) WriteStop() error {
 	}
 	footerBuf, tailMagic, err := pw.encryptFooter(footerBuf)
 	if err != nil {
-		return err
+		return fmt.Errorf("encrypt footer: %w", err)
 	}
 
 	if _, err = pw.PFile.Write(footerBuf); err != nil {
@@ -212,7 +212,7 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 	if (pw.size+pw.objsSize >= pw.rowGroupSize || flag) && len(pw.pagesMapBuf) > 0 {
 		chunkMap, err := pw.buildChunkMap()
 		if err != nil {
-			return err
+			return fmt.Errorf("build chunk map: %w", err)
 		}
 		pw.DictRecs.Clear()
 
@@ -221,14 +221,14 @@ func (pw *ParquetWriter) Flush(flag bool) error {
 		rowGroupOrdinal := int16(len(pw.Footer.RowGroups))
 		for k := range len(rowGroup.Chunks) {
 			if err := pw.writeChunkPages(rowGroup.Chunks[k], rowGroupOrdinal, int16(k)); err != nil {
-				return err
+				return fmt.Errorf("write chunk pages row group %d column %d: %w", rowGroupOrdinal, k, err)
 			}
 		}
 
 		pw.Footer.RowGroups = append(pw.Footer.RowGroups, rowGroup.RowGroupHeader)
 
 		if err := pw.serializeBloomFilters(); err != nil {
-			return err
+			return fmt.Errorf("serialize bloom filters: %w", err)
 		}
 
 		pw.size = 0

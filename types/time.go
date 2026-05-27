@@ -143,10 +143,14 @@ func strToTimeLogical(s string, t *parquet.TimeType) (any, error) {
 	}
 	if t.Unit.IsSetMILLIS() {
 		var v int32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, err
+		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+			return v, fmt.Errorf("parse TIME_MILLIS %q: %w", s, err)
+		}
+		return v, nil
 	}
 	var v int64
-	_, err := fmt.Sscanf(s, "%d", &v)
-	return v, err
+	if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+		return v, fmt.Errorf("parse time %q: %w", s, err)
+	}
+	return v, nil
 }
