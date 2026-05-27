@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -131,7 +132,7 @@ func (pr *ParquetReader) resolveFooterKeyFromMetadata(keyMetadata []byte) ([]byt
 		return pr.footerKey, nil
 	}
 	if pr.keyRetriever != nil {
-		key, err := pr.keyRetriever(keyMetadata)
+		key, err := pr.retrieveKeyFromMetadata(keyMetadata)
 		if err != nil {
 			return nil, fmt.Errorf("retrieve footer key: %w", err)
 		}
@@ -157,7 +158,7 @@ func (pr *ParquetReader) resolveOptionalFooterKeyFromMetadata(keyMetadata []byte
 	if pr.keyRetriever == nil {
 		return nil, nil
 	}
-	key, err := pr.keyRetriever(keyMetadata)
+	key, err := pr.retrieveKeyFromMetadata(keyMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("retrieve footer key: %w", err)
 	}
@@ -173,6 +174,39 @@ func (pr *ParquetReader) resolveFooterKey() ([]byte, error) {
 		return pr.resolvedFooterKey, nil
 	}
 	return pr.resolveFooterKeyFromMetadata(nil)
+}
+
+type keyCacheEntry struct {
+	once sync.Once
+	key  []byte
+	err  error
+}
+
+func (pr *ParquetReader) retrieveKeyFromMetadata(keyMetadata []byte) ([]byte, error) {
+	if pr.keyRetriever == nil {
+		return nil, nil
+	}
+	// key_metadata is an opaque byte sequence. The string conversion is only
+	// for stable map lookup and is not intended to produce printable text.
+	cacheKey := string(keyMetadata)
+
+	entryAny, _ := pr.keyCache.LoadOrStore(cacheKey, new(keyCacheEntry))
+	entry := entryAny.(*keyCacheEntry)
+
+	// sync.Once does not tolerate transient retriever failures: if the first
+	// call returns an error, that error is cached and this reader will not retry.
+	entry.once.Do(func() {
+		key, err := pr.keyRetriever(keyMetadata)
+		if err != nil {
+			entry.err = err
+			return
+		}
+		entry.key = append([]byte(nil), key...)
+	})
+	if entry.err != nil {
+		return nil, entry.err
+	}
+	return append([]byte(nil), entry.key...), nil
 }
 
 func (pr *ParquetReader) decryptEncryptedColumnMetadata() error {
@@ -264,7 +298,7 @@ func (pr *ParquetReader) resolveColumnKey(chunk *parquet.ColumnChunk) ([]byte, e
 		return key, nil
 	}
 	if pr.keyRetriever != nil {
-		key, err := pr.keyRetriever(columnKeyMeta.GetKeyMetadata())
+		key, err := pr.retrieveKeyFromMetadata(columnKeyMeta.GetKeyMetadata())
 		if err != nil {
 			return nil, fmt.Errorf("retrieve column key for %s: %w", path, err)
 		}
@@ -294,9 +328,11 @@ func (pr *ParquetReader) resolveOptionalColumnKey(chunk *parquet.ColumnChunk) ([
 	if pr.keyRetriever == nil {
 		return nil, nil
 	}
-	key, err := pr.keyRetriever(columnKeyMeta.GetKeyMetadata())
+	key, err := pr.retrieveKeyFromMetadata(columnKeyMeta.GetKeyMetadata())
 	if err != nil {
-		return nil, fmt.Errorf("retrieve column key for %s: %w", path, err)
+		// Optional paths only probe for keys. Strict page access will surface
+		// the cached retrieval error if the encrypted column is actually read.
+		return nil, nil
 	}
 	return key, nil
 }

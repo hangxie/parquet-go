@@ -119,7 +119,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	cbt.ChunkHeader = columnChunks[i]
 	cbt.ColumnOrdinal = int16(i)
 	if cbt.Reader != nil {
-		if err := cbt.Reader.configurePageDecryptor(cbt, rowGroups[cbt.RowGroupIndex-1], int16(i)); err != nil {
+		if err := cbt.Reader.configureOptionalPageDecryptor(cbt, rowGroups[cbt.RowGroupIndex-1], int16(i)); err != nil {
 			return err
 		}
 	}
@@ -206,6 +206,11 @@ func (cbt *ColumnBufferType) ReadPage() error {
 
 func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
+		if cbt.Reader != nil {
+			if err := cbt.Reader.requirePageDecryptor(cbt); err != nil {
+				return nil, fmt.Errorf("require page decryptor: %w", err)
+			}
+		}
 		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, &cbt.PageReadOptions)
 		if err != nil {
 			return nil, err

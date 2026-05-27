@@ -421,15 +421,15 @@ Without a KMS, supply keys directly with `WithFooterKey` and `WithColumnKey`. Wi
 
 On write, the key ID must be specified explicitly because there is no file to read from. Use the optional metadata argument to `WithFooterKey` or `WithColumnKey`, or use `WithFooterKeyMetadata` and `WithColumnKeyMetadata` when key bytes come from `WithKeyRetriever`. On read, the key ID is already in the file and is passed to `WithKeyRetriever`.
 
-When explicit keys and `WithKeyRetriever` are both configured, explicit keys take priority. `WithKeyRetriever` is called only when no direct key is provided.
+When explicit keys and `WithKeyRetriever` are both configured, explicit keys take priority. `WithKeyRetriever` is called only when no direct key is provided. Reader-side `WithKeyRetriever` lookups use local/in-process caching keyed by the file's opaque `key_metadata` bytes, so repeated and concurrent reads of modules protected by the same key ID reuse the first lookup result. This cache does not retry transient retrieval failures within the same reader; if the first lookup for a key ID returns an error, concurrent waiters and any subsequent attempts for that key ID return the same error.
 
 Reader behavior by footer and column mode:
 
-- Encrypted footer (`PARE`): the footer key is required to open the file because schema and row-group metadata are encrypted.
-- Plaintext footer (`PAR1`): the file can be opened without keys. If a footer key is supplied or resolved, the reader verifies the plaintext-footer AES-GCM signature; without the footer key, the footer is readable but not authenticated by this reader.
-- Mixed plaintext/encrypted columns: plaintext columns can be read without encryption keys. Encrypted columns require either the column key from `WithColumnKey`/`WithKeyRetriever` or the footer key when the column metadata says it uses the footer key.
-- Encrypted column indexes, offset indexes, and bloom filters require the key for that encrypted column. The plain versions can be read without keys.
-- Low-level page-header inspection helpers do not inspect encrypted columns; use normal row reads with the required keys instead.
+- Encrypted footer (`PARE`): the footer key is required to open the file because schema and row-group metadata are encrypted. After the footer is opened, plaintext columns can be read without column keys; encrypted columns still require either their column key from `WithColumnKey`/`WithKeyRetriever` or the footer key when the column metadata says they use the footer key.
+- Plaintext footer (`PAR1`): the file can be opened without keys. If a footer key is supplied or resolved, the reader verifies the plaintext-footer AES-GCM signature and fails `ReadFooter`/`NewParquetReader` when verification fails. Without the footer key, the footer is readable but not authenticated by this reader.
+- Mixed plaintext/encrypted columns: plaintext-column reads can succeed without encryption keys. Full row reads or partial reads that include an encrypted column fail if that column's key is unavailable.
+- Indexes and bloom filters: the column index, offset index, bloom filter header, and bloom filter bitset inherit their column's encryption state. For an encrypted column they are encrypted with the same key as the column data; for a plaintext column they are stored in plaintext and can be read without any keys.
+- Low-level page inspection: `GetAllPageHeaders`, `GetFirstDataPageHeader`, and `ReadDictionaryPageValues` operate on raw page bytes and reject encrypted columns even when keys are configured. Use row or column read APIs to decrypt encrypted page data.
 
 Read a file encrypted with a single footer key:
 

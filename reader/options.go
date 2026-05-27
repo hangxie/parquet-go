@@ -42,6 +42,10 @@ func WithKeyRetriever(retriever KeyRetriever) ReaderOption {
 	return func(pr *ParquetReader) {
 		pr.keyRetriever = retriever
 		pr.resolvedFooterKey = nil
+		pr.keyCache.Range(func(key, _ any) bool {
+			pr.keyCache.Delete(key)
+			return true
+		})
 	}
 }
 
