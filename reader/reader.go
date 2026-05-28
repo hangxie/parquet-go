@@ -47,9 +47,16 @@ type ParquetReader struct {
 	footerMu          sync.Mutex
 	footerLoaded      bool
 	// encryptedPageOffsets is populated once from the immutable footer and then
-	// treated as read-only. It only tracks data-page and dictionary-page offsets.
+	// treated as read-only. It tracks every per-column offset that belongs to an
+	// encrypted column: data, dictionary, index, and bloom-filter pages. The set
+	// is keyed on CryptoMetadata, which is the authoritative signal that a
+	// column's payloads are encrypted. If the footer carries an encrypted column
+	// whose MetaData cannot be recovered (no plaintext and no
+	// EncryptedColumnMetadata), the build records encryptedPageOffsetsErr and
+	// every lookup surfaces that error.
 	encryptedPageOffsetOnce sync.Once
 	encryptedPageOffsets    map[int64]struct{}
+	encryptedPageOffsetsErr error
 }
 
 // NewParquetReader creates a parquet reader. obj is an object with schema tags or a JSON schema string.

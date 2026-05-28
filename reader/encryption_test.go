@@ -656,8 +656,13 @@ func TestReadDictionaryPageValuesByOffsetRejectsEncryptedOffset(t *testing.T) {
 	_, err := pr.ReadDictionaryPageValues(4, parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
 	require.ErrorContains(t, err, "ReadDictionaryPageValuesInColumn")
 
-	require.False(t, (*ParquetReader)(nil).pageOffsetEncrypted(4))
-	require.False(t, (&ParquetReader{}).pageOffsetEncrypted(4))
+	encrypted, err := (*ParquetReader)(nil).pageOffsetEncrypted(4)
+	require.NoError(t, err)
+	require.False(t, encrypted)
+
+	encrypted, err = (&ParquetReader{}).pageOffsetEncrypted(4)
+	require.NoError(t, err)
+	require.False(t, encrypted)
 }
 
 func TestPageInspectionDecryptsEncryptedColumns(t *testing.T) {
@@ -1019,25 +1024,34 @@ func encryptedColumnIndex(t *testing.T, pr *ParquetReader, leaf string) int {
 	return -1
 }
 
-func TestPageOffsetEncryptedCachesDataAndDictionaryOffsets(t *testing.T) {
+func TestPageOffsetEncryptedCachesAllEncryptedOffsets(t *testing.T) {
 	t.Parallel()
 
 	const (
 		dictionaryPageOffset int64 = 4
 		dataPageOffset       int64 = 8
+		indexPageOffset      int64 = 12
+		bloomFilterOffset    int64 = 16
 	)
+
+	column := encryptedOffsetTestColumn(dictionaryPageOffset, dataPageOffset)
+	column.MetaData.IndexPageOffset = int64Ptr(indexPageOffset)
+	column.MetaData.BloomFilterOffset = int64Ptr(bloomFilterOffset)
 
 	pr := &ParquetReader{
 		Footer: &parquet.FileMetaData{
 			RowGroups: []*parquet.RowGroup{
-				{Columns: []*parquet.ColumnChunk{encryptedOffsetTestColumn(dictionaryPageOffset, dataPageOffset)}},
+				{Columns: []*parquet.ColumnChunk{column}},
 			},
 		},
 	}
 
-	require.True(t, pr.pageOffsetEncrypted(dictionaryPageOffset))
-	require.True(t, pr.pageOffsetEncrypted(dataPageOffset))
-	require.Len(t, pr.encryptedPageOffsets, 2)
+	for _, offset := range []int64{dictionaryPageOffset, dataPageOffset, indexPageOffset, bloomFilterOffset} {
+		encrypted, err := pr.pageOffsetEncrypted(offset)
+		require.NoError(t, err)
+		require.True(t, encrypted)
+	}
+	require.Len(t, pr.encryptedPageOffsets, 4)
 }
 
 func TestPageOffsetEncryptedBuildsAfterFooterSet(t *testing.T) {
@@ -1049,7 +1063,9 @@ func TestPageOffsetEncryptedBuildsAfterFooterSet(t *testing.T) {
 	)
 
 	pr := &ParquetReader{}
-	require.False(t, pr.pageOffsetEncrypted(dictionaryPageOffset))
+	encrypted, err := pr.pageOffsetEncrypted(dictionaryPageOffset)
+	require.NoError(t, err)
+	require.False(t, encrypted)
 	require.Nil(t, pr.encryptedPageOffsets)
 
 	pr.Footer = &parquet.FileMetaData{
@@ -1057,9 +1073,101 @@ func TestPageOffsetEncryptedBuildsAfterFooterSet(t *testing.T) {
 			{Columns: []*parquet.ColumnChunk{encryptedOffsetTestColumn(dictionaryPageOffset, dataPageOffset)}},
 		},
 	}
-	require.True(t, pr.pageOffsetEncrypted(dictionaryPageOffset))
-	require.True(t, pr.pageOffsetEncrypted(dataPageOffset))
+	encrypted, err = pr.pageOffsetEncrypted(dictionaryPageOffset)
+	require.NoError(t, err)
+	require.True(t, encrypted)
+	encrypted, err = pr.pageOffsetEncrypted(dataPageOffset)
+	require.NoError(t, err)
+	require.True(t, encrypted)
 	require.Len(t, pr.encryptedPageOffsets, 2)
+}
+
+func TestPageOffsetEncryptedSkipsDeferredColumnMetadata(t *testing.T) {
+	t.Parallel()
+
+	pr := &ParquetReader{
+		Footer: &parquet.FileMetaData{
+			RowGroups: []*parquet.RowGroup{
+				{Columns: []*parquet.ColumnChunk{{
+					CryptoMetadata: &parquet.ColumnCryptoMetaData{
+						ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
+					},
+					EncryptedColumnMetadata: []byte("opaque-ciphertext"),
+				}}},
+			},
+		},
+	}
+
+	encrypted, err := pr.pageOffsetEncrypted(0)
+	require.NoError(t, err)
+	require.False(t, encrypted)
+	require.Empty(t, pr.encryptedPageOffsets)
+}
+
+func TestPageOffsetEncryptedFailsOnCorruptedColumn(t *testing.T) {
+	t.Parallel()
+
+	pr := &ParquetReader{
+		Footer: &parquet.FileMetaData{
+			RowGroups: []*parquet.RowGroup{
+				{Columns: []*parquet.ColumnChunk{{
+					CryptoMetadata: &parquet.ColumnCryptoMetaData{
+						ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
+					},
+				}}},
+			},
+		},
+	}
+
+	_, err := pr.pageOffsetEncrypted(0)
+	require.ErrorContains(t, err, "encrypted column is missing metadata")
+
+	// Error is cached across calls.
+	_, err2 := pr.pageOffsetEncrypted(123)
+	require.Equal(t, err, err2)
+
+	_, err = pr.ReadDictionaryPageValues(0, parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
+	require.ErrorContains(t, err, "encrypted column is missing metadata")
+}
+
+// BenchmarkPageOffsetEncrypted exercises the post-build lookup path against a
+// large encrypted footer. The cache makes each lookup O(1); a regression that
+// reintroduces per-call footer scans would make each iteration O(R*C) and
+// produce a dramatic slowdown here.
+func BenchmarkPageOffsetEncrypted(b *testing.B) {
+	const (
+		numRowGroups = 1000
+		numColumns   = 100
+	)
+
+	rowGroups := make([]*parquet.RowGroup, numRowGroups)
+	offsets := make([]int64, 0, numRowGroups*numColumns*2)
+	for rg := range numRowGroups {
+		columns := make([]*parquet.ColumnChunk, numColumns)
+		for c := range numColumns {
+			base := int64(rg*numColumns+c) * 1024
+			columns[c] = encryptedOffsetTestColumn(base, base+4)
+			offsets = append(offsets, base, base+4)
+		}
+		rowGroups[rg] = &parquet.RowGroup{Columns: columns}
+	}
+
+	pr := &ParquetReader{
+		Footer: &parquet.FileMetaData{RowGroups: rowGroups},
+	}
+
+	// Force the one-shot cache build before timing so the loop measures lookups only.
+	if _, err := pr.pageOffsetEncrypted(offsets[0]); err != nil {
+		b.Fatalf("cache build: %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		encrypted, err := pr.pageOffsetEncrypted(offsets[i%len(offsets)])
+		if err != nil || !encrypted {
+			b.Fatalf("offset %d: encrypted=%v err=%v", offsets[i%len(offsets)], encrypted, err)
+		}
+	}
 }
 
 func TestConfigurePageDecryptor(t *testing.T) {
