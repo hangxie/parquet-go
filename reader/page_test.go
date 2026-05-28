@@ -1342,7 +1342,7 @@ func TestReadAllPageHeaders_NilMetadata(t *testing.T) {
 		MetaData: nil,
 	}
 
-	_, err := readAllPageHeaders(buf, cc)
+	_, err := readAllPageHeaders(buf, cc, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "metadata is nil")
 }

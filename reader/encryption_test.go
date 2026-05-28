@@ -21,6 +21,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
+	"github.com/hangxie/parquet-go/v3/source/local"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 	"github.com/hangxie/parquet-go/v3/writer"
 )
@@ -585,7 +586,29 @@ func TestNewColumnBufferConfiguresPageDecryptor(t *testing.T) {
 	require.Equal(t, key, cb.PageReadOptions.Decryptor.Key)
 }
 
-func TestPageInspectionRejectsEncryptedColumns(t *testing.T) {
+func TestPageInspectionRejectsEncryptedColumnsWithoutKeys(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	data := buildPlaintextFooterEncryptedColumnData(t, footerKey, []byte("abcdef0123456789"))
+
+	pr, err := NewParquetReader(buffer.NewBufferReaderFromBytesNoAlloc(data), new(encryptedReaderRecord))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+
+	nameColumn := encryptedColumnIndex(t, pr, "name")
+
+	_, err = pr.GetAllPageHeaders(0, nameColumn)
+	require.ErrorContains(t, err, "decryption key required for column name")
+
+	_, err = pr.GetFirstDataPageHeader(0, nameColumn)
+	require.ErrorContains(t, err, "decryption key required for column name")
+
+	_, err = pr.ReadDictionaryPageValuesInColumn(0, nameColumn)
+	require.ErrorContains(t, err, "decryption key required for column name")
+}
+
+func TestReadDictionaryPageValuesByOffsetRejectsEncryptedOffset(t *testing.T) {
 	t.Parallel()
 
 	pr := &ParquetReader{
@@ -611,17 +634,370 @@ func TestPageInspectionRejectsEncryptedColumns(t *testing.T) {
 		},
 	}
 
-	_, err := pr.GetAllPageHeaders(0, 0)
-	require.ErrorContains(t, err, "not supported for encrypted columns")
-
-	_, err = pr.GetFirstDataPageHeader(0, 0)
-	require.ErrorContains(t, err, "not supported for encrypted columns")
-
-	_, err = pr.ReadDictionaryPageValues(4, parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
-	require.ErrorContains(t, err, "not supported for encrypted columns")
+	_, err := pr.ReadDictionaryPageValues(4, parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_INT32)
+	require.ErrorContains(t, err, "ReadDictionaryPageValuesInColumn")
 
 	require.False(t, (*ParquetReader)(nil).pageOffsetEncrypted(4))
 	require.False(t, (&ParquetReader{}).pageOffsetEncrypted(4))
+}
+
+func TestPageInspectionDecryptsEncryptedColumns(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	nameKey := []byte("abcdef0123456789")
+
+	algorithms := []struct {
+		name    string
+		algoOpt writer.WriterOption
+	}{
+		{name: "AES-GCM", algoOpt: writer.WithEncryptionAlgorithm(writer.EncryptionAESGCMV1)},
+		{name: "AES-GCM-CTR", algoOpt: writer.WithEncryptionAlgorithm(writer.EncryptionAESGCMCTRV1)},
+	}
+
+	for _, algo := range algorithms {
+		algo := algo
+		t.Run(algo.name, func(t *testing.T) {
+			t.Parallel()
+
+			data := buildEncryptedInspectionFile(t, footerKey, nameKey, algo.algoOpt)
+
+			pr, err := NewParquetReader(
+				buffer.NewBufferReaderFromBytesNoAlloc(data),
+				new(encryptedReaderRecord),
+				WithFooterKey(footerKey),
+				WithColumnKey("name", nameKey),
+			)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, pr.ReadStop()) }()
+
+			nameColumn := encryptedColumnIndex(t, pr, "name")
+
+			headers, err := pr.GetAllPageHeaders(0, nameColumn)
+			require.NoError(t, err)
+			require.NotEmpty(t, headers)
+
+			var seenDataPage, seenDictPage bool
+			for _, h := range headers {
+				require.Positive(t, h.CompressedSize)
+				require.Positive(t, h.UncompressedSize)
+				switch h.PageType {
+				case parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2:
+					seenDataPage = true
+				case parquet.PageType_DICTIONARY_PAGE:
+					seenDictPage = true
+				}
+			}
+			require.True(t, seenDictPage)
+			require.True(t, seenDataPage)
+
+			firstData, err := pr.GetFirstDataPageHeader(0, nameColumn)
+			require.NoError(t, err)
+			require.Contains(t, []parquet.PageType{parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2}, firstData.PageType)
+
+			values, err := pr.ReadDictionaryPageValuesInColumn(0, nameColumn)
+			require.NoError(t, err)
+			require.NotEmpty(t, values)
+			seen := map[string]bool{}
+			for _, v := range values {
+				str, ok := v.(string)
+				require.True(t, ok)
+				seen[str] = true
+			}
+			require.True(t, seen["alpha"] || seen["beta"] || seen["gamma"])
+		})
+	}
+}
+
+func TestReadDictionaryPageValuesInColumnErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid row group index", func(t *testing.T) {
+		t.Parallel()
+		pr := &ParquetReader{Footer: &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{{Columns: []*parquet.ColumnChunk{{}}}}}}
+		_, err := pr.ReadDictionaryPageValuesInColumn(-1, 0)
+		require.ErrorContains(t, err, "invalid row group index")
+		_, err = pr.ReadDictionaryPageValuesInColumn(99, 0)
+		require.ErrorContains(t, err, "invalid row group index")
+	})
+
+	t.Run("invalid column index", func(t *testing.T) {
+		t.Parallel()
+		pr := &ParquetReader{Footer: &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{{Columns: []*parquet.ColumnChunk{{}}}}}}
+		_, err := pr.ReadDictionaryPageValuesInColumn(0, -1)
+		require.ErrorContains(t, err, "invalid column index")
+		_, err = pr.ReadDictionaryPageValuesInColumn(0, 99)
+		require.ErrorContains(t, err, "invalid column index")
+	})
+
+	t.Run("nil column metadata", func(t *testing.T) {
+		t.Parallel()
+		pr := &ParquetReader{Footer: &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{{Columns: []*parquet.ColumnChunk{{}}}}}}
+		_, err := pr.ReadDictionaryPageValuesInColumn(0, 0)
+		require.ErrorContains(t, err, "metadata is nil")
+	})
+
+	t.Run("no dictionary page", func(t *testing.T) {
+		t.Parallel()
+		pr := &ParquetReader{
+			Footer: &parquet.FileMetaData{
+				RowGroups: []*parquet.RowGroup{
+					{Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{Type: parquet.Type_INT32, PathInSchema: []string{"leaf"}, DataPageOffset: 8}}}},
+				},
+			},
+		}
+		_, err := pr.ReadDictionaryPageValuesInColumn(0, 0)
+		require.ErrorContains(t, err, "does not have a dictionary page")
+	})
+
+	t.Run("offset does not point to dictionary page", func(t *testing.T) {
+		t.Parallel()
+		testFile := getTestParquetFile(t)
+		buf, err := local.NewLocalFileReader(testFile)
+		require.NoError(t, err)
+		pr, err := NewParquetReader(buf, new(TestPageRecord), WithNP(1))
+		require.NoError(t, err)
+		defer func() { _ = pr.ReadStop() }()
+
+		// Forge a dictionary page offset that actually points to a data page,
+		// so the read succeeds but the page type mismatches.
+		dataPageOffset := pr.Footer.RowGroups[0].Columns[0].MetaData.GetDataPageOffset()
+		pr.Footer.RowGroups[0].Columns[0].MetaData.DictionaryPageOffset = &dataPageOffset
+		_, err = pr.ReadDictionaryPageValuesInColumn(0, 0)
+		require.ErrorContains(t, err, "expected dictionary page")
+	})
+}
+
+func TestPageInspectionDecryptorErrors(t *testing.T) {
+	t.Parallel()
+
+	pr := &ParquetReader{}
+	column := &parquet.ColumnChunk{
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{
+			ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
+		},
+	}
+
+	_, err := pr.pageInspectionDecryptor(nil, column, 0, 0)
+	require.ErrorContains(t, err, "encrypted column missing file encryption algorithm")
+}
+
+func TestPageInspectionDecryptorAADPrefixError(t *testing.T) {
+	t.Parallel()
+
+	// Algorithm requires the supplied AAD prefix but the reader was not
+	// configured with one, so footerAADParts returns an error.
+	pr := &ParquetReader{
+		FileCrypto: &parquet.FileCryptoMetaData{
+			EncryptionAlgorithm: &parquet.EncryptionAlgorithm{
+				AES_GCM_V1: &parquet.AesGcmV1{
+					AadFileUnique:   []byte("file-unique"),
+					SupplyAadPrefix: boolPtr(true),
+				},
+			},
+		},
+	}
+	column := &parquet.ColumnChunk{
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{
+			ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
+		},
+	}
+
+	_, err := pr.pageInspectionDecryptor(nil, column, 0, 0)
+	require.ErrorContains(t, err, "AAD prefix is required")
+}
+
+func TestPageBodyDiskSize(t *testing.T) {
+	t.Parallel()
+
+	t.Run("plaintext returns CompressedPageSize", func(t *testing.T) {
+		t.Parallel()
+		header := &parquet.PageHeader{CompressedPageSize: 17}
+		size, err := pageBodyDiskSize(bytes.NewReader(nil), header, nil)
+		require.NoError(t, err)
+		require.Equal(t, int64(17), size)
+	})
+
+	t.Run("encrypted reads length prefix", func(t *testing.T) {
+		t.Parallel()
+		var prefix [4]byte
+		binary.LittleEndian.PutUint32(prefix[:], 123)
+		size, err := pageBodyDiskSize(bytes.NewReader(prefix[:]), &parquet.PageHeader{}, &layout.PageDecryptor{})
+		require.NoError(t, err)
+		require.Equal(t, int64(4+123), size)
+	})
+
+	t.Run("length too short to read", func(t *testing.T) {
+		t.Parallel()
+		_, err := pageBodyDiskSize(bytes.NewReader([]byte{1, 2}), &parquet.PageHeader{}, &layout.PageDecryptor{})
+		require.ErrorContains(t, err, "read encrypted page body length")
+	})
+
+	t.Run("length exceeds max page size", func(t *testing.T) {
+		t.Parallel()
+		var prefix [4]byte
+		binary.LittleEndian.PutUint32(prefix[:], uint32(layout.DefaultMaxPageSize+1))
+		_, err := pageBodyDiskSize(bytes.NewReader(prefix[:]), &parquet.PageHeader{}, &layout.PageDecryptor{})
+		require.ErrorContains(t, err, "exceeds limit")
+	})
+}
+
+func TestReadPageBodyErrors(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	decryptor := &layout.PageDecryptor{
+		Algorithm:     layout.PageEncryptionAESGCM,
+		Key:           key,
+		AADPrefix:     []byte("prefix"),
+		AADFileUnique: []byte("file-unique"),
+	}
+
+	t.Run("read encrypted body fails", func(t *testing.T) {
+		t.Parallel()
+		// Empty buffer — encryption.ReadModule will fail reading the length.
+		_, err := readPageBody(bytes.NewReader(nil), 0, &parquet.PageHeader{Type: parquet.PageType_DICTIONARY_PAGE}, parquet.CompressionCodec_UNCOMPRESSED, common.CRCIgnore, decryptor)
+		require.ErrorContains(t, err, "read encrypted page body")
+	})
+
+	t.Run("decrypt fails with wrong key", func(t *testing.T) {
+		t.Parallel()
+		header := &parquet.PageHeader{Type: parquet.PageType_DICTIONARY_PAGE}
+		// Build a well-formed module encrypted with the right key, then try to
+		// decrypt with a different decryptor key so DecryptGCM fails the tag.
+		aad := encryption.AAD(decryptor.AADPrefix, decryptor.AADFileUnique, encryption.ModuleDictionaryPage, 0, 0, 0)
+		mod, err := encryption.EncryptGCM(key, aad, []byte("hello"))
+		require.NoError(t, err)
+		encoded, err := encryption.EncodeModule(mod)
+		require.NoError(t, err)
+
+		wrongKeyDecryptor := *decryptor
+		wrongKeyDecryptor.Key = []byte("abcdef0123456789")
+		_, err = readPageBody(bytes.NewReader(encoded), 0, header, parquet.CompressionCodec_UNCOMPRESSED, common.CRCIgnore, &wrongKeyDecryptor)
+		require.ErrorContains(t, err, "decrypt page body")
+	})
+
+	t.Run("decompress fails on bogus data", func(t *testing.T) {
+		t.Parallel()
+		// Plaintext path: feed bytes that aren't valid GZIP.
+		header := &parquet.PageHeader{CompressedPageSize: 8, UncompressedPageSize: 64}
+		buf := make([]byte, 8) // not a valid gzip stream
+		_, err := readPageBody(bytes.NewReader(buf), 0, header, parquet.CompressionCodec_GZIP, common.CRCIgnore, nil)
+		require.ErrorContains(t, err, "decompress page data")
+	})
+}
+
+func TestReadPageHeaderEncryptedErrors(t *testing.T) {
+	t.Parallel()
+
+	decryptor := &layout.PageDecryptor{
+		Algorithm:     layout.PageEncryptionAESGCM,
+		Key:           []byte("0123456789abcdef"),
+		AADPrefix:     []byte("prefix"),
+		AADFileUnique: []byte("file-unique"),
+	}
+
+	t.Run("read module length fails", func(t *testing.T) {
+		t.Parallel()
+		_, _, err := readPageHeader(bytes.NewReader(nil), 0, decryptor)
+		require.ErrorContains(t, err, "read encrypted page header module")
+	})
+
+	t.Run("decrypt fails", func(t *testing.T) {
+		t.Parallel()
+		// Build a module encrypted with a different key so DecryptPageHeader fails.
+		aad := encryption.AAD(decryptor.AADPrefix, decryptor.AADFileUnique, encryption.ModuleDataPageHeader, 0, 0, 0)
+		header := &parquet.PageHeader{
+			Type:                 parquet.PageType_DATA_PAGE,
+			CompressedPageSize:   4,
+			UncompressedPageSize: 4,
+			DataPageHeader:       &parquet.DataPageHeader{NumValues: 1, Encoding: parquet.Encoding_PLAIN, DefinitionLevelEncoding: parquet.Encoding_RLE, RepetitionLevelEncoding: parquet.Encoding_RLE},
+		}
+		plain := serializeThrift(t, header)
+		mod, err := encryption.EncryptGCM([]byte("abcdef0123456789"), aad, plain)
+		require.NoError(t, err)
+		encoded, err := encryption.EncodeModule(mod)
+		require.NoError(t, err)
+
+		_, _, err = readPageHeader(bytes.NewReader(encoded), 0, decryptor)
+		require.ErrorContains(t, err, "decrypt page header")
+	})
+}
+
+func TestPageInspectionDecryptorUsesRowGroupOrdinal(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	pr := &ParquetReader{
+		FileCrypto: &parquet.FileCryptoMetaData{
+			EncryptionAlgorithm: &parquet.EncryptionAlgorithm{
+				AES_GCM_V1: &parquet.AesGcmV1{
+					AadPrefix:     []byte("prefix"),
+					AadFileUnique: []byte("file-unique"),
+				},
+			},
+		},
+	}
+	applyReaderOptionsForTest(t, pr, WithFooterKey(key))
+
+	column := &parquet.ColumnChunk{
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{
+			ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
+		},
+	}
+	rg := &parquet.RowGroup{Ordinal: int16Ptr(42)}
+
+	dec, err := pr.pageInspectionDecryptor(rg, column, 1, 2)
+	require.NoError(t, err)
+	require.NotNil(t, dec)
+	require.Equal(t, int16(42), dec.RowGroupOrdinal)
+	require.Equal(t, int16(2), dec.ColumnOrdinal)
+}
+
+// buildEncryptedInspectionFile writes a small encrypted parquet file with both
+// a dictionary page and at least one data page per encrypted column, so the
+// page-inspection helpers have something to walk.
+func buildEncryptedInspectionFile(t *testing.T, footerKey, nameKey []byte, algoOpt writer.WriterOption) []byte {
+	t.Helper()
+
+	var out bytes.Buffer
+	pw, err := writer.NewParquetWriter(
+		writerfile.NewWriterFile(&out),
+		new(encryptedReaderRecord),
+		writer.WithNP(1),
+		writer.WithRowGroupSize(128),
+		writer.WithPageSize(32),
+		writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		algoOpt,
+		writer.WithFooterKey(footerKey, []byte("footer-key")),
+		writer.WithColumnKey("name", nameKey, []byte("name-key")),
+		writer.WithAADPrefix([]byte("reader-test")),
+		writer.WithAADFileUnique([]byte("reader-test-001")),
+	)
+	require.NoError(t, err)
+	// Small page size + multiple unique names ensures the dictionary is written
+	// and we get more than one data page after it.
+	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 1, Name: "alpha"}))
+	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 2, Name: "beta"}))
+	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 3, Name: "gamma"}))
+	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 4, Name: "alpha"}))
+	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 5, Name: "beta"}))
+	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 6, Name: "gamma"}))
+	require.NoError(t, pw.WriteStop())
+	return out.Bytes()
+}
+
+// encryptedColumnIndex finds the leaf-name column in the first row group.
+func encryptedColumnIndex(t *testing.T, pr *ParquetReader, leaf string) int {
+	t.Helper()
+	for i, c := range pr.Footer.RowGroups[0].Columns {
+		path := c.MetaData.GetPathInSchema()
+		if len(path) > 0 && strings.EqualFold(path[len(path)-1], leaf) {
+			return i
+		}
+	}
+	t.Fatalf("column with leaf %q not found", leaf)
+	return -1
 }
 
 func TestConfigurePageDecryptor(t *testing.T) {

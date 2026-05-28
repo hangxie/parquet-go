@@ -30,6 +30,14 @@ type PageDecryptor struct {
 	PageOrdinal     int16
 }
 
+// DecryptPageHeader decrypts an encrypted page header module and returns the
+// parsed page header. The decryptor must have its ordinal state set as if the
+// caller were reading pages sequentially: for data-page headers the data-page
+// AAD is tried first, and for dictionary headers a 0 page ordinal is used.
+func DecryptPageHeader(module []byte, decryptor *PageDecryptor) (*parquet.PageHeader, error) {
+	return decryptPageHeader(module, decryptor)
+}
+
 func decryptPageHeader(module []byte, decryptor *PageDecryptor) (*parquet.PageHeader, error) {
 	tries := []encryption.ModuleType{encryption.ModuleDataPageHeader, encryption.ModuleDictionaryPageHeader}
 	var lastErr error
