@@ -429,7 +429,7 @@ Reader behavior by footer and column mode:
 - Plaintext footer (`PAR1`): the file can be opened without keys. If a footer key is supplied or resolved, the reader verifies the plaintext-footer AES-GCM signature and fails `ReadFooter`/`NewParquetReader` when verification fails. Without the footer key, the footer is readable but not authenticated by this reader.
 - Mixed plaintext/encrypted columns: plaintext-column reads can succeed without encryption keys. Full row reads or partial reads that include an encrypted column fail if that column's key is unavailable.
 - Indexes and bloom filters: the column index, offset index, bloom filter header, and bloom filter bitset inherit their column's encryption state. For an encrypted column they are encrypted with the same key as the column data; for a plaintext column they are stored in plaintext and can be read without any keys.
-- Low-level page inspection: `GetAllPageHeaders`, `GetFirstDataPageHeader`, and `ReadDictionaryPageValues` operate on raw page bytes and reject encrypted columns even when keys are configured. Use row or column read APIs to decrypt encrypted page data.
+- Low-level page inspection: `GetAllPageHeaders` and `GetFirstDataPageHeader` transparently decrypt encrypted page headers when the reader has the right keys, and return the standard `"decryption key required for column"` error otherwise. The offset-based `ReadDictionaryPageValues` is plaintext-only because an offset cannot identify which column's key to use; for encrypted columns, use `ReadDictionaryPageValuesInColumn(rowGroupIndex, columnIndex int)`, which derives offset, codec, and physical type from the column metadata and decrypts when keys are available.
 
 Read a file encrypted with a single footer key:
 

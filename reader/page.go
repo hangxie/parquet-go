@@ -3,6 +3,7 @@ package reader
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
 	"github.com/hangxie/parquet-go/v3/internal/encoding"
+	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
@@ -79,33 +81,62 @@ func (p *positionTracker) Open() error {
 	return nil
 }
 
-// readPageHeader reads a page header from the given offset
-// This is an internal helper function used by readAllPageHeaders
-func readPageHeader(pFile io.ReadSeeker, offset int64) (*parquet.PageHeader, int64, error) {
-	// Seek to page header position
-	_, err := pFile.Seek(offset, io.SeekStart)
-	if err != nil {
+// readPageHeader reads a page header from the given offset. When decryptor is
+// non-nil the page header is read as a length-prefixed encrypted module and
+// decrypted in place. The returned headerSize is the number of bytes consumed
+// on disk by the header (including the 4-byte length prefix for encrypted
+// modules).
+func readPageHeader(pFile io.ReadSeeker, offset int64, decryptor *layout.PageDecryptor) (*parquet.PageHeader, int64, error) {
+	if _, err := pFile.Seek(offset, io.SeekStart); err != nil {
 		return nil, 0, fmt.Errorf("seek to page: %w", err)
 	}
 
-	// Create a position-tracking transport
-	trackingTransport := &positionTracker{r: pFile, pos: offset}
-	proto := thrift.NewTCompactProtocolConf(trackingTransport, nil)
+	if decryptor == nil {
+		trackingTransport := &positionTracker{r: pFile, pos: offset}
+		proto := thrift.NewTCompactProtocolConf(trackingTransport, nil)
 
-	pageHeader := parquet.NewPageHeader()
-	if err := pageHeader.Read(context.Background(), proto); err != nil {
-		return nil, 0, fmt.Errorf("decode page header: %w", err)
+		pageHeader := parquet.NewPageHeader()
+		if err := pageHeader.Read(context.Background(), proto); err != nil {
+			return nil, 0, fmt.Errorf("decode page header: %w", err)
+		}
+
+		headerSize := trackingTransport.pos - offset
+		if _, err := pFile.Seek(trackingTransport.pos, io.SeekStart); err != nil {
+			return nil, 0, fmt.Errorf("seek after header: %w", err)
+		}
+		return pageHeader, headerSize, nil
 	}
 
-	headerSize := trackingTransport.pos - offset
-
-	// Seek to end of header
-	_, err = pFile.Seek(trackingTransport.pos, io.SeekStart)
+	module, err := encryption.ReadModule(pFile, layout.DefaultMaxPageSize)
 	if err != nil {
-		return nil, 0, fmt.Errorf("seek after header: %w", err)
+		return nil, 0, fmt.Errorf("read encrypted page header module: %w", err)
 	}
-
+	pageHeader, err := layout.DecryptPageHeader(module, decryptor)
+	if err != nil {
+		return nil, 0, fmt.Errorf("decrypt page header: %w", err)
+	}
+	headerSize := int64(4 + len(module))
 	return pageHeader, headerSize, nil
+}
+
+// pageBodyDiskSize returns the on-disk size of a page body given the page
+// header. For plaintext pages the size is the compressed page size; for
+// encrypted pages the size is the 4-byte length prefix plus the encrypted
+// module body. The reader is positioned at the start of the body and is left
+// positioned immediately after the body when this returns.
+func pageBodyDiskSize(pFile io.ReadSeeker, pageHeader *parquet.PageHeader, decryptor *layout.PageDecryptor) (int64, error) {
+	if decryptor == nil {
+		return int64(pageHeader.CompressedPageSize), nil
+	}
+	var lengthBuf [4]byte
+	if _, err := io.ReadFull(pFile, lengthBuf[:]); err != nil {
+		return 0, fmt.Errorf("read encrypted page body length: %w", err)
+	}
+	bodyLen := int64(binary.LittleEndian.Uint32(lengthBuf[:]))
+	if bodyLen < 0 || bodyLen > layout.DefaultMaxPageSize {
+		return 0, fmt.Errorf("encrypted page body length %d exceeds limit %d", bodyLen, layout.DefaultMaxPageSize)
+	}
+	return 4 + bodyLen, nil
 }
 
 // ExtractPageHeaderInfo converts a parquet.PageHeader to PageHeaderInfo
@@ -166,9 +197,11 @@ func ExtractPageHeaderInfo(pageHeader *parquet.PageHeader, offset int64, index i
 	return info
 }
 
-// readAllPageHeaders reads all page headers from a column chunk
-// Returns a slice of PageHeaderInfo containing metadata about each page
-func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) ([]PageHeaderInfo, error) {
+// readAllPageHeaders reads all page headers from a column chunk. When
+// decryptor is non-nil page headers are decrypted and body lengths are read
+// from the encrypted module prefix. The decryptor's PageOrdinal is advanced
+// after each data page so the next header's AAD matches the file layout.
+func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk, decryptor *layout.PageDecryptor) ([]PageHeaderInfo, error) {
 	meta := columnChunk.MetaData
 	if meta == nil {
 		return nil, fmt.Errorf("column chunk metadata is nil")
@@ -187,7 +220,7 @@ func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) (
 
 	// Read pages until we've read all values
 	for totalValuesRead < meta.NumValues {
-		pageHeader, headerSize, err := readPageHeader(pFile, currentOffset)
+		pageHeader, headerSize, err := readPageHeader(pFile, currentOffset, decryptor)
 		if err != nil {
 			return nil, fmt.Errorf("read page header at offset %d: %w", currentOffset, err)
 		}
@@ -204,18 +237,23 @@ func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) (
 		}
 		totalValuesRead += valuesInPage
 
-		// Move to next page
-		currentOffset = currentOffset + headerSize + int64(pageHeader.CompressedPageSize)
+		bodySize, err := pageBodyDiskSize(pFile, pageHeader, decryptor)
+		if err != nil {
+			return nil, fmt.Errorf("read page body size at offset %d: %w", currentOffset, err)
+		}
+		currentOffset = currentOffset + headerSize + bodySize
 		pageIndex++
+		advancePageOrdinal(decryptor, pageHeader)
 	}
 
 	return pages, nil
 }
 
-// readFirstDataPageHeader reads page headers sequentially until finding the first data page header.
-// This is more efficient than reading all page headers when you only need the first data page.
-// It skips dictionary pages and other non-data pages to find the first actual data page.
-func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk) (*PageHeaderInfo, error) {
+// readFirstDataPageHeader reads page headers sequentially until finding the
+// first data page header. When decryptor is non-nil pages are decrypted as
+// they are walked; dictionary headers occupy ordinal 0 so the data-page
+// ordinal does not need to advance before the first data page.
+func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk, decryptor *layout.PageDecryptor) (*PageHeaderInfo, error) {
 	meta := columnChunk.MetaData
 	if meta == nil {
 		return nil, fmt.Errorf("column chunk metadata is nil")
@@ -230,7 +268,7 @@ func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChu
 
 	// Read page headers sequentially until we find the first data page
 	for {
-		pageHeader, headerSize, err := readPageHeader(pFile, offset)
+		pageHeader, headerSize, err := readPageHeader(pFile, offset, decryptor)
 		if err != nil {
 			return nil, fmt.Errorf("read page header at offset %d: %w", offset, err)
 		}
@@ -243,8 +281,23 @@ func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChu
 			return &headerInfo, nil
 		}
 
-		// Not a data page, move to next page
-		offset = offset + headerSize + int64(pageHeader.CompressedPageSize)
+		bodySize, err := pageBodyDiskSize(pFile, pageHeader, decryptor)
+		if err != nil {
+			return nil, fmt.Errorf("read page body size at offset %d: %w", offset, err)
+		}
+		offset = offset + headerSize + bodySize
+	}
+}
+
+// advancePageOrdinal bumps the decryptor's per-data-page ordinal so the next
+// header's AAD matches the writer's per-page sequence. Dictionary, index, and
+// other non-data pages do not advance the ordinal.
+func advancePageOrdinal(decryptor *layout.PageDecryptor, pageHeader *parquet.PageHeader) {
+	if decryptor == nil {
+		return
+	}
+	if pageHeader.GetType() == parquet.PageType_DATA_PAGE || pageHeader.GetType() == parquet.PageType_DATA_PAGE_V2 {
+		decryptor.PageOrdinal++
 	}
 }
 
@@ -256,7 +309,7 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 		opt = *opts
 	}
 	// Re-read the header to get exact header size
-	_, headerSize, err := readPageHeader(pFile, offset)
+	_, headerSize, err := readPageHeader(pFile, offset, nil)
 	if err != nil {
 		return nil, fmt.Errorf("read page header: %w", err)
 	}
@@ -339,8 +392,10 @@ func DecodeDictionaryPage(data []byte, pageHeader *parquet.PageHeader, physicalT
 	return values, nil
 }
 
-// GetAllPageHeaders returns metadata for all pages in a column chunk
-// This is useful for tools that need to inspect page structure
+// GetAllPageHeaders returns metadata for all pages in a column chunk. When the
+// column is encrypted the reader's configured keys are used to decrypt page
+// headers transparently. Missing keys surface the standard "decryption key
+// required for column" error.
 func (pr *ParquetReader) GetAllPageHeaders(rgIndex, colIndex int) ([]PageHeaderInfo, error) {
 	if rgIndex < 0 || rgIndex >= len(pr.Footer.RowGroups) {
 		return nil, fmt.Errorf("invalid row group index: %d (valid range: 0-%d)", rgIndex, len(pr.Footer.RowGroups)-1)
@@ -352,14 +407,16 @@ func (pr *ParquetReader) GetAllPageHeaders(rgIndex, colIndex int) ([]PageHeaderI
 	}
 
 	column := rg.Columns[colIndex]
-	if column != nil && column.GetCryptoMetadata() != nil {
-		return nil, fmt.Errorf("page header inspection is not supported for encrypted columns")
+	decryptor, err := pr.pageInspectionDecryptor(rg, column, int16(rgIndex), int16(colIndex))
+	if err != nil {
+		return nil, err
 	}
-	return readAllPageHeaders(pr.PFile, column)
+	return readAllPageHeaders(pr.PFile, column, decryptor)
 }
 
-// GetFirstDataPageHeader returns metadata for the first data page in a column chunk
-// This is more efficient than GetAllPageHeaders when you only need the first data page
+// GetFirstDataPageHeader returns metadata for the first data page in a column
+// chunk. When the column is encrypted the reader's configured keys are used to
+// decrypt page headers transparently.
 func (pr *ParquetReader) GetFirstDataPageHeader(rgIndex, colIndex int) (*PageHeaderInfo, error) {
 	if rgIndex < 0 || rgIndex >= len(pr.Footer.RowGroups) {
 		return nil, fmt.Errorf("invalid row group index: %d (valid range: 0-%d)", rgIndex, len(pr.Footer.RowGroups)-1)
@@ -371,21 +428,24 @@ func (pr *ParquetReader) GetFirstDataPageHeader(rgIndex, colIndex int) (*PageHea
 	}
 
 	column := rg.Columns[colIndex]
-	if column != nil && column.GetCryptoMetadata() != nil {
-		return nil, fmt.Errorf("page header inspection is not supported for encrypted columns")
+	decryptor, err := pr.pageInspectionDecryptor(rg, column, int16(rgIndex), int16(colIndex))
+	if err != nil {
+		return nil, err
 	}
-	return readFirstDataPageHeader(pr.PFile, column)
+	return readFirstDataPageHeader(pr.PFile, column, decryptor)
 }
 
-// ReadDictionaryPageValues reads and decodes dictionary page values at the given offset
-// This is a convenience function for tools that need to inspect dictionary pages directly
+// ReadDictionaryPageValues reads and decodes dictionary page values at the
+// given offset. This offset-based form is plaintext-only because the offset
+// cannot identify the column whose key would be required to decrypt the page;
+// use ReadDictionaryPageValuesInColumn for encrypted columns.
 func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.CompressionCodec, physicalType parquet.Type) ([]interface{}, error) {
 	if pr.pageOffsetEncrypted(offset) {
-		return nil, fmt.Errorf("dictionary page inspection is not supported for encrypted columns")
+		return nil, fmt.Errorf("dictionary page inspection is not supported for encrypted columns at offset %d; use ReadDictionaryPageValuesInColumn", offset)
 	}
 
 	// Read page header at the offset
-	pageHeader, _, err := readPageHeader(pr.PFile, offset)
+	pageHeader, _, err := readPageHeader(pr.PFile, offset, nil)
 	if err != nil {
 		return nil, fmt.Errorf("read page header: %w", err)
 	}
@@ -407,6 +467,140 @@ func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.Co
 	}
 
 	return values, nil
+}
+
+// ReadDictionaryPageValuesInColumn reads and decodes dictionary page values
+// for the dictionary page of the given column chunk. Offset, codec, and
+// physical type are derived from the column metadata, and encrypted columns
+// are decrypted transparently when the reader has the right keys.
+func (pr *ParquetReader) ReadDictionaryPageValuesInColumn(rgIndex, colIndex int) ([]interface{}, error) {
+	if rgIndex < 0 || rgIndex >= len(pr.Footer.RowGroups) {
+		return nil, fmt.Errorf("invalid row group index: %d (valid range: 0-%d)", rgIndex, len(pr.Footer.RowGroups)-1)
+	}
+	rg := pr.Footer.RowGroups[rgIndex]
+	if colIndex < 0 || colIndex >= len(rg.Columns) {
+		return nil, fmt.Errorf("invalid column index: %d (valid range: 0-%d)", colIndex, len(rg.Columns)-1)
+	}
+
+	column := rg.Columns[colIndex]
+	if column == nil || column.MetaData == nil {
+		return nil, fmt.Errorf("column %d metadata is nil", colIndex)
+	}
+	if !column.MetaData.IsSetDictionaryPageOffset() {
+		return nil, fmt.Errorf("column %d does not have a dictionary page", colIndex)
+	}
+
+	decryptor, err := pr.pageInspectionDecryptor(rg, column, int16(rgIndex), int16(colIndex))
+	if err != nil {
+		return nil, err
+	}
+
+	offset := column.MetaData.GetDictionaryPageOffset()
+	pageHeader, headerSize, err := readPageHeader(pr.PFile, offset, decryptor)
+	if err != nil {
+		return nil, fmt.Errorf("read page header: %w", err)
+	}
+	if pageHeader.Type != parquet.PageType_DICTIONARY_PAGE {
+		return nil, fmt.Errorf("expected dictionary page but got %v", pageHeader.Type)
+	}
+
+	data, err := readPageBody(pr.PFile, offset+headerSize, pageHeader, column.MetaData.GetCodec(), pr.crcMode, decryptor)
+	if err != nil {
+		return nil, fmt.Errorf("read page data: %w", err)
+	}
+
+	values, err := DecodeDictionaryPage(data, pageHeader, column.MetaData.GetType())
+	if err != nil {
+		return nil, fmt.Errorf("decode dictionary page: %w", err)
+	}
+	return values, nil
+}
+
+// pageInspectionDecryptor builds a PageDecryptor when the column is encrypted
+// and returns nil for plaintext columns. Missing keys surface the standard
+// "decryption key required for column" error. rowGroupOrdinal is the index
+// fallback used when the row group does not carry an explicit ordinal.
+func (pr *ParquetReader) pageInspectionDecryptor(rg *parquet.RowGroup, column *parquet.ColumnChunk, rowGroupOrdinal, columnOrdinal int16) (*layout.PageDecryptor, error) {
+	if column == nil || column.GetCryptoMetadata() == nil {
+		return nil, nil
+	}
+	algorithm := pr.encryptionAlgorithm()
+	if algorithm == nil {
+		return nil, fmt.Errorf("encrypted column missing file encryption algorithm")
+	}
+	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
+	if err != nil {
+		return nil, fmt.Errorf("footer AAD: %w", err)
+	}
+	key, err := pr.resolveColumnKey(column)
+	if err != nil {
+		return nil, fmt.Errorf("resolve column key: %w", err)
+	}
+	pageAlgorithm := layout.PageEncryptionAESGCM
+	if algorithm.IsSetAES_GCM_CTR_V1() {
+		pageAlgorithm = layout.PageEncryptionAESGCMCTR
+	}
+	if rg != nil && rg.IsSetOrdinal() {
+		rowGroupOrdinal = rg.GetOrdinal()
+	}
+	return &layout.PageDecryptor{
+		Algorithm:       pageAlgorithm,
+		Key:             key,
+		AADPrefix:       aadPrefix,
+		AADFileUnique:   aadFileUnique,
+		RowGroupOrdinal: rowGroupOrdinal,
+		ColumnOrdinal:   columnOrdinal,
+	}, nil
+}
+
+// readPageBody reads the page body bytes (decrypting when decryptor is non-nil)
+// from dataOffset, validates CRC, and decompresses according to codec. The
+// reader is repositioned to dataOffset first.
+func readPageBody(pFile io.ReadSeeker, dataOffset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, crcMode common.CRCMode, decryptor *layout.PageDecryptor) ([]byte, error) {
+	if _, err := pFile.Seek(dataOffset, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("seek to page data: %w", err)
+	}
+
+	var compressedData []byte
+	if decryptor == nil {
+		compressedData = make([]byte, pageHeader.CompressedPageSize)
+		if _, err := io.ReadFull(pFile, compressedData); err != nil {
+			return nil, fmt.Errorf("read compressed page data: %w", err)
+		}
+	} else {
+		module, err := encryption.ReadModule(pFile, layout.DefaultMaxPageSize)
+		if err != nil {
+			return nil, fmt.Errorf("read encrypted page body: %w", err)
+		}
+		if decryptor.Algorithm == layout.PageEncryptionAESGCMCTR {
+			compressedData, err = encryption.DecryptCTR(decryptor.Key, module)
+		} else {
+			compressedData, err = encryption.DecryptGCM(decryptor.Key, dictionaryOrDataPageAAD(decryptor, pageHeader), module)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("decrypt page body: %w", err)
+		}
+	}
+
+	if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), crcMode, compressedData); err != nil {
+		return nil, fmt.Errorf("CRC validation failed: %w", err)
+	}
+
+	uncompressed, err := compress.UncompressWithExpectedSize(compressedData, codec, int64(pageHeader.UncompressedPageSize))
+	if err != nil {
+		return nil, fmt.Errorf("decompress page data: %w", err)
+	}
+	return uncompressed, nil
+}
+
+func dictionaryOrDataPageAAD(decryptor *layout.PageDecryptor, pageHeader *parquet.PageHeader) []byte {
+	moduleType := encryption.ModuleDataPage
+	pageOrdinal := decryptor.PageOrdinal
+	if pageHeader.GetType() == parquet.PageType_DICTIONARY_PAGE {
+		moduleType = encryption.ModuleDictionaryPage
+		pageOrdinal = 0
+	}
+	return encryption.AAD(decryptor.AADPrefix, decryptor.AADFileUnique, moduleType, decryptor.RowGroupOrdinal, decryptor.ColumnOrdinal, pageOrdinal)
 }
 
 func (pr *ParquetReader) pageOffsetEncrypted(offset int64) bool {
