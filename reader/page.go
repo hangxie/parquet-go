@@ -440,7 +440,11 @@ func (pr *ParquetReader) GetFirstDataPageHeader(rgIndex, colIndex int) (*PageHea
 // cannot identify the column whose key would be required to decrypt the page;
 // use ReadDictionaryPageValuesInColumn for encrypted columns.
 func (pr *ParquetReader) ReadDictionaryPageValues(offset int64, codec parquet.CompressionCodec, physicalType parquet.Type) ([]interface{}, error) {
-	if pr.pageOffsetEncrypted(offset) {
+	encrypted, err := pr.pageOffsetEncrypted(offset)
+	if err != nil {
+		return nil, err
+	}
+	if encrypted {
 		return nil, fmt.Errorf("dictionary page inspection is not supported for encrypted columns at offset %d; use ReadDictionaryPageValuesInColumn", offset)
 	}
 
@@ -603,28 +607,59 @@ func dictionaryOrDataPageAAD(decryptor *layout.PageDecryptor, pageHeader *parque
 	return encryption.AAD(decryptor.AADPrefix, decryptor.AADFileUnique, moduleType, decryptor.RowGroupOrdinal, decryptor.ColumnOrdinal, pageOrdinal)
 }
 
-func (pr *ParquetReader) pageOffsetEncrypted(offset int64) bool {
+// pageOffsetEncrypted reports whether offset lies in an encrypted column's
+// payload region (data, dictionary, index, or bloom-filter page). It returns an
+// error if the footer carries an encrypted column whose metadata is missing
+// entirely, which indicates a corrupted file.
+func (pr *ParquetReader) pageOffsetEncrypted(offset int64) (bool, error) {
 	if pr == nil || pr.Footer == nil {
-		return false
+		return false, nil
 	}
 	pr.encryptedPageOffsetOnce.Do(pr.buildEncryptedPageOffsets)
+	if pr.encryptedPageOffsetsErr != nil {
+		return false, pr.encryptedPageOffsetsErr
+	}
 	_, ok := pr.encryptedPageOffsets[offset]
-	return ok
+	return ok, nil
 }
 
+// buildEncryptedPageOffsets populates encryptedPageOffsets with every per-column
+// offset that belongs to an encrypted column. CryptoMetadata is the only signal
+// used to decide that a column is encrypted, because ReadFooter has already
+// decrypted any EncryptedColumnMetadata for which a key was available. Columns
+// whose metadata was deferred (EncryptedColumnMetadata set but MetaData not yet
+// populated) are skipped: their offsets are unknown, and the caller cannot read
+// those pages without a key anyway. A column with CryptoMetadata but no
+// MetaData and no EncryptedColumnMetadata is treated as a corrupted file and
+// recorded as encryptedPageOffsetsErr.
 func (pr *ParquetReader) buildEncryptedPageOffsets() {
 	offsets := make(map[int64]struct{})
-	for _, rowGroup := range pr.Footer.GetRowGroups() {
+	for rowGroupIndex, rowGroup := range pr.Footer.GetRowGroups() {
 		if rowGroup == nil {
 			continue
 		}
-		for _, column := range rowGroup.GetColumns() {
-			if column == nil || column.GetCryptoMetadata() == nil || column.MetaData == nil {
+		for columnIndex, column := range rowGroup.GetColumns() {
+			if column == nil || column.GetCryptoMetadata() == nil {
 				continue
 			}
-			offsets[column.MetaData.GetDataPageOffset()] = struct{}{}
-			if column.MetaData.IsSetDictionaryPageOffset() {
-				offsets[column.MetaData.GetDictionaryPageOffset()] = struct{}{}
+			if column.MetaData == nil {
+				if column.IsSetEncryptedColumnMetadata() {
+					continue
+				}
+				pr.encryptedPageOffsetsErr = fmt.Errorf("row group %d column %d: encrypted column is missing metadata", rowGroupIndex, columnIndex)
+				pr.encryptedPageOffsets = nil
+				return
+			}
+			meta := column.MetaData
+			offsets[meta.GetDataPageOffset()] = struct{}{}
+			if meta.IsSetDictionaryPageOffset() {
+				offsets[meta.GetDictionaryPageOffset()] = struct{}{}
+			}
+			if meta.IsSetIndexPageOffset() {
+				offsets[meta.GetIndexPageOffset()] = struct{}{}
+			}
+			if meta.IsSetBloomFilterOffset() {
+				offsets[meta.GetBloomFilterOffset()] = struct{}{}
 			}
 		}
 	}
