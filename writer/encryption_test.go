@@ -682,7 +682,10 @@ func TestEncryptionPathHelpersWithoutGeneratedSchema(t *testing.T) {
 		pw := &ParquetWriter{
 			SchemaHandler: &schema.SchemaHandler{
 				InPathToExPath: map[string]string{
-					"name": "external.name",
+					"name": common.ReformPathStr("external.name"),
+				},
+				ExPathToInPath: map[string]string{
+					common.ReformPathStr("external.name"): "name",
 				},
 			},
 		}
@@ -690,7 +693,12 @@ func TestEncryptionPathHelpersWithoutGeneratedSchema(t *testing.T) {
 		require.Contains(
 			t,
 			pw.columnPathCandidates([]string{common.ParGoRootInName, "name"}),
-			"external.name",
+			common.ReformPathStr("external.name"),
+		)
+		require.Contains(
+			t,
+			pw.columnPathCandidates([]string{"external", "name"}),
+			"name",
 		)
 	})
 }

@@ -3,6 +3,7 @@ package writer
 import (
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -87,6 +88,7 @@ type ParquetWriter struct {
 	writeCRC          bool  // compute and write CRC32 checksums on pages (default false)
 	encryptionConfig  *EncryptionConfig
 	encryptionState   *encryptionState
+	optionErrors      []error
 	offset            int64
 
 	objs              []any
@@ -141,6 +143,7 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	pw.offset = 4
 	pw.encryptionConfig = nil
 	pw.encryptionState = nil
+	pw.optionErrors = nil
 	pw.PFile = pFile
 	pw.pagesMapBuf = make(map[string][]*layout.Page)
 	// DictRecs sync.Map zero value is ready to use
@@ -160,6 +163,12 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	// Apply constructor options.
 	for _, opt := range opts {
 		opt.apply(pw)
+	}
+
+	// Surface any errors recorded by options before IO so partial output is
+	// impossible. Option-time errors carry full path/argument context.
+	if len(pw.optionErrors) > 0 {
+		return fmt.Errorf("invalid writer options: %s", formatOptionErrors(pw.optionErrors))
 	}
 
 	// Validate options before any IO to avoid partial writes on invalid input.
@@ -202,6 +211,16 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 		return fmt.Errorf("write magic header: %w", err)
 	}
 	return nil
+}
+
+func formatOptionErrors(errs []error) string {
+	parts := make([]string, 0, len(errs))
+	for _, err := range errs {
+		if err != nil {
+			parts = append(parts, err.Error())
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // NewParquetWriter creates a parquet writer. Obj is an object with tags or a JSON schema string.
