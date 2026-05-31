@@ -163,7 +163,7 @@ func TestWithEncryptionValidatesKeys(t *testing.T) {
 			WithFooterKey([]byte("0123456789abcdef")),
 			WithColumnKey("name", []byte("short")),
 		)
-		require.ErrorContains(t, err, `invalid AES column key "name" size`)
+		require.ErrorContains(t, err, `column "name" has invalid AES key size`)
 	})
 
 	t.Run("invalid column key size from key retriever", func(t *testing.T) {
@@ -174,7 +174,7 @@ func TestWithEncryptionValidatesKeys(t *testing.T) {
 			WithColumnKeyMetadata("name", []byte(testNameKeyID)),
 			WithKeyRetriever(func([]byte) ([]byte, error) { return []byte("short"), nil }),
 		)
-		require.ErrorContains(t, err, `invalid AES column key "name" size`)
+		require.ErrorContains(t, err, `column "name" resolved key has invalid AES size`)
 	})
 
 	t.Run("supply_aad_prefix without aad_prefix", func(t *testing.T) {
@@ -240,7 +240,7 @@ func TestWithColumnKeyValidatesPathAgainstSchema(t *testing.T) {
 			WithFooterKey([]byte("0123456789abcdef")),
 			WithColumnKey("nmae", []byte("abcdef0123456789")),
 		)
-		require.ErrorContains(t, err, "WithColumnKey")
+		require.ErrorContains(t, err, "WithColumnEncrypted")
 		require.ErrorContains(t, err, "nmae")
 	})
 
