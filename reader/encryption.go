@@ -209,6 +209,21 @@ func (pr *ParquetReader) retrieveKeyFromMetadata(keyMetadata []byte) ([]byte, er
 	return append([]byte(nil), entry.key...), nil
 }
 
+type footerAADResolver func() ([]byte, []byte, error)
+
+func (pr *ParquetReader) cachedFooterAADParts(algorithm *parquet.EncryptionAlgorithm) footerAADResolver {
+	var once sync.Once
+	var aadPrefix []byte
+	var aadFileUnique []byte
+	var err error
+	return func() ([]byte, []byte, error) {
+		once.Do(func() {
+			aadPrefix, aadFileUnique, err = pr.footerAADParts(algorithm)
+		})
+		return aadPrefix, aadFileUnique, err
+	}
+}
+
 func (pr *ParquetReader) decryptEncryptedColumnMetadata() error {
 	if pr.Footer == nil || pr.Footer.RowGroups == nil {
 		return nil
@@ -217,10 +232,7 @@ func (pr *ParquetReader) decryptEncryptedColumnMetadata() error {
 	if algorithm == nil {
 		return nil
 	}
-	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
-	if err != nil {
-		return fmt.Errorf("footer AAD: %w", err)
-	}
+	aadParts := pr.cachedFooterAADParts(algorithm)
 
 	for rowGroupIndex, rowGroup := range pr.Footer.RowGroups {
 		if rowGroup == nil {
@@ -231,7 +243,7 @@ func (pr *ParquetReader) decryptEncryptedColumnMetadata() error {
 			rowGroupOrdinal = rowGroup.GetOrdinal()
 		}
 		for columnOrdinal, chunk := range rowGroup.GetColumns() {
-			if err := pr.decryptEncryptedColumnMetadataChunk(chunk, rowGroupIndex, int16(columnOrdinal), rowGroupOrdinal, aadPrefix, aadFileUnique); err != nil {
+			if err := pr.decryptEncryptedColumnMetadataChunk(chunk, rowGroupIndex, int16(columnOrdinal), rowGroupOrdinal, aadParts); err != nil {
 				return fmt.Errorf("decrypt column metadata: %w", err)
 			}
 		}
@@ -239,7 +251,7 @@ func (pr *ParquetReader) decryptEncryptedColumnMetadata() error {
 	return nil
 }
 
-func (pr *ParquetReader) decryptEncryptedColumnMetadataChunk(chunk *parquet.ColumnChunk, rowGroupIndex int, columnOrdinal, rowGroupOrdinal int16, aadPrefix, aadFileUnique []byte) error {
+func (pr *ParquetReader) decryptEncryptedColumnMetadataChunk(chunk *parquet.ColumnChunk, rowGroupIndex int, columnOrdinal, rowGroupOrdinal int16, aadParts footerAADResolver) error {
 	if chunk == nil || !chunk.IsSetEncryptedColumnMetadata() {
 		return nil
 	}
@@ -253,6 +265,14 @@ func (pr *ParquetReader) decryptEncryptedColumnMetadataChunk(chunk *parquet.Colu
 		}
 		_, err := pr.resolveColumnKey(chunk)
 		return fmt.Errorf("row group %d column %d: %w", rowGroupIndex, columnOrdinal, err)
+	}
+	// Resolve footer AAD only after a usable key is present. This lets
+	// no-key projections skip encrypted column metadata without requiring an
+	// externally supplied AAD prefix, while still caching the value for
+	// readers that decrypt multiple column metadata modules.
+	aadPrefix, aadFileUnique, err := aadParts()
+	if err != nil {
+		return fmt.Errorf("row group %d column %d: footer AAD: %w", rowGroupIndex, columnOrdinal, err)
 	}
 	module, err := encryption.DecodeModule(chunk.GetEncryptedColumnMetadata())
 	if err != nil {
@@ -357,10 +377,6 @@ func (pr *ParquetReader) configurePageDecryptorWithKeyRequirement(cbt *ColumnBuf
 	if algorithm == nil {
 		return fmt.Errorf("encrypted column missing file encryption algorithm")
 	}
-	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
-	if err != nil {
-		return fmt.Errorf("footer AAD: %w", err)
-	}
 	key, err := pr.resolveOptionalColumnKey(cbt.ChunkHeader)
 	if err != nil {
 		return fmt.Errorf("resolve column key: %w", err)
@@ -371,6 +387,11 @@ func (pr *ParquetReader) configurePageDecryptorWithKeyRequirement(cbt *ColumnBuf
 			return fmt.Errorf("require column key: %w", err)
 		}
 		return nil
+	}
+	// AAD is needed only when a page decryptor is actually installed.
+	aadPrefix, aadFileUnique, err := pr.footerAADParts(algorithm)
+	if err != nil {
+		return fmt.Errorf("footer AAD: %w", err)
 	}
 	pageAlgorithm := layout.PageEncryptionAESGCM
 	if algorithm.IsSetAES_GCM_CTR_V1() {

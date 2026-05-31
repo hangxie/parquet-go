@@ -228,6 +228,54 @@ func TestNewParquetReaderPlaintextFooterMixedColumnsDoesNotRequireUnreadColumnKe
 	require.NoError(t, pr.ReadStop())
 }
 
+func TestPlaintextFooterMixedColumnsDefersAADUntilEncryptedColumnRead(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	nameKey := []byte("abcdef0123456789")
+	aadPrefix := []byte("aad-must-be-supplied")
+	data := buildMixedPlaintextFooterSuppliedAADData(t, footerKey, nameKey, aadPrefix)
+
+	prPlainOnly, err := NewParquetReader(
+		buffer.NewBufferReaderFromBytesNoAlloc(data),
+		new(encryptedReaderRecord),
+	)
+	require.NoError(t, err)
+	idValues, _, _, err := prPlainOnly.ReadColumnByPath(valueColumnPathWithLeaf(t, prPlainOnly, "id"), 2)
+	require.NoError(t, err)
+	require.Equal(t, []any{int32(1), int32(2)}, idValues)
+	require.NoError(t, prPlainOnly.ReadStop())
+
+	_, err = NewParquetReader(
+		buffer.NewBufferReaderFromBytesNoAlloc(data),
+		new(encryptedReaderRecord),
+		WithColumnKey("name", nameKey),
+	)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "AAD prefix is required")
+
+	_, err = NewParquetReader(
+		buffer.NewBufferReaderFromBytesNoAlloc(data),
+		new(encryptedReaderRecord),
+		WithColumnKey("name", nameKey),
+		WithAADPrefix([]byte("wrong-aad-prefix")),
+	)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "decrypt column metadata")
+
+	prWithPrefix, err := NewParquetReader(
+		buffer.NewBufferReaderFromBytesNoAlloc(data),
+		new(encryptedReaderRecord),
+		WithColumnKey("name", nameKey),
+		WithAADPrefix(aadPrefix),
+	)
+	require.NoError(t, err)
+	nameValues, _, _, err := prWithPrefix.ReadColumnByPath(valueColumnPathWithLeaf(t, prWithPrefix, "name"), 2)
+	require.NoError(t, err)
+	require.Equal(t, []any{"alpha", "beta"}, nameValues)
+	require.NoError(t, prWithPrefix.ReadStop())
+}
+
 func TestPlaintextFooterDefersUnreadEncryptedColumnRetrieverError(t *testing.T) {
 	t.Parallel()
 
@@ -994,7 +1042,7 @@ func buildEncryptedInspectionFile(t *testing.T, footerKey, nameKey []byte, algoO
 		writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
 		algoOpt,
 		writer.WithFooterKey(footerKey, []byte("footer-key")),
-		writer.WithColumnKey("name", nameKey, []byte("name-key")),
+		writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey, []byte("name-key"))),
 		writer.WithAADPrefix([]byte("reader-test")),
 		writer.WithAADFileUnique([]byte("reader-test-001")),
 	)
@@ -1660,9 +1708,35 @@ func buildPlaintextFooterEncryptedColumnData(t *testing.T, footerKey, nameKey []
 		writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
 		writer.WithPlaintextFooter(true),
 		writer.WithFooterKey(footerKey, []byte("footer-key")),
-		writer.WithColumnKey("name", nameKey, []byte("name-key")),
+		writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey, []byte("name-key"))),
 		writer.WithAADPrefix([]byte("reader-test")),
 		writer.WithAADFileUnique([]byte("reader-test-001")),
+	)
+	require.NoError(t, err)
+	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 1, Name: "alpha"}))
+	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 2, Name: "beta"}))
+	require.NoError(t, pw.WriteStop())
+	return out.Bytes()
+}
+
+func buildMixedPlaintextFooterSuppliedAADData(t *testing.T, footerKey, nameKey, aadPrefix []byte) []byte {
+	t.Helper()
+
+	var out bytes.Buffer
+	pw, err := writer.NewParquetWriter(
+		writerfile.NewWriterFile(&out),
+		new(encryptedReaderRecord),
+		writer.WithNP(1),
+		writer.WithRowGroupSize(128),
+		writer.WithPageSize(32),
+		writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		writer.WithPlaintextFooter(true),
+		writer.WithFooterKey(footerKey, []byte("footer-key")),
+		writer.WithPlaintextUnkeyedColumns(true),
+		writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey, []byte("name-key"))),
+		writer.WithAADPrefix(aadPrefix),
+		writer.WithSupplyAADPrefix(true),
+		writer.WithAADFileUnique([]byte("reader-test-002")),
 	)
 	require.NoError(t, err)
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 1, Name: "alpha"}))
