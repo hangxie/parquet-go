@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -444,4 +445,11 @@ func TestWriterCompressionLevel(t *testing.T) {
 	require.NoError(t, pr.Read(&got))
 	require.Equal(t, want, got)
 	require.Equal(t, parquet.CompressionCodec_GZIP, pr.Footer.RowGroups[0].Columns[0].MetaData.GetCodec())
+}
+
+func TestWriterOptionIsOpaque(t *testing.T) {
+	t.Parallel()
+
+	optionType := reflect.TypeOf((*WriterOption)(nil)).Elem()
+	require.NotEqual(t, reflect.Func, optionType.Kind())
 }
