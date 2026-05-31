@@ -76,8 +76,8 @@ func main() {
 			name: "encrypted_footer_column_keys.parquet",
 			writerOpts: []writer.WriterOption{
 				writer.WithFooterKey(footerKey, []byte(footerKeyID)),
-				writer.WithColumnKey("name", nameKey, []byte(nameKeyID)),
-				writer.WithColumnKey("score", scoreKey, []byte(scoreKeyID)),
+				writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey, []byte(nameKeyID))),
+				writer.WithColumnEncrypted("score", writer.ColumnKey(scoreKey, []byte(scoreKeyID))),
 				writer.WithAADPrefix([]byte("encrypt-write")),
 				writer.WithAADFileUnique([]byte("columnkeys1")),
 			},
@@ -95,8 +95,8 @@ func main() {
 			name: "plaintext_footer_column_keys.parquet",
 			writerOpts: []writer.WriterOption{
 				writer.WithFooterKey(footerKey, []byte(footerKeyID)),
-				writer.WithColumnKey("name", nameKey, []byte(nameKeyID)),
-				writer.WithColumnKey("score", scoreKey, []byte(scoreKeyID)),
+				writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey, []byte(nameKeyID))),
+				writer.WithColumnEncrypted("score", writer.ColumnKey(scoreKey, []byte(scoreKeyID))),
 				writer.WithAADPrefix([]byte("encrypt-write")),
 				writer.WithAADFileUnique([]byte("plaintext1")),
 				writer.WithPlaintextFooter(true),
@@ -116,7 +116,7 @@ func main() {
 			writerOpts: []writer.WriterOption{
 				writer.WithEncryptionAlgorithm(writer.EncryptionAESGCMCTRV1),
 				writer.WithFooterKey(footerKey, []byte(footerKeyID)),
-				writer.WithColumnKey("name", nameKey, []byte(nameKeyID)),
+				writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey, []byte(nameKeyID))),
 				writer.WithAADPrefix([]byte("external-prefix")),
 				writer.WithAADFileUnique([]byte("gcmctrfile1")),
 				writer.WithSupplyAADPrefix(true),
@@ -135,7 +135,7 @@ func main() {
 			name: "key_retriever.parquet",
 			writerOpts: []writer.WriterOption{
 				writer.WithFooterKeyMetadata([]byte(footerKeyID)),
-				writer.WithColumnKeyMetadata("name", []byte(nameKeyID)),
+				writer.WithColumnEncrypted("name", writer.ColumnKeyByMetadata([]byte(nameKeyID))),
 				writer.WithKeyRetriever(keyRetriever),
 				writer.WithAADPrefix([]byte("encrypt-write")),
 				writer.WithAADFileUnique([]byte("retriever01")),
@@ -147,6 +147,47 @@ func main() {
 			checkBloom:  true,
 			checkIndex:  true,
 			description: "keys resolved from key metadata while writing and reading",
+		},
+		{
+			// Mixed mode: name encrypted with its own key, score encrypted
+			// with the footer key, every other column written as plaintext.
+			// PlaintextUnkeyedColumns flips the default for unlisted columns.
+			name: "mixed_columns.parquet",
+			writerOpts: []writer.WriterOption{
+				writer.WithFooterKey(footerKey, []byte(footerKeyID)),
+				writer.WithPlaintextUnkeyedColumns(true),
+				writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey, []byte(nameKeyID))),
+				writer.WithColumnEncrypted("score", writer.ColumnFooterKey()),
+				writer.WithAADPrefix([]byte("encrypt-write")),
+				writer.WithAADFileUnique([]byte("mixed-cols1")),
+			},
+			readerOpts: []reader.ReaderOption{
+				reader.WithFooterKey(footerKey),
+				reader.WithColumnKey("name", nameKey),
+			},
+			wantRows:    rows,
+			checkBloom:  true,
+			checkIndex:  true,
+			description: "mixed mode: name=column key, score=footer key, others plaintext",
+		},
+		{
+			// All columns plaintext with an encrypted footer. The footer
+			// key is still required to open the file because schema and
+			// row-group metadata live inside the encrypted footer.
+			name: "encrypted_footer_all_plaintext_columns.parquet",
+			writerOpts: []writer.WriterOption{
+				writer.WithFooterKey(footerKey, []byte(footerKeyID)),
+				writer.WithPlaintextUnkeyedColumns(true),
+				writer.WithAADPrefix([]byte("encrypt-write")),
+				writer.WithAADFileUnique([]byte("only-footer1")),
+			},
+			readerOpts: []reader.ReaderOption{
+				reader.WithFooterKey(footerKey),
+			},
+			wantRows:    rows,
+			checkBloom:  true,
+			checkIndex:  true,
+			description: "encrypted footer hides schema, every column body is plaintext",
 		},
 	}
 
