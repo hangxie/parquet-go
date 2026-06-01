@@ -410,131 +410,181 @@ CRC is computed for data pages, dictionary pages, and dictionary-encoded data pa
 
 The reader and writer support Apache Parquet modular encryption for encrypted footers (`PARE`) and plaintext footers signed with AES-GCM (`PAR1`). Page headers, data pages, dictionary pages, column metadata, column indexes, offset indexes, and bloom filter headers/bitsets are encrypted and decrypted when encryption metadata and the required keys are available.
 
-Shared reader/writer concepts:
+Footer mode and column classification interact as follows:
 
-- `WithFooterKey` sets the footer key used for encrypted footers, plaintext-footer signatures, and columns encrypted with the footer key.
-- `WithColumnKey` sets a column key for a dot-separated schema path without the root element, such as `name` or `address.city`.
-- `WithKeyRetriever` sets a callback for KMS-backed key management. The callback receives the `key_metadata` bytes stored in the file and returns key bytes.
-- `WithAADPrefix` supplies the AAD prefix. It is required on read when the file was written with `supply_aad_prefix=true`.
+| Footer mode | Plaintext column | Footer-key column | Column-key column |
+| --- | --- | --- | --- |
+| Encrypted footer (`PARE`) | Page/index/bloom modules are plaintext. The footer key is required to open the encrypted file metadata, regardless of column classification. | Page/index/bloom modules use the footer key; column metadata stays in the encrypted footer. | Page/index/bloom modules use the column key; encrypted column metadata is stored for readers with only the column key. |
+| Signed plaintext footer (`PAR1`) | Page/index/bloom modules and column statistics are plaintext; readers without keys can read projected plaintext columns. | Page/index/bloom modules use the footer key; plaintext footer metadata is present but statistics are stripped. | Page/index/bloom modules use the column key; plaintext footer metadata is present but statistics are stripped. |
 
-Without a KMS, supply keys directly with `WithFooterKey` and `WithColumnKey`. With a KMS, `key_metadata` stores the KMS key ID for each key.
-
-On write, the key ID must be specified explicitly because there is no file to read from. Use the optional metadata argument to `WithFooterKey` or `WithColumnKey`, or use `WithFooterKeyMetadata` and `WithColumnKeyMetadata` when key bytes come from `WithKeyRetriever`. On read, the key ID is already in the file and is passed to `WithKeyRetriever`.
-
-When explicit keys and `WithKeyRetriever` are both configured, explicit keys take priority. `WithKeyRetriever` is called only when no direct key is provided. Reader-side `WithKeyRetriever` lookups use local/in-process caching keyed by the file's opaque `key_metadata` bytes, so repeated and concurrent reads of modules protected by the same key ID reuse the first lookup result. This cache does not retry transient retrieval failures within the same reader; if the first lookup for a key ID returns an error, concurrent waiters and any subsequent attempts for that key ID return the same error.
-
-Reader behavior by footer and column mode:
-
-- Encrypted footer (`PARE`): the footer key is required to open the file because schema and row-group metadata are encrypted. After the footer is opened, plaintext columns can be read without column keys; encrypted columns still require either their column key from `WithColumnKey`/`WithKeyRetriever` or the footer key when the column metadata says they use the footer key.
-- Plaintext footer (`PAR1`): the file can be opened without keys. If a footer key is supplied or resolved, the reader verifies the plaintext-footer AES-GCM signature and fails `ReadFooter`/`NewParquetReader` when verification fails. Without the footer key, the footer is readable but not authenticated by this reader.
-- Mixed plaintext/encrypted columns: plaintext-column reads can succeed without encryption keys. Full row reads or partial reads that include an encrypted column fail if that column's key is unavailable.
-- Indexes and bloom filters: the column index, offset index, bloom filter header, and bloom filter bitset inherit their column's encryption state. For an encrypted column they are encrypted with the same key as the column data; for a plaintext column they are stored in plaintext and can be read without any keys.
-- Low-level page inspection: `GetAllPageHeaders` and `GetFirstDataPageHeader` transparently decrypt encrypted page headers when the reader has the right keys, and return the standard `"decryption key required for column"` error otherwise. The offset-based `ReadDictionaryPageValues` is plaintext-only because an offset cannot identify which column's key to use; for encrypted columns, use `ReadDictionaryPageValuesInColumn(rowGroupIndex, columnIndex int)`, which derives offset, codec, and physical type from the column metadata and decrypts when keys are available.
-
-Read a file encrypted with a single footer key:
+Writer column classification is selected with `writer.WithColumnEncrypted(path, opts...)`, where `path` is the dot-separated schema path without the root element:
 
 ```go
-pr, err := reader.NewParquetReader(
-    fr,
-    new(Student),
-    reader.WithFooterKey(footerKey),
-)
-```
-
-Read with KMS-backed key management:
-
-```go
-keyRetriever := func(keyMetadata []byte) ([]byte, error) {
-    return lookupKey(keyMetadata)
-}
-
-pr, err := reader.NewParquetReader(
-    fr,
-    new(Student),
-    reader.WithKeyRetriever(keyRetriever),
-)
-```
-
-Read only plaintext columns from a plaintext-footer file that also has encrypted columns:
-
-```go
-pr, err := reader.NewParquetReader(fr, new(StudentPublicFields))
-if err == nil {
-    err = pr.ReadPartial(&rows, "public")
-}
-```
-
-Write a file encrypted with a single footer key:
-
-```go
-pw, err := writer.NewParquetWriter(
-    fw,
-    new(Student),
+// Omitted path: default is footer-key encryption; mixed mode makes it plaintext.
+pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithAADPrefix([]byte("dataset/part-0")),
-    writer.WithAADFileUnique([]byte("unique-file-id")),
+    writer.WithPlaintextUnkeyedColumns(true),
 )
 ```
 
-Write with KMS-backed key management:
+```go
+// Footer-key column.
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithPlaintextUnkeyedColumns(true),
+    writer.WithColumnEncrypted("name", writer.ColumnFooterKey()),
+)
+```
 
 ```go
-keyRetriever := func(keyMetadata []byte) ([]byte, error) {
-    return lookupKey(keyMetadata)
-}
+// Literal column key.
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey)),
+)
+```
 
-pw, err := writer.NewParquetWriter(
-    fw,
-    new(Student),
-    writer.WithFooterKeyMetadata([]byte("footer-key")),
-    writer.WithColumnKeyMetadata("name", []byte("name-key")),
+```go
+// Literal column key plus stored key metadata for downstream KMS readers.
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey, []byte("kms://prod/ssn"))),
+)
+```
+
+```go
+// Writer resolves the column key from metadata through its KeyRetriever.
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithColumnEncrypted("ssn", writer.ColumnKeyByMetadata([]byte("ssn-key"))),
     writer.WithKeyRetriever(keyRetriever),
-    writer.WithAADPrefix([]byte("dataset/part-0")),
-    writer.WithAADFileUnique([]byte("unique-file-id")),
 )
 ```
 
-Write encrypted columns with a plaintext footer:
+For callers that build `EncryptionConfig` literally, `ColumnKeys[p] = writer.EncryptionColumnKey{}` is equivalent to `WithColumnEncrypted(p)` and produces `ENCRYPTION_WITH_FOOTER_KEY`. This is a semantic change for direct struct-literal users: older code treated the zero value as "no direct key" and could call `KeyRetriever(nil)` or fail validation when no retriever was configured. To retrieve by metadata now, set non-empty `KeyMetadata` and configure `KeyRetriever`; to use the footer key, keep the zero value or use `ColumnFooterKey()`.
+
+| `ColumnKeys[p]` state | How to produce | Resolved behavior |
+| --- | --- | --- |
+| not in map | omit `WithColumnEncrypted(p, ...)` | mixed=true -> plaintext; mixed=false -> footer-key |
+| `{}` | `WithColumnEncrypted(p)` or `WithColumnEncrypted(p, ColumnFooterKey())` | footer-key, no `KeyMetadata` stored |
+| `{Key: bytes}` | `WithColumnEncrypted(p, ColumnKey(key))` | column-key, no `KeyMetadata` stored |
+| `{Key: bytes, KeyMetadata: md}` | `WithColumnEncrypted(p, ColumnKey(key, md))` | column-key plus `KeyMetadata` stored in file |
+| `{Key: nil, KeyMetadata: md}` plus writer `KeyRetriever` | `WithColumnEncrypted(p, ColumnKeyByMetadata(md))` | retriever called at write time; empty result is an error |
+| `{Key: nil, KeyMetadata: md}` with no writer `KeyRetriever` | same call without retriever | construction error |
+
+Repeated column options follow standard Go map semantics: the last call wins and no conflict detection runs. This keeps deprecated wrapper calls and the new option API order-dependent in the same way; applications that compose options dynamically should keep a single owner for each column path.
 
 ```go
-pw, err := writer.NewParquetWriter(
-    fw,
-    new(Student),
+writer.WithColumnEncrypted("ssn", writer.ColumnKey(oldKey))
+writer.WithColumnEncrypted("ssn", writer.ColumnFooterKey()) // final state
+```
+
+`WithColumnKey` and `WithColumnKeyMetadata` remain as deprecated wrappers. They will be removed in a future release alongside `PlaintextUnkeyedColumns`; after that removal, absence from `ColumnKeys` will mean plaintext. Until that release, the default remains the legacy behavior where omitted columns use the footer key. The default flip is security-relevant and should be called out in the release notes, changelog, and migration guide for that release.
+
+| Deprecated call | Replacement |
+| --- | --- |
+| `WithColumnKey("p", k)` | `WithColumnEncrypted("p", ColumnKey(k))` |
+| `WithColumnKey("p", k, md)` | `WithColumnEncrypted("p", ColumnKey(k, md))` |
+| `WithColumnKey("p", nil)` | `WithColumnEncrypted("p")` |
+| `WithColumnKey("p", nil, md)` | `WithColumnEncrypted("p", ColumnKeyByMetadata(md))` |
+| `WithColumnKeyMetadata("p", md)` | `WithColumnEncrypted("p", ColumnKeyByMetadata(md))` |
+
+Encrypted footer with mixed plaintext plus a per-column key:
+
+```go
+pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithColumnKey("name", nameKey),
-    writer.WithAADPrefix([]byte("dataset/part-0")),
-    writer.WithAADFileUnique([]byte("unique-file-id")),
+    writer.WithPlaintextUnkeyedColumns(true),
+    writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey)),
+)
+```
+
+Signed plaintext footer with mixed plaintext plus a per-column key:
+
+```go
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKey(footerKey),
     writer.WithPlaintextFooter(true),
+    writer.WithPlaintextUnkeyedColumns(true),
+    writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey)),
 )
 ```
 
-Use AES-GCM-CTR page encryption and an external AAD prefix:
+Encrypted footer with a footer-key column and mixed plaintext:
 
 ```go
-pw, err := writer.NewParquetWriter(
-    fw,
-    new(Student),
-    writer.WithEncryptionAlgorithm(writer.EncryptionAESGCMCTRV1),
+pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithAADPrefix([]byte("external-prefix")),
-    writer.WithAADFileUnique([]byte("unique-file-id")),
-    writer.WithSupplyAADPrefix(true),
+    writer.WithPlaintextUnkeyedColumns(true),
+    writer.WithColumnEncrypted("name"),
 )
 ```
 
-When `WithSupplyAADPrefix(true)` is used, readers must pass the same value with `reader.WithAADPrefix`. See [example/encrypt_write](example/encrypt_write) for complete encrypted write/read-back examples.
+In the current default mode, `WithColumnEncrypted(p, ColumnFooterKey())` is observationally the same as omitting `p` because omitted columns also use the footer key. In mixed mode, and after the future removal of `PlaintextUnkeyedColumns`, `ColumnFooterKey()` is the explicit selector that keeps that column encrypted with the footer key while omitted sibling columns are plaintext.
 
-#### Security notes
+Three-way mix in one file:
 
-**Footer mode**: The default writer mode is encrypted footer (`PARE`). The entire file metadata - including schema (column names and types), row counts, and statistics - is encrypted and invisible to readers without the footer key. Use `WithPlaintextFooter(true)` to write a `PAR1` file where the footer is plaintext but signed with AES-GCM. This is appropriate when downstream readers need schema or statistics access without possessing column keys, accepting that schema information (column names) is exposed. Readers without the footer key can parse plaintext footers, but cannot verify the footer signature.
+```go
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithPlaintextUnkeyedColumns(true),
+    writer.WithColumnEncrypted("name"),
+    writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey)),
+)
+```
 
-**AAD uniqueness**: Each file should have a unique `(AADPrefix, AADFileUnique)` pair. The AAD binds each encrypted module to its intended file so that ciphertext from one file cannot be replayed into another. Omitting `WithAADFileUnique` generates a random 12-byte value automatically; supply it explicitly for deterministic file identity. Reusing the same pair with the same key across different files breaks this binding.
+All columns plaintext with an encrypted footer:
 
-**Per-page IVs and random access**: Each encrypted module (page header, page body, column metadata, bloom filter, column index, offset index) receives its own independently generated random nonce. Because IVs are per-module rather than per-column-chunk, individual pages can be decrypted in isolation — the reader does not need to process the entire column chunk from the start to reach a single page.
+```go
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithPlaintextUnkeyedColumns(true),
+)
+```
 
-**Algorithm choice**: `AES_GCM_V1` (default) uses AES-GCM for every module and provides authenticated encryption for data and metadata alike. `AES_GCM_CTR_V1` uses AES-GCM for metadata modules and AES-CTR for data pages; CTR page bodies have no authentication tag, so tampering with the body ciphertext produces corrupted plaintext without being detected by the cipher. The GCM-authenticated page header covers only header bytes and does not protect the body. Use `AES_GCM_V1` when integrity detection for page data is required.
+KMS pattern where the writer already has the key:
 
-**Compatibility**: The reader follows the Apache Parquet Encryption Specification for plaintext-footer files with mixed plaintext/encrypted columns. The current writer encrypts every column when encryption is enabled; columns without an explicit column key use the footer key. Files produced by this library are interoperable with other spec-compliant readers - including Apache Arrow (C++/Python) and Apache Spark - when the same keys and AAD configuration are used.
+```go
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKey(footerKey),
+    writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey, []byte("ssn-key-id"))),
+)
+```
+
+Pure retriever pattern:
+
+```go
+keyRetriever := func(keyMetadata []byte) ([]byte, error) {
+    return lookupKey(keyMetadata)
+}
+
+pw, err := writer.NewParquetWriter(fw, new(Student),
+    writer.WithFooterKeyMetadata([]byte("footer-key-id")),
+    writer.WithColumnEncrypted("ssn", writer.ColumnKeyByMetadata([]byte("ssn-key-id"))),
+    writer.WithKeyRetriever(keyRetriever),
+)
+```
+
+`WithAADPrefix` supplies the file AAD prefix. If `WithSupplyAADPrefix(true)` is set, readers must pass the same value with `reader.WithAADPrefix`. `EncryptionAESGCMV1` encrypts all modules with AES-GCM; `EncryptionAESGCMCTRV1` uses AES-CTR for page bodies and AES-GCM for metadata modules.
+
+Security guidance:
+
+- Plaintext columns expose values, statistics, indexes, and bloom filters in the clear. Use `ColumnKey(...)` or `ColumnFooterKey()` for sensitive fields.
+- Encrypted columns under plaintext-footer mode have `Statistics`, `SizeStatistics`, and `GeospatialStatistics` stripped from the plaintext `ColumnMetaData` and stored only in authenticated `EncryptedColumnMetadata`.
+- Plaintext-footer encrypted columns still expose page counts, encodings, value counts, offsets, compressed sizes, key metadata, and column names through the plaintext footer. Use encrypted footer mode when those metadata are sensitive.
+- Each file should use a unique `(AADPrefix, AADFileUnique)` pair. Reusing the same pair with the same key weakens module-swap protection.
+- `AES_GCM_CTR_V1` does not authenticate page bodies; use `AES_GCM_V1` when page-data tamper detection is required.
+
+Reader behavior is driven by the file's per-column `CryptoMetadata`: nil means plaintext, `ENCRYPTION_WITH_FOOTER_KEY` means footer-key column, and `ENCRYPTION_WITH_COLUMN_KEY` means column-key column. `reader.WithColumnKey(path, key)` supplies a direct key for a column, while `reader.WithKeyRetriever` resolves keys from stored `key_metadata`. If a writer intentionally stores `ENCRYPTION_WITH_COLUMN_KEY` while using bytes equal to the footer key, downstream readers can decrypt it either with `reader.WithColumnKey(path, footerKey)` or with a retriever that returns `footerKey` for that column metadata.
+
+Writer metadata-based keys are strict: `ColumnKeyByMetadata(md)` requires the writer's `KeyRetriever` to return a non-empty AES key at construction time. The reader API still treats missing column-key material as a read-time decryption failure because `reader.WithColumnKey` carries only key bytes, not expected key metadata.
+
+Compatibility: `apache/parquet-testing` includes mixed plaintext/encrypted plaintext-footer fixtures generated through Parquet C++/parquet-mr test paths, and this repository reads them in interop tests. It does not currently include parquet-cpp 1.x mixed writer fixtures, so compatibility with older readers on writer-produced mixed files is based on Parquet spec compliance rather than direct fixture coverage. Files produced by this library should interoperate with spec-compliant readers when the same keys and AAD configuration are used.
+
+Spec references:
+
+- Modular encryption: https://parquet.apache.org/docs/file-format/data-pages/encryption/
+- Bloom filter encryption: https://parquet.apache.org/docs/file-format/bloomfilter/
 
 ### GeoParquet
 

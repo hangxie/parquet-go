@@ -15,14 +15,15 @@ import (
 )
 
 type encryptionState struct {
-	algorithm         EncryptionAlgorithm
-	footerKey         []byte
-	footerKeyMetadata []byte
-	columnKeys        map[string]EncryptionColumnKey
-	aadPrefix         []byte
-	aadFileUnique     []byte
-	supplyAADPrefix   bool
-	plaintextFooter   bool
+	algorithm               EncryptionAlgorithm
+	footerKey               []byte
+	footerKeyMetadata       []byte
+	columnKeys              map[string]EncryptionColumnKey
+	aadPrefix               []byte
+	aadFileUnique           []byte
+	supplyAADPrefix         bool
+	plaintextFooter         bool
+	plaintextUnkeyedColumns bool
 }
 
 func newEncryptionState(config EncryptionConfig) (*encryptionState, error) {
@@ -56,32 +57,71 @@ func newEncryptionState(config EncryptionConfig) (*encryptionState, error) {
 	}
 
 	state := &encryptionState{
-		algorithm:         config.Algorithm,
-		footerKey:         append([]byte(nil), config.FooterKey...),
-		footerKeyMetadata: append([]byte(nil), config.FooterKeyMetadata...),
-		columnKeys:        make(map[string]EncryptionColumnKey, len(config.ColumnKeys)),
-		aadPrefix:         append([]byte(nil), config.AADPrefix...),
-		aadFileUnique:     fileUnique,
-		supplyAADPrefix:   config.SupplyAADPrefix,
-		plaintextFooter:   config.PlaintextFooter,
+		algorithm:               config.Algorithm,
+		footerKey:               append([]byte(nil), config.FooterKey...),
+		footerKeyMetadata:       append([]byte(nil), config.FooterKeyMetadata...),
+		columnKeys:              make(map[string]EncryptionColumnKey, len(config.ColumnKeys)),
+		aadPrefix:               append([]byte(nil), config.AADPrefix...),
+		aadFileUnique:           fileUnique,
+		supplyAADPrefix:         config.SupplyAADPrefix,
+		plaintextFooter:         config.PlaintextFooter,
+		plaintextUnkeyedColumns: config.PlaintextUnkeyedColumns,
 	}
-	for path, key := range config.ColumnKeys {
-		if len(key.Key) == 0 && config.KeyRetriever != nil {
-			resolvedKey, err := config.KeyRetriever(key.KeyMetadata)
-			if err != nil {
-				return nil, fmt.Errorf("WithKeyRetriever: retrieve column key %q: %w", path, err)
-			}
-			key.Key = resolvedKey
+	for path, entry := range config.ColumnKeys {
+		resolved, err := resolveColumnEntry(path, entry, config.KeyRetriever)
+		if err != nil {
+			return nil, err
 		}
-		if !isValidAESKey(key.Key) {
-			return nil, fmt.Errorf("WithEncryption: invalid AES column key %q size %d", path, len(key.Key))
-		}
-		state.columnKeys[common.ReformPathStr(path)] = EncryptionColumnKey{
-			Key:         append([]byte(nil), key.Key...),
-			KeyMetadata: append([]byte(nil), key.KeyMetadata...),
-		}
+		state.columnKeys[common.ReformPathStr(path)] = resolved
 	}
 	return state, nil
+}
+
+// resolveColumnEntry validates and resolves one ColumnKeys entry. The
+// supported states are:
+//
+//   - {Key: nil, KeyMetadata: nil}                       — footer-key sentinel
+//   - {Key: valid, KeyMetadata: nil}                     — literal column key
+//   - {Key: valid, KeyMetadata: md}                      — literal column key + stored metadata
+//   - {Key: nil, KeyMetadata: md} + KeyRetriever         — retrieve via metadata
+//
+// Other shapes are configuration errors.
+func resolveColumnEntry(path string, entry EncryptionColumnKey, retriever KeyRetriever) (EncryptionColumnKey, error) {
+	switch {
+	case len(entry.Key) == 0 && len(entry.KeyMetadata) == 0:
+		// Footer-key sentinel.
+		return EncryptionColumnKey{}, nil
+
+	case len(entry.Key) == 0:
+		// Retrieve via KeyRetriever.
+		if retriever == nil {
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q has KeyMetadata but no KeyRetriever is configured", path)
+		}
+		resolvedKey, err := retriever(entry.KeyMetadata)
+		if err != nil {
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: retrieve column key %q: %w", path, err)
+		}
+		if len(resolvedKey) == 0 {
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q resolved to empty key; KeyRetriever must return a valid AES key", path)
+		}
+		if !isValidAESKey(resolvedKey) {
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q resolved key has invalid AES size %d", path, len(resolvedKey))
+		}
+		return EncryptionColumnKey{
+			Key:         append([]byte(nil), resolvedKey...),
+			KeyMetadata: append([]byte(nil), entry.KeyMetadata...),
+		}, nil
+
+	default:
+		// Literal column key (with or without stored metadata).
+		if !isValidAESKey(entry.Key) {
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q has invalid AES key size %d", path, len(entry.Key))
+		}
+		return EncryptionColumnKey{
+			Key:         append([]byte(nil), entry.Key...),
+			KeyMetadata: append([]byte(nil), entry.KeyMetadata...),
+		}, nil
+	}
 }
 
 func isValidAESKey(key []byte) bool {
@@ -200,34 +240,6 @@ func serializeCompact(v thrift.TStruct) ([]byte, error) {
 	return ts.Write(context.TODO(), v)
 }
 
-func (pw *ParquetWriter) columnKey(path []string) ([]byte, []byte, bool) {
-	if pw.encryptionState == nil {
-		return nil, nil, false
-	}
-	for _, candidate := range pw.columnPathCandidates(path) {
-		if key, ok := pw.encryptionState.columnKeys[candidate]; ok {
-			return key.Key, key.KeyMetadata, false
-		}
-	}
-	return pw.encryptionState.footerKey, nil, true
-}
-
-func (pw *ParquetWriter) keyForEncryptedColumn(column *parquet.ColumnChunk) ([]byte, error) {
-	if column.GetCryptoMetadata().IsSetENCRYPTION_WITH_FOOTER_KEY() {
-		return pw.encryptionState.footerKey, nil
-	}
-	columnKey := column.GetCryptoMetadata().GetENCRYPTION_WITH_COLUMN_KEY()
-	if columnKey == nil {
-		return nil, fmt.Errorf("unsupported column crypto metadata")
-	}
-	for _, candidate := range pw.columnPathCandidates(pw.fullColumnPath(columnKey.GetPathInSchema())) {
-		if key, ok := pw.encryptionState.columnKeys[candidate]; ok {
-			return key.Key, nil
-		}
-	}
-	return nil, fmt.Errorf("missing encryption key for column %s", common.PathToStr(columnKey.GetPathInSchema()))
-}
-
 func (pw *ParquetWriter) encryptThriftModule(key []byte, moduleType encryption.ModuleType, rowGroupOrdinal, columnOrdinal int16, plain []byte) ([]byte, error) {
 	module, err := encryption.EncryptGCM(key, pw.moduleAAD(moduleType, rowGroupOrdinal, columnOrdinal, 0), plain)
 	if err != nil {
@@ -238,167 +250,6 @@ func (pw *ParquetWriter) encryptThriftModule(key []byte, moduleType encryption.M
 		return nil, fmt.Errorf("encode module %d: %w", moduleType, err)
 	}
 	return encoded, nil
-}
-
-func (pw *ParquetWriter) columnPathCandidates(path []string) []string {
-	candidates := []string{common.PathToStr(path)}
-	stripped := stripRoot(path)
-	candidates = append(candidates, common.PathToStr(stripped))
-	if pw.SchemaHandler != nil {
-		if exPath, ok := pw.SchemaHandler.InPathToExPath[common.PathToStr(path)]; ok {
-			candidates = append(candidates, exPath, common.PathToStr(stripRoot(common.StrToPath(exPath))))
-		}
-		if exPath, ok := pw.SchemaHandler.InPathToExPath[common.PathToStr(stripped)]; ok {
-			candidates = append(candidates, exPath, common.PathToStr(stripRoot(common.StrToPath(exPath))))
-		}
-	}
-	return candidates
-}
-
-// validateEncryptionColumnKeys checks every configured column-key path
-// against the leaf columns of the schema. A typo silently falling back to
-// the footer key would be a security-sensitive misconfiguration, so this
-// fails fast as soon as the schema becomes available.
-func (pw *ParquetWriter) validateEncryptionColumnKeys() error {
-	if pw.encryptionState == nil || len(pw.encryptionState.columnKeys) == 0 {
-		return nil
-	}
-	if pw.SchemaHandler == nil {
-		return nil
-	}
-	valid := pw.leafColumnPathSet()
-	for path := range pw.encryptionState.columnKeys {
-		if _, ok := valid[path]; !ok {
-			return fmt.Errorf("WithColumnKey: path %q does not match any schema column", path)
-		}
-	}
-	return nil
-}
-
-// leafColumnPathSet returns the set of leaf column paths in every form
-// WithColumnKey accepts: internal and external names, with and without the
-// schema root prefix.
-func (pw *ParquetWriter) leafColumnPathSet() map[string]struct{} {
-	paths := make(map[string]struct{})
-	sh := pw.SchemaHandler
-	if sh == nil {
-		return paths
-	}
-	schemas := sh.SchemaElements
-	type frame struct {
-		pos      int32
-		children int32
-	}
-	var stack []frame
-	emit := func() {
-		inPath := make([]string, 0, len(stack))
-		exPath := make([]string, 0, len(stack))
-		for _, f := range stack {
-			inPath = append(inPath, sh.Infos[f.pos].InName)
-			exPath = append(exPath, sh.Infos[f.pos].ExName)
-		}
-		paths[common.PathToStr(inPath)] = struct{}{}
-		paths[common.PathToStr(stripRoot(inPath))] = struct{}{}
-		paths[common.PathToStr(exPath)] = struct{}{}
-		paths[common.PathToStr(stripRoot(exPath))] = struct{}{}
-	}
-	for pos := int32(0); pos < int32(len(schemas)); pos++ {
-		for len(stack) > 0 && stack[len(stack)-1].children == 0 {
-			stack = stack[:len(stack)-1]
-		}
-		if len(stack) > 0 {
-			stack[len(stack)-1].children--
-		}
-		nc := schemas[pos].GetNumChildren()
-		stack = append(stack, frame{pos: pos, children: nc})
-		if nc == 0 {
-			emit()
-		}
-	}
-	return paths
-}
-
-func stripRoot(path []string) []string {
-	if len(path) > 0 && (path[0] == common.ParGoRootInName || path[0] == common.ParGoRootExName) {
-		return path[1:]
-	}
-	return path
-}
-
-func (pw *ParquetWriter) fullColumnPath(path []string) []string {
-	if len(path) > 0 && (path[0] == common.ParGoRootInName || path[0] == common.ParGoRootExName) {
-		return path
-	}
-	root := common.ParGoRootInName
-	if pw.SchemaHandler != nil {
-		root = pw.SchemaHandler.GetRootInName()
-	}
-	return append([]string{root}, path...)
-}
-
-func (pw *ParquetWriter) columnCryptoMetadata(path []string, footerKey bool, keyMetadata []byte) *parquet.ColumnCryptoMetaData {
-	if footerKey {
-		return &parquet.ColumnCryptoMetaData{
-			ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
-		}
-	}
-	return &parquet.ColumnCryptoMetaData{
-		ENCRYPTION_WITH_COLUMN_KEY: &parquet.EncryptionWithColumnKey{
-			PathInSchema: pw.columnExternalPath(path),
-			KeyMetadata:  append([]byte(nil), keyMetadata...),
-		},
-	}
-}
-
-func (pw *ParquetWriter) columnExternalPath(path []string) []string {
-	pathStr := common.PathToStr(path)
-	if pw.SchemaHandler != nil {
-		if exPath, ok := pw.SchemaHandler.InPathToExPath[pathStr]; ok {
-			return stripRoot(common.StrToPath(exPath))
-		}
-	}
-	return stripRoot(path)
-}
-
-func (pw *ParquetWriter) encryptColumnMetadata(rowGroupOrdinal, columnOrdinal int16, column *parquet.ColumnChunk) error {
-	if pw.encryptionState == nil || column == nil || column.MetaData == nil {
-		return nil
-	}
-	path := pw.fullColumnPath(column.MetaData.GetPathInSchema())
-	key, keyMetadata, footerKey := pw.columnKey(path)
-	column.CryptoMetadata = pw.columnCryptoMetadata(path, footerKey, keyMetadata)
-	plaintextFooter := pw.encryptionState.plaintextFooter
-	// Encrypted footer + footer-key column: ColumnMetaData stays in place;
-	// the encrypted footer blob protects it. encrypted_column_metadata is
-	// disallowed by the spec for this case.
-	if !plaintextFooter && footerKey {
-		return nil
-	}
-	plain, err := serializeCompact(column.MetaData)
-	if err != nil {
-		return fmt.Errorf("serialize column metadata: %w", err)
-	}
-	module, err := encryption.EncryptGCM(key, pw.moduleAAD(encryption.ModuleColumnMetaData, rowGroupOrdinal, columnOrdinal, 0), plain)
-	if err != nil {
-		return fmt.Errorf("encrypt column metadata: %w", err)
-	}
-	encoded, err := encryption.EncodeModule(module)
-	if err != nil {
-		return fmt.Errorf("encode column metadata module: %w", err)
-	}
-	column.EncryptedColumnMetadata = encoded
-	if plaintextFooter {
-		// Plaintext footer must keep ColumnMetaData populated for legacy
-		// readers to find data, but sensitive statistics are stripped so
-		// they only appear in the authenticated encrypted_column_metadata.
-		column.MetaData.Statistics = nil
-		column.MetaData.SizeStatistics = nil
-		column.MetaData.GeospatialStatistics = nil
-	}
-	// Encrypted footer: MetaData stays in place (it is protected by the
-	// encrypted footer). Readers that hold only the column key use
-	// EncryptedColumnMetadata; readers with the footer key use MetaData.
-	return nil
 }
 
 func (pw *ParquetWriter) encryptFooter(footerBuf []byte) ([]byte, string, error) {
