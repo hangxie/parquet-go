@@ -21,22 +21,22 @@ to the parquet-go library project.
 - Use `context.Context` for cancellable operations.
 - Avoid leaking goroutines or unnecessary memory allocations.
 - Maintain clean public API surfaces; avoid exposing internal details.
+- Prefer non-test source files to stay under 300 LOC; they should never exceed 500 LOC.
 
 ---
 
 ## Testing & TDD Expectations
 
 - Tests must cover both typical and edge-case scenarios.
+- Maintain a one-to-one mapping between Go source and test files: `foo.go` should be covered by `foo_test.go`, and standalone scenario tests should be folded into the mapped test file when practical.
 - Use **table-driven tests** for core logic (the dominant pattern in this codebase).
 - Tests typically use in-memory buffers (`bytes.Buffer`) and inline test data rather than external test files.
 - Use **round-trip testing** (write data, read back, compare) for encoding, compression, and reader/writer validation.
 - Use `github.com/stretchr/testify/require` for assertions.
-- `make all` (format, lint, test, example, build) MUST pass before any commit.
 - Maintain and improve coverage.
 - Contributors are expected to follow **TDD principles**:
   - Design tests before implementation.
   - Ensure tests fail before implementing the feature.
-  - Make small, reviewable commits after completing each logical phase.
 
 ---
 
@@ -51,18 +51,18 @@ to the parquet-go library project.
 
 ## Contribution Workflow Norms
 
-- **Always commit after completing a task.** `make all` MUST pass before any commit. Once it passes, create a commit immediately — do not wait to be asked.
+- **Always commit after completing a task.** Once quality gates pass, create a commit immediately; do not wait to be asked.
 - Commit messages should follow **Conventional Commits**.
 - **Do not** add the agent's name as a commit co-author (e.g., no `Co-Authored-By` trailers).
 - Avoid breaking backward compatibility without clear migration notes.
-- Maintain high-quality, reviewable commits after completing each logical phase (plan, test, implement, document).
+- Make small, reviewable commits after completing each logical phase.
 
 ---
 
 ## Quality Gates
 
+- `make all` (format, lint, test, example, build) MUST pass before any commit.
 - Test coverage must be maintained or improved on significant logic changes.
-- Code MUST pass formatting, linting, testing, and build checks (`make all`) before any commit.
 - Refactoring and cleanup must preserve behavior and pass validation.
 
 ---
@@ -73,6 +73,6 @@ When working on improvements or fixes from a review:
 
 1. **Prepare `TODO.md`** - Create or update `TODO.md` with numbered, categorized items. Use checkboxes (`- [ ]`) to track completion.
 2. **Make changes** - Implement the fix or improvement for the selected item(s).
-3. **Validate** - Run `make all` and ensure format, lint, test, and build all pass.
+3. **Validate** - Run the quality gates.
 4. **Commit** - Commit only the source code changes. Do **not** commit `TODO.md`.
 5. **Mark complete** - Update `TODO.md` to check off the completed item(s) (`- [x]`).
