@@ -1,6 +1,6 @@
 module github.com/hangxie/parquet-go/v3
 
-go 1.24.11
+go 1.25
 
 require (
 	cloud.google.com/go/storage v1.60.0
@@ -8,7 +8,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.4
 	github.com/andybalholm/brotli v1.2.1
 	github.com/apache/arrow-go/v18 v18.5.2
-	github.com/apache/thrift v0.22.0
+	github.com/apache/thrift v0.23.0
 	github.com/aws/aws-sdk-go-v2 v1.41.9
 	github.com/aws/aws-sdk-go-v2/config v1.32.20
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.2.3
