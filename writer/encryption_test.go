@@ -55,7 +55,7 @@ func TestEncryptedWriterRoundTrip(t *testing.T) {
 				WithAADPrefix([]byte("writer-test")),
 				WithAADFileUnique([]byte("file-unique2")),
 				WithPlaintextFooter(true),
-				WithColumnKey("name", []byte("abcdef0123456789"), []byte(testNameKeyID)),
+				WithColumnEncrypted("name", ColumnKey([]byte("abcdef0123456789"), []byte(testNameKeyID))),
 			},
 			readerOptions: []reader.ReaderOption{
 				reader.WithFooterKey([]byte("0123456789abcdef")),
@@ -190,7 +190,7 @@ func TestEncryptedWriterAuthFailure(t *testing.T) {
 		data := writeRows(
 			t,
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnKey("name", []byte("abcdef0123456789"), []byte(testNameKeyID)),
+			WithColumnEncrypted("name", ColumnKey([]byte("abcdef0123456789"), []byte(testNameKeyID))),
 			WithAADPrefix([]byte("auth-test")),
 			WithAADFileUnique([]byte("authtest-002")),
 		)
@@ -235,7 +235,7 @@ func TestEncryptedWriterColumnKeyProtectsBloomAndIndex(t *testing.T) {
 		WithPageSize(32),
 		WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
 		WithFooterKey(footerKey),
-		WithColumnKey("name", nameKey, []byte(testNameKeyID)),
+		WithColumnEncrypted("name", ColumnKey(nameKey, []byte(testNameKeyID))),
 		WithAADPrefix([]byte("bloom-index-test")),
 		WithAADFileUnique([]byte("bi-test-001")),
 	)
@@ -316,7 +316,7 @@ func TestEncryptedFooterColumnMetadataLayout(t *testing.T) {
 			name: "mixed footer-key and column-key columns",
 			opts: []WriterOption{
 				WithFooterKey(footerKey),
-				WithColumnKey("name", nameKey),
+				WithColumnEncrypted("name", ColumnKey(nameKey)),
 				WithAADFileUnique([]byte("layout-002")),
 			},
 			wantFooterKeyCol:  "id",
@@ -388,7 +388,7 @@ func TestPlaintextFooterColumnMetadataLayout(t *testing.T) {
 		WithPageSize(32),
 		WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
 		WithFooterKey(footerKey),
-		WithColumnKey("name", nameKey),
+		WithColumnEncrypted("name", ColumnKey(nameKey)),
 		WithPlaintextFooter(true),
 		WithAADFileUnique([]byte("pf-layout-001")),
 	)
