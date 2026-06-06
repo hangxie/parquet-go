@@ -417,7 +417,7 @@ Footer mode and column classification interact as follows:
 | Encrypted footer (`PARE`) | Page/index/bloom modules are plaintext. The footer key is required to open the encrypted file metadata, regardless of column classification. | Page/index/bloom modules use the footer key; column metadata stays in the encrypted footer. | Page/index/bloom modules use the column key; encrypted column metadata is stored for readers with only the column key. |
 | Signed plaintext footer (`PAR1`) | Page/index/bloom modules and column statistics are plaintext; readers without keys can read projected plaintext columns. | Page/index/bloom modules use the footer key; plaintext footer metadata is present but statistics are stripped. | Page/index/bloom modules use the column key; plaintext footer metadata is present but statistics are stripped. |
 
-Writer column classification is selected with `writer.WithColumnEncrypted(path, opts...)`, where `path` is the dot-separated schema path without the root element:
+Writer column classification is selected with `writer.WithColumnEncrypted(path, opts...)`, where `path` is the dot-separated leaf path in the file schema without the root element. The path is matched against external Parquet names (the `name=` value in the struct tag); Go struct field names are not accepted, so the writer and `reader.WithColumnKey` apply the same path-resolution rules. Once the writer has a schema, it prepends the external schema root internally for validation and lookup. Root names are not stripped from option values: `parquet_go_root.ssn` will not match a rootless `ssn` column, but it can match a nested column whose first path component is actually named `parquet_go_root`.
 
 ```go
 // Omitted path: default is footer-key encryption; mixed mode makes it plaintext.
@@ -479,15 +479,17 @@ writer.WithColumnEncrypted("ssn", writer.ColumnKey(oldKey))
 writer.WithColumnEncrypted("ssn", writer.ColumnFooterKey()) // final state
 ```
 
-`WithColumnKey` and `WithColumnKeyMetadata` remain as deprecated wrappers. They will be removed in a future release alongside `PlaintextUnkeyedColumns`; after that removal, absence from `ColumnKeys` will mean plaintext. Until that release, the default remains the legacy behavior where omitted columns use the footer key. The default flip is security-relevant and should be called out in the release notes, changelog, and migration guide for that release.
+Reader key options, including `reader.WithColumnKey`, are not deprecated. The writer API needed a structured replacement (`WithColumnEncrypted`) to expose richer options — key metadata, the `ColumnKeyByMetadata` retriever path, and explicit plaintext-column control — none of which have a reader-side analogue. `reader.WithColumnKey` supplies key bytes directly and is complete as-is.
+
+`writer.WithColumnKey` and `writer.WithColumnKeyMetadata` remain as deprecated writer wrappers and will be removed in a future release alongside `PlaintextUnkeyedColumns`. After that removal, absence from `ColumnKeys` will mean plaintext. Until that release, the default remains the legacy behavior where omitted columns use the footer key. The default flip is security-relevant and should be called out in the release notes, changelog, and migration guide for that release.
 
 | Deprecated call | Replacement |
 | --- | --- |
-| `WithColumnKey("p", k)` | `WithColumnEncrypted("p", ColumnKey(k))` |
-| `WithColumnKey("p", k, md)` | `WithColumnEncrypted("p", ColumnKey(k, md))` |
-| `WithColumnKey("p", nil)` | `WithColumnEncrypted("p")` |
-| `WithColumnKey("p", nil, md)` | `WithColumnEncrypted("p", ColumnKeyByMetadata(md))` |
-| `WithColumnKeyMetadata("p", md)` | `WithColumnEncrypted("p", ColumnKeyByMetadata(md))` |
+| `writer.WithColumnKey("p", k)` | `writer.WithColumnEncrypted("p", writer.ColumnKey(k))` |
+| `writer.WithColumnKey("p", k, md)` | `writer.WithColumnEncrypted("p", writer.ColumnKey(k, md))` |
+| `writer.WithColumnKey("p", nil)` | `writer.WithColumnEncrypted("p")` |
+| `writer.WithColumnKey("p", nil, md)` | `writer.WithColumnEncrypted("p", writer.ColumnKeyByMetadata(md))` |
+| `writer.WithColumnKeyMetadata("p", md)` | `writer.WithColumnEncrypted("p", writer.ColumnKeyByMetadata(md))` |
 
 Encrypted footer with mixed plaintext plus a per-column key:
 
@@ -575,7 +577,7 @@ Security guidance:
 - Each file should use a unique `(AADPrefix, AADFileUnique)` pair. Reusing the same pair with the same key weakens module-swap protection.
 - `AES_GCM_CTR_V1` does not authenticate page bodies; use `AES_GCM_V1` when page-data tamper detection is required.
 
-Reader behavior is driven by the file's per-column `CryptoMetadata`: nil means plaintext, `ENCRYPTION_WITH_FOOTER_KEY` means footer-key column, and `ENCRYPTION_WITH_COLUMN_KEY` means column-key column. `reader.WithColumnKey(path, key)` supplies a direct key for a column, while `reader.WithKeyRetriever` resolves keys from stored `key_metadata`. If a writer intentionally stores `ENCRYPTION_WITH_COLUMN_KEY` while using bytes equal to the footer key, downstream readers can decrypt it either with `reader.WithColumnKey(path, footerKey)` or with a retriever that returns `footerKey` for that column metadata.
+Reader behavior is driven by the file's per-column `CryptoMetadata`: nil means plaintext, `ENCRYPTION_WITH_FOOTER_KEY` means footer-key column, and `ENCRYPTION_WITH_COLUMN_KEY` means column-key column. `reader.WithColumnKey(path, key)` supplies a direct key for a rootless leaf path in the file schema, matched against the file's `PathInSchema` (external Parquet names); Go struct field names are not accepted and `WithCaseInsensitive` does not apply to this lookup. `reader.WithKeyRetriever` resolves keys from stored `key_metadata`. Once the reader has a schema, it prepends the external schema root internally for validation and lookup. Like writer column options, reader column-key paths must omit the schema root; a root name in the option value is treated as an ordinary path component. If a writer intentionally stores `ENCRYPTION_WITH_COLUMN_KEY` while using bytes equal to the footer key, downstream readers can decrypt it either with `reader.WithColumnKey(path, footerKey)` or with a retriever that returns `footerKey` for that column metadata.
 
 Writer metadata-based keys are strict: `ColumnKeyByMetadata(md)` requires the writer's `KeyRetriever` to return a non-empty AES key at construction time. The reader API still treats missing column-key material as a read-time decryption failure because `reader.WithColumnKey` carries only key bytes, not expected key metadata.
 
