@@ -170,8 +170,8 @@ func (pw *ParquetWriter) validateEncryptionColumnKeys() error {
 }
 
 // leafColumnPathSet returns the set of leaf column paths in every form
-// WithColumnKey accepts: internal and external names, with and without the
-// schema root prefix.
+// WithColumnEncrypted accepts: internal and external names, with and without
+// the schema root prefix.
 func (pw *ParquetWriter) leafColumnPathSet() map[string]struct{} {
 	paths := make(map[string]struct{})
 	sh := pw.SchemaHandler

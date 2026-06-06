@@ -33,7 +33,7 @@ func TestEncryptedWriterKeyRetriever(t *testing.T) {
 		WithPageSize(32),
 		WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
 		WithFooterKeyMetadata([]byte(testFooterKeyID)),
-		WithColumnKeyMetadata("name", []byte(testNameKeyID)),
+		WithColumnEncrypted("name", ColumnKeyByMetadata([]byte(testNameKeyID))),
 		WithKeyRetriever(keyRetriever),
 		WithAADPrefix([]byte("writer-test")),
 		WithAADFileUnique([]byte("file-unique3")),
@@ -122,7 +122,7 @@ func TestEncryptedWriterColumnKeyPrecedence(t *testing.T) {
 		WithPageSize(32),
 		WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
 		WithFooterKey(footerKey),
-		WithColumnKey("name", nameKey, []byte(testNameKeyID)),
+		WithColumnEncrypted("name", ColumnKey(nameKey, []byte(testNameKeyID))),
 		WithKeyRetriever(keyRetriever),
 		WithAADPrefix([]byte("writer-test")),
 		WithAADFileUnique([]byte("file-unique5")),
@@ -161,7 +161,7 @@ func TestWithEncryptionValidatesKeys(t *testing.T) {
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnKey("name", []byte("short")),
+			WithColumnEncrypted("name", ColumnKey([]byte("short"))),
 		)
 		require.ErrorContains(t, err, `column "name" has invalid AES key size`)
 	})
@@ -171,7 +171,7 @@ func TestWithEncryptionValidatesKeys(t *testing.T) {
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnKeyMetadata("name", []byte(testNameKeyID)),
+			WithColumnEncrypted("name", ColumnKeyByMetadata([]byte(testNameKeyID))),
 			WithKeyRetriever(func([]byte) ([]byte, error) { return []byte("short"), nil }),
 		)
 		require.ErrorContains(t, err, `column "name" resolved key has invalid AES size`)
@@ -209,7 +209,7 @@ func TestEncryptedWriterKeyRetrieverErrors(t *testing.T) {
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnKeyMetadata("name", []byte(testNameKeyID)),
+			WithColumnEncrypted("name", ColumnKeyByMetadata([]byte(testNameKeyID))),
 			WithKeyRetriever(func([]byte) ([]byte, error) { return nil, retrieverErr }),
 		)
 		require.ErrorContains(t, err, "retrieve column key")
@@ -230,15 +230,15 @@ func TestWithEncryptionUnsupportedAlgorithm(t *testing.T) {
 	require.ErrorContains(t, err, "unsupported encryption algorithm")
 }
 
-func TestWithColumnKeyValidatesPathAgainstSchema(t *testing.T) {
+func TestWithColumnEncryptedValidatesPathAgainstSchema(t *testing.T) {
 	t.Parallel()
 
-	t.Run("typo in column key path is rejected", func(t *testing.T) {
+	t.Run("typo in column encryption path is rejected", func(t *testing.T) {
 		t.Parallel()
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnKey("nmae", []byte("abcdef0123456789")),
+			WithColumnEncrypted("nmae", ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.ErrorContains(t, err, "WithColumnEncrypted")
 		require.ErrorContains(t, err, "nmae")
@@ -250,17 +250,17 @@ func TestWithColumnKeyValidatesPathAgainstSchema(t *testing.T) {
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnKey("parquet_go_root", []byte("abcdef0123456789")),
+			WithColumnEncrypted("parquet_go_root", ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.Error(t, err)
 	})
 
-	t.Run("valid path is accepted", func(t *testing.T) {
+	t.Run("valid column encryption path is accepted", func(t *testing.T) {
 		t.Parallel()
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnKey("name", []byte("abcdef0123456789")),
+			WithColumnEncrypted("name", ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.NoError(t, err)
 	})
@@ -272,7 +272,7 @@ func TestWithColumnKeyValidatesPathAgainstSchema(t *testing.T) {
 			writerfile.NewWriterFile(&buf),
 			nil,
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnKey("nmae", []byte("abcdef0123456789")),
+			WithColumnEncrypted("nmae", ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.NoError(t, err) // no schema yet, validation deferred
 		err = pw.SetSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": [{"Tag": "name=id, type=INT32"}, {"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"}]}`)
