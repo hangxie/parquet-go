@@ -61,8 +61,11 @@ func WithAADPrefix(prefix []byte) ReaderOption {
 	})
 }
 
-// WithColumnKey sets the key used to decrypt a column. The path is the
-// dot-separated schema path without the root element.
+// WithColumnKey sets the key used to decrypt a column. The path is rootless,
+// dot-separated, and matched against external Parquet names in PathInSchema.
+// Go struct field names and WithCaseInsensitive do not apply. The reader adds
+// the schema root internally for validation; a root in path is just another
+// path component. Unknown leaf paths are rejected once the schema is available.
 func WithColumnKey(path string, key []byte) ReaderOption {
 	return readerOptionFunc(func(pr *ParquetReader) {
 		if pr.columnKeys == nil {

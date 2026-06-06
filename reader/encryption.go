@@ -3,8 +3,10 @@ package reader
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -14,6 +16,10 @@ import (
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
+
+// ErrColumnKeyRequired reports an encrypted column without a direct,
+// retrieved, or footer-key match. Match with errors.Is.
+var ErrColumnKeyRequired = errors.New("decryption key required")
 
 func (pr *ParquetReader) readEncryptedFooter(size uint32) error {
 	section := make([]byte, size)
@@ -313,20 +319,21 @@ func (pr *ParquetReader) resolveColumnKey(chunk *parquet.ColumnChunk) ([]byte, e
 	if columnKeyMeta == nil {
 		return nil, fmt.Errorf("unsupported column crypto metadata")
 	}
-	path := common.PathToStr(columnKeyMeta.GetPathInSchema())
-	if key, ok := pr.columnKeys[path]; ok {
+	pathInSchema := columnKeyMeta.GetPathInSchema()
+	if key, ok := pr.lookupColumnKey(pathInSchema); ok {
 		return key, nil
 	}
+	displayPath := strings.ReplaceAll(pr.fullExternalColumnPath(pathInSchema), common.ParGoPathDelimiter, ".")
 	if pr.keyRetriever != nil {
 		key, err := pr.retrieveKeyFromMetadata(columnKeyMeta.GetKeyMetadata())
 		if err != nil {
-			return nil, fmt.Errorf("retrieve column key for %s: %w", path, err)
+			return nil, fmt.Errorf("retrieve column key for %s: %w", displayPath, err)
 		}
 		if len(key) > 0 {
 			return key, nil
 		}
 	}
-	return nil, fmt.Errorf("decryption key required for column %s", path)
+	return nil, fmt.Errorf("%w for column %s", ErrColumnKeyRequired, displayPath)
 }
 
 func (pr *ParquetReader) resolveOptionalColumnKey(chunk *parquet.ColumnChunk) ([]byte, error) {
@@ -341,8 +348,7 @@ func (pr *ParquetReader) resolveOptionalColumnKey(chunk *parquet.ColumnChunk) ([
 	if columnKeyMeta == nil {
 		return nil, fmt.Errorf("unsupported column crypto metadata")
 	}
-	path := common.PathToStr(columnKeyMeta.GetPathInSchema())
-	if key, ok := pr.columnKeys[path]; ok {
+	if key, ok := pr.lookupColumnKey(columnKeyMeta.GetPathInSchema()); ok {
 		return key, nil
 	}
 	if pr.keyRetriever == nil {

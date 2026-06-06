@@ -25,6 +25,9 @@ func NewParquetColumnReader(pFile source.ParquetFileReader, opts ...ReaderOption
 	}
 	res.ColumnBuffers = make(map[string]*ColumnBufferType)
 	res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(res.Footer.GetSchema())
+	if err := res.validateColumnKeyPaths(); err != nil {
+		return res, err
+	}
 	res.RenameSchema()
 
 	return res, nil
