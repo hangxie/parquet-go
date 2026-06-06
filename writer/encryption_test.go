@@ -285,10 +285,10 @@ func TestEncryptedWriterColumnKeyProtectsBloomAndIndex(t *testing.T) {
 	defer func() { require.NoError(t, prMissingNameKey.ReadStop()) }()
 
 	_, err = prMissingNameKey.ReadColumnIndex(0, 1)
-	require.ErrorContains(t, err, "decryption key required for column name")
+	require.ErrorContains(t, err, "decryption key required for column "+common.ParGoRootExName+".name")
 
 	_, err = prMissingNameKey.BloomFilterCheck("name", 0, "alpha")
-	require.ErrorContains(t, err, "decryption key required for column name")
+	require.ErrorContains(t, err, "decryption key required for column "+common.ParGoRootExName+".name")
 }
 
 func TestEncryptedFooterColumnMetadataLayout(t *testing.T) {
@@ -459,44 +459,6 @@ func TestEncryptedWriterPlaintextFooterSignatureVerification(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestStripRoot(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		path []string
-		want []string
-	}{
-		{
-			name: "strips internal root",
-			path: []string{common.ParGoRootInName, "col"},
-			want: []string{"col"},
-		},
-		{
-			name: "strips external root",
-			path: []string{common.ParGoRootExName, "col"},
-			want: []string{"col"},
-		},
-		{
-			name: "no root prefix unchanged",
-			path: []string{"col"},
-			want: []string{"col"},
-		},
-		{
-			name: "empty path unchanged",
-			path: []string{},
-			want: []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tt.want, stripRoot(tt.path))
-		})
-	}
-}
-
 func TestKeyForEncryptedColumnErrors(t *testing.T) {
 	t.Parallel()
 
@@ -642,6 +604,23 @@ func TestEncryptionHelpersNoopWithoutState(t *testing.T) {
 	require.Equal(t, common.MagicBytes, gotMagic)
 }
 
+func TestWithColumnEncryptedRejectsGoFieldName(t *testing.T) {
+	t.Parallel()
+
+	// Encrypted record has Go field `Name` with parquet tag `name=name`.
+	// Only the external (Parquet file) name "name" is accepted; the Go
+	// field name "Name" must be rejected with a clear validation error so
+	// the writer mirrors reader.WithColumnKey's path-resolution rules.
+	_, _, err := createTestParquetWriter(
+		new(encryptedWriterRecord),
+		WithFooterKey([]byte("0123456789abcdef")),
+		WithColumnEncrypted("Name", ColumnKey([]byte("abcdef0123456789"))),
+	)
+	require.Error(t, err)
+	require.ErrorContains(t, err, `WithColumnEncrypted: path "Name"`)
+	require.ErrorContains(t, err, "does not match any schema column")
+}
+
 func TestEncryptionHelpersHandleMissingMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -674,32 +653,63 @@ func TestEncryptionPathHelpersWithoutGeneratedSchema(t *testing.T) {
 	t.Run("leaf path set without schema", func(t *testing.T) {
 		t.Parallel()
 		pw := &ParquetWriter{}
-		require.Empty(t, pw.leafColumnPathSet())
+		require.Empty(t, pw.leafColumnFullInternalPaths())
+		require.Equal(t, "name", pw.fullInternalColumnPath([]string{"name"}))
+		require.Equal(t, "name", pw.fullExternalColumnPath([]string{"name"}))
+		require.Equal(t, []string{"name"}, pw.columnExternalPath([]string{"name"}))
+		_, ok := pw.lookupConfiguredColumn([]string{"name"})
+		require.False(t, ok)
 	})
 
-	t.Run("column candidates include stripped schema mapping", func(t *testing.T) {
+	t.Run("column paths canonicalize to full schema paths", func(t *testing.T) {
 		t.Parallel()
-		pw := &ParquetWriter{
-			SchemaHandler: &schema.SchemaHandler{
-				InPathToExPath: map[string]string{
-					"name": common.ReformPathStr("external.name"),
-				},
-				ExPathToInPath: map[string]string{
-					common.ReformPathStr("external.name"): "name",
-				},
-			},
-		}
 
-		require.Contains(
-			t,
-			pw.columnPathCandidates([]string{common.ParGoRootInName, "name"}),
-			common.ReformPathStr("external.name"),
-		)
-		require.Contains(
-			t,
-			pw.columnPathCandidates([]string{"external", "name"}),
-			"name",
-		)
+		sh, err := schema.NewSchemaHandlerFromStruct(new(encryptedWriterRecord))
+		require.NoError(t, err)
+		pw := &ParquetWriter{
+			SchemaHandler: sh,
+		}
+		valid := pw.leafColumnFullInternalPaths()
+		fullInternal := common.ReformPathStr(common.ParGoRootInName + ".Name")
+		fullExternal := common.ReformPathStr(common.ParGoRootExName + ".name")
+
+		require.Contains(t, valid, fullInternal)
+		require.Equal(t, fullInternal, pw.fullInternalColumnPath([]string{common.ParGoRootInName, "Name"}))
+		require.Equal(t, fullInternal, pw.fullInternalColumnPath([]string{"name"}))
+		require.Equal(t, fullInternal, pw.fullInternalColumnPath([]string{common.ParGoRootExName, "name"}))
+		require.Equal(t, fullExternal, pw.fullExternalColumnPath([]string{"name"}))
+		require.Equal(t, []string{"name"}, pw.columnExternalPath([]string{common.ParGoRootInName, "Name"}))
+
+		got, ok := pw.fullInternalOptionPath("name", valid)
+		require.True(t, ok)
+		require.Equal(t, fullInternal, got)
+
+		_, ok = pw.fullInternalOptionPath("Name", valid)
+		require.False(t, ok, "Go field name must not resolve; only external Parquet names are accepted")
+
+		_, ok = pw.fullInternalOptionPath("missing", valid)
+		require.False(t, ok)
+		require.Equal(t, "missing", pw.fullInternalColumnPath([]string{"missing"}))
+		require.Equal(t, common.ReformPathStr(common.ParGoRootExName+".missing"), pw.fullExternalColumnPath([]string{"missing"}))
+		require.Equal(t, []string{"missing"}, pw.columnExternalPath([]string{"missing"}))
+
+		pw.encryptionState = &encryptionState{
+			columnKeys: map[string]EncryptionColumnKey{
+				fullInternal: {Key: []byte("abcdef0123456789")},
+			},
+			columnKeysFullPath: true,
+		}
+		require.NoError(t, pw.validateEncryptionColumnKeys())
+		entry, ok := pw.lookupConfiguredColumn([]string{"name"})
+		require.True(t, ok)
+		require.Equal(t, []byte("abcdef0123456789"), entry.Key)
+
+		require.NotNil(t, pw.columnCryptoMetadata([]string{common.ParGoRootInName, "Name"}, columnEncryptionClassification{Kind: columnEncryptionFooterKey}))
+		require.NotNil(t, pw.columnCryptoMetadata([]string{common.ParGoRootInName, "Name"}, columnEncryptionClassification{
+			Kind:        columnEncryptionColumnKey,
+			KeyMetadata: []byte(testNameKeyID),
+		}))
+		require.Nil(t, pw.columnCryptoMetadata([]string{common.ParGoRootInName, "Name"}, columnEncryptionClassification{Kind: columnEncryptionPlaintext}))
 	})
 }
 

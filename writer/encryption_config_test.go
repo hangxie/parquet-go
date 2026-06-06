@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
@@ -246,13 +247,23 @@ func TestWithColumnEncryptedValidatesPathAgainstSchema(t *testing.T) {
 
 	t.Run("intermediate path is rejected", func(t *testing.T) {
 		t.Parallel()
-		// "Parquet_go_root" is the root, not a leaf column.
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnEncrypted("parquet_go_root", ColumnKey([]byte("abcdef0123456789"))),
+			WithColumnEncrypted(common.ParGoRootExName, ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.Error(t, err)
+	})
+
+	t.Run("root-prefixed path is rejected", func(t *testing.T) {
+		t.Parallel()
+		_, _, err := createTestParquetWriter(
+			new(encryptedWriterRecord),
+			WithFooterKey([]byte("0123456789abcdef")),
+			WithColumnEncrypted(common.ParGoRootExName+".name", ColumnKey([]byte("abcdef0123456789"))),
+		)
+		require.ErrorContains(t, err, "WithColumnEncrypted")
+		require.ErrorContains(t, err, common.ParGoRootExName+".name")
 	})
 
 	t.Run("valid column encryption path is accepted", func(t *testing.T) {
@@ -261,6 +272,16 @@ func TestWithColumnEncryptedValidatesPathAgainstSchema(t *testing.T) {
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
 			WithColumnEncrypted("name", ColumnKey([]byte("abcdef0123456789"))),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("column named like root is accepted", func(t *testing.T) {
+		t.Parallel()
+		_, _, err := createTestParquetWriter(
+			new(encryptedWriterRootNamedRecord),
+			WithFooterKey([]byte("0123456789abcdef")),
+			WithColumnEncrypted(common.ParGoRootExName+".name", ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.NoError(t, err)
 	})
@@ -278,4 +299,12 @@ func TestWithColumnEncryptedValidatesPathAgainstSchema(t *testing.T) {
 		err = pw.SetSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": [{"Tag": "name=id, type=INT32"}, {"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"}]}`)
 		require.ErrorContains(t, err, "nmae")
 	})
+}
+
+type encryptedWriterRootNamedRecord struct {
+	Root encryptedWriterRootNamedGroup `parquet:"name=parquet_go_root"`
+}
+
+type encryptedWriterRootNamedGroup struct {
+	Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
 }

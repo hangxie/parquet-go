@@ -2,6 +2,7 @@ package writer
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
@@ -31,9 +32,7 @@ type columnEncryptionClassification struct {
 }
 
 // classifyColumn decides how the column at path should be encrypted. The
-// caller may pass the path either with or without the schema root prefix;
-// the helper normalizes internally by trying all known path candidates
-// against the configured ColumnKeys map.
+// configured ColumnKeys map stores validated full internal schema paths.
 //
 // When encryption is disabled, every column is plaintext. When encryption
 // is enabled, classification follows the configured column entry:
@@ -76,13 +75,11 @@ func (pw *ParquetWriter) lookupConfiguredColumn(path []string) (EncryptionColumn
 	if pw.encryptionState == nil {
 		return EncryptionColumnKey{}, false
 	}
-	for _, candidate := range pw.columnPathCandidates(path) {
-		entry, ok := pw.encryptionState.columnKeys[candidate]
-		if ok {
-			return entry, true
-		}
+	entry, ok := pw.encryptionState.columnKeys[pw.fullInternalColumnPath(path)]
+	if ok && len(entry.Key) > 0 {
+		return entry, true
 	}
-	return EncryptionColumnKey{}, false
+	return EncryptionColumnKey{}, ok
 }
 
 func (pw *ParquetWriter) keyForEncryptedColumn(column *parquet.ColumnChunk) ([]byte, error) {
@@ -93,60 +90,14 @@ func (pw *ParquetWriter) keyForEncryptedColumn(column *parquet.ColumnChunk) ([]b
 	if columnKey == nil {
 		return nil, fmt.Errorf("unsupported column crypto metadata")
 	}
-	entry, ok := pw.lookupConfiguredColumn(pw.fullColumnPath(columnKey.GetPathInSchema()))
+	entry, ok := pw.lookupConfiguredColumn(columnKey.GetPathInSchema())
 	if ok && len(entry.Key) > 0 {
 		return entry.Key, nil
 	}
-	return nil, fmt.Errorf("missing encryption key for column %s", common.PathToStr(columnKey.GetPathInSchema()))
-}
-
-func (pw *ParquetWriter) columnPathCandidates(path []string) []string {
-	candidates := make([]string, 0, 8)
-	candidates = appendPathCandidate(candidates, common.PathToStr(path))
-	stripped := stripRoot(path)
-	candidates = appendPathCandidate(candidates, common.PathToStr(stripped))
-
-	if pw.SchemaHandler != nil {
-		if len(stripped) > 0 {
-			if root := pw.SchemaHandler.GetRootInName(); root != "" {
-				candidates = appendPathCandidate(candidates, common.PathToStr(append([]string{root}, stripped...)))
-			}
-			if root := pw.SchemaHandler.GetRootExName(); root != "" {
-				candidates = appendPathCandidate(candidates, common.PathToStr(append([]string{root}, stripped...)))
-			}
-		}
-		for _, candidate := range append([]string(nil), candidates...) {
-			if exPath, ok := pw.SchemaHandler.InPathToExPath[candidate]; ok {
-				candidates = appendPathCandidate(candidates, exPath)
-			}
-			if inPath, ok := pw.SchemaHandler.ExPathToInPath[candidate]; ok {
-				candidates = appendPathCandidate(candidates, inPath)
-			}
-		}
-	}
-	return dedupePathCandidates(candidates)
-}
-
-func appendPathCandidate(candidates []string, path string) []string {
-	candidates = append(candidates, path)
-	stripped := common.PathToStr(stripRoot(common.StrToPath(path)))
-	if stripped != path {
-		candidates = append(candidates, stripped)
-	}
-	return candidates
-}
-
-func dedupePathCandidates(candidates []string) []string {
-	seen := make(map[string]struct{}, len(candidates))
-	out := candidates[:0]
-	for _, candidate := range candidates {
-		if _, ok := seen[candidate]; ok {
-			continue
-		}
-		seen[candidate] = struct{}{}
-		out = append(out, candidate)
-	}
-	return out
+	return nil, fmt.Errorf(
+		"missing encryption key for column %s",
+		strings.ReplaceAll(pw.fullExternalColumnPath(columnKey.GetPathInSchema()), common.ParGoPathDelimiter, "."),
+	)
 }
 
 // validateEncryptionColumnKeys checks every configured column-key path
@@ -160,74 +111,84 @@ func (pw *ParquetWriter) validateEncryptionColumnKeys() error {
 	if pw.SchemaHandler == nil {
 		return nil
 	}
-	valid := pw.leafColumnPathSet()
-	for path := range pw.encryptionState.columnKeys {
-		if _, ok := valid[path]; !ok {
-			return fmt.Errorf("WithColumnEncrypted: path %q does not match any schema column", path)
-		}
+	if pw.encryptionState.columnKeysFullPath {
+		return nil
 	}
+	valid := pw.leafColumnFullInternalPaths()
+	normalized := make(map[string]EncryptionColumnKey, len(pw.encryptionState.columnKeys))
+	for path, entry := range pw.encryptionState.columnKeys {
+		fullPath, ok := pw.fullInternalOptionPath(path, valid)
+		if !ok {
+			fullExternalPath := common.PathToStr(append([]string{pw.SchemaHandler.GetRootExName()}, common.StrToPath(path)...))
+			return fmt.Errorf(
+				"WithColumnEncrypted: path %q resolves to %q, which does not match any schema column",
+				strings.ReplaceAll(path, common.ParGoPathDelimiter, "."),
+				strings.ReplaceAll(fullExternalPath, common.ParGoPathDelimiter, "."),
+			)
+		}
+		normalized[fullPath] = entry
+	}
+	pw.encryptionState.columnKeys = normalized
+	pw.encryptionState.columnKeysFullPath = true
 	return nil
 }
 
-// leafColumnPathSet returns the set of leaf column paths in every form
-// WithColumnEncrypted accepts: internal and external names, with and without
-// the schema root prefix.
-func (pw *ParquetWriter) leafColumnPathSet() map[string]struct{} {
+// leafColumnFullInternalPaths returns full internal paths for leaf columns.
+func (pw *ParquetWriter) leafColumnFullInternalPaths() map[string]struct{} {
 	paths := make(map[string]struct{})
-	sh := pw.SchemaHandler
-	if sh == nil {
+	if pw.SchemaHandler == nil {
 		return paths
 	}
-	schemas := sh.SchemaElements
-	type frame struct {
-		pos      int32
-		children int32
-	}
-	var stack []frame
-	emit := func() {
-		inPath := make([]string, 0, len(stack))
-		exPath := make([]string, 0, len(stack))
-		for _, f := range stack {
-			inPath = append(inPath, sh.Infos[f.pos].InName)
-			exPath = append(exPath, sh.Infos[f.pos].ExName)
-		}
-		paths[common.PathToStr(inPath)] = struct{}{}
-		paths[common.PathToStr(stripRoot(inPath))] = struct{}{}
-		paths[common.PathToStr(exPath)] = struct{}{}
-		paths[common.PathToStr(stripRoot(exPath))] = struct{}{}
-	}
-	for pos := int32(0); pos < int32(len(schemas)); pos++ {
-		for len(stack) > 0 && stack[len(stack)-1].children == 0 {
-			stack = stack[:len(stack)-1]
-		}
-		if len(stack) > 0 {
-			stack[len(stack)-1].children--
-		}
-		nc := schemas[pos].GetNumChildren()
-		stack = append(stack, frame{pos: pos, children: nc})
-		if nc == 0 {
-			emit()
-		}
+	for _, path := range pw.SchemaHandler.ValueColumns {
+		paths[path] = struct{}{}
 	}
 	return paths
 }
 
-func stripRoot(path []string) []string {
-	if len(path) > 0 && (path[0] == common.ParGoRootInName || path[0] == common.ParGoRootExName) {
-		return path[1:]
+func (pw *ParquetWriter) fullInternalOptionPath(path string, valid map[string]struct{}) (string, bool) {
+	fullEx := common.PathToStr(append([]string{pw.SchemaHandler.GetRootExName()}, common.StrToPath(path)...))
+	inPath, ok := pw.SchemaHandler.ExPathToInPath[fullEx]
+	if !ok {
+		return "", false
 	}
-	return path
+	if _, ok := valid[inPath]; !ok {
+		return "", false
+	}
+	return inPath, true
 }
 
-func (pw *ParquetWriter) fullColumnPath(path []string) []string {
-	if len(path) > 0 && (path[0] == common.ParGoRootInName || path[0] == common.ParGoRootExName) {
-		return path
+func (pw *ParquetWriter) fullInternalColumnPath(path []string) string {
+	if pw.SchemaHandler == nil {
+		return common.PathToStr(path)
 	}
-	root := common.ParGoRootInName
-	if pw.SchemaHandler != nil {
-		root = pw.SchemaHandler.GetRootInName()
+	pathStr := common.PathToStr(path)
+
+	if _, ok := pw.SchemaHandler.InPathToExPath[pathStr]; ok {
+		return pathStr
 	}
-	return append([]string{root}, path...)
+	fullIn := common.PathToStr(append([]string{pw.SchemaHandler.GetRootInName()}, path...))
+	if _, ok := pw.SchemaHandler.InPathToExPath[fullIn]; ok {
+		return fullIn
+	}
+	fullEx := common.PathToStr(append([]string{pw.SchemaHandler.GetRootExName()}, path...))
+	if inPath, ok := pw.SchemaHandler.ExPathToInPath[fullEx]; ok {
+		return inPath
+	}
+	if inPath, ok := pw.SchemaHandler.ExPathToInPath[pathStr]; ok {
+		return inPath
+	}
+	return pathStr
+}
+
+func (pw *ParquetWriter) fullExternalColumnPath(path []string) string {
+	if pw.SchemaHandler == nil {
+		return common.PathToStr(path)
+	}
+	fullIn := pw.fullInternalColumnPath(path)
+	if exPath, ok := pw.SchemaHandler.InPathToExPath[fullIn]; ok {
+		return exPath
+	}
+	return common.PathToStr(append([]string{pw.SchemaHandler.GetRootExName()}, path...))
 }
 
 func (pw *ParquetWriter) columnCryptoMetadata(path []string, classification columnEncryptionClassification) *parquet.ColumnCryptoMetaData {
@@ -249,20 +210,24 @@ func (pw *ParquetWriter) columnCryptoMetadata(path []string, classification colu
 }
 
 func (pw *ParquetWriter) columnExternalPath(path []string) []string {
-	pathStr := common.PathToStr(path)
-	if pw.SchemaHandler != nil {
-		if exPath, ok := pw.SchemaHandler.InPathToExPath[pathStr]; ok {
-			return stripRoot(common.StrToPath(exPath))
+	if pw.SchemaHandler == nil {
+		return path
+	}
+	fullIn := pw.fullInternalColumnPath(path)
+	if exPath, ok := pw.SchemaHandler.InPathToExPath[fullIn]; ok {
+		exPathParts := common.StrToPath(exPath)
+		if len(exPathParts) > 1 {
+			return exPathParts[1:]
 		}
 	}
-	return stripRoot(path)
+	return path
 }
 
 func (pw *ParquetWriter) encryptColumnMetadata(rowGroupOrdinal, columnOrdinal int16, column *parquet.ColumnChunk) error {
 	if pw.encryptionState == nil || column == nil || column.MetaData == nil {
 		return nil
 	}
-	path := pw.fullColumnPath(column.MetaData.GetPathInSchema())
+	path := column.MetaData.GetPathInSchema()
 	classification := pw.classifyColumn(path)
 	if classification.Kind == columnEncryptionPlaintext {
 		// Plaintext columns are spec-compliant when CryptoMetadata is

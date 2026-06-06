@@ -42,11 +42,9 @@ type EncryptionConfig struct {
 	// FooterKeyMetadata is opaque bytes stored in the file and passed to
 	// KeyRetriever when FooterKey is empty.
 	FooterKeyMetadata []byte
-	// ColumnKeys maps dot-separated column paths (without the root element) to
-	// per-column encryption settings. See EncryptionColumnKey for the
-	// per-entry state table. Columns absent from this map follow
-	// PlaintextUnkeyedColumns: false (default) → footer-key encryption,
-	// true → plaintext.
+	// ColumnKeys maps rootless external column paths to per-column encryption
+	// settings. Columns absent from this map follow PlaintextUnkeyedColumns:
+	// false (default) -> footer-key encryption, true -> plaintext.
 	ColumnKeys map[string]EncryptionColumnKey
 	// AADPrefix is the file-identity prefix mixed into every module's AAD.
 	// Must be non-empty when SupplyAADPrefix is true.
