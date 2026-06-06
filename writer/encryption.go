@@ -19,6 +19,7 @@ type encryptionState struct {
 	footerKey               []byte
 	footerKeyMetadata       []byte
 	columnKeys              map[string]EncryptionColumnKey
+	columnKeysFullPath      bool
 	aadPrefix               []byte
 	aadFileUnique           []byte
 	supplyAADPrefix         bool

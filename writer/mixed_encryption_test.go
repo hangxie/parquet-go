@@ -164,41 +164,6 @@ func TestMixedEncryptedFooterRoundTrip(t *testing.T) {
 	}, rows)
 }
 
-func TestColumnEncryptedInternalPathSurvivesSchemaRename(t *testing.T) {
-	t.Parallel()
-
-	footerKey := []byte("0123456789abcdef")
-	nameKey := []byte("abcdef0123456789")
-
-	data := writeMixedFile(
-		t,
-		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
-		WithColumnEncrypted("Name", ColumnKey(nameKey)),
-	)
-
-	pr, err := reader.NewParquetReader(
-		buffer.NewBufferReaderFromBytesNoAlloc(data),
-		new(mixedRecord),
-		reader.WithFooterKey(footerKey),
-		reader.WithColumnKey("name", nameKey),
-	)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, pr.ReadStop()) }()
-
-	rows := make([]mixedRecord, 3)
-	require.NoError(t, pr.Read(&rows))
-	require.Equal(t, "alpha", rows[0].Name)
-
-	columnIndex, err := pr.ReadColumnIndex(0, 1)
-	require.NoError(t, err)
-	require.NotNil(t, columnIndex)
-
-	found, err := pr.BloomFilterCheck("name", 0, "alpha")
-	require.NoError(t, err)
-	require.True(t, found)
-}
-
 // TestMixedEncryptedFooterMetadata verifies plaintext columns omit
 // CryptoMetadata and EncryptedColumnMetadata, while the column-key
 // column carries ENCRYPTION_WITH_COLUMN_KEY.
@@ -846,7 +811,8 @@ func TestColumnEncryptedTypoFailsValidation(t *testing.T) {
 				opts = append(opts, mode.extra...)
 				_, _, err := createTestParquetWriter(new(mixedRecord), opts...)
 				require.Error(t, err)
-				require.ErrorContains(t, err, `path "nmae" does not match any schema column`)
+				require.ErrorContains(t, err, `path "nmae" resolves to "parquet_go_root.nmae"`)
+				require.ErrorContains(t, err, "does not match any schema column")
 			})
 		}
 	}

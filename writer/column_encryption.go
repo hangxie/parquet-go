@@ -87,11 +87,9 @@ func ColumnKeyByMetadata(keyMetadata []byte) ColumnEncryptionOption {
 	return spec
 }
 
-// WithColumnEncrypted enables per-column encryption for path. At most one
-// sub-option is accepted. With no sub-options the column is encrypted with
-// the footer key (equivalent to ColumnFooterKey()). See ColumnFooterKey,
-// ColumnKey, and ColumnKeyByMetadata for the four supported authoring
-// shapes.
+// WithColumnEncrypted enables per-column encryption for path. The path is
+// rootless, dot-separated, and matched against external Parquet names. At most
+// one sub-option is accepted. With no sub-options, the column uses the footer key.
 //
 // Repeated calls for the same path follow standard Go map semantics: the
 // last call wins. No conflict detection runs.
@@ -138,7 +136,7 @@ func WithColumnEncrypted(path string, opts ...ColumnEncryptionOption) WriterOpti
 }
 
 // WithColumnKey sets an encryption key and optional key metadata for a column.
-// The path is the dot-separated schema path without the root element.
+// The path is rootless and matched against external Parquet names.
 //
 // Deprecated: use WithColumnEncrypted with ColumnKey, ColumnKeyByMetadata,
 // or ColumnFooterKey. Will be removed in a future release along with

@@ -211,7 +211,7 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, columnOrdinal int16) error {
 	chunk.ChunkHeader.MetaData.DataPageOffset = -1
 	chunk.ChunkHeader.FileOffset = pw.offset
-	columnPath := pw.fullColumnPath(chunk.ChunkHeader.MetaData.GetPathInSchema())
+	columnPath := chunk.ChunkHeader.MetaData.GetPathInSchema()
 	classification := pw.classifyColumn(columnPath)
 	encryptPages := classification.Kind != columnEncryptionPlaintext
 	if encryptPages {
