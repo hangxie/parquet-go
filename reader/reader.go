@@ -36,16 +36,17 @@ type ParquetReader struct {
 	ObjType        reflect.Type
 	ObjPartialType reflect.Type
 
-	caseInsensitive   bool           // case-insensitive schema matching
-	crcMode           common.CRCMode // CRC validation when reading pages
-	footerKey         []byte
-	resolvedFooterKey []byte
-	aadPrefix         []byte
-	keyRetriever      KeyRetriever
-	columnKeys        map[string][]byte
-	keyCache          sync.Map
-	footerMu          sync.Mutex
-	footerLoaded      bool
+	caseInsensitive    bool           // case-insensitive schema matching
+	crcMode            common.CRCMode // CRC validation when reading pages
+	footerKey          []byte
+	resolvedFooterKey  []byte
+	aadPrefix          []byte
+	keyRetriever       KeyRetriever
+	columnKeys         map[string][]byte
+	columnKeysFullPath bool
+	keyCache           sync.Map
+	footerMu           sync.Mutex
+	footerLoaded       bool
 	// encryptedPageOffsets is populated once from the immutable footer and then
 	// treated as read-only. It tracks every per-column offset that belongs to an
 	// encrypted column: data, dictionary, index, and bloom-filter pages. The set
@@ -94,6 +95,9 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOpt
 		res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(res.Footer.Schema)
 	}
 
+	if err = res.validateColumnKeyPaths(); err != nil {
+		return res, err
+	}
 	res.RenameSchema()
 	for i := range len(res.SchemaHandler.SchemaElements) {
 		schema := res.SchemaHandler.SchemaElements[i]
@@ -122,6 +126,10 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 
 	if pr.SchemaHandler, err = schema.NewSchemaHandlerFromJSON(jsonSchema); err != nil {
 		return fmt.Errorf("parse JSON schema: %w", err)
+	}
+
+	if err = pr.validateColumnKeyPaths(); err != nil {
+		return err
 	}
 
 	pr.RenameSchema()
