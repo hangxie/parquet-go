@@ -172,92 +172,6 @@ func TestWithColumnEncryptedLastCallWins(t *testing.T) {
 	})
 }
 
-func TestWithColumnEncryptedAcrossDeprecatedAliases(t *testing.T) {
-	t.Parallel()
-
-	key := []byte("0123456789abcdef")
-
-	// Deprecated WithColumnKey followed by new WithColumnEncrypted: last wins.
-	cfg, errs := applyOptionsForTest(
-		WithColumnKey("name", key),
-		WithColumnEncrypted("name", ColumnFooterKey()),
-	)
-	require.Empty(t, errs)
-	require.Equal(t, EncryptionColumnKey{}, cfg.ColumnKeys[common.ReformPathStr("name")])
-
-	// Reverse order: column-key wins.
-	cfg, errs = applyOptionsForTest(
-		WithColumnEncrypted("name", ColumnFooterKey()),
-		WithColumnKey("name", key),
-	)
-	require.Empty(t, errs)
-	require.Equal(t, key, cfg.ColumnKeys[common.ReformPathStr("name")].Key)
-}
-
-func TestDeprecatedAliasParity(t *testing.T) {
-	t.Parallel()
-
-	key := []byte("0123456789abcdef")
-	kmd := []byte("name-key")
-
-	tests := []struct {
-		name string
-		old  WriterOption
-		new  WriterOption
-	}{
-		{
-			name: "WithColumnKey(path, k) == WithColumnEncrypted(path, ColumnKey(k))",
-			old:  WithColumnKey("name", key),
-			new:  WithColumnEncrypted("name", ColumnKey(key)),
-		},
-		{
-			name: "WithColumnKey(path, k, md) == WithColumnEncrypted(path, ColumnKey(k, md))",
-			old:  WithColumnKey("name", key, kmd),
-			new:  WithColumnEncrypted("name", ColumnKey(key, kmd)),
-		},
-		{
-			name: "WithColumnKey(path, nil) == WithColumnEncrypted(path)",
-			old:  WithColumnKey("name", nil),
-			new:  WithColumnEncrypted("name"),
-		},
-		{
-			name: "WithColumnKey(path, nil, md) == WithColumnEncrypted(path, ColumnKeyByMetadata(md))",
-			old:  WithColumnKey("name", nil, kmd),
-			new:  WithColumnEncrypted("name", ColumnKeyByMetadata(kmd)),
-		},
-		{
-			name: "WithColumnKeyMetadata(path, md) == WithColumnEncrypted(path, ColumnKeyByMetadata(md))",
-			old:  WithColumnKeyMetadata("name", kmd),
-			new:  WithColumnEncrypted("name", ColumnKeyByMetadata(kmd)),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfgOld, errsOld := applyOptionsForTest(tt.old)
-			cfgNew, errsNew := applyOptionsForTest(tt.new)
-			require.Empty(t, errsOld)
-			require.Empty(t, errsNew)
-			require.Equal(
-				t,
-				cfgOld.ColumnKeys[common.ReformPathStr("name")],
-				cfgNew.ColumnKeys[common.ReformPathStr("name")],
-				"alias produced different ColumnKeys entry than the new API",
-			)
-		})
-	}
-}
-
-func TestDeprecatedWithColumnKeyNilEmptyMetadataRejects(t *testing.T) {
-	t.Parallel()
-
-	_, errs := applyOptionsForTest(WithColumnKey("name", nil, []byte{}))
-	require.Len(t, errs, 1)
-	require.ErrorContains(t, errs[0], `WithColumnEncrypted "name"`)
-	require.ErrorContains(t, errs[0], "ColumnKeyByMetadata: keyMetadata must be non-empty")
-}
-
 func TestStructLiteralFooterKeySentinel(t *testing.T) {
 	t.Parallel()
 
@@ -366,7 +280,6 @@ func TestColumnKeyByMetadataWritesColumnCryptoMetadata(t *testing.T) {
 	pw, _, err := createTestParquetWriter(
 		new(encryptedWriterRecord),
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("name", ColumnKeyByMetadata(keyMetadata)),
 		WithKeyRetriever(func(md []byte) ([]byte, error) {
 			require.Equal(t, keyMetadata, md)
@@ -393,40 +306,6 @@ func TestColumnKeyByMetadataWritesColumnCryptoMetadata(t *testing.T) {
 	nameCrypto := nameCol.CryptoMetadata.GetENCRYPTION_WITH_COLUMN_KEY()
 	require.NotNil(t, nameCrypto)
 	require.Equal(t, keyMetadata, nameCrypto.GetKeyMetadata())
-}
-
-func TestPlaintextUnkeyedColumnsPropagated(t *testing.T) {
-	t.Parallel()
-
-	t.Run("default false", func(t *testing.T) {
-		t.Parallel()
-		cfg := EncryptionConfig{FooterKey: []byte("0123456789abcdef")}
-		state, err := newEncryptionState(cfg)
-		require.NoError(t, err)
-		require.False(t, state.plaintextUnkeyedColumns)
-	})
-
-	t.Run("opt-in true", func(t *testing.T) {
-		t.Parallel()
-		cfg := EncryptionConfig{
-			FooterKey:               []byte("0123456789abcdef"),
-			PlaintextUnkeyedColumns: true,
-		}
-		state, err := newEncryptionState(cfg)
-		require.NoError(t, err)
-		require.True(t, state.plaintextUnkeyedColumns)
-	})
-
-	t.Run("via option", func(t *testing.T) {
-		t.Parallel()
-		cfg, errs := applyOptionsForTest(
-			WithFooterKey([]byte("0123456789abcdef")),
-			WithPlaintextUnkeyedColumns(true),
-		)
-		require.Empty(t, errs)
-		require.NotNil(t, cfg)
-		require.True(t, cfg.PlaintextUnkeyedColumns)
-	})
 }
 
 func TestOptionErrorsSurfaceFromNewParquetWriter(t *testing.T) {

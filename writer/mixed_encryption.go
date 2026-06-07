@@ -43,31 +43,25 @@ type columnEncryptionClassification struct {
 //   - path listed with non-empty Key -> column-key, using that key. Stored
 //     KeyMetadata travels into the resulting classification so callers
 //     populating CryptoMetadata can emit it.
-//   - path not listed: PlaintextUnkeyedColumns=true -> plaintext;
-//     PlaintextUnkeyedColumns=false -> footer-key (the legacy default).
+//   - path not listed -> plaintext.
 func (pw *ParquetWriter) classifyColumn(path []string) columnEncryptionClassification {
 	if pw.encryptionState == nil {
 		return columnEncryptionClassification{Kind: columnEncryptionPlaintext}
 	}
-	if entry, ok := pw.lookupConfiguredColumn(path); ok {
-		if len(entry.Key) == 0 {
-			return columnEncryptionClassification{
-				Kind: columnEncryptionFooterKey,
-				Key:  pw.encryptionState.footerKey,
-			}
-		}
-		return columnEncryptionClassification{
-			Kind:        columnEncryptionColumnKey,
-			Key:         entry.Key,
-			KeyMetadata: entry.KeyMetadata,
-		}
-	}
-	if pw.encryptionState.plaintextUnkeyedColumns {
+	entry, ok := pw.lookupConfiguredColumn(path)
+	if !ok {
 		return columnEncryptionClassification{Kind: columnEncryptionPlaintext}
 	}
+	if len(entry.Key) == 0 {
+		return columnEncryptionClassification{
+			Kind: columnEncryptionFooterKey,
+			Key:  pw.encryptionState.footerKey,
+		}
+	}
 	return columnEncryptionClassification{
-		Kind: columnEncryptionFooterKey,
-		Key:  pw.encryptionState.footerKey,
+		Kind:        columnEncryptionColumnKey,
+		Key:         entry.Key,
+		KeyMetadata: entry.KeyMetadata,
 	}
 }
 

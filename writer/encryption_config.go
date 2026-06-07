@@ -30,7 +30,7 @@ type KeyRetriever func(keyMetadata []byte) ([]byte, error)
 // EncryptionConfig configures Parquet modular encryption for writer output.
 // FooterKey is required unless KeyRetriever resolves a non-empty footer key.
 // Column treatment is selected by ColumnKeys entries; columns with no entry
-// follow the PlaintextUnkeyedColumns flag (default: footer-key encryption).
+// are written as plaintext.
 type EncryptionConfig struct {
 	// Algorithm selects the encryption scheme. EncryptionAESGCMV1 (default)
 	// authenticates every module. EncryptionAESGCMCTRV1 uses AES-CTR for page
@@ -43,8 +43,7 @@ type EncryptionConfig struct {
 	// KeyRetriever when FooterKey is empty.
 	FooterKeyMetadata []byte
 	// ColumnKeys maps rootless external column paths to per-column encryption
-	// settings. Columns absent from this map follow PlaintextUnkeyedColumns:
-	// false (default) -> footer-key encryption, true -> plaintext.
+	// settings. Columns absent from this map are written as plaintext.
 	ColumnKeys map[string]EncryptionColumnKey
 	// AADPrefix is the file-identity prefix mixed into every module's AAD.
 	// Must be non-empty when SupplyAADPrefix is true.
@@ -59,17 +58,6 @@ type EncryptionConfig struct {
 	// PlaintextFooter writes a PAR1 file with a plaintext footer and an
 	// AES-GCM signature instead of an encrypted PARE footer.
 	PlaintextFooter bool
-	// PlaintextUnkeyedColumns controls how columns absent from ColumnKeys are
-	// treated. Default false preserves the legacy uniform footer-key
-	// encryption. Setting true makes absent columns plaintext (mixed mode).
-	//
-	// This field is transitional: it exists to keep the default behavior
-	// stable while WithColumnKey and WithColumnKeyMetadata remain in their
-	// deprecation window. When those deprecated wrappers are removed, this
-	// field and WithPlaintextUnkeyedColumns will be removed in the same
-	// release; the natural semantic after removal will be "absence from
-	// ColumnKeys means plaintext column."
-	PlaintextUnkeyedColumns bool
 	// KeyRetriever resolves encryption keys from key metadata at write time.
 	// Called for footer and column keys that have no direct key set.
 	KeyRetriever KeyRetriever
@@ -145,22 +133,6 @@ func WithPlaintextFooter(enabled bool) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) {
 		config := pw.ensureEncryptionConfig()
 		config.PlaintextFooter = enabled
-	})
-}
-
-// WithPlaintextUnkeyedColumns controls whether columns absent from ColumnKeys
-// are written as plaintext. Default false preserves the legacy uniform
-// footer-key encryption for any column not listed in ColumnKeys. Setting true
-// enables mixed mode where absent columns are plaintext.
-//
-// This option is transitional: it will be removed in the same release that
-// removes the deprecated WithColumnKey and WithColumnKeyMetadata. After
-// removal, the natural semantic becomes "absence from ColumnKeys means
-// plaintext column."
-func WithPlaintextUnkeyedColumns(enabled bool) WriterOption {
-	return writerOptionFunc(func(pw *ParquetWriter) {
-		config := pw.ensureEncryptionConfig()
-		config.PlaintextUnkeyedColumns = enabled
 	})
 }
 

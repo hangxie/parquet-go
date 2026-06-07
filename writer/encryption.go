@@ -15,16 +15,15 @@ import (
 )
 
 type encryptionState struct {
-	algorithm               EncryptionAlgorithm
-	footerKey               []byte
-	footerKeyMetadata       []byte
-	columnKeys              map[string]EncryptionColumnKey
-	columnKeysFullPath      bool
-	aadPrefix               []byte
-	aadFileUnique           []byte
-	supplyAADPrefix         bool
-	plaintextFooter         bool
-	plaintextUnkeyedColumns bool
+	algorithm          EncryptionAlgorithm
+	footerKey          []byte
+	footerKeyMetadata  []byte
+	columnKeys         map[string]EncryptionColumnKey
+	columnKeysFullPath bool
+	aadPrefix          []byte
+	aadFileUnique      []byte
+	supplyAADPrefix    bool
+	plaintextFooter    bool
 }
 
 func newEncryptionState(config EncryptionConfig) (*encryptionState, error) {
@@ -58,15 +57,14 @@ func newEncryptionState(config EncryptionConfig) (*encryptionState, error) {
 	}
 
 	state := &encryptionState{
-		algorithm:               config.Algorithm,
-		footerKey:               append([]byte(nil), config.FooterKey...),
-		footerKeyMetadata:       append([]byte(nil), config.FooterKeyMetadata...),
-		columnKeys:              make(map[string]EncryptionColumnKey, len(config.ColumnKeys)),
-		aadPrefix:               append([]byte(nil), config.AADPrefix...),
-		aadFileUnique:           fileUnique,
-		supplyAADPrefix:         config.SupplyAADPrefix,
-		plaintextFooter:         config.PlaintextFooter,
-		plaintextUnkeyedColumns: config.PlaintextUnkeyedColumns,
+		algorithm:         config.Algorithm,
+		footerKey:         append([]byte(nil), config.FooterKey...),
+		footerKeyMetadata: append([]byte(nil), config.FooterKeyMetadata...),
+		columnKeys:        make(map[string]EncryptionColumnKey, len(config.ColumnKeys)),
+		aadPrefix:         append([]byte(nil), config.AADPrefix...),
+		aadFileUnique:     fileUnique,
+		supplyAADPrefix:   config.SupplyAADPrefix,
+		plaintextFooter:   config.PlaintextFooter,
 	}
 	for path, entry := range config.ColumnKeys {
 		resolved, err := resolveColumnEntry(path, entry, config.KeyRetriever)

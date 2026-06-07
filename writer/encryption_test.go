@@ -307,6 +307,8 @@ func TestEncryptedFooterColumnMetadataLayout(t *testing.T) {
 			name: "all columns use footer key",
 			opts: []WriterOption{
 				WithFooterKey(footerKey),
+				WithColumnEncrypted("id", ColumnFooterKey()),
+				WithColumnEncrypted("name", ColumnFooterKey()),
 				WithAADFileUnique([]byte("layout-001")),
 			},
 			wantFooterKeyCol:  "id", // both columns
@@ -316,6 +318,7 @@ func TestEncryptedFooterColumnMetadataLayout(t *testing.T) {
 			name: "mixed footer-key and column-key columns",
 			opts: []WriterOption{
 				WithFooterKey(footerKey),
+				WithColumnEncrypted("id", ColumnFooterKey()),
 				WithColumnEncrypted("name", ColumnKey(nameKey)),
 				WithAADFileUnique([]byte("layout-002")),
 			},
@@ -388,6 +391,7 @@ func TestPlaintextFooterColumnMetadataLayout(t *testing.T) {
 		WithPageSize(32),
 		WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
 		WithFooterKey(footerKey),
+		WithColumnEncrypted("id", ColumnFooterKey()),
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 		WithPlaintextFooter(true),
 		WithAADFileUnique([]byte("pf-layout-001")),

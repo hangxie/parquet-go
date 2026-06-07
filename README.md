@@ -420,18 +420,16 @@ Footer mode and column classification interact as follows:
 Writer column classification is selected with `writer.WithColumnEncrypted(path, opts...)`, where `path` is the dot-separated leaf path in the file schema without the root element. The path is matched against external Parquet names (the `name=` value in the struct tag); Go struct field names are not accepted, so the writer and `reader.WithColumnKey` apply the same path-resolution rules. Once the writer has a schema, it prepends the external schema root internally for validation and lookup. Root names are not stripped from option values: `parquet_go_root.ssn` will not match a rootless `ssn` column, but it can match a nested column whose first path component is actually named `parquet_go_root`.
 
 ```go
-// Omitted path: default is footer-key encryption; mixed mode makes it plaintext.
+// Omitted path: column is plaintext. Only the footer is encrypted.
 pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithPlaintextUnkeyedColumns(true),
 )
 ```
 
 ```go
-// Footer-key column.
+// Footer-key column; sibling unkeyed columns remain plaintext.
 pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithPlaintextUnkeyedColumns(true),
     writer.WithColumnEncrypted("name", writer.ColumnFooterKey()),
 )
 ```
@@ -461,75 +459,61 @@ pw, err := writer.NewParquetWriter(fw, new(Student),
 )
 ```
 
-For callers that build `EncryptionConfig` literally, `ColumnKeys[p] = writer.EncryptionColumnKey{}` is equivalent to `WithColumnEncrypted(p)` and produces `ENCRYPTION_WITH_FOOTER_KEY`. This is a semantic change for direct struct-literal users: older code treated the zero value as "no direct key" and could call `KeyRetriever(nil)` or fail validation when no retriever was configured. To retrieve by metadata now, set non-empty `KeyMetadata` and configure `KeyRetriever`; to use the footer key, keep the zero value or use `ColumnFooterKey()`.
+For callers that build `EncryptionConfig` literally, `ColumnKeys[p] = writer.EncryptionColumnKey{}` is equivalent to `WithColumnEncrypted(p)` and produces `ENCRYPTION_WITH_FOOTER_KEY`. To retrieve by metadata, set non-empty `KeyMetadata` and configure `KeyRetriever`; to use the footer key, keep the zero value or use `ColumnFooterKey()`.
 
 | `ColumnKeys[p]` state | How to produce | Resolved behavior |
 | --- | --- | --- |
-| not in map | omit `WithColumnEncrypted(p, ...)` | mixed=true -> plaintext; mixed=false -> footer-key |
+| not in map | omit `WithColumnEncrypted(p, ...)` | plaintext |
 | `{}` | `WithColumnEncrypted(p)` or `WithColumnEncrypted(p, ColumnFooterKey())` | footer-key, no `KeyMetadata` stored |
 | `{Key: bytes}` | `WithColumnEncrypted(p, ColumnKey(key))` | column-key, no `KeyMetadata` stored |
 | `{Key: bytes, KeyMetadata: md}` | `WithColumnEncrypted(p, ColumnKey(key, md))` | column-key plus `KeyMetadata` stored in file |
 | `{Key: nil, KeyMetadata: md}` plus writer `KeyRetriever` | `WithColumnEncrypted(p, ColumnKeyByMetadata(md))` | retriever called at write time; empty result is an error |
 | `{Key: nil, KeyMetadata: md}` with no writer `KeyRetriever` | same call without retriever | construction error |
 
-Repeated column options follow standard Go map semantics: the last call wins and no conflict detection runs. This keeps deprecated wrapper calls and the new option API order-dependent in the same way; applications that compose options dynamically should keep a single owner for each column path.
+Repeated column options follow standard Go map semantics: the last call wins and no conflict detection runs. Applications that compose options dynamically should keep a single owner for each column path.
 
 ```go
 writer.WithColumnEncrypted("ssn", writer.ColumnKey(oldKey))
 writer.WithColumnEncrypted("ssn", writer.ColumnFooterKey()) // final state
 ```
 
-Reader key options, including `reader.WithColumnKey`, are not deprecated. The writer API needed a structured replacement (`WithColumnEncrypted`) to expose richer options — key metadata, the `ColumnKeyByMetadata` retriever path, and explicit plaintext-column control — none of which have a reader-side analogue. `reader.WithColumnKey` supplies key bytes directly and is complete as-is.
+Reader key options, including `reader.WithColumnKey`, supply key bytes directly. The writer API uses the structured `WithColumnEncrypted` to express column treatment — key metadata, the `ColumnKeyByMetadata` retriever path, and explicit `ColumnFooterKey` selection — none of which have a reader-side analogue.
 
-`writer.WithColumnKey` and `writer.WithColumnKeyMetadata` remain as deprecated writer wrappers and will be removed in a future release alongside `PlaintextUnkeyedColumns`. After that removal, absence from `ColumnKeys` will mean plaintext. Until that release, the default remains the legacy behavior where omitted columns use the footer key. The default flip is security-relevant and should be called out in the release notes, changelog, and migration guide for that release.
-
-| Deprecated call | Replacement |
-| --- | --- |
-| `writer.WithColumnKey("p", k)` | `writer.WithColumnEncrypted("p", writer.ColumnKey(k))` |
-| `writer.WithColumnKey("p", k, md)` | `writer.WithColumnEncrypted("p", writer.ColumnKey(k, md))` |
-| `writer.WithColumnKey("p", nil)` | `writer.WithColumnEncrypted("p")` |
-| `writer.WithColumnKey("p", nil, md)` | `writer.WithColumnEncrypted("p", writer.ColumnKeyByMetadata(md))` |
-| `writer.WithColumnKeyMetadata("p", md)` | `writer.WithColumnEncrypted("p", writer.ColumnKeyByMetadata(md))` |
-
-Encrypted footer with mixed plaintext plus a per-column key:
+Encrypted footer with one column-key column and the rest plaintext:
 
 ```go
 pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithPlaintextUnkeyedColumns(true),
     writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey)),
 )
 ```
 
-Signed plaintext footer with mixed plaintext plus a per-column key:
+Signed plaintext footer with one column-key column and the rest plaintext:
 
 ```go
 pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
     writer.WithPlaintextFooter(true),
-    writer.WithPlaintextUnkeyedColumns(true),
     writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey)),
 )
 ```
 
-Encrypted footer with a footer-key column and mixed plaintext:
+Encrypted footer with a footer-key column and plaintext siblings:
 
 ```go
 pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithPlaintextUnkeyedColumns(true),
     writer.WithColumnEncrypted("name"),
 )
 ```
 
-In the current default mode, `WithColumnEncrypted(p, ColumnFooterKey())` is observationally the same as omitting `p` because omitted columns also use the footer key. In mixed mode, and after the future removal of `PlaintextUnkeyedColumns`, `ColumnFooterKey()` is the explicit selector that keeps that column encrypted with the footer key while omitted sibling columns are plaintext.
+`WithColumnEncrypted(p, ColumnFooterKey())` is the explicit selector that keeps `p` encrypted with the footer key while sibling columns omitted from `ColumnKeys` are plaintext.
 
 Three-way mix in one file:
 
 ```go
 pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithPlaintextUnkeyedColumns(true),
     writer.WithColumnEncrypted("name"),
     writer.WithColumnEncrypted("ssn", writer.ColumnKey(ssnKey)),
 )
@@ -540,7 +524,6 @@ All columns plaintext with an encrypted footer:
 ```go
 pw, err := writer.NewParquetWriter(fw, new(Student),
     writer.WithFooterKey(footerKey),
-    writer.WithPlaintextUnkeyedColumns(true),
 )
 ```
 

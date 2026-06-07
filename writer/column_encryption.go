@@ -134,37 +134,3 @@ func WithColumnEncrypted(path string, opts ...ColumnEncryptionOption) WriterOpti
 		config.ColumnKeys[normPath] = entry
 	})
 }
-
-// WithColumnKey sets an encryption key and optional key metadata for a column.
-// The path is rootless and matched against external Parquet names.
-//
-// Deprecated: use WithColumnEncrypted with ColumnKey, ColumnKeyByMetadata,
-// or ColumnFooterKey. Will be removed in a future release along with
-// PlaintextUnkeyedColumns.
-//
-// Mapping:
-//   - WithColumnKey(path, k)            -> WithColumnEncrypted(path, ColumnKey(k))
-//   - WithColumnKey(path, k, md)        -> WithColumnEncrypted(path, ColumnKey(k, md))
-//   - WithColumnKey(path, nil)          -> WithColumnEncrypted(path)
-//   - WithColumnKey(path, nil, md)      -> WithColumnEncrypted(path, ColumnKeyByMetadata(md))
-func WithColumnKey(path string, key []byte, keyMetadata ...[]byte) WriterOption {
-	if key == nil {
-		if len(keyMetadata) > 0 {
-			return WithColumnEncrypted(path, ColumnKeyByMetadata(keyMetadata[0]))
-		}
-		return WithColumnEncrypted(path)
-	}
-	if len(keyMetadata) > 0 {
-		return WithColumnEncrypted(path, ColumnKey(key, keyMetadata[0]))
-	}
-	return WithColumnEncrypted(path, ColumnKey(key))
-}
-
-// WithColumnKeyMetadata sets column key metadata. When the column key is not
-// set directly, WithKeyRetriever resolves the key from this metadata.
-//
-// Deprecated: use WithColumnEncrypted(path, ColumnKeyByMetadata(keyMetadata)).
-// Will be removed in a future release along with PlaintextUnkeyedColumns.
-func WithColumnKeyMetadata(path string, keyMetadata []byte) WriterOption {
-	return WithColumnEncrypted(path, ColumnKeyByMetadata(keyMetadata))
-}
