@@ -23,7 +23,6 @@ import (
 // ParquetReader is a reader for parquet files.
 type ParquetReader struct {
 	SchemaHandler *schema.SchemaHandler
-	np            int64 // parallel number
 	// Footer is loaded once by ReadFooter and then treated as immutable for the
 	// reader lifetime. Direct mutation or reassignment by callers is unsupported.
 	Footer     *parquet.FileMetaData
@@ -36,17 +35,24 @@ type ParquetReader struct {
 	ObjType        reflect.Type
 	ObjPartialType reflect.Type
 
-	caseInsensitive    bool           // case-insensitive schema matching
-	crcMode            common.CRCMode // CRC validation when reading pages
-	footerKey          []byte
-	resolvedFooterKey  []byte
-	aadPrefix          []byte
-	keyRetriever       KeyRetriever
-	columnKeys         map[string][]byte
+	// Reader options.
+	np              int64          // parallel number
+	caseInsensitive bool           // case-insensitive schema matching
+	crcMode         common.CRCMode // CRC validation when reading pages
+
+	// Encryption options.
+	footerKey         []byte
+	resolvedFooterKey []byte
+	aadPrefix         []byte
+	keyRetriever      KeyRetriever
+	columnKeys        map[string][]byte
+
+	// Lazy runtime state.
 	columnKeysFullPath bool
 	keyCache           sync.Map
 	footerMu           sync.Mutex
 	footerLoaded       bool
+
 	// encryptedPageOffsets is populated once from the immutable footer and then
 	// treated as read-only. It tracks every per-column offset that belongs to an
 	// encrypted column: data, dictionary, index, and bloom-filter pages. The set
