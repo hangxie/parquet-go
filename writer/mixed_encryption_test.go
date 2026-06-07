@@ -142,7 +142,6 @@ func TestMixedEncryptedFooterRoundTrip(t *testing.T) {
 	data := writeMixedFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
@@ -176,7 +175,6 @@ func TestMixedEncryptedFooterMetadata(t *testing.T) {
 	data := writeMixedFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
@@ -222,7 +220,6 @@ func TestMixedEncryptedFooterPartialRead(t *testing.T) {
 	data := writeMixedFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
@@ -262,7 +259,6 @@ func TestMixedAllColumnsPlaintextWithEncryptedFooter(t *testing.T) {
 	data := writeMixedFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 	)
 
 	pr, err := reader.NewParquetReader(
@@ -294,7 +290,7 @@ func TestMixedAllColumnsPlaintextWithEncryptedFooter(t *testing.T) {
 	require.ErrorContains(t, err, "decryption key required for footer")
 }
 
-// TestMixedFooterKeyColumn verifies that in mixed mode,
+// TestMixedFooterKeyColumn verifies that
 // WithColumnEncrypted(path, ColumnFooterKey()) marks one column as
 // encrypted with the footer key while sibling unkeyed columns are
 // plaintext.
@@ -306,7 +302,6 @@ func TestMixedFooterKeyColumn(t *testing.T) {
 	data := writeMixedFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("name", ColumnFooterKey()),
 	)
 
@@ -337,52 +332,6 @@ func TestMixedFooterKeyColumn(t *testing.T) {
 	require.Nil(t, cols["Score"].CryptoMetadata)
 }
 
-// TestDefaultModeFooterKeyColumnObservablyNoOp verifies that
-// WithColumnEncrypted(path, ColumnFooterKey()) is a no-op relative to
-// the default mode where every unkeyed column already gets footer-key
-// encryption.
-func TestDefaultModeFooterKeyColumnObservablyNoOp(t *testing.T) {
-	t.Parallel()
-
-	footerKey := []byte("0123456789abcdef")
-
-	a := writeMixedFile(t, WithFooterKey(footerKey))
-	b := writeMixedFile(
-		t,
-		WithFooterKey(footerKey),
-		WithColumnEncrypted("name", ColumnFooterKey()),
-	)
-
-	openFooter := func(data []byte) *parquet.FileMetaData {
-		pr, err := reader.NewParquetReader(
-			buffer.NewBufferReaderFromBytesNoAlloc(data),
-			new(mixedRecord),
-			reader.WithFooterKey(footerKey),
-		)
-		require.NoError(t, err)
-		defer func() { _ = pr.ReadStop() }()
-		return pr.Footer
-	}
-
-	footerA := openFooter(a)
-	footerB := openFooter(b)
-	require.Equal(t, len(footerA.RowGroups), len(footerB.RowGroups))
-	for rg := range footerA.RowGroups {
-		require.Equal(t, len(footerA.RowGroups[rg].Columns), len(footerB.RowGroups[rg].Columns))
-		for col, ccA := range footerA.RowGroups[rg].Columns {
-			ccB := footerB.RowGroups[rg].Columns[col]
-			require.NotNil(t, ccA.CryptoMetadata)
-			require.NotNil(t, ccB.CryptoMetadata)
-			require.Equal(
-				t,
-				ccA.CryptoMetadata.IsSetENCRYPTION_WITH_FOOTER_KEY(),
-				ccB.CryptoMetadata.IsSetENCRYPTION_WITH_FOOTER_KEY(),
-				"column %d crypto metadata variant must match", col,
-			)
-		}
-	}
-}
-
 // TestMixedPlaintextFooterRoundTrip covers a plaintext footer with
 // mixed columns. A reader with the footer key reads successfully.
 func TestMixedPlaintextFooterRoundTrip(t *testing.T) {
@@ -395,7 +344,6 @@ func TestMixedPlaintextFooterRoundTrip(t *testing.T) {
 		t,
 		WithFooterKey(footerKey),
 		WithPlaintextFooter(true),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
@@ -430,7 +378,6 @@ func TestMixedPlaintextFooterMetadataStripping(t *testing.T) {
 		t,
 		WithFooterKey(footerKey),
 		WithPlaintextFooter(true),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
@@ -509,7 +456,6 @@ func TestMixedPlaintextPageRawVerification(t *testing.T) {
 	data := writePlaintextDictionaryFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("secret", ColumnKey(secretKey)),
 	)
 
@@ -626,7 +572,6 @@ func TestThreeWayMixRoundTrip(t *testing.T) {
 	data := writeThreeWayFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("footer_tag", ColumnFooterKey()),
 		WithColumnEncrypted("secret_name", ColumnKey(nameKey)),
 	)
@@ -675,7 +620,6 @@ func TestThreeWayBloomFilterAccess(t *testing.T) {
 	data := writeThreeWayFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("footer_tag", ColumnFooterKey()),
 		WithColumnEncrypted("secret_name", ColumnKey(nameKey)),
 	)
@@ -718,7 +662,6 @@ func TestThreeWayColumnIndexAccess(t *testing.T) {
 	data := writeThreeWayFile(
 		t,
 		WithFooterKey(footerKey),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("footer_tag", ColumnFooterKey()),
 		WithColumnEncrypted("secret_name", ColumnKey(nameKey)),
 	)
@@ -757,7 +700,6 @@ func TestMixedPlaintextFooterNoKeyOpens(t *testing.T) {
 		t,
 		WithFooterKey(footerKey),
 		WithPlaintextFooter(true),
-		WithPlaintextUnkeyedColumns(true),
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
@@ -775,8 +717,8 @@ func TestMixedPlaintextFooterNoKeyOpens(t *testing.T) {
 }
 
 // TestColumnEncryptedTypoFailsValidation verifies that a path that does
-// not match a leaf in the schema errors at writer construction, in
-// default mode and mixed mode, for every sub-option.
+// not match a leaf in the schema errors at writer construction, for every
+// sub-option.
 func TestColumnEncryptedTypoFailsValidation(t *testing.T) {
 	t.Parallel()
 
@@ -793,27 +735,18 @@ func TestColumnEncryptedTypoFailsValidation(t *testing.T) {
 		{"column-key by metadata", WithColumnEncrypted("nmae", ColumnKeyByMetadata([]byte("kid")))},
 	}
 
-	for _, mode := range []struct {
-		name  string
-		extra []WriterOption
-	}{
-		{"default mode", nil},
-		{"mixed mode", []WriterOption{WithPlaintextUnkeyedColumns(true)}},
-	} {
-		for _, tc := range cases {
-			t.Run(mode.name+"/"+tc.name, func(t *testing.T) {
-				t.Parallel()
-				opts := []WriterOption{
-					WithFooterKey(footerKey),
-					WithKeyRetriever(func([]byte) ([]byte, error) { return otherKey, nil }),
-					tc.opt,
-				}
-				opts = append(opts, mode.extra...)
-				_, _, err := createTestParquetWriter(new(mixedRecord), opts...)
-				require.Error(t, err)
-				require.ErrorContains(t, err, `path "nmae" resolves to "parquet_go_root.nmae"`)
-				require.ErrorContains(t, err, "does not match any schema column")
-			})
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, _, err := createTestParquetWriter(
+				new(mixedRecord),
+				WithFooterKey(footerKey),
+				WithKeyRetriever(func([]byte) ([]byte, error) { return otherKey, nil }),
+				tc.opt,
+			)
+			require.Error(t, err)
+			require.ErrorContains(t, err, `path "nmae" resolves to "parquet_go_root.nmae"`)
+			require.ErrorContains(t, err, "does not match any schema column")
+		})
 	}
 }

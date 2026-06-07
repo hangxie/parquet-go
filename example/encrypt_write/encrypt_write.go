@@ -61,6 +61,10 @@ func main() {
 			name: "encrypted_footer.parquet",
 			writerOpts: []writer.WriterOption{
 				writer.WithFooterKey(footerKey, []byte(footerKeyID)),
+				writer.WithColumnEncrypted("id", writer.ColumnFooterKey()),
+				writer.WithColumnEncrypted("name", writer.ColumnFooterKey()),
+				writer.WithColumnEncrypted("score", writer.ColumnFooterKey()),
+				writer.WithColumnEncrypted("active", writer.ColumnFooterKey()),
 				writer.WithAADPrefix([]byte("encrypt-write")),
 				writer.WithAADFileUnique([]byte("encrypted01")),
 			},
@@ -149,13 +153,12 @@ func main() {
 			description: "keys resolved from key metadata while writing and reading",
 		},
 		{
-			// Mixed mode: name encrypted with its own key, score encrypted
-			// with the footer key, every other column written as plaintext.
-			// PlaintextUnkeyedColumns flips the default for unlisted columns.
+			// Mixed columns: name encrypted with its own key, score
+			// encrypted with the footer key, every other column written as
+			// plaintext (the default for unlisted columns).
 			name: "mixed_columns.parquet",
 			writerOpts: []writer.WriterOption{
 				writer.WithFooterKey(footerKey, []byte(footerKeyID)),
-				writer.WithPlaintextUnkeyedColumns(true),
 				writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey, []byte(nameKeyID))),
 				writer.WithColumnEncrypted("score", writer.ColumnFooterKey()),
 				writer.WithAADPrefix([]byte("encrypt-write")),
@@ -168,7 +171,7 @@ func main() {
 			wantRows:    rows,
 			checkBloom:  true,
 			checkIndex:  true,
-			description: "mixed mode: name=column key, score=footer key, others plaintext",
+			description: "mixed: name=column key, score=footer key, others plaintext",
 		},
 		{
 			// All columns plaintext with an encrypted footer. The footer
@@ -177,7 +180,6 @@ func main() {
 			name: "encrypted_footer_all_plaintext_columns.parquet",
 			writerOpts: []writer.WriterOption{
 				writer.WithFooterKey(footerKey, []byte(footerKeyID)),
-				writer.WithPlaintextUnkeyedColumns(true),
 				writer.WithAADPrefix([]byte("encrypt-write")),
 				writer.WithAADFileUnique([]byte("only-footer1")),
 			},
