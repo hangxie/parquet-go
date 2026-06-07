@@ -81,6 +81,18 @@ func TestResolveColumnKeyRejectsGoFieldName(t *testing.T) {
 	require.ErrorContains(t, err, "for column name")
 }
 
+func TestResolveColumnKeyHonorsCaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	key := []byte("0123456789abcdef")
+	pr := &ParquetReader{}
+	applyReaderOptionsForTest(t, pr, WithCaseInsensitive(true), WithColumnKey("NAME", key))
+
+	got, err := pr.resolveColumnKey(columnKeyChunk([]string{"name"}))
+	require.NoError(t, err)
+	require.Equal(t, key, got)
+}
+
 // TestNewParquetReaderRejectsUnknownColumnKeyPath checks that typos fail at
 // construction instead of becoming read-time missing-key errors.
 func TestNewParquetReaderRejectsUnknownColumnKeyPath(t *testing.T) {
@@ -131,6 +143,88 @@ func TestNewParquetColumnReaderRejectsUnknownColumnKeyPath(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, "WithColumnKey")
 	require.ErrorContains(t, err, "nmae")
+}
+
+func TestNewParquetReaderColumnKeyCaseInsensitiveCombinations(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	nameKey := []byte("abcdef0123456789")
+	data := writeColumnKeyTestFile(t, footerKey, nameKey)
+
+	tests := []struct {
+		name    string
+		path    string
+		opts    []ReaderOption
+		wantErr bool
+	}{
+		{
+			name: "exact path default case-sensitive",
+			path: "name",
+		},
+		{
+			name:    "case mismatch default case-sensitive",
+			path:    "NAME",
+			wantErr: true,
+		},
+		{
+			name:    "case mismatch explicitly case-sensitive",
+			path:    "NAME",
+			opts:    []ReaderOption{WithCaseInsensitive(false)},
+			wantErr: true,
+		},
+		{
+			name: "case mismatch case-insensitive",
+			path: "NAME",
+			opts: []ReaderOption{WithCaseInsensitive(true)},
+		},
+		{
+			name:    "case mismatch last false wins",
+			path:    "NAME",
+			opts:    []ReaderOption{WithCaseInsensitive(true), WithCaseInsensitive(false)},
+			wantErr: true,
+		},
+		{
+			name: "case mismatch last true wins",
+			path: "NAME",
+			opts: []ReaderOption{WithCaseInsensitive(false), WithCaseInsensitive(true)},
+		},
+		{
+			name:    "nonmatching path rejected",
+			path:    "nmae",
+			opts:    []ReaderOption{WithCaseInsensitive(true)},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := []ReaderOption{
+				WithFooterKey(footerKey),
+				WithColumnKey(tt.path, nameKey),
+			}
+			opts = append(opts, tt.opts...)
+			pr, err := NewParquetReader(
+				buffer.NewBufferReaderFromBytesNoAlloc(data),
+				new(columnKeyTestRecord),
+				opts...,
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorContains(t, err, "WithColumnKey")
+				require.ErrorContains(t, err, tt.path)
+				return
+			}
+			require.NoError(t, err)
+			defer func() { require.NoError(t, pr.ReadStop()) }()
+
+			rows := make([]columnKeyTestRecord, 1)
+			require.NoError(t, pr.Read(&rows))
+			require.Equal(t, []columnKeyTestRecord{{ID: 1, Name: "alpha"}}, rows)
+		})
+	}
 }
 
 func TestNewParquetReaderAcceptsColumnNamedLikeRoot(t *testing.T) {
