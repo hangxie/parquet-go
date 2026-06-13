@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/float16"
 )
 
 // TransposeTable transposes a table's rows and columns once per arrow record.
@@ -29,13 +30,29 @@ type arrowArrayWithValues[arrowValueT any] interface {
 }
 
 func arrowArrayToParquetList[arrowValueT any](field arrow.Field, col arrow.Array, toParquetType func(arrowValueT) any) ([]any, error) {
+	if col == nil {
+		return nil, fmt.Errorf("column array is nil")
+	}
+
 	recs := make([]any, col.Len())
-	arr := col.(arrowArrayWithValues[arrowValueT])
-	for i := range arr.Len() {
-		if arr.IsNull(i) && !field.Nullable {
+	var arr arrowArrayWithValues[arrowValueT]
+	isNullArray := col.DataType().ID() == arrow.NULL
+	if !isNullArray {
+		var ok bool
+		arr, ok = col.(arrowArrayWithValues[arrowValueT])
+		if !ok {
+			var expected arrowValueT
+			return nil, fmt.Errorf("array type %T with Arrow type %s is incompatible with Arrow field %q type %s; expected values of type %T",
+				col, col.DataType(), field.Name, field.Type, expected)
+		}
+	}
+
+	for i := range col.Len() {
+		isNull := isNullArray || col.IsNull(i)
+		if isNull && !field.Nullable {
 			return nil, nonNullableFieldContainsNullError(field, i)
 		}
-		if arr.IsNull(i) {
+		if isNull {
 			recs[i] = nil
 		} else {
 			recs[i] = toParquetType(arr.Value(i))
@@ -74,6 +91,11 @@ func ArrowColToParquetCol(field arrow.Field, col arrow.Array) ([]any, error) {
 		recs, err = arrowArrayToParquetList(field, col, func(v float32) any { return v })
 	case *arrow.Float64Type:
 		recs, err = arrowArrayToParquetList(field, col, func(v float64) any { return v })
+	case *arrow.Float16Type:
+		recs, err = arrowArrayToParquetList(field, col, func(v float16.Num) any {
+			// Parquet FLOAT16 uses the raw little-endian IEEE 754 binary16 bytes.
+			return v.ToLEBytes()
+		})
 	case *arrow.Date32Type:
 		recs, err = arrowArrayToParquetList(field, col, func(v arrow.Date32) any { return int32(v) })
 	case *arrow.Date64Type:

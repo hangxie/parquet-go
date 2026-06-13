@@ -59,6 +59,11 @@ func TestWriteByteStreamSplit(t *testing.T) {
 				expected: 4, // 2 * 2 bytes
 			},
 			{
+				name:     "fixed_len_byte_array_bytes_type",
+				src:      []any{[]byte("ab"), []byte("cd")},
+				expected: 4, // 2 * 2 bytes
+			},
+			{
 				name:     "unsupported_type",
 				src:      []any{uint32(1), uint32(2)},
 				expected: 0,
@@ -102,6 +107,29 @@ func TestWriteByteStreamSplit(t *testing.T) {
 				result := WriteByteStreamSplitFloat32(tc.src)
 				expectedLen := len(tc.src) * 4
 				require.Equal(t, expectedLen, len(result))
+			})
+		}
+	})
+
+	t.Run("fixed_len_byte_array", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			src      []any
+			expected int
+		}{
+			{name: "string_values", src: []any{"ab", "cd"}, expected: 4},
+			{name: "byte_values", src: []any{[]byte("ab"), []byte("cd")}, expected: 4},
+			{name: "empty_input", src: []any{}, expected: 0},
+			{name: "first_value_unsupported_type", src: []any{42}, expected: 0},
+			{name: "first_value_zero_length", src: []any{""}, expected: 0},
+			{name: "mid_stream_unsupported_type", src: []any{"ab", 42}, expected: 0},
+			{name: "mid_stream_wrong_size", src: []any{"ab", "abc"}, expected: 0},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				result := WriteByteStreamSplitFixedLenByteArray(tc.src)
+				require.Len(t, result, tc.expected)
 			})
 		}
 	})

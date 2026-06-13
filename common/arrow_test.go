@@ -5,6 +5,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/float16"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/require"
 )
@@ -70,6 +71,10 @@ func buildTimestampArray(mem memory.Allocator, values []arrow.Timestamp, valid [
 	return builder.NewArray()
 }
 
+func float16Bytes(v float32) []byte {
+	return float16.New(v).ToLEBytes()
+}
+
 func TestArrowColToParquetCol(t *testing.T) {
 	mem := memory.NewGoAllocator()
 
@@ -129,6 +134,40 @@ func TestArrowColToParquetCol(t *testing.T) {
 			col:      buildArray(mem, []float64{1.1, 2.2, 3.3}, []bool{true, true, true}, array.NewFloat64Builder),
 			expected: []any{float64(1.1), float64(2.2), float64(3.3)},
 		},
+		"float16_to_fixed_len_byte_array": {
+			field: arrow.Field{Name: "test", Type: &arrow.Float16Type{}, Nullable: true},
+			col: buildArray(
+				mem,
+				[]float16.Num{float16.New(1), float16.New(0), float16.New(-2.5)},
+				[]bool{true, false, true},
+				array.NewFloat16Builder,
+			),
+			expected: []any{
+				float16Bytes(1),
+				nil,
+				float16Bytes(-2.5),
+			},
+		},
+		"float16_null_array_to_nullable": {
+			field:    arrow.Field{Name: "test", Type: &arrow.Float16Type{}, Nullable: true},
+			col:      array.NewNull(3),
+			expected: []any{nil, nil, nil},
+		},
+		"float16_null_array_to_non_nullable_error": {
+			field:  arrow.Field{Name: "test", Type: &arrow.Float16Type{}, Nullable: false},
+			col:    array.NewNull(3),
+			errMsg: "field with name 'test' is marked non-nullable but its column array contains Null value at index 0",
+		},
+		"float16_mismatched_array_error": {
+			field:  arrow.Field{Name: "test", Type: &arrow.Float16Type{}, Nullable: true},
+			col:    buildArray(mem, []int32{1, 2, 3}, []bool{true, true, true}, array.NewInt32Builder),
+			errMsg: "array type *array.Int32 with Arrow type int32 is incompatible with Arrow field \"test\" type float16; expected values of type float16.Num",
+		},
+		"int32_null_array_to_nullable": {
+			field:    arrow.Field{Name: "test", Type: &arrow.Int32Type{}, Nullable: true},
+			col:      array.NewNull(2),
+			expected: []any{nil, nil},
+		},
 		"date32_to_int32": {
 			field:    arrow.Field{Name: "test", Type: &arrow.Date32Type{}, Nullable: true},
 			col:      buildArray(mem, []arrow.Date32{1, 2, 3}, []bool{true, true, true}, array.NewDate32Builder),
@@ -179,10 +218,10 @@ func TestArrowColToParquetCol(t *testing.T) {
 			col:    array.NewNull(3),
 			errMsg: "unsupported Arrow type: null",
 		},
-		"unsupported_type_float16": {
-			field:  arrow.Field{Name: "test", Type: &arrow.Float16Type{}, Nullable: true},
-			col:    array.NewNull(1),
-			errMsg: "unsupported Arrow type: float16",
+		"nil_col_error": {
+			field:  arrow.Field{Name: "test", Type: &arrow.Int32Type{}, Nullable: true},
+			col:    nil,
+			errMsg: "convert Arrow column test: column array is nil",
 		},
 	}
 
@@ -196,7 +235,9 @@ func TestArrowColToParquetCol(t *testing.T) {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			}
-			tc.col.Release()
+			if tc.col != nil {
+				tc.col.Release()
+			}
 		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/float16"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/require"
 
@@ -17,8 +18,16 @@ import (
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
-// testSchema is schema for the testint table which covers all
-// the types which we support from the arrow.
+func float16LE(bits uint16) []byte {
+	return float16.FromBits(bits).ToLEBytes()
+}
+
+func float16FromFloat32(v float32) []byte {
+	return float16.New(v).ToLEBytes()
+}
+
+// testSchema is schema for the testint table shared by the broad writer tests.
+// FLOAT16 has dedicated round-trip, statistics, and error-path coverage below.
 var testSchema = arrow.NewSchema(
 	[]arrow.Field{
 		{Name: "int8", Type: arrow.PrimitiveTypes.Int8},
@@ -283,6 +292,217 @@ func TestWriteArrow_EmptyRecord(t *testing.T) {
 	require.NoError(t, pf.Close())
 }
 
+func TestArrowWriterFloat16RoundTrip(t *testing.T) {
+	schema := arrow.NewSchema(
+		[]arrow.Field{
+			{Name: "float16_field", Type: arrow.FixedWidthTypes.Float16, Nullable: true},
+		},
+		nil,
+	)
+
+	mem := memory.NewGoAllocator()
+	builder := array.NewFloat16Builder(mem)
+	defer builder.Release()
+	builder.Append(float16.New(1))
+	builder.AppendNull()
+	builder.Append(float16.New(-2.5))
+	col := builder.NewFloat16Array()
+	defer col.Release()
+
+	record := array.NewRecordBatch(schema, []arrow.Array{col}, int64(col.Len()))
+	defer record.Release()
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	aw, err := NewArrowWriter(schema, fw, WithNP(1))
+	require.NoError(t, err)
+
+	require.NoError(t, aw.WriteArrow(record))
+	require.NoError(t, aw.WriteStop())
+
+	rawPF := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	rawReader := &reader.ParquetReader{PFile: rawPF}
+	require.NoError(t, rawReader.ReadFooter())
+	require.Equal(t, "float16_field", rawReader.Footer.Schema[1].GetName())
+	require.NoError(t, rawPF.Close())
+
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+	require.NoError(t, err)
+
+	expectedMin := float16FromFloat32(-2.5)
+	expectedMax := float16FromFloat32(1)
+
+	float16Element := pr.Footer.Schema[1]
+	require.Equal(t, parquet.Type_FIXED_LEN_BYTE_ARRAY, float16Element.GetType())
+	require.Equal(t, int32(2), float16Element.GetTypeLength())
+	require.NotNil(t, float16Element.LogicalType)
+	require.NotNil(t, float16Element.LogicalType.FLOAT16)
+
+	stats := pr.Footer.RowGroups[0].Columns[0].MetaData.Statistics
+	require.NotNil(t, stats)
+	require.Equal(t, expectedMin, stats.Min)
+	require.Equal(t, expectedMax, stats.Max)
+	require.Equal(t, expectedMin, stats.MinValue)
+	require.Equal(t, expectedMax, stats.MaxValue)
+	require.NotNil(t, stats.NullCount)
+	require.Equal(t, int64(1), *stats.NullCount)
+
+	columnIndex, err := pr.ReadColumnIndex(0, 0)
+	require.NoError(t, err)
+	require.Equal(t, [][]byte{expectedMin}, columnIndex.MinValues)
+	require.Equal(t, [][]byte{expectedMax}, columnIndex.MaxValues)
+	require.Equal(t, []int64{1}, columnIndex.NullCounts)
+
+	rows, err := pr.ReadByNumber(int(pr.GetNumRows()))
+	require.NoError(t, err)
+	actual := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		actual = append(actual, rowToSliceOfValues(row))
+	}
+	require.Equal(t, [][]any{
+		{string(float16FromFloat32(1))},
+		{nil},
+		{string(float16FromFloat32(-2.5))},
+	}, actual)
+
+	require.NoError(t, fw.Close())
+	require.NoError(t, pr.ReadStop())
+	require.NoError(t, pf.Close())
+}
+
+func TestArrowWriterFloat16TotalOrderStats(t *testing.T) {
+	schema := arrow.NewSchema(
+		[]arrow.Field{
+			{Name: "fp16", Type: arrow.FixedWidthTypes.Float16, Nullable: false},
+		},
+		nil,
+	)
+
+	mem := memory.NewGoAllocator()
+	builder := array.NewFloat16Builder(mem)
+	defer builder.Release()
+	builder.AppendValues([]float16.Num{
+		float16.FromBits(0x0000), // +0
+		float16.FromBits(0x8000), // -0
+		float16.FromBits(0x7E00), // positive quiet NaN
+		float16.FromBits(0xFE00), // negative quiet NaN
+		float16.FromBits(0x7C00), // +Inf
+		float16.FromBits(0xFC00), // -Inf
+		float16.FromBits(0x0001), // positive subnormal
+		float16.FromBits(0x8001), // negative subnormal
+	}, nil)
+	col := builder.NewFloat16Array()
+	defer col.Release()
+
+	record := array.NewRecordBatch(schema, []arrow.Array{col}, int64(col.Len()))
+	defer record.Release()
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	aw, err := NewArrowWriter(schema, fw, WithNP(1))
+	require.NoError(t, err)
+
+	require.NoError(t, aw.WriteArrow(record))
+	require.NoError(t, aw.WriteStop())
+
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+	require.NoError(t, err)
+
+	expectedMin := float16LE(0xFE00)
+	expectedMax := float16LE(0x7E00)
+	stats := pr.Footer.RowGroups[0].Columns[0].MetaData.Statistics
+	require.NotNil(t, stats)
+	require.Equal(t, expectedMin, stats.MinValue)
+	require.Equal(t, expectedMax, stats.MaxValue)
+
+	columnIndex, err := pr.ReadColumnIndex(0, 0)
+	require.NoError(t, err)
+	require.Equal(t, [][]byte{expectedMin}, columnIndex.MinValues)
+	require.Equal(t, [][]byte{expectedMax}, columnIndex.MaxValues)
+
+	require.NoError(t, fw.Close())
+	require.NoError(t, pr.ReadStop())
+	require.NoError(t, pf.Close())
+}
+
+func TestArrowWriterFloat16MixedSchema(t *testing.T) {
+	schema := arrow.NewSchema(
+		[]arrow.Field{
+			{Name: "id", Type: arrow.PrimitiveTypes.Int32, Nullable: false},
+			{Name: "fp16", Type: arrow.FixedWidthTypes.Float16, Nullable: true},
+			{Name: "label", Type: arrow.BinaryTypes.String, Nullable: true},
+		},
+		nil,
+	)
+
+	mem := memory.NewGoAllocator()
+	idBuilder := array.NewInt32Builder(mem)
+	defer idBuilder.Release()
+	idBuilder.AppendValues([]int32{1, 2, 3}, nil)
+	idCol := idBuilder.NewInt32Array()
+	defer idCol.Release()
+
+	fp16Builder := array.NewFloat16Builder(mem)
+	defer fp16Builder.Release()
+	fp16Builder.Append(float16.New(1))
+	fp16Builder.AppendNull()
+	fp16Builder.Append(float16.New(-2))
+	fp16Col := fp16Builder.NewFloat16Array()
+	defer fp16Col.Release()
+
+	labelBuilder := array.NewStringBuilder(mem)
+	defer labelBuilder.Release()
+	labelBuilder.Append("one")
+	labelBuilder.Append("two")
+	labelBuilder.AppendNull()
+	labelCol := labelBuilder.NewStringArray()
+	defer labelCol.Release()
+
+	record := array.NewRecordBatch(schema, []arrow.Array{idCol, fp16Col, labelCol}, int64(idCol.Len()))
+	defer record.Release()
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	aw, err := NewArrowWriter(schema, fw, WithNP(1))
+	require.NoError(t, err)
+
+	require.NoError(t, aw.WriteArrow(record))
+	require.NoError(t, aw.WriteStop())
+
+	rawPF := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	rawReader := &reader.ParquetReader{PFile: rawPF}
+	require.NoError(t, rawReader.ReadFooter())
+	require.Equal(t, "fp16", rawReader.Footer.Schema[2].GetName())
+	require.NoError(t, rawPF.Close())
+
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+	require.NoError(t, err)
+
+	rows, err := pr.ReadByNumber(int(pr.GetNumRows()))
+	require.NoError(t, err)
+	actual := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		actual = append(actual, rowToSliceOfValues(row))
+	}
+	require.Equal(t, [][]any{
+		{int32(1), string(float16FromFloat32(1)), "one"},
+		{int32(2), nil, "two"},
+		{int32(3), string(float16FromFloat32(-2)), nil},
+	}, actual)
+
+	fp16Element := pr.Footer.Schema[2]
+	require.Equal(t, parquet.Type_FIXED_LEN_BYTE_ARRAY, fp16Element.GetType())
+	require.NotNil(t, fp16Element.LogicalType)
+	require.NotNil(t, fp16Element.LogicalType.FLOAT16)
+
+	require.NoError(t, fw.Close())
+	require.NoError(t, pr.ReadStop())
+	require.NoError(t, pf.Close())
+}
+
 func TestNewArrowWriterFromWriter(t *testing.T) {
 	schema := arrow.NewSchema(
 		[]arrow.Field{
@@ -369,10 +589,38 @@ func TestWriteArrowErrors(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "write row")
 	})
+
+	t.Run("non_nullable_float16_with_null", func(t *testing.T) {
+		schema := arrow.NewSchema(
+			[]arrow.Field{
+				{Name: "fp16", Type: arrow.FixedWidthTypes.Float16, Nullable: false},
+			}, nil,
+		)
+
+		mem := memory.NewGoAllocator()
+		builder := array.NewFloat16Builder(mem)
+		defer builder.Release()
+		builder.Append(float16.New(1))
+		builder.AppendNull()
+		col := builder.NewFloat16Array()
+		defer col.Release()
+		record := array.NewRecordBatch(schema, []arrow.Array{col}, int64(col.Len()))
+		defer record.Release()
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		aw, err := NewArrowWriter(schema, fw, WithNP(1))
+		require.NoError(t, err)
+
+		err = aw.WriteArrow(record)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "field with name 'fp16' is marked non-nullable but its column array contains Null value at index 1")
+		require.NoError(t, fw.Close())
+	})
 }
 
 // testNullableSchema is schema for the testing the support for nullability
-// and covers all the types which we support from the arrow.
+// across the broad writer fixture. FLOAT16 nullable handling is covered below.
 var testNullableSchema = arrow.NewSchema(
 	[]arrow.Field{
 		{Name: "int8", Type: arrow.PrimitiveTypes.Int8, Nullable: true},
@@ -626,11 +874,11 @@ func rowToSliceOfValues(s any) []any {
 	res := []any{}
 	for i := range v.NumField() {
 		field := v.Field(i)
-		if field.IsNil() {
-			res = append(res, nil)
-			continue
-		}
 		if field.Type().Kind() == reflect.Pointer {
+			if field.IsNil() {
+				res = append(res, nil)
+				continue
+			}
 			res = append(res, field.Elem().Interface())
 		} else {
 			res = append(res, field.Interface())

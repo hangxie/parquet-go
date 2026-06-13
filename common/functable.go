@@ -2,6 +2,7 @@ package common
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"reflect"
@@ -50,8 +51,8 @@ var convertedTypeFuncTable = map[parquet.ConvertedType]FuncTable{
 type float16FuncTable struct{}
 
 func (float16FuncTable) LessThan(a, b any) bool {
-	fa, oka := halfToFloat32(a)
-	fb, okb := halfToFloat32(b)
+	fa, oka := float16OrderKey(a)
+	fb, okb := float16OrderKey(b)
 	if oka && okb {
 		return fa < fb
 	}
@@ -81,6 +82,19 @@ func toBytes(v any) []byte {
 	default:
 		return nil
 	}
+}
+
+// float16OrderKey maps IEEE 754 binary16 bits to the Parquet FLOAT16 total order.
+func float16OrderKey(v any) (uint16, bool) {
+	b := toBytes(v)
+	if b == nil || len(b) != 2 {
+		return 0, false
+	}
+	bits := binary.LittleEndian.Uint16(b)
+	if bits&0x8000 != 0 {
+		return ^bits, true
+	}
+	return bits | 0x8000, true
 }
 
 // halfToFloat32 decodes little-endian IEEE 754 binary16 to float32
