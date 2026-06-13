@@ -110,19 +110,33 @@ func WritePlainDOUBLE(nums []any) ([]byte, error) {
 	return bufWriter.Bytes(), nil
 }
 
+func plainByteValue(v any) ([]byte, bool) {
+	switch value := v.(type) {
+	case string:
+		return []byte(value), true
+	case []byte:
+		return value, true
+	default:
+		return nil, false
+	}
+}
+
 func WritePlainBYTE_ARRAY(arrays []any) ([]byte, error) {
 	bufLen := 0
+	values := make([][]byte, len(arrays))
 	for i := range arrays {
-		bufLen += 4 + len(arrays[i].(string))
+		value, ok := plainByteValue(arrays[i])
+		if !ok {
+			return nil, fmt.Errorf("[%v] is not a string or []byte", arrays[i])
+		}
+		values[i] = value
+		bufLen += 4 + len(value)
 	}
 
 	buf := make([]byte, bufLen)
 	pos := 0
-	for i := range arrays {
-		value, ok := arrays[i].(string)
-		if !ok {
-			return nil, fmt.Errorf("[%v] is not a string", arrays[i])
-		}
+	for i := range values {
+		value := values[i]
 		binary.LittleEndian.PutUint32(buf[pos:], uint32(len(value)))
 		pos += 4
 		copy(buf[pos:pos+len(value)], value)
@@ -135,11 +149,11 @@ func WritePlainFIXED_LEN_BYTE_ARRAY(arrays []any) ([]byte, error) {
 	bufWriter := new(bytes.Buffer)
 	cnt := len(arrays)
 	for i := range cnt {
-		tmp, ok := arrays[i].(string)
+		tmp, ok := plainByteValue(arrays[i])
 		if !ok {
-			return nil, fmt.Errorf("[%v] is not a string", arrays[i])
+			return nil, fmt.Errorf("[%v] is not a string or []byte", arrays[i])
 		}
-		bufWriter.WriteString(tmp)
+		bufWriter.Write(tmp)
 	}
 	return bufWriter.Bytes(), nil
 }

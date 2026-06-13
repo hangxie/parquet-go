@@ -208,6 +208,7 @@ schema := arrow.NewSchema(
     []arrow.Field{
         {Name: "int64", Type: arrow.PrimitiveTypes.Int64},
         {Name: "float64", Type: arrow.PrimitiveTypes.Float64},
+        {Name: "float16", Type: arrow.FixedWidthTypes.Float16},
     },
     nil,
 )
@@ -219,6 +220,7 @@ Schema notes:
 - Avoid field names that differ only by first-letter case.
 - `PARGO_PREFIX_` is reserved and should not be used as a field prefix.
 - Use `\x01` as a delimiter when a field name needs to contain `.`.
+- Arrow `Float16` fields are written as `FIXED_LEN_BYTE_ARRAY` with `length=2` and `logicaltype=FLOAT16`; generic Parquet reads expose them as raw two-byte strings. Use `types.ConvertFloat16LogicalValue` when a `float32` value is needed. FLOAT16 statistics and column indexes use the Parquet FLOAT16 total ordering.
 
 ## Type System
 

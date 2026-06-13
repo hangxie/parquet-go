@@ -375,7 +375,7 @@ func WriteByteStreamSplit(nums []any) []byte {
 		return WriteByteStreamSplitINT32(nums)
 	case int64:
 		return WriteByteStreamSplitINT64(nums)
-	case string:
+	case string, []byte:
 		return WriteByteStreamSplitFixedLenByteArray(nums)
 	default:
 		return []byte{}
@@ -461,13 +461,20 @@ func WriteByteStreamSplitFixedLenByteArray(vals []any) []byte {
 		return []byte{}
 	}
 	// Get element size from first value
-	elemSize := len(vals[0].(string))
+	first, ok := plainByteValue(vals[0])
+	if !ok {
+		return []byte{}
+	}
+	elemSize := len(first)
 	if elemSize <= 0 {
 		return []byte{}
 	}
 	buf := make([]byte, ln*elemSize)
 	for i, n := range vals {
-		s := n.(string)
+		s, ok := plainByteValue(n)
+		if !ok || len(s) != elemSize {
+			return []byte{}
+		}
 		for j := 0; j < elemSize; j++ {
 			buf[ln*j+i] = s[j]
 		}

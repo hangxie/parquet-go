@@ -114,6 +114,38 @@ func TestFloat16FuncTable(t *testing.T) {
 	require.Equal(t, int32(2), sz)
 }
 
+func TestFloat16FuncTableTotalOrder(t *testing.T) {
+	le := func(u16 uint16) []byte { return []byte{byte(u16), byte(u16 >> 8)} }
+	ordered := []struct {
+		name string
+		bits uint16
+	}{
+		{name: "negative_nan", bits: 0xFE00},
+		{name: "negative_inf", bits: 0xFC00},
+		{name: "negative_normal", bits: 0xC000},
+		{name: "negative_subnormal", bits: 0x8001},
+		{name: "negative_zero", bits: 0x8000},
+		{name: "positive_zero", bits: 0x0000},
+		{name: "positive_subnormal", bits: 0x0001},
+		{name: "positive_normal", bits: 0x3C00},
+		{name: "positive_inf", bits: 0x7C00},
+		{name: "positive_nan", bits: 0x7E00},
+	}
+
+	ftab := float16FuncTable{}
+	for i := 0; i < len(ordered)-1; i++ {
+		t.Run(ordered[i].name+"_less_than_"+ordered[i+1].name, func(t *testing.T) {
+			require.True(t, ftab.LessThan(le(ordered[i].bits), le(ordered[i+1].bits)))
+			require.False(t, ftab.LessThan(le(ordered[i+1].bits), le(ordered[i].bits)))
+		})
+	}
+
+	min, max, sz := ftab.MinMaxSize(le(0x8000), le(0x0000), le(0xFE00))
+	require.Equal(t, le(0xFE00), min)
+	require.Equal(t, le(0x0000), max)
+	require.Equal(t, int32(2), sz)
+}
+
 func TestFloat16FuncTable_FallbackLexicographic(t *testing.T) {
 	ftab := float16FuncTable{}
 
@@ -141,15 +173,18 @@ func TestHalfToFloat32(t *testing.T) {
 		approx  bool     // compare with epsilon when true
 		infSign int      // 0 none, +1 +Inf, -1 -Inf
 	}{
-		"one":        {in: le(0x3C00), ok: true, expect: f32(1.0)},
-		"neg-two":    {in: le(0xC000), ok: true, expect: f32(-2.0)},
-		"subnormal+": {in: le(0x0001), ok: true, expect: &subnorm, approx: true},
-		"subnormal-": {in: le(0x8001), ok: true, expect: f32(-subnorm), approx: true},
-		"zero":       {in: le(0x0000), ok: true, expect: f32(0.0)},
-		"+inf":       {in: le(0x7C00), ok: true, infSign: +1},
-		"-inf":       {in: le(0xFC00), ok: true, infSign: -1},
-		"nan":        {in: le(0x7E00), ok: false},
-		"wrong-len":  {in: string([]byte{0x00}), ok: false},
+		"one":         {in: le(0x3C00), ok: true, expect: f32(1.0)},
+		"half":        {in: le(0x3800), ok: true, expect: f32(0.5)},
+		"neg-half":    {in: le(0xB800), ok: true, expect: f32(-0.5)},
+		"neg-two":     {in: le(0xC000), ok: true, expect: f32(-2.0)},
+		"subnormal+":  {in: le(0x0001), ok: true, expect: &subnorm, approx: true},
+		"subnormal-":  {in: le(0x8001), ok: true, expect: f32(-subnorm), approx: true},
+		"zero":        {in: le(0x0000), ok: true, expect: f32(0.0)},
+		"+inf":        {in: le(0x7C00), ok: true, infSign: +1},
+		"-inf":        {in: le(0xFC00), ok: true, infSign: -1},
+		"nan":         {in: le(0x7E00), ok: false},
+		"wrong-len":   {in: string([]byte{0x00}), ok: false},
+		"unsupported": {in: 42, ok: false},
 	}
 
 	for name, tc := range testCases {

@@ -79,8 +79,18 @@ func TestWritePlain(t *testing.T) {
 				dataType: parquet.Type_BYTE_ARRAY,
 			},
 			{
+				name:     "byte_array_bytes_type",
+				src:      []any{[]byte("hello"), []byte("world")},
+				dataType: parquet.Type_BYTE_ARRAY,
+			},
+			{
 				name:     "fixed_len_byte_array_type",
 				src:      []any{"hello", "world"},
+				dataType: parquet.Type_FIXED_LEN_BYTE_ARRAY,
+			},
+			{
+				name:     "fixed_len_byte_array_bytes_type",
+				src:      []any{[]byte("hello"), []byte("world")},
 				dataType: parquet.Type_FIXED_LEN_BYTE_ARRAY,
 			},
 			{
@@ -151,6 +161,7 @@ func TestWritePlain(t *testing.T) {
 		}{
 			{[]any{}, []byte{}},
 			{[]any{"a", "abc"}, []byte{1, 0, 0, 0, 97, 3, 0, 0, 0, 97, 98, 99}},
+			{[]any{[]byte("a"), []byte("abc")}, []byte{1, 0, 0, 0, 97, 3, 0, 0, 0, 97, 98, 99}},
 		}
 
 		for _, data := range testData {
@@ -158,6 +169,10 @@ func TestWritePlain(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, string(data.expected), string(res))
 		}
+
+		_, err := WritePlainBYTE_ARRAY([]any{42})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "is not a string or []byte")
 	})
 
 	t.Run("double", func(t *testing.T) {
@@ -218,6 +233,7 @@ func TestWritePlain(t *testing.T) {
 		}{
 			{[]any{}, []byte{}},
 			{[]any{"bca", "abc"}, []byte{98, 99, 97, 97, 98, 99}},
+			{[]any{[]byte("bca"), []byte("abc")}, []byte{98, 99, 97, 97, 98, 99}},
 		}
 
 		for _, data := range testData {
@@ -225,6 +241,10 @@ func TestWritePlain(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, string(data.expected), string(res))
 		}
+
+		_, err := WritePlainFIXED_LEN_BYTE_ARRAY([]any{42})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "is not a string or []byte")
 	})
 
 	t.Run("float", func(t *testing.T) {

@@ -5,9 +5,22 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 // Comprehensive tests for NewSchemaHandlerFromArrow function
+
+func requireSchemaElementByName(t *testing.T, schemaHandler *SchemaHandler, name string) *parquet.SchemaElement {
+	t.Helper()
+	for _, element := range schemaHandler.SchemaElements {
+		if element.GetName() == name {
+			return element
+		}
+	}
+	require.FailNowf(t, "schema element not found", "name %q", name)
+	return nil
+}
 
 func TestNewSchemaHandlerFromArrow(t *testing.T) {
 	t.Run("simple_schema", func(t *testing.T) {
@@ -71,6 +84,7 @@ func TestNewSchemaHandlerFromArrow(t *testing.T) {
 			// Float types
 			{Name: "float32_field", Type: arrow.PrimitiveTypes.Float32, Nullable: false},
 			{Name: "float64_field", Type: arrow.PrimitiveTypes.Float64, Nullable: false},
+			{Name: "float16_field", Type: arrow.FixedWidthTypes.Float16, Nullable: false},
 
 			// Date types (both primitive and fixed width)
 			{Name: "date32_prim", Type: arrow.PrimitiveTypes.Date32, Nullable: false},
@@ -96,18 +110,25 @@ func TestNewSchemaHandlerFromArrow(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, schemaHandler)
 
-		// Verify correct number of elements (root + 21 fields)
-		require.Equal(t, 22, len(schemaHandler.SchemaElements))
+		// Verify correct number of elements (root + 22 fields)
+		require.Equal(t, 23, len(schemaHandler.SchemaElements))
 
 		// Verify root has correct number of children
-		require.Equal(t, int32(21), *schemaHandler.SchemaElements[0].NumChildren)
+		require.Equal(t, int32(22), *schemaHandler.SchemaElements[0].NumChildren)
+
+		float16Element := requireSchemaElementByName(t, schemaHandler, "Float16_field")
+		require.Equal(t, "Float16_field", float16Element.Name)
+		require.Equal(t, "FIXED_LEN_BYTE_ARRAY", float16Element.Type.String())
+		require.Equal(t, int32(2), *float16Element.TypeLength)
+		require.NotNil(t, float16Element.LogicalType)
+		require.NotNil(t, float16Element.LogicalType.FLOAT16)
 
 		// Verify nullable fields are correctly marked as OPTIONAL
-		nullableInt32Element := schemaHandler.SchemaElements[20] // Should be nullable_int32
+		nullableInt32Element := requireSchemaElementByName(t, schemaHandler, "Nullable_int32")
 		require.Equal(t, "Nullable_int32", nullableInt32Element.Name)
 		require.Equal(t, "OPTIONAL", nullableInt32Element.RepetitionType.String())
 
-		nullableStringElement := schemaHandler.SchemaElements[21] // Should be nullable_string
+		nullableStringElement := requireSchemaElementByName(t, schemaHandler, "Nullable_string")
 		require.Equal(t, "Nullable_string", nullableStringElement.Name)
 		require.Equal(t, "OPTIONAL", nullableStringElement.RepetitionType.String())
 	})
@@ -420,12 +441,17 @@ func TestTypeConversion(t *testing.T) {
 			title: "test fixed width type conversion",
 			testSchema: arrow.NewSchema([]arrow.Field{
 				{Name: "f1-bool", Type: arrow.FixedWidthTypes.Boolean},
+				{Name: "f1-f16", Type: arrow.FixedWidthTypes.Float16},
 				{Name: "f1-d32", Type: arrow.FixedWidthTypes.Date32},
 				{Name: "f1-d64", Type: arrow.FixedWidthTypes.Date64},
 				{Name: "f1-t32ms", Type: arrow.FixedWidthTypes.Time32ms},
 				{Name: "f1-tsms", Type: arrow.FixedWidthTypes.Timestamp_ms},
 				{
 					Name: "null-bool", Type: arrow.FixedWidthTypes.Boolean,
+					Nullable: true,
+				},
+				{
+					Name: "null-f16", Type: arrow.FixedWidthTypes.Float16,
 					Nullable: true,
 				},
 				{
@@ -447,6 +473,8 @@ func TestTypeConversion(t *testing.T) {
 			}, nil),
 			expectedParquetMetaData: []string{
 				"name=f1-bool, type=BOOLEAN, repetitiontype=REQUIRED",
+				"name=f1-f16, type=FIXED_LEN_BYTE_ARRAY, length=2, " +
+					"logicaltype=FLOAT16, repetitiontype=REQUIRED",
 				"name=f1-d32, type=INT32, convertedtype=DATE, " +
 					"repetitiontype=REQUIRED",
 				"name=f1-d64, type=INT32, convertedtype=DATE, " +
@@ -456,6 +484,8 @@ func TestTypeConversion(t *testing.T) {
 				"name=f1-tsms, type=INT64, convertedtype=TIMESTAMP_MILLIS, " +
 					"repetitiontype=REQUIRED",
 				"name=null-bool, type=BOOLEAN, repetitiontype=OPTIONAL",
+				"name=null-f16, type=FIXED_LEN_BYTE_ARRAY, length=2, " +
+					"logicaltype=FLOAT16, repetitiontype=OPTIONAL",
 				"name=null-d32, type=INT32, convertedtype=DATE, " +
 					"repetitiontype=OPTIONAL",
 				"name=null-d64, type=INT32, convertedtype=DATE, " +
