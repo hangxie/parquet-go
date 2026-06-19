@@ -9,6 +9,30 @@ import (
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
+func TestMarshalArrowUnknown(t *testing.T) {
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=null_col, type=INT32, logicaltype=UNKNOWN, repetitiontype=OPTIONAL", "Type": "int32"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	require.NoError(t, err)
+
+	t.Run("nil_value_accepted", func(t *testing.T) {
+		_, err := MarshalArrow([]any{[]any{nil}}, sch)
+		require.NoError(t, err)
+	})
+
+	t.Run("non_nil_value_rejected", func(t *testing.T) {
+		_, err := MarshalArrow([]any{[]any{int32(42)}}, sch)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "UNKNOWN column")
+		require.Contains(t, err.Error(), "nil value")
+	})
+}
+
 func TestMarshalArrow(t *testing.T) {
 	// Create a simple schema for Arrow data
 	schemaString := `{
