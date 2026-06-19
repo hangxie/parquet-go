@@ -221,6 +221,7 @@ Schema notes:
 - `PARGO_PREFIX_` is reserved and should not be used as a field prefix.
 - Use `\x01` as a delimiter when a field name needs to contain `.`.
 - Arrow `Float16` fields are written as `FIXED_LEN_BYTE_ARRAY` with `length=2` and `logicaltype=FLOAT16`; generic Parquet reads expose them as raw two-byte strings. Use `types.ConvertFloat16LogicalValue` when a `float32` value is needed. FLOAT16 statistics and column indexes use the Parquet FLOAT16 total ordering.
+- `UNKNOWN` columns represent always-null columns per the Parquet spec. The Go field must be `*int32` with `repetitiontype=OPTIONAL`. The writer rejects any non-nil value with an error. For a well-formed file every read returns `nil`; a malformed file that stores a non-null INT32 value in an UNKNOWN column will have that value returned as-is.
 
 ## Type System
 
@@ -259,6 +260,7 @@ Schema notes:
 | `DECIMAL` | `INT32`, `INT64`, `FIXED_LEN_BYTE_ARRAY`, `BYTE_ARRAY` | `int32`, `int64`, `string`, `string` |
 | `UUID` | `FIXED_LEN_BYTE_ARRAY` | `string` |
 | `FLOAT16` | `FIXED_LEN_BYTE_ARRAY` | `string` |
+| `UNKNOWN` | `INT32` | `*int32` (always `nil`) |
 | `GEOMETRY` | `BYTE_ARRAY` | `string` |
 | `GEOGRAPHY` | `BYTE_ARRAY` | `string` |
 | `JSON` | `BYTE_ARRAY` | `string` |
@@ -664,6 +666,7 @@ go build -tags example ./example/all_types
 | [type](example/type) | Type examples |
 | [type_alias](example/type_alias) | Type alias examples |
 | [new_logical](example/new_logical) | New logical types including FLOAT16 and INTEGER |
+| [unknown_type](example/unknown_type) | UNKNOWN logical type (always-null columns) |
 | [geospatial](example/geospatial) | GEOMETRY and GEOGRAPHY examples |
 | [bloom_filter](example/bloom_filter) | Bloom filter |
 | [encrypt_write](example/encrypt_write) | Write and read back encrypted Parquet files |
