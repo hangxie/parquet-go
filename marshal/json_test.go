@@ -809,6 +809,30 @@ func TestMarshalJSON_MapIndexErrors(t *testing.T) {
 	require.NotNil(t, result)
 }
 
+func TestMarshalJSONUnknown(t *testing.T) {
+	schemaString := `{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=null_col, type=INT32, logicaltype=UNKNOWN, repetitiontype=OPTIONAL", "Type": "int32"}
+		]
+	}`
+
+	sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
+	require.NoError(t, err)
+
+	t.Run("null_value_accepted", func(t *testing.T) {
+		_, err := MarshalJSON([]any{`{"null_col": null}`}, sch)
+		require.NoError(t, err)
+	})
+
+	t.Run("non_null_value_rejected", func(t *testing.T) {
+		_, err := MarshalJSON([]any{`{"null_col": 42}`}, sch)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "UNKNOWN column")
+		require.Contains(t, err.Error(), "nil value")
+	})
+}
+
 // Test struct field mapping with StringToVariableName conversion
 func TestMarshalJSON_StructFieldMapping(t *testing.T) {
 	schemaString := `{

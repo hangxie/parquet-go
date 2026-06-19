@@ -170,6 +170,12 @@ func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *sc
 		return newStack, nil
 	}
 
+	if newStack, handled, err := HandleUnknown(node, se, res, stack); err != nil {
+		return nil, fmt.Errorf("handle UNKNOWN for %s: %w", pathStr, err)
+	} else if handled {
+		return newStack, nil
+	}
+
 	switch node.Val.Type().Kind() {
 	case reflect.Map:
 		if se.GetConvertedType() == parquet.ConvertedType_MAP {
