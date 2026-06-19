@@ -313,9 +313,18 @@ func (sh *SchemaHandler) GetType(prefixPath string) (reflect.Type, error) {
 		toVisit = toVisit[:len(toVisit)-1]
 
 		if sh.SchemaElements[cur].GetNumChildren() == 0 {
+			elem := sh.SchemaElements[cur]
+			path := sh.IndexMap[cur]
+			if elem.LogicalType != nil && elem.LogicalType.UNKNOWN != nil {
+				if elem.Type == nil || *elem.Type != parquet.Type_INT32 {
+					return nil, fmt.Errorf("UNKNOWN column at %s must have INT32 physical type", path)
+				}
+				if elem.RepetitionType == nil || *elem.RepetitionType != parquet.FieldRepetitionType_OPTIONAL {
+					return nil, fmt.Errorf("UNKNOWN column at %s must have OPTIONAL repetition type", path)
+				}
+			}
 			t := ts[cur]
 			if t == nil || t.Kind() == reflect.Interface {
-				path := sh.IndexMap[cur]
 				return nil, fmt.Errorf("corrupt or unsupported schema at %s: unknown physical type", path)
 			}
 			continue

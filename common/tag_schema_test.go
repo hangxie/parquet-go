@@ -206,3 +206,78 @@ func TestValidateLogicalInteger(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateLogicalUnknown(t *testing.T) {
+	testCases := map[string]struct {
+		schema *parquet.SchemaElement
+		errMsg string
+	}{
+		"int32-optional-valid": {
+			&parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT32),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+				LogicalType:    &parquet.LogicalType{UNKNOWN: &parquet.NullType{}},
+			},
+			"",
+		},
+		"byte_array-invalid": {
+			&parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_BYTE_ARRAY),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+				LogicalType:    &parquet.LogicalType{UNKNOWN: &parquet.NullType{}},
+			},
+			"LogicalType UNKNOWN can only be used with INT32",
+		},
+		"int64-invalid": {
+			&parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT64),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+				LogicalType:    &parquet.LogicalType{UNKNOWN: &parquet.NullType{}},
+			},
+			"LogicalType UNKNOWN can only be used with INT32",
+		},
+		"required-invalid": {
+			&parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT32),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REQUIRED),
+				LogicalType:    &parquet.LogicalType{UNKNOWN: &parquet.NullType{}},
+			},
+			"LogicalType UNKNOWN requires OPTIONAL repetition type",
+		},
+		"nil-repetitiontype-invalid": {
+			&parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_INT32),
+				LogicalType: &parquet.LogicalType{UNKNOWN: &parquet.NullType{}},
+			},
+			"LogicalType UNKNOWN requires OPTIONAL repetition type",
+		},
+		"nil_type": {
+			&parquet.SchemaElement{
+				Type:           nil,
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+				LogicalType:    &parquet.LogicalType{UNKNOWN: &parquet.NullType{}},
+			},
+			"LogicalType UNKNOWN can only be used with INT32",
+		},
+		"repeated-invalid": {
+			&parquet.SchemaElement{
+				Type:           ToPtr(parquet.Type_INT32),
+				RepetitionType: ToPtr(parquet.FieldRepetitionType_REPEATED),
+				LogicalType:    &parquet.LogicalType{UNKNOWN: &parquet.NullType{}},
+			},
+			"LogicalType UNKNOWN requires OPTIONAL repetition type",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			err := validateLogicalType(tc.schema)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+			}
+		})
+	}
+}

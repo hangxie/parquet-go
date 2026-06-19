@@ -284,6 +284,30 @@ func TestMarshalEmptyContainer(t *testing.T) {
 	}
 }
 
+func TestMarshalUnknown(t *testing.T) {
+	type Row struct {
+		NullCol *int32 `parquet:"name=null_col, type=INT32, logicaltype=UNKNOWN, repetitiontype=OPTIONAL"`
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Row))
+	require.NoError(t, err)
+
+	t.Run("nil_value_accepted", func(t *testing.T) {
+		rows := []any{Row{NullCol: nil}}
+		_, err := Marshal(rows, sh)
+		require.NoError(t, err)
+	})
+
+	t.Run("non_nil_value_rejected", func(t *testing.T) {
+		val := int32(42)
+		rows := []any{Row{NullCol: &val}}
+		_, err := Marshal(rows, sh)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "UNKNOWN column")
+		require.Contains(t, err.Error(), "nil value")
+	})
+}
+
 func TestParquetPtrMarshal(t *testing.T) {
 	integer := 10
 	testData := &marshalCases{

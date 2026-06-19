@@ -322,6 +322,12 @@ func processNode(node *Node, res map[string]*layout.Table, schemaHandler *schema
 		return newStack, nil
 	}
 
+	if newStack, handled, handleErr := HandleUnknown(node, se, res, stack); handleErr != nil {
+		return nil, handleErr
+	} else if handled {
+		return newStack, nil
+	}
+
 	// []byte should be treated as primitive BYTE_ARRAY, not as a LIST
 	if isByteSlice(node) {
 		if err := marshalPrimitiveValue(node, res, schemaHandler); err != nil {
@@ -416,6 +422,28 @@ func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) (map[st
 		}
 	}
 	return tableMap, nil
+}
+
+// HandleUnknown enforces that UNKNOWN logical type columns always receive nil values.
+func HandleUnknown(node *Node, se *parquet.SchemaElement, res map[string]*layout.Table, stack []*Node) ([]*Node, bool, error) {
+	if se.LogicalType == nil || se.LogicalType.UNKNOWN == nil {
+		return stack, false, nil
+	}
+	isNil := !node.Val.IsValid()
+	if !isNil {
+		switch node.Val.Kind() {
+		case reflect.Pointer, reflect.Interface:
+			isNil = node.Val.IsNil()
+		}
+	}
+	if !isNil {
+		return nil, false, fmt.Errorf("UNKNOWN column %s must have nil value, got non-nil", node.PathMap.Path)
+	}
+	table := res[node.PathMap.Path]
+	table.Values = append(table.Values, nil)
+	table.DefinitionLevels = append(table.DefinitionLevels, node.DL)
+	table.RepetitionLevels = append(table.RepetitionLevels, node.RL)
+	return stack, true, nil
 }
 
 func HandleVariant(

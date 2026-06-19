@@ -2,9 +2,13 @@ package reader
 
 import (
 	"bytes"
+	"context"
+	"encoding/binary"
+	"fmt"
 	"strconv"
 	"testing"
 
+	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -246,6 +250,124 @@ func TestParquetReader_Reset_MultipleResets(t *testing.T) {
 			require.NoError(t, err)
 		}
 	}
+}
+
+func TestReadUnknownLogicalType(t *testing.T) {
+	type Row struct {
+		Name    string `parquet:"name=name, type=BYTE_ARRAY, logicaltype=STRING"`
+		NullCol *int32 `parquet:"name=null_col, type=INT32, logicaltype=UNKNOWN, repetitiontype=OPTIONAL"`
+	}
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := writer.NewParquetWriter(fw, new(Row), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.Write(Row{Name: "foo", NullCol: nil}))
+	require.NoError(t, pw.Write(Row{Name: "bar", NullCol: nil}))
+	require.NoError(t, pw.WriteStop())
+
+	fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := NewParquetReader(fr, new(Row), WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+
+	rows := make([]Row, 2)
+	require.NoError(t, pr.Read(&rows))
+	require.Equal(t, "foo", rows[0].Name)
+	require.Nil(t, rows[0].NullCol)
+	require.Equal(t, "bar", rows[1].Name)
+	require.Nil(t, rows[1].NullCol)
+}
+
+// TestReadUnknownLogicalType_LooseRead verifies that a malformed parquet file
+// whose UNKNOWN column contains a non-null INT32 value is read back as-is
+// rather than being forced to nil.
+func TestReadUnknownLogicalType_LooseRead(t *testing.T) {
+	// Write with a plain OPTIONAL INT32 (no UNKNOWN) so the writer accepts a non-nil value.
+	type WriterRow struct {
+		Name    string `parquet:"name=name, type=BYTE_ARRAY, logicaltype=STRING"`
+		NullCol *int32 `parquet:"name=null_col, type=INT32, repetitiontype=OPTIONAL"`
+	}
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := writer.NewParquetWriter(fw, new(WriterRow), writer.WithNP(1))
+	require.NoError(t, err)
+	val := int32(42)
+	require.NoError(t, pw.Write(WriterRow{Name: "foo", NullCol: &val}))
+	require.NoError(t, pw.WriteStop())
+
+	// Patch the footer: mark null_col as UNKNOWN logical type.
+	patched, err := patchSchemaElementUnknown(buf.Bytes(), "null_col")
+	require.NoError(t, err)
+
+	// Read back via a struct that declares null_col as UNKNOWN — the non-nil value must survive.
+	type ReaderRow struct {
+		Name    string `parquet:"name=name, type=BYTE_ARRAY, logicaltype=STRING"`
+		NullCol *int32 `parquet:"name=null_col, type=INT32, logicaltype=UNKNOWN, repetitiontype=OPTIONAL"`
+	}
+
+	fr := buffer.NewBufferReaderFromBytesNoAlloc(patched)
+	pr, err := NewParquetReader(fr, new(ReaderRow), WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+
+	rows := make([]ReaderRow, 1)
+	require.NoError(t, pr.Read(&rows))
+	require.Equal(t, "foo", rows[0].Name)
+	require.NotNil(t, rows[0].NullCol)
+	require.Equal(t, int32(42), *rows[0].NullCol)
+}
+
+// patchSchemaElementUnknown rewrites the Thrift footer of a parquet byte slice,
+// setting LogicalType.UNKNOWN on the schema element named columnName.
+func patchSchemaElementUnknown(data []byte, columnName string) ([]byte, error) {
+	if len(data) < 12 {
+		return nil, fmt.Errorf("data too short to be a parquet file")
+	}
+	// Footer length sits at data[len-8:len-4]; trailing magic is data[len-4:].
+	footerLen := int(binary.LittleEndian.Uint32(data[len(data)-8 : len(data)-4]))
+	footerStart := len(data) - 8 - footerLen
+	if footerStart < 4 {
+		return nil, fmt.Errorf("computed footer start %d is out of range", footerStart)
+	}
+
+	// Decode footer.
+	footerBytes := data[footerStart : len(data)-8]
+	footer := parquet.NewFileMetaData()
+	proto := thrift.NewTCompactProtocolConf(
+		thrift.NewTBufferedTransport(thrift.NewStreamTransportR(bytes.NewReader(footerBytes)), len(footerBytes)),
+		&thrift.TConfiguration{},
+	)
+	if err := footer.Read(context.TODO(), proto); err != nil {
+		return nil, fmt.Errorf("decode footer: %w", err)
+	}
+
+	// Patch the target schema element.
+	for _, se := range footer.Schema {
+		if se.Name == columnName {
+			se.LogicalType = &parquet.LogicalType{UNKNOWN: parquet.NewNullType()}
+			break
+		}
+	}
+
+	// Re-encode footer.
+	ts := thrift.NewTSerializer()
+	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+	newFooter, err := ts.Write(context.TODO(), footer)
+	if err != nil {
+		return nil, fmt.Errorf("encode footer: %w", err)
+	}
+
+	// Reconstruct: original data up to old footer + new footer + length + magic.
+	out := make([]byte, 0, footerStart+len(newFooter)+8)
+	out = append(out, data[:footerStart]...)
+	out = append(out, newFooter...)
+	lenBuf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(lenBuf, uint32(len(newFooter)))
+	out = append(out, lenBuf...)
+	out = append(out, []byte("PAR1")...)
+	return out, nil
 }
 
 func TestParquetReader_Reset_AfterReadAll(t *testing.T) {

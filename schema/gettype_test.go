@@ -310,6 +310,72 @@ func TestSchemaHandler_GetType(t *testing.T) {
 				require.Equal(t, reflect.String, resultType.Elem().Elem().Kind())
 			},
 		},
+		{
+			name: "unknown_wrong_physical_type",
+			setupHandler: func() *SchemaHandler {
+				optRep := parquet.FieldRepetitionType_OPTIONAL
+				wrongType := parquet.Type_BYTE_ARRAY
+				lt := parquet.NewLogicalType()
+				lt.UNKNOWN = parquet.NewNullType()
+				schemas := []*parquet.SchemaElement{
+					{Name: "root", NumChildren: common.ToPtr(int32(1))},
+					{Name: "null_col", Type: &wrongType, RepetitionType: &optRep, LogicalType: lt},
+				}
+				return NewSchemaHandlerFromSchemaList(schemas)
+			},
+			path:          "Root",
+			expectedError: "INT32 physical type",
+		},
+		{
+			name: "unknown_required_repetition",
+			setupHandler: func() *SchemaHandler {
+				reqRep := parquet.FieldRepetitionType_REQUIRED
+				int32Type := parquet.Type_INT32
+				lt := parquet.NewLogicalType()
+				lt.UNKNOWN = parquet.NewNullType()
+				schemas := []*parquet.SchemaElement{
+					{Name: "root", NumChildren: common.ToPtr(int32(1))},
+					{Name: "null_col", Type: &int32Type, RepetitionType: &reqRep, LogicalType: lt},
+				}
+				return NewSchemaHandlerFromSchemaList(schemas)
+			},
+			path:          "Root",
+			expectedError: "OPTIONAL repetition type",
+		},
+		{
+			name: "unknown_valid_int32_optional",
+			setupHandler: func() *SchemaHandler {
+				optRep := parquet.FieldRepetitionType_OPTIONAL
+				int32Type := parquet.Type_INT32
+				lt := parquet.NewLogicalType()
+				lt.UNKNOWN = parquet.NewNullType()
+				schemas := []*parquet.SchemaElement{
+					{Name: "root", NumChildren: common.ToPtr(int32(1))},
+					{Name: "null_col", Type: &int32Type, RepetitionType: &optRep, LogicalType: lt},
+				}
+				return NewSchemaHandlerFromSchemaList(schemas)
+			},
+			path: "Root",
+			validateType: func(t *testing.T, resultType reflect.Type) {
+				require.NotNil(t, resultType)
+			},
+		},
+		{
+			name: "repeated-invalid",
+			setupHandler: func() *SchemaHandler {
+				repRep := parquet.FieldRepetitionType_REPEATED
+				int32Type := parquet.Type_INT32
+				lt := parquet.NewLogicalType()
+				lt.UNKNOWN = parquet.NewNullType()
+				schemas := []*parquet.SchemaElement{
+					{Name: "root", NumChildren: common.ToPtr(int32(1))},
+					{Name: "null_col", Type: &int32Type, RepetitionType: &repRep, LogicalType: lt},
+				}
+				return NewSchemaHandlerFromSchemaList(schemas)
+			},
+			path:          "Root",
+			expectedError: "OPTIONAL repetition type",
+		},
 	}
 
 	for _, tt := range tests {
