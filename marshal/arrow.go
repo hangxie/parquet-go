@@ -42,6 +42,9 @@ func MarshalArrow(records []any, schemaHandler *schema.SchemaHandler) (*map[stri
 
 		for j := range records {
 			rec := records[j].([]any)[i]
+			if lt := table.Schema.LogicalType; lt != nil && lt.UNKNOWN != nil && rec != nil {
+				return nil, fmt.Errorf("UNKNOWN column %s must have nil value, got non-nil", pathStr)
+			}
 			table.Values = append(table.Values, rec)
 
 			table.RepetitionLevels = append(table.RepetitionLevels, 0)

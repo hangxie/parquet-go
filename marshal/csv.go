@@ -46,6 +46,9 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 				return nil, fmt.Errorf("row %d has less than %d fields", j, fieldCount)
 			}
 			rec := row[i]
+			if lt := table.Schema.LogicalType; lt != nil && lt.UNKNOWN != nil && rec != nil {
+				return nil, fmt.Errorf("UNKNOWN column %s must have nil value, got non-nil", pathStr)
+			}
 			table.Values = append(table.Values, rec)
 
 			table.RepetitionLevels = append(table.RepetitionLevels, 0)
