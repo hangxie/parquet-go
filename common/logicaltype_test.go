@@ -406,6 +406,11 @@ func TestNewLogicalTypeFromFieldsMap(t *testing.T) {
 			parquet.LogicalType{GEOGRAPHY: &parquet.GeographyType{}},
 			"logicaltype geography error, unknown algorithm:",
 		},
+		"unknown": {
+			map[string]string{"logicaltype": "UNKNOWN"},
+			parquet.LogicalType{UNKNOWN: &parquet.NullType{}},
+			"",
+		},
 	}
 
 	for name, tc := range testCases {

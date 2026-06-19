@@ -284,6 +284,8 @@ func newLogicalTypeFromFieldsMap(mp map[string]string) (*parquet.LogicalType, er
 		if logicalType.GEOGRAPHY, err = newGeographyLogicalType(mp); err != nil {
 			return nil, fmt.Errorf("build GEOGRAPHY logical type: %w", err)
 		}
+	case "UNKNOWN":
+		logicalType.UNKNOWN = parquet.NewNullType()
 	default:
 		return nil, fmt.Errorf("unknown logicaltype: %s", val)
 	}

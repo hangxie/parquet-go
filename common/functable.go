@@ -165,6 +165,9 @@ func findFuncTableByLogicalType(pT *parquet.Type, logT *parquet.LogicalType) (Fu
 	if logT == nil {
 		return nil, false
 	}
+	if logT.UNKNOWN != nil {
+		return nil, false
+	}
 	if logT.TIME != nil || logT.TIMESTAMP != nil {
 		table, err := FindFuncTable(pT, nil, nil)
 		if err != nil {
@@ -226,6 +229,13 @@ func FindFuncTable(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.Lo
 
 	if table, ok := findFuncTableByLogicalType(pT, logT); ok {
 		return table, nil
+	}
+
+	// If logT has UNKNOWN set, fall back to physical type
+	if logT != nil && logT.UNKNOWN != nil && pT != nil {
+		if table, ok := parquetTypeFuncTable[*pT]; ok {
+			return table, nil
+		}
 	}
 
 	return nil, fmt.Errorf("find func table for given types: %v, %v, %v", pT, cT, logT)

@@ -69,6 +69,8 @@ func TestFindFuncTable(t *testing.T) {
 		"BYTE_ARRAY-nil-VARIANT":   {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{VARIANT: &parquet.VariantType{}}, stringFuncTable{}},
 		"BYTE_ARRAY-nil-GEOMETRY":  {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{GEOMETRY: &parquet.GeometryType{}}, stringFuncTable{}},
 		"BYTE_ARRAY-nil-GEOGRAPHY": {ToPtr(parquet.Type_BYTE_ARRAY), nil, &parquet.LogicalType{GEOGRAPHY: &parquet.GeographyType{}}, stringFuncTable{}},
+		// UNKNOWN logical type falls back to the physical type's func table
+		"INT32-nil-UNKNOWN": {ToPtr(parquet.Type_INT32), nil, &parquet.LogicalType{UNKNOWN: parquet.NewNullType()}, int32FuncTable{}},
 	}
 
 	for name, tc := range testCases {

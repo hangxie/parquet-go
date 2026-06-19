@@ -162,6 +162,15 @@ func validateLogicalType(schema *parquet.SchemaElement) error {
 		return nil
 	}
 	lt := schema.LogicalType
+	if lt.UNKNOWN != nil {
+		if schema.Type == nil || *schema.Type != parquet.Type_INT32 {
+			return fmt.Errorf("LogicalType UNKNOWN can only be used with INT32")
+		}
+		if schema.RepetitionType == nil || *schema.RepetitionType != parquet.FieldRepetitionType_OPTIONAL {
+			return fmt.Errorf("LogicalType UNKNOWN requires OPTIONAL repetition type")
+		}
+		return nil
+	}
 	if lt.STRING != nil || lt.JSON != nil || lt.BSON != nil || lt.ENUM != nil {
 		if *schema.Type != parquet.Type_BYTE_ARRAY {
 			return fmt.Errorf("LogicalType STRING/JSON/BSON/ENUM can only be used with BYTE_ARRAY")
