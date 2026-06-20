@@ -77,6 +77,43 @@ func TestValidateConvertedType(t *testing.T) {
 			"ConvertedType TIMESTAMP_MICROS can only be used with INT64",
 		},
 
+		// DECIMAL requires INT32, INT64, BYTE_ARRAY, or FIXED_LEN_BYTE_ARRAY
+		"decimal-int32-valid": {
+			parquet.SchemaElement{
+				Type:          ToPtr(parquet.Type_INT32),
+				ConvertedType: ToPtr(parquet.ConvertedType_DECIMAL),
+			},
+			"",
+		},
+		"decimal-int64-valid": {
+			parquet.SchemaElement{
+				Type:          ToPtr(parquet.Type_INT64),
+				ConvertedType: ToPtr(parquet.ConvertedType_DECIMAL),
+			},
+			"",
+		},
+		"decimal-byte-array-valid": {
+			parquet.SchemaElement{
+				Type:          ToPtr(parquet.Type_BYTE_ARRAY),
+				ConvertedType: ToPtr(parquet.ConvertedType_DECIMAL),
+			},
+			"",
+		},
+		"decimal-fixed-len-byte-array-valid": {
+			parquet.SchemaElement{
+				Type:          ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				ConvertedType: ToPtr(parquet.ConvertedType_DECIMAL),
+			},
+			"",
+		},
+		"decimal-float-invalid": {
+			parquet.SchemaElement{
+				Type:          ToPtr(parquet.Type_FLOAT),
+				ConvertedType: ToPtr(parquet.ConvertedType_DECIMAL),
+			},
+			"ConvertedType DECIMAL can only be used with INT32, INT64, BYTE_ARRAY, or FIXED_LEN_BYTE_ARRAY",
+		},
+
 		// nil ConvertedType is a no-op
 		"nil-converted-type": {
 			parquet.SchemaElement{
@@ -90,6 +127,108 @@ func TestValidateConvertedType(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			err := validateConvertedType(&tc.schema)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+			}
+		})
+	}
+}
+
+func TestValidateLogicalTypePhysicalConstraints(t *testing.T) {
+	testCases := map[string]struct {
+		schema parquet.SchemaElement
+		errMsg string
+	}{
+		// FLOAT16 requires FIXED_LEN_BYTE_ARRAY
+		"float16-fixed-len-byte-array-valid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			},
+			"",
+		},
+		"float16-byte-array-invalid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			},
+			"LogicalType FLOAT16 can only be used with FIXED_LEN_BYTE_ARRAY",
+		},
+
+		// DECIMAL requires INT32, INT64, BYTE_ARRAY, or FIXED_LEN_BYTE_ARRAY
+		"decimal-int32-valid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_INT32),
+				LogicalType: &parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
+			},
+			"",
+		},
+		"decimal-int64-valid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_INT64),
+				LogicalType: &parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
+			},
+			"",
+		},
+		"decimal-byte-array-valid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
+			},
+			"",
+		},
+		"decimal-fixed-len-byte-array-valid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
+			},
+			"",
+		},
+		"decimal-float-invalid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_FLOAT),
+				LogicalType: &parquet.LogicalType{DECIMAL: &parquet.DecimalType{}},
+			},
+			"LogicalType DECIMAL can only be used with INT32, INT64, BYTE_ARRAY, or FIXED_LEN_BYTE_ARRAY",
+		},
+
+		// GEOMETRY and GEOGRAPHY require BYTE_ARRAY
+		"geometry-byte-array-valid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{GEOMETRY: &parquet.GeometryType{}},
+			},
+			"",
+		},
+		"geometry-int32-invalid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_INT32),
+				LogicalType: &parquet.LogicalType{GEOMETRY: &parquet.GeometryType{}},
+			},
+			"LogicalType GEOMETRY/GEOGRAPHY can only be used with BYTE_ARRAY",
+		},
+		"geography-byte-array-valid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{GEOGRAPHY: &parquet.GeographyType{}},
+			},
+			"",
+		},
+		"geography-fixed-len-byte-array-invalid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{GEOGRAPHY: &parquet.GeographyType{}},
+			},
+			"LogicalType GEOMETRY/GEOGRAPHY can only be used with BYTE_ARRAY",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			err := validateLogicalType(&tc.schema)
 			if tc.errMsg == "" {
 				require.NoError(t, err)
 			} else {
