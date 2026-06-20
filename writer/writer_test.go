@@ -453,3 +453,41 @@ func TestWriterOptionIsOpaque(t *testing.T) {
 	optionType := reflect.TypeOf((*WriterOption)(nil)).Elem()
 	require.NotEqual(t, reflect.Func, optionType.Kind())
 }
+
+func TestParquetWriter_UnknownLogicalType(t *testing.T) {
+	type Row struct {
+		ID      int32  `parquet:"name=id, type=INT32"`
+		NullCol *int32 `parquet:"name=null_col, type=INT32, logicaltype=UNKNOWN, repetitiontype=OPTIONAL"`
+	}
+
+	pw, buf, err := createTestParquetWriter(new(Row), WithNP(1))
+	require.NoError(t, err)
+
+	require.NoError(t, pw.Write(Row{ID: 1, NullCol: nil}))
+	require.NoError(t, pw.Write(Row{ID: 2, NullCol: nil}))
+	require.NoError(t, pw.WriteStop())
+
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(Row), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pf.Close()) }()
+
+	// The footer schema must preserve the UNKNOWN logical type annotation.
+	// Footer schema element names reflect the Go struct field name.
+	var unknownElem *parquet.SchemaElement
+	for _, se := range pr.Footer.Schema {
+		if se.Name == "NullCol" {
+			unknownElem = se
+			break
+		}
+	}
+	require.NotNil(t, unknownElem, "NullCol schema element not found in footer")
+	require.NotNil(t, unknownElem.LogicalType, "null_col must have a LogicalType in the footer")
+	require.NotNil(t, unknownElem.LogicalType.UNKNOWN, "null_col LogicalType must be UNKNOWN")
+
+	// Round-trip: read rows back and confirm all values are nil.
+	rows := make([]Row, int(pr.GetNumRows()))
+	require.NoError(t, pr.Read(&rows))
+	for _, row := range rows {
+		require.Nil(t, row.NullCol)
+	}
+}
