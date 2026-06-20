@@ -157,14 +157,6 @@ func validateLogicalInteger(lt *parquet.LogicalType, pT *parquet.Type) error {
 	return nil
 }
 
-func isDecimalPhysicalType(pT parquet.Type) bool {
-	switch pT {
-	case parquet.Type_INT32, parquet.Type_INT64, parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
-		return true
-	}
-	return false
-}
-
 func validateLogicalBinaryTypes(lt *parquet.LogicalType, pT *parquet.Type) error {
 	if (lt.STRING != nil || lt.JSON != nil || lt.BSON != nil || lt.ENUM != nil) && *pT != parquet.Type_BYTE_ARRAY {
 		return fmt.Errorf("LogicalType STRING/JSON/BSON/ENUM can only be used with BYTE_ARRAY")
@@ -182,10 +174,15 @@ func validateLogicalBinaryTypes(lt *parquet.LogicalType, pT *parquet.Type) error
 }
 
 func validateLogicalDecimal(lt *parquet.LogicalType, pT *parquet.Type) error {
-	if lt.DECIMAL != nil && !isDecimalPhysicalType(*pT) {
+	if lt.DECIMAL == nil {
+		return nil
+	}
+	switch *pT {
+	case parquet.Type_INT32, parquet.Type_INT64, parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		return nil
+	default:
 		return fmt.Errorf("LogicalType DECIMAL can only be used with INT32, INT64, BYTE_ARRAY, or FIXED_LEN_BYTE_ARRAY")
 	}
-	return nil
 }
 
 func validateLogicalDateTimestamp(lt *parquet.LogicalType, pT *parquet.Type) error {
@@ -249,7 +246,9 @@ func validateConvertedType(schema *parquet.SchemaElement) error {
 			return fmt.Errorf("ConvertedType %s can only be used with INT64", ct)
 		}
 	case parquet.ConvertedType_DECIMAL:
-		if !isDecimalPhysicalType(*schema.Type) {
+		switch *schema.Type {
+		case parquet.Type_INT32, parquet.Type_INT64, parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		default:
 			return fmt.Errorf("ConvertedType DECIMAL can only be used with INT32, INT64, BYTE_ARRAY, or FIXED_LEN_BYTE_ARRAY")
 		}
 	case parquet.ConvertedType_INTERVAL:
