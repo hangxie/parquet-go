@@ -38,13 +38,25 @@ func readSubGeomHeader(b []byte, off int, outerBE bool, expectedType uint32) (bo
 	return subBE, off + 4, true
 }
 
+// cappedCap returns min(int(n), remaining) to prevent huge pre-allocations from
+// untrusted count fields when the available bytes can't possibly hold that many elements.
+func cappedCap(n uint32, remaining int) int {
+	if remaining < 0 {
+		remaining = 0
+	}
+	if int(n) > remaining {
+		return remaining
+	}
+	return int(n)
+}
+
 func multiPointToGeoJSON(b []byte, off int, be bool, precision int) (map[string]any, bool) {
 	n, ok := u32(b, off, be)
 	if !ok {
 		return nil, false
 	}
 	off += 4
-	coords := make([][]float64, 0, n)
+	coords := make([][]float64, 0, cappedCap(n, len(b)-off))
 	for i := uint32(0); i < n; i++ {
 		pointBE, newOff, ok := readSubGeomHeader(b, off, be, WKBPoint)
 		if !ok {
@@ -66,7 +78,7 @@ func multiLineStringToGeoJSON(b []byte, off int, be bool, precision int) (map[st
 		return nil, false
 	}
 	off += 4
-	lines := make([][][]float64, 0, n)
+	lines := make([][][]float64, 0, cappedCap(n, len(b)-off))
 	for i := uint32(0); i < n; i++ {
 		lineBE, newOff, ok := readSubGeomHeader(b, off, be, WKBLineString)
 		if !ok {
@@ -88,7 +100,7 @@ func multiPolygonToGeoJSON(b []byte, off int, be bool, precision int) (map[strin
 		return nil, false
 	}
 	off += 4
-	polygons := make([][][][]float64, 0, n)
+	polygons := make([][][][]float64, 0, cappedCap(n, len(b)-off))
 	for i := uint32(0); i < n; i++ {
 		polyBE, newOff, ok := readSubGeomHeader(b, off, be, WKBPolygon)
 		if !ok {
@@ -110,7 +122,7 @@ func geometryCollectionToGeoJSON(b []byte, off int, be bool, precision int) (map
 		return nil, false
 	}
 	off += 4
-	geometries := make([]map[string]any, 0, n)
+	geometries := make([]map[string]any, 0, cappedCap(n, len(b)-off))
 	for i := uint32(0); i < n; i++ {
 		geomSize, ok := calculateWKBSize(b[off:])
 		if !ok {
@@ -232,7 +244,7 @@ func parsePolygon(b []byte, be bool, off, precision int) ([][][]float64, int, bo
 	}
 	off += 4
 
-	rings := make([][][]float64, 0, numRings)
+	rings := make([][][]float64, 0, cappedCap(numRings, len(b)-off))
 	for r := uint32(0); r < numRings; r++ {
 		if off+4 > len(b) {
 			return nil, 0, false
@@ -282,6 +294,9 @@ func calcMultiLineStringSize(b []byte, off int, be bool) (int, bool) {
 			return 0, false
 		}
 		off += 4 + int(linePoints)*16
+		if off > len(b) {
+			return 0, false
+		}
 	}
 	return off, true
 }
@@ -311,6 +326,9 @@ func calcMultiPolygonSize(b []byte, off int, be bool) (int, bool) {
 				return 0, false
 			}
 			off += 4 + int(ringPoints)*16
+			if off > len(b) {
+				return 0, false
+			}
 		}
 	}
 	return off, true
@@ -370,7 +388,11 @@ func calculateWKBSize(b []byte) (int, bool) {
 		if !ok {
 			return 0, false
 		}
-		return off + 4 + int(numPoints)*(1+4+16), true
+		size := off + 4 + int(numPoints)*(1+4+16)
+		if size > len(b) {
+			return 0, false
+		}
+		return size, true
 
 	case WKBMultiLineString:
 		return calcMultiLineStringSize(b, off, be)
