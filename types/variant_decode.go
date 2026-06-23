@@ -39,7 +39,16 @@ func decodeVariantValue(data []byte, meta *variantMetadata) (any, error) {
 		return nil, nil
 	}
 
-	_, val, err := decodeVariantValueAt(data, 0, meta)
+	// Budget limits total decode operations to prevent exponential blowup when
+	// multiple elements share the same offset (e.g. 227-element arrays of same-offset refs).
+	budget := len(data) * 16
+	if budget < 1024 {
+		budget = 1024
+	}
+	if budget > 1_000_000 {
+		budget = 1_000_000
+	}
+	_, val, err := decodeVariantValueAt(data, 0, meta, &budget)
 	if err != nil {
 		return val, fmt.Errorf("decode variant value: %w", err)
 	}
@@ -48,7 +57,12 @@ func decodeVariantValue(data []byte, meta *variantMetadata) (any, error) {
 
 // decodeVariantValueAt decodes a variant value starting at the given offset
 // Returns the number of bytes consumed and the decoded value
-func decodeVariantValueAt(data []byte, offset int, meta *variantMetadata) (int, any, error) {
+func decodeVariantValueAt(data []byte, offset int, meta *variantMetadata, budget *int) (int, any, error) {
+	if *budget <= 0 {
+		return 0, nil, fmt.Errorf("variant decode budget exceeded: too many nested values")
+	}
+	*budget--
+
 	if offset >= len(data) {
 		return 0, nil, fmt.Errorf("variant value offset out of bounds")
 	}
@@ -71,10 +85,10 @@ func decodeVariantValueAt(data []byte, offset int, meta *variantMetadata) (int, 
 		return 1 + length, string(data[offset+1 : offset+1+length]), nil
 
 	case variantBasicTypeObject:
-		return decodeObjectValue(data, offset, valueHeader, meta)
+		return decodeObjectValue(data, offset, valueHeader, meta, budget)
 
 	case variantBasicTypeArray:
-		return decodeArrayValue(data, offset, valueHeader, meta)
+		return decodeArrayValue(data, offset, valueHeader, meta, budget)
 
 	default:
 		return 0, nil, fmt.Errorf("unknown variant basic type: %d", basicType)
@@ -237,7 +251,7 @@ func decodePrimitiveValue(data []byte, offset int, primitiveType uint8) (int, an
 }
 
 // decodeObjectValue decodes a variant object value
-func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variantMetadata) (int, any, error) {
+func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variantMetadata, budget *int) (int, any, error) {
 	// Object header: field_id_size_minus_one (2 bits) | field_offset_size_minus_one (2 bits) | is_large (1 bit) | unused (1 bit)
 	fieldIDSize := int((valueHeader & 0x03) + 1)
 	fieldOffsetSize := int(((valueHeader >> 2) & 0x03) + 1)
@@ -296,7 +310,7 @@ func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variant
 		fieldName := meta.dictionary[fieldID]
 
 		valueOffset := valuesStart + fieldOffsets[i]
-		_, val, err := decodeVariantValueAt(data, valueOffset, meta)
+		_, val, err := decodeVariantValueAt(data, valueOffset, meta, budget)
 		if err != nil {
 			return 0, nil, fmt.Errorf("decode object field %q: %w", fieldName, err)
 		}
@@ -309,7 +323,7 @@ func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variant
 }
 
 // decodeArrayValue decodes a variant array value
-func decodeArrayValue(data []byte, offset int, valueHeader uint8, meta *variantMetadata) (int, any, error) {
+func decodeArrayValue(data []byte, offset int, valueHeader uint8, meta *variantMetadata, budget *int) (int, any, error) {
 	// Array header: element_offset_size_minus_one (2 bits) | is_large (1 bit) | unused (3 bits)
 	elementOffsetSize := int((valueHeader & 0x03) + 1)
 	isLarge := (valueHeader>>2)&1 == 1
@@ -351,7 +365,7 @@ func decodeArrayValue(data []byte, offset int, valueHeader uint8, meta *variantM
 	result := make([]any, numElements)
 	for i := range numElements {
 		valueOffset := valuesStart + elementOffsets[i]
-		_, val, err := decodeVariantValueAt(data, valueOffset, meta)
+		_, val, err := decodeVariantValueAt(data, valueOffset, meta, budget)
 		if err != nil {
 			return 0, nil, fmt.Errorf("decode array element %d: %w", i, err)
 		}
