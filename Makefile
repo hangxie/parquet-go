@@ -30,7 +30,7 @@ LDFLAGS     := -w -s
 .EXPORT_ALL_VARIABLES:
 
 .PHONY: all
-all: deps tools format lint test example  ## Build all common targets
+all: deps tools format lint test fuzz example  ## Build all common targets
 
 .PHONY: format
 format: tools  ## Format all go code
@@ -106,6 +106,13 @@ example: deps  ## Run all examples
 benchmark:  ## Run benchmark
 	@echo "==> Running benchmark"
 	@go test -bench ^Benchmark -run=^$$ -count 1 -benchtime 3x -benchmem ./...
+
+.PHONY: fuzz
+fuzz: deps  ## Run fuzz tests for 30s each (developer target; not in CI)
+	@echo "==> Running fuzz tests"
+	@go test -fuzz=FuzzConvertVariantValue -fuzztime=30s ./types/ 2>&1 | grep -vE "^(fuzz: |PASS$$|ok )"; exit $${PIPESTATUS[0]}
+	@go test -fuzz=FuzzWkbToGeoJSON -fuzztime=30s ./types/ 2>&1 | grep -vE "^(fuzz: |PASS$$|ok )"; exit $${PIPESTATUS[0]}
+	@go test -fuzz=FuzzParseStructFieldTag -fuzztime=30s ./schema/ 2>&1 | grep -vE "^(fuzz: |PASS$$|ok )"; exit $${PIPESTATUS[0]}
 
 .PHONY: help
 help:  ## Print list of Makefile targets
