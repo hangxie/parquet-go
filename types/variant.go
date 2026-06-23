@@ -136,7 +136,7 @@ func decodeVariantMetadata(data []byte) (*variantMetadata, error) {
 	for i := range int(dictSize) {
 		start := int(offsets[i])
 		end := int(offsets[i+1])
-		if pos+end > len(data) {
+		if start > end || pos+end > len(data) {
 			return nil, fmt.Errorf("variant metadata string offset out of bounds")
 		}
 		dictionary[i] = string(data[pos+start : pos+end])

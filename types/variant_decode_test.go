@@ -1032,7 +1032,8 @@ func TestDecodeVariantValueAt_OutOfBounds(t *testing.T) {
 	data := []byte{0x00}
 	meta := &variantMetadata{dictionary: []string{}}
 	// Try to decode at offset beyond data length
-	_, _, err := decodeVariantValueAt(data, 5, meta)
+	budget := 1024
+	_, _, err := decodeVariantValueAt(data, 5, meta, &budget)
 	if err == nil {
 		t.Error("expected error for offset out of bounds")
 	}
