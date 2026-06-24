@@ -48,6 +48,9 @@ func ReadRLE(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, error) 
 	var err error
 	var res []any
 	cnt := header >> 1
+	if err := validateCount(cnt); err != nil {
+		return res, fmt.Errorf("ReadRLE: %w", err)
+	}
 	width := (bitWidth + 7) / 8
 	data := make([]byte, width)
 	if width > 0 {
@@ -90,10 +93,13 @@ func ReadBitPacked(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, e
 // Used when count is known in advance (e.g., deprecated BIT_PACKED encoding).
 // Returns []any containing int64 values.
 func ReadBitPackedCount(bytesReader *bytes.Reader, cnt, bitWidth uint64) ([]any, error) {
-	res := make([]any, 0, cnt)
-	if cnt == 0 {
-		return res, nil
+	if err := validateCount(cnt); err != nil {
+		return nil, fmt.Errorf("ReadBitPackedCount: %w", err)
 	}
+	if cnt == 0 {
+		return []any{}, nil
+	}
+	res := make([]any, 0, cnt)
 	if bitWidth == 0 {
 		for range int(cnt) {
 			res = append(res, int64(0))
@@ -101,8 +107,15 @@ func ReadBitPackedCount(bytesReader *bytes.Reader, cnt, bitWidth uint64) ([]any,
 		return res, nil
 	}
 
-	// Calculate how many bytes we need to read (round up)
+	// Calculate how many bytes we need to read (round up). The packed data must
+	// be present in the reader (a short read zero-fills the tail), so reject
+	// counts that imply far more bytes than remain to avoid huge allocations
+	// from corrupted/malicious input. ReadPlainBOOLEAN over-reads by up to 8x,
+	// so allow that margin before rejecting.
 	byteCnt := (cnt*bitWidth + 7) / 8
+	if remaining := uint64(bytesReader.Len()); byteCnt > remaining*8+8 {
+		return res, fmt.Errorf("ReadBitPackedCount: byte count %d exceeds remaining data size %d", byteCnt, remaining)
+	}
 
 	bytesBuf := make([]byte, byteCnt)
 	if _, err := bytesReader.Read(bytesBuf); err != nil {
