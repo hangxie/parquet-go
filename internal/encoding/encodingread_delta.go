@@ -30,6 +30,15 @@ func ReadDeltaBinaryPackedINT32(bytesReader *bytes.Reader) ([]any, error) {
 
 	fv32 := int32(firstValueZigZag)
 	firstValue := int32(uint32(fv32)>>1) ^ -(fv32 & 1)
+	if numMiniblocksInBlock == 0 {
+		return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: numMiniblocksInBlock is zero")
+	}
+	if err := validateCount(numMiniblocksInBlock); err != nil {
+		return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: %w", err)
+	}
+	if err := validateCount(numValues); err != nil {
+		return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: %w", err)
+	}
 	numValuesInMiniBlock := blockSize / numMiniblocksInBlock
 
 	res = make([]any, 0)
@@ -88,6 +97,15 @@ func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader) ([]any, error) {
 	}
 	firstValue := int64(firstValueZigZag>>1) ^ -(int64(firstValueZigZag) & 1)
 
+	if numMiniblocksInBlock == 0 {
+		return res, fmt.Errorf("ReadDeltaBinaryPackedINT64: numMiniblocksInBlock is zero")
+	}
+	if err := validateCount(numMiniblocksInBlock); err != nil {
+		return res, fmt.Errorf("ReadDeltaBinaryPackedINT64: %w", err)
+	}
+	if err := validateCount(numValues); err != nil {
+		return res, fmt.Errorf("ReadDeltaBinaryPackedINT64: %w", err)
+	}
 	numValuesInMiniBlock := blockSize / numMiniblocksInBlock
 
 	res = make([]any, 0)
@@ -167,12 +185,21 @@ func ReadDeltaByteArray(bytesReader *bytes.Reader) ([]any, error) {
 	if len(prefixLengths) == 0 {
 		return []any{}, nil
 	}
+	// prefixLengths and suffixes are decoded independently; a corrupted stream
+	// can produce mismatched lengths, so require one suffix per prefix length.
+	if len(suffixes) != len(prefixLengths) {
+		return res, fmt.Errorf("ReadDeltaByteArray: suffix count %d does not match prefix count %d", len(suffixes), len(prefixLengths))
+	}
 	res = make([]any, len(prefixLengths))
 
 	res[0] = suffixes[0]
 	for i := 1; i < len(prefixLengths); i++ {
 		prefixLength := prefixLengths[i].(int64)
-		prefix := res[i-1].(string)[:prefixLength]
+		prev := res[i-1].(string)
+		if prefixLength < 0 || prefixLength > int64(len(prev)) {
+			return res, fmt.Errorf("ReadDeltaByteArray: invalid prefix length %d at index %d (previous value length %d)", prefixLength, i, len(prev))
+		}
+		prefix := prev[:prefixLength]
 		suffix := suffixes[i].(string)
 		res[i] = prefix + suffix
 	}
