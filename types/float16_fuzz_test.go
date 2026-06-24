@@ -16,3 +16,19 @@ func FuzzConvertFloat16LogicalValue(f *testing.F) {
 		ConvertFloat16LogicalValue(b)
 	})
 }
+
+func FuzzParseFloat16String(f *testing.F) {
+	f.Add("0")
+	f.Add("-0")
+	f.Add("1.5")
+	f.Add("-65504")
+	f.Add("3.14159e10")
+	f.Add("inf")
+	f.Add("nan")
+	f.Add("")
+	f.Add("notanumber")
+
+	f.Fuzz(func(t *testing.T, s string) {
+		_, _ = ParseFloat16String(s)
+	})
+}
