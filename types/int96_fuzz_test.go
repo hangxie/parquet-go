@@ -12,3 +12,15 @@ func FuzzINT96ToTime(f *testing.F) {
 		_, _ = INT96ToTime(s)
 	})
 }
+
+func FuzzParseINT96String(f *testing.F) {
+	f.Add("")
+	f.Add("2006-01-02T15:04:05Z")
+	f.Add("2006-01-02T15:04:05.999999999Z")
+	f.Add("1970-01-01T00:00:00+00:00")
+	f.Add("not-a-timestamp")
+
+	f.Fuzz(func(t *testing.T, s string) {
+		_, _ = ParseINT96String(s)
+	})
+}
