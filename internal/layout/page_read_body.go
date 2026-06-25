@@ -16,6 +16,9 @@ import (
 
 // readPageV2Data reads a DATA_PAGE_V2 from the reader, decompresses if needed, and reassembles with level prefixes.
 func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet.PageHeader, colMetaData *parquet.ColumnMetaData, c *compress.Compressor, opt PageReadOptions) ([]byte, error) {
+	if pageHeader.DataPageHeaderV2 == nil {
+		return nil, fmt.Errorf("ReadPage: data page v2 missing DataPageHeaderV2")
+	}
 	dll := pageHeader.DataPageHeaderV2.GetDefinitionLevelsByteLength()
 	rll := pageHeader.DataPageHeaderV2.GetRepetitionLevelsByteLength()
 	compressedPageSize := pageHeader.GetCompressedPageSize()
@@ -124,6 +127,9 @@ func readDictionaryPageBody(pageHeader *parquet.PageHeader, buf []byte, path []s
 	if colMetaData.GetType() == parquet.Type_FIXED_LEN_BYTE_ARRAY {
 		bitWidth = int(schemaHandler.SchemaElements[idx].GetTypeLength())
 	}
+	if pageHeader.DictionaryPageHeader == nil {
+		return nil, fmt.Errorf("dictionary page missing DictionaryPageHeader")
+	}
 	var err error
 	table.Values, err = encoding.ReadPlain(bytes.NewReader(buf), colMetaData.GetType(),
 		uint64(pageHeader.DictionaryPageHeader.GetNumValues()), uint64(bitWidth))
@@ -142,9 +148,15 @@ func readDataPageBody(pageHeader *parquet.PageHeader, buf []byte, path []string,
 	var numValues uint64
 	var encodingType parquet.Encoding
 	if pageHeader.GetType() == parquet.PageType_DATA_PAGE {
+		if pageHeader.DataPageHeader == nil {
+			return nil, 0, 0, fmt.Errorf("data page missing DataPageHeader")
+		}
 		numValues = uint64(pageHeader.DataPageHeader.GetNumValues())
 		encodingType = pageHeader.DataPageHeader.GetEncoding()
 	} else {
+		if pageHeader.DataPageHeaderV2 == nil {
+			return nil, 0, 0, fmt.Errorf("data page v2 missing DataPageHeaderV2")
+		}
 		numValues = uint64(pageHeader.DataPageHeaderV2.GetNumValues())
 		encodingType = pageHeader.DataPageHeaderV2.GetEncoding()
 	}

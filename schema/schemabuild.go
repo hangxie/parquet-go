@@ -408,7 +408,9 @@ func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHan
 	var pos int32 = 0
 	stack := make([][2]int32, 0) // stack item[0]: index of schemas; item[1]: numChildren
 	for pos < ln || len(stack) > 0 {
-		if len(stack) == 0 || stack[len(stack)-1][1] > 0 {
+		// pos < ln guards against malformed schemas whose declared child counts
+		// exceed the number of elements, which would otherwise index out of range.
+		if pos < ln && (len(stack) == 0 || stack[len(stack)-1][1] > 0) {
 			if len(stack) > 0 {
 				stack[len(stack)-1][1]--
 			}

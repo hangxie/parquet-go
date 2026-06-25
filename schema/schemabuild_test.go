@@ -9,6 +9,25 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// TestNewSchemaHandlerFromSchemaList_MalformedChildren guards the index-out-of-range
+// panic fuzzing found: a schema whose declared NumChildren exceeds the number of
+// elements must not over-index the element slice during DFS traversal.
+func TestNewSchemaHandlerFromSchemaList_MalformedChildren(t *testing.T) {
+	// Root claims 5 children but only one more element follows.
+	schemas := []*parquet.SchemaElement{
+		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(5)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+		{Name: "col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+	}
+
+	require.NotPanics(t, func() {
+		sh := NewSchemaHandlerFromSchemaList(schemas)
+		require.NotNil(t, sh)
+		// GetTypes/GetType walk the same tree and must also stay in bounds.
+		require.NotPanics(t, func() { _ = sh.GetTypes() })
+		_, _ = sh.GetType(sh.GetRootInName())
+	})
+}
+
 func TestNewSchemaHandlerFromSchemaHandler(t *testing.T) {
 	// Create an original schema using NewSchemaHandlerFromStruct for simplicity
 	originalSchema, err := NewSchemaHandlerFromStruct(new(struct {

@@ -398,7 +398,7 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 			maxVal := uint64(data[len(data)-1].(int64))
 			buf, err := WriteRLEBitPackedHybrid(data, int32(bits.Len64(maxVal)), parquet.Type_INT64)
 			require.NoError(t, err)
-			res, err := ReadRLEBitPackedHybrid(bytes.NewReader(buf), uint64(bits.Len64(maxVal)), 0)
+			res, err := ReadRLEBitPackedHybrid(bytes.NewReader(buf), uint64(bits.Len64(maxVal)), 0, 0)
 			require.NoError(t, err)
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res))
 		}
@@ -409,10 +409,10 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 		data := []byte{0x01, 0x02, 0x03, 0x04}
 		reader := bytes.NewReader(data)
 
-		// This should fail because we don't have enough data
-		_, err := ReadRLEBitPackedHybrid(reader, 1, 1000000)
+		// This should fail because the declared length exceeds the available data.
+		_, err := ReadRLEBitPackedHybrid(reader, 1, 1000000, 0)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "EOF")
+		require.Contains(t, err.Error(), "exceeds remaining data")
 	})
 
 	t.Run("coverage", func(t *testing.T) {
@@ -519,11 +519,10 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				reader := tt.setupData()
 
-				result, err := ReadRLEBitPackedHybrid(reader, tt.bitWidth, tt.length)
+				result, err := ReadRLEBitPackedHybrid(reader, tt.bitWidth, tt.length, 0)
 
 				if tt.expectError {
 					require.Error(t, err)
-					require.Contains(t, err.Error(), "EOF")
 				} else {
 					require.NoError(t, err)
 					require.NotNil(t, result)
@@ -658,8 +657,49 @@ func TestReadDeltaByteArrayWithEmptyPrefixLengths(t *testing.T) {
 func TestReadRLE_OversizedCount(t *testing.T) {
 	// header>>1 = 2^31, which exceeds maxAllowedCount (2^31-1)
 	header := (uint64(maxAllowedCount) + 1) << 1
-	_, err := ReadRLE(bytes.NewReader([]byte{0x00}), header, 1)
+	_, err := ReadRLE(bytes.NewReader([]byte{0x00}), header, 1, 0)
 	require.ErrorContains(t, err, "invalid count")
+}
+
+// TestReadRLE_RunCountExceedsMax guards the allocation amplification fuzzing
+// found: an RLE run header encodes its length in a few bytes, so a corrupt
+// header can claim a run far larger than the page could hold. With maxCount set
+// the run must be rejected rather than allocating a huge slice.
+func TestReadRLE_RunCountExceedsMax(t *testing.T) {
+	header := uint64(1_000_000) << 1 // run of 1,000,000 values
+	_, err := ReadRLE(bytes.NewReader([]byte{0x00}), header, 1, 16)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds expected value count")
+
+	// A run within the expected count still decodes.
+	res, err := ReadRLE(bytes.NewReader([]byte{0x05}), uint64(4)<<1, 1, 16)
+	require.NoError(t, err)
+	require.Len(t, res, 4)
+}
+
+// TestReadRLEBitPackedHybrid_RunCountExceedsMax guards the same amplification at
+// the hybrid level: a single oversized RLE run must not be expanded.
+func TestReadRLEBitPackedHybrid_RunCountExceedsMax(t *testing.T) {
+	// length=2 buffer: RLE header for a 1,000,000 run + one value byte.
+	hdr := WriteUnsignedVarInt(uint64(1_000_000) << 1)
+	buf := append([]byte{byte(len(hdr) + 1), 0, 0, 0}, append(hdr, 0x01)...)
+	_, err := ReadRLEBitPackedHybrid(bytes.NewReader(buf), 1, 0, 16)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds expected value count")
+}
+
+// TestReadRLEBitPackedHybrid_StopsAtMaxCount verifies decoding halts once the
+// caller's expected value count is reached rather than consuming the whole
+// buffer, bounding output for malformed multi-run buffers.
+func TestReadRLEBitPackedHybrid_StopsAtMaxCount(t *testing.T) {
+	// Two RLE runs of 4 values each; ask for only 4.
+	run := append(WriteUnsignedVarInt(uint64(4)<<1), 0x01)
+	body := append(append([]byte{}, run...), run...)
+	buf := append([]byte{byte(len(body)), 0, 0, 0}, body...)
+	res, err := ReadRLEBitPackedHybrid(bytes.NewReader(buf), 1, 0, 4)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(res), 4)
+	require.LessOrEqual(t, len(res), 8) // bounded, not unbounded
 }
 
 // TestReadBitPackedCount_OversizedCount guards the makeslice panic from an

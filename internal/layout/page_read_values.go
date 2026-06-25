@@ -98,7 +98,7 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 		}
 		bitWidth = uint64(b)
 
-		buf, err := encoding.ReadRLEBitPackedHybrid(bytesReader, bitWidth, uint64(bytesReader.Len()))
+		buf, err := encoding.ReadRLEBitPackedHybrid(bytesReader, bitWidth, uint64(bytesReader.Len()), cnt)
 		if err != nil {
 			return res, fmt.Errorf("decode dictionary indices: %w", err)
 		}
@@ -107,7 +107,7 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 		}
 		return buf[:cnt], nil
 	case parquet.Encoding_RLE:
-		values, err := encoding.ReadRLEBitPackedHybrid(bytesReader, bitWidth, 0)
+		values, err := encoding.ReadRLEBitPackedHybrid(bytesReader, bitWidth, 0, cnt)
 		if err != nil {
 			return res, fmt.Errorf("decode RLE values: %w", err)
 		}

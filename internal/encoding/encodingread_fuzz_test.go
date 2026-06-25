@@ -14,8 +14,10 @@ func FuzzReadRLEBitPackedHybrid(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte, bitWidth uint) {
 		// bitWidth is bounded to a realistic range; length tracks the input
-		// size so the decoder consumes only what the fuzzer provided.
-		_, _ = ReadRLEBitPackedHybrid(bytes.NewReader(data), uint64(bitWidth%65), uint64(len(data)))
+		// size so the decoder consumes only what the fuzzer provided, and
+		// maxCount is bounded by the input so a crafted RLE run cannot amplify
+		// a few bytes into a huge allocation.
+		_, _ = ReadRLEBitPackedHybrid(bytes.NewReader(data), uint64(bitWidth%65), uint64(len(data)), uint64(len(data))*8+8)
 	})
 }
 
