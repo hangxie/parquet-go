@@ -652,3 +652,27 @@ func TestReadDeltaByteArrayWithEmptyPrefixLengths(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, res)
 }
+
+// TestReadRLE_OversizedCount guards the makeslice panic fuzzing found when the
+// RLE header encodes a count larger than the int32 maximum.
+func TestReadRLE_OversizedCount(t *testing.T) {
+	// header>>1 = 2^31, which exceeds maxAllowedCount (2^31-1)
+	header := (uint64(maxAllowedCount) + 1) << 1
+	_, err := ReadRLE(bytes.NewReader([]byte{0x00}), header, 1)
+	require.ErrorContains(t, err, "invalid count")
+}
+
+// TestReadBitPackedCount_OversizedCount guards the makeslice panic from an
+// unvalidated bit-packed value count.
+func TestReadBitPackedCount_OversizedCount(t *testing.T) {
+	_, err := ReadBitPackedCount(bytes.NewReader(nil), uint64(maxAllowedCount)+1, 1)
+	require.ErrorContains(t, err, "invalid count")
+}
+
+// TestReadBitPackedCount_ByteCountExceedsRemaining guards the huge allocation
+// fuzzing found when the implied packed-byte count dwarfs the available input.
+func TestReadBitPackedCount_ByteCountExceedsRemaining(t *testing.T) {
+	// cnt=1000 at bitWidth=64 implies 8000 packed bytes, far beyond the 4 provided.
+	_, err := ReadBitPackedCount(bytes.NewReader([]byte{0x00, 0x01, 0x02, 0x03}), 1000, 64)
+	require.ErrorContains(t, err, "exceeds remaining data size")
+}
