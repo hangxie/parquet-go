@@ -130,6 +130,13 @@ func readDictionaryPageBody(pageHeader *parquet.PageHeader, buf []byte, path []s
 	if pageHeader.DictionaryPageHeader == nil {
 		return nil, fmt.Errorf("dictionary page missing DictionaryPageHeader")
 	}
+	// A dictionary cannot hold more entries than the column chunk has values;
+	// reject inflated counts before they drive a huge allocation in ReadPlain.
+	if chunkValues := colMetaData.GetNumValues(); chunkValues > 0 &&
+		int64(pageHeader.DictionaryPageHeader.GetNumValues()) > chunkValues {
+		return nil, fmt.Errorf("dictionary page value count %d exceeds column chunk total %d",
+			pageHeader.DictionaryPageHeader.GetNumValues(), chunkValues)
+	}
 	var err error
 	table.Values, err = encoding.ReadPlain(bytes.NewReader(buf), colMetaData.GetType(),
 		uint64(pageHeader.DictionaryPageHeader.GetNumValues()), uint64(bitWidth))
@@ -159,6 +166,12 @@ func readDataPageBody(pageHeader *parquet.PageHeader, buf []byte, path []string,
 		}
 		numValues = uint64(pageHeader.DataPageHeaderV2.GetNumValues())
 		encodingType = pageHeader.DataPageHeaderV2.GetEncoding()
+	}
+
+	// A page cannot hold more values than its column chunk declares in total;
+	// reject inflated counts before they drive a huge level/value allocation.
+	if chunkValues := colMetaData.GetNumValues(); chunkValues > 0 && numValues > uint64(chunkValues) {
+		return nil, 0, 0, fmt.Errorf("data page value count %d exceeds column chunk total %d", numValues, chunkValues)
 	}
 
 	bytesReader := bytes.NewReader(buf)
