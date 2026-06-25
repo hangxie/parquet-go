@@ -297,6 +297,50 @@ func TestReadDataPageBody_V2Header(t *testing.T) {
 	require.Equal(t, []any{int32(7)}, page.DataTable.Values)
 }
 
+func TestReadDataPageBody_NilDataPageHeader(t *testing.T) {
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+		{Name: "test_col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+	})
+	// Type says DATA_PAGE but DataPageHeader is absent (malformed page).
+	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE}
+	path, name := leafPathName(schemaHandler, "Test_col")
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing DataPageHeader")
+}
+
+func TestReadDataPageBody_NilDataPageHeaderV2(t *testing.T) {
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+		{Name: "test_col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+	})
+	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE_V2}
+	path, name := leafPathName(schemaHandler, "Test_col")
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing DataPageHeaderV2")
+}
+
+func TestReadDictionaryPageBody_NilHeader(t *testing.T) {
+	schemaHandler := &schema.SchemaHandler{
+		SchemaElements: []*parquet.SchemaElement{{Name: "dict_col", Type: common.ToPtr(parquet.Type_INT32)}},
+		MapIndex:       map[string]int32{"dict_col": 0},
+	}
+	// Type says DICTIONARY_PAGE but DictionaryPageHeader is absent.
+	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DICTIONARY_PAGE}
+	_, err := readDictionaryPageBody(pageHeader, []byte{}, []string{"dict_col"}, "dict_col", schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing DictionaryPageHeader")
+}
+
+func TestReadPageV2Data_NilHeader(t *testing.T) {
+	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE_V2}
+	_, err := readPageV2Data(nil, pageHeader, &parquet.ColumnMetaData{}, nil, PageReadOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing DataPageHeaderV2")
+}
+
 func TestReadPageV2Data_CRCFailure(t *testing.T) {
 	data := []byte{0x01, 0x00, 0x00, 0x00}
 	header := &parquet.PageHeader{

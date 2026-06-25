@@ -44,12 +44,20 @@ func ReadUnsignedVarInt(bytesReader *bytes.Reader) (uint64, error) {
 }
 
 // RLE return res is []INT64
-func ReadRLE(bytesReader *bytes.Reader, header, bitWidth uint64) ([]any, error) {
+// ReadRLE decodes a single RLE run. maxCount, when > 0, bounds the run length to
+// the caller's expected value count: an RLE run encodes its length in a few bytes
+// regardless of how many values it represents, so a corrupted/malicious header can
+// otherwise claim a run far larger than the page could legitimately contain,
+// forcing a huge allocation. Pass 0 to disable the bound (trusted input only).
+func ReadRLE(bytesReader *bytes.Reader, header, bitWidth, maxCount uint64) ([]any, error) {
 	var err error
 	var res []any
 	cnt := header >> 1
 	if err := validateCount(cnt); err != nil {
 		return res, fmt.Errorf("ReadRLE: %w", err)
+	}
+	if maxCount > 0 && cnt > maxCount {
+		return res, fmt.Errorf("ReadRLE: run count %d exceeds expected value count %d", cnt, maxCount)
 	}
 	width := (bitWidth + 7) / 8
 	data := make([]byte, width)
@@ -162,7 +170,12 @@ func ReadBitPackedCount(bytesReader *bytes.Reader, cnt, bitWidth uint64) ([]any,
 }
 
 // res is INT64
-func ReadRLEBitPackedHybrid(bytesReader *bytes.Reader, bitWidth, length uint64) ([]any, error) {
+// ReadRLEBitPackedHybrid decodes an RLE/bit-packed hybrid buffer. maxCount, when
+// > 0, is the caller's expected number of values: decoding stops once that many
+// values have been produced and individual RLE runs are bounded to it, which
+// prevents a malformed buffer from amplifying a few bytes into a huge allocation.
+// Pass 0 to disable the bound (trusted input only).
+func ReadRLEBitPackedHybrid(bytesReader *bytes.Reader, bitWidth, length, maxCount uint64) ([]any, error) {
 	res := make([]any, 0)
 	if length <= 0 {
 		lb, err := ReadPlainINT32(bytesReader, 1)
@@ -172,6 +185,13 @@ func ReadRLEBitPackedHybrid(bytesReader *bytes.Reader, bitWidth, length uint64) 
 		length = uint64(lb[0].(int32))
 	}
 
+	// The RLE section must be fully present in the reader; a declared length
+	// larger than what remains is corrupt and would otherwise allocate a buffer
+	// sized by an untrusted field.
+	if remaining := uint64(bytesReader.Len()); length > remaining {
+		return res, fmt.Errorf("ReadRLEBitPackedHybrid: declared length %d exceeds remaining data %d", length, remaining)
+	}
+
 	buf := make([]byte, length)
 	if _, err := bytesReader.Read(buf); err != nil {
 		return res, err
@@ -179,12 +199,15 @@ func ReadRLEBitPackedHybrid(bytesReader *bytes.Reader, bitWidth, length uint64) 
 
 	newReader := bytes.NewReader(buf)
 	for newReader.Len() > 0 {
+		if maxCount > 0 && uint64(len(res)) >= maxCount {
+			break
+		}
 		header, err := ReadUnsignedVarInt(newReader)
 		if err != nil {
 			return res, err
 		}
 		if header&1 == 0 {
-			buf, err := ReadRLE(newReader, header, bitWidth)
+			buf, err := ReadRLE(newReader, header, bitWidth, maxCount)
 			if err != nil {
 				return res, err
 			}
