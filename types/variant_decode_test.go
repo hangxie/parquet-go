@@ -1039,6 +1039,17 @@ func TestDecodeVariantValueAt_OutOfBounds(t *testing.T) {
 	}
 }
 
+func TestDecodeVariantValueAt_BudgetExhausted(t *testing.T) {
+	// The decode budget caps total operations to prevent the CPU exhaustion
+	// fuzzing found with arrays of same-offset references. Once exhausted, any
+	// further decode must error rather than recurse.
+	budget := 0
+	_, _, err := decodeVariantValueAt([]byte{0x00}, 0, &variantMetadata{}, &budget)
+	if err == nil {
+		t.Error("expected error when decode budget is exhausted")
+	}
+}
+
 func TestDecodeObjectValue_TruncatedNumElements(t *testing.T) {
 	// Object header but no num_elements
 	data := []byte{0x02} // object, but no num_elements
