@@ -455,3 +455,68 @@ func TestReadLevelValues_MaxLevel(t *testing.T) {
 	require.Len(t, res, 2)
 	require.Equal(t, int64(1), res[0])
 }
+
+func TestReadLevelValues_DecodeError(t *testing.T) {
+	// maxLevel > 0 with an empty reader cannot decode the RLE level values.
+	bytesReader := bytes.NewReader(nil)
+	_, err := readLevelValues(bytesReader, 1, 2)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode level values")
+}
+
+func TestGetRLDLFromRawData_V2InvalidLevels(t *testing.T) {
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+	})
+
+	page := NewDataPage()
+	page.Header.Type = parquet.PageType_DATA_PAGE_V2
+	page.Header.DataPageHeaderV2 = &parquet.DataPageHeaderV2{
+		NumValues:                  1,
+		DefinitionLevelsByteLength: -1,
+	}
+	page.Path = []string{"parquet_go_root", "col"}
+	page.CompressType = parquet.CompressionCodec_UNCOMPRESSED
+
+	_, _, err := page.GetRLDLFromRawData(schemaHandler)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "extract v2 level buffers")
+}
+
+func TestDecodeDataPageLevels_DefinitionLevelError(t *testing.T) {
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "opt_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+		},
+	})
+
+	page := NewDataPage()
+	page.Header.Type = parquet.PageType_DATA_PAGE
+	page.Header.DataPageHeader = &parquet.DataPageHeader{
+		NumValues: 3,
+		Encoding:  parquet.Encoding_PLAIN,
+	}
+	page.Path = []string{schemaHandler.GetRootInName(), "Opt_col"}
+	page.CompressType = parquet.CompressionCodec_UNCOMPRESSED
+	page.RawData = []byte{} // no definition-level bytes for an OPTIONAL column
+
+	_, _, err := page.GetRLDLFromRawData(schemaHandler)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "definition levels")
+}

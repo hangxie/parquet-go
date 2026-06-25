@@ -169,6 +169,122 @@ func TestScanDictPageValues_RequiredNil(t *testing.T) {
 	require.Contains(t, err.Error(), "nil value encountered for REQUIRED field")
 }
 
+func TestLookupOrInsert_ExistingValue(t *testing.T) {
+	dictRec := NewDictRec(parquet.Type_INT32)
+	idx1 := dictRec.lookupOrInsert(int32(42))
+	idx2 := dictRec.lookupOrInsert(int32(42)) // already present
+	require.Equal(t, idx1, idx2)
+	require.Len(t, dictRec.DictSlice, 1)
+}
+
+func TestScanDictPageValues_OptionalNull(t *testing.T) {
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+		},
+		Values:             []any{int32(1), nil, int32(1)},
+		DefinitionLevels:   []int32{1, 0, 1},
+		MaxDefinitionLevel: 1,
+	}
+	dictRec := NewDictRec(parquet.Type_INT32)
+	funcTable, _ := common.FindFuncTable(common.ToPtr(parquet.Type_INT32), nil, nil)
+
+	res, err := scanDictPageValues(table, dictRec, 0, 1024, false, funcTable)
+	require.NoError(t, err)
+	require.Equal(t, int32(2), res.numValues)
+	require.Equal(t, int64(1), res.nullCount)
+	// The repeated value 1 must reuse the same dictionary index.
+	require.Len(t, dictRec.DictSlice, 1)
+}
+
+func TestTableToDictDataPagesWithOption_EmptyTable(t *testing.T) {
+	table := &Table{
+		Schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
+		Values: []any{},
+	}
+	pages, totalSize, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, 2, PageWriteOption{PageSize: 1024})
+	require.NoError(t, err)
+	require.Empty(t, pages)
+	require.Zero(t, totalSize)
+}
+
+func TestTableToDictDataPagesWithOption_ScanError(t *testing.T) {
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		Values:             []any{nil}, // nil for a REQUIRED field triggers a scan error
+		DefinitionLevels:   []int32{0},
+		MaxDefinitionLevel: 0,
+		Info:               &common.Tag{},
+	}
+	_, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, 2, PageWriteOption{
+		PageSize:     1024,
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "scan dict page values")
+}
+
+func TestDictDataPageCompress_RepetitionLevels(t *testing.T) {
+	page := NewDataPage()
+	page.DataTable = &Table{
+		DefinitionLevels:   []int32{1, 1},
+		RepetitionLevels:   []int32{0, 1},
+		MaxDefinitionLevel: 1,
+		MaxRepetitionLevel: 1,
+	}
+	page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}
+
+	compressedData, err := page.dictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 2, []int32{0, 1}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, compressedData)
+}
+
+func TestDictDataPageCompress_ByteArrayStats(t *testing.T) {
+	page := NewDataPage()
+	page.DataTable = &Table{
+		DefinitionLevels:   []int32{1, 1},
+		RepetitionLevels:   []int32{0, 0},
+		MaxDefinitionLevel: 1,
+	}
+	page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_BYTE_ARRAY)}
+	page.MaxVal = "zzz"
+	page.MinVal = "aaa"
+
+	compressedData, err := page.dictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 1, []int32{0, 1}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, compressedData)
+	// BYTE_ARRAY stats strip the 4-byte length prefix.
+	require.Equal(t, []byte("zzz"), page.Header.DataPageHeader.Statistics.Max)
+	require.Equal(t, []byte("aaa"), page.Header.DataPageHeader.Statistics.Min)
+}
+
+func TestDictDataPageCompress_CompressError(t *testing.T) {
+	page := NewDataPage()
+	page.DataTable = &Table{
+		DefinitionLevels:   []int32{1},
+		RepetitionLevels:   []int32{0},
+		MaxDefinitionLevel: 1,
+	}
+	page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}
+
+	_, err := page.dictDataPageCompress(parquet.CompressionCodec(9999), 1, []int32{0}, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "compress dict data")
+}
+
+func TestDictPageCompress_CompressError(t *testing.T) {
+	page := NewDataPage()
+	page.DataTable = &Table{Values: []any{int32(1)}}
+	page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}
+
+	_, err := page.dictPageCompress(parquet.CompressionCodec(9999), parquet.Type_INT32, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "compress dictionary buffer")
+}
+
 func TestScanDictPageValues_OmitStats(t *testing.T) {
 	table := &Table{
 		Schema: &parquet.SchemaElement{
