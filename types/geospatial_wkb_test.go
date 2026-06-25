@@ -8,6 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCappedCap(t *testing.T) {
+	require.Equal(t, 0, cappedCap(5, -1)) // negative remaining is clamped to 0
+	require.Equal(t, 3, cappedCap(5, 3))  // count exceeds remaining -> remaining
+	require.Equal(t, 5, cappedCap(5, 10)) // count fits -> count
+}
+
 func TestRoundCoordinate(t *testing.T) {
 	tests := []struct {
 		name      string

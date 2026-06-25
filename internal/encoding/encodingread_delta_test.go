@@ -123,6 +123,27 @@ func TestReadDeltaBinaryPackedINT64_ZeroMiniblocks(t *testing.T) {
 	require.ErrorContains(t, err, "numMiniblocksInBlock is zero")
 }
 
+func TestReadDeltaBinaryPackedINT32_TruncatedAfterFirstValue(t *testing.T) {
+	// blockSize=128, numMiniblocks=4, numValues=4, firstValue=0, then EOF before minDelta.
+	_, err := ReadDeltaBinaryPackedINT32(bytes.NewReader([]byte{0x80, 0x01, 0x04, 0x04, 0x00}))
+	require.Error(t, err)
+}
+
+func TestReadDeltaBinaryPackedINT32_TruncatedBeforeBitWidths(t *testing.T) {
+	// header + firstValue + minDelta(0), then EOF before bit widths.
+	_, err := ReadDeltaBinaryPackedINT32(bytes.NewReader([]byte{0x80, 0x01, 0x04, 0x04, 0x00, 0x00}))
+	require.Error(t, err)
+}
+
+func TestReadDeltaByteArray_InvalidPrefixLength(t *testing.T) {
+	// prefix length 100 exceeds the previous value's length, which is invalid.
+	prefixEncoded := WriteDeltaINT64([]any{int64(0), int64(100)})
+	suffixEncoded := WriteDeltaLengthByteArray([]any{"ab", "cd"})
+	_, err := ReadDeltaByteArray(bytes.NewReader(append(prefixEncoded, suffixEncoded...)))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid prefix length")
+}
+
 // TestReadDeltaByteArray_PrefixSuffixMismatch guards the index-out-of-range
 // fuzzing found when the decoded prefix and suffix counts disagree.
 func TestReadDeltaByteArray_PrefixSuffixMismatch(t *testing.T) {
