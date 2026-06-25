@@ -1392,4 +1392,19 @@ func TestGeometryCollectionToGeoJSONInvalidSubGeometryBranches(t *testing.T) {
 	})
 }
 
+// TestWkbToGeoJSON_OversizedCountNoOOM guards the OOM/panic fuzzing found when
+// a WKB element count is far larger than the buffer can hold. These are the
+// regression inputs from FuzzWkbToGeoJSON; each must now fail cleanly.
+func TestWkbToGeoJSON_OversizedCountNoOOM(t *testing.T) {
+	inputs := [][]byte{
+		[]byte("\x00\x00\x00\x00\x04\xca\x00\x00\x00\x00\x00\x00"),
+		[]byte("\x00\x00\x00\x00\x04\x7f\x00\x00\x00\x00\x00\x00"),
+		[]byte("0\xff\xff\x80\x8100000\xff\xff\x80\x8100000\xfc\xff\x80\x810000"),
+	}
+	for i, b := range inputs {
+		_, ok := wkbToGeoJSON(b, 6)
+		require.False(t, ok, "input %d should fail to parse", i)
+	}
+}
+
 // Test edge case where GeometryCollection buffer ends exactly at geometry boundary

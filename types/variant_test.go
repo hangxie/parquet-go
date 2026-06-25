@@ -105,6 +105,17 @@ func TestDecodeVariantMetadata_OffsetOutOfBounds(t *testing.T) {
 	}
 }
 
+func TestDecodeVariantMetadata_StartGreaterThanEnd(t *testing.T) {
+	// Guards the bounds check fuzzing found: a string whose start offset is
+	// greater than its end offset (0x01=version=1/offset_size=1, dict_size=1,
+	// offsets [5, 2]) must error instead of slicing out of range.
+	data := []byte{0x01, 0x01, 0x05, 0x02}
+	_, err := decodeVariantMetadata(data)
+	if err == nil {
+		t.Error("expected error for inverted string offsets")
+	}
+}
+
 func TestDecodeMetadata_TruncatedOffsets(t *testing.T) {
 	// Header + dict_size but not enough offsets
 	// 0x01 = version=1, offset_size=1
