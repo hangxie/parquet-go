@@ -107,3 +107,27 @@ func TestReadDeltaByteArray_TruncatedSuffixes(t *testing.T) {
 	_, err := ReadDeltaByteArray(bytes.NewReader(partial))
 	require.Error(t, err)
 }
+
+// TestReadDeltaBinaryPackedINT32_ZeroMiniblocks guards the divide-by-zero
+// fuzzing found when numMiniblocksInBlock is 0 (blockSize / numMiniblocks).
+func TestReadDeltaBinaryPackedINT32_ZeroMiniblocks(t *testing.T) {
+	// blockSize=128, numMiniblocks=0, numValues=1, firstValue=0
+	input := []byte{0x80, 0x01, 0x00, 0x01, 0x00}
+	_, err := ReadDeltaBinaryPackedINT32(bytes.NewReader(input))
+	require.ErrorContains(t, err, "numMiniblocksInBlock is zero")
+}
+
+func TestReadDeltaBinaryPackedINT64_ZeroMiniblocks(t *testing.T) {
+	input := []byte{0x80, 0x01, 0x00, 0x01, 0x00}
+	_, err := ReadDeltaBinaryPackedINT64(bytes.NewReader(input))
+	require.ErrorContains(t, err, "numMiniblocksInBlock is zero")
+}
+
+// TestReadDeltaByteArray_PrefixSuffixMismatch guards the index-out-of-range
+// fuzzing found when the decoded prefix and suffix counts disagree.
+func TestReadDeltaByteArray_PrefixSuffixMismatch(t *testing.T) {
+	// Regression input discovered by FuzzReadDeltaByteArray; previously panicked.
+	input := []byte("00\x01000\x000")
+	_, err := ReadDeltaByteArray(bytes.NewReader(input))
+	require.Error(t, err)
+}
