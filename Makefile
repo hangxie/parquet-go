@@ -107,12 +107,22 @@ benchmark:  ## Run benchmark
 	@echo "==> Running benchmark"
 	@go test -bench ^Benchmark -run=^$$ -count 1 -benchtime 3x -benchmem ./...
 
+# Per-target fuzz duration. Override for deeper runs, e.g. make fuzz FUZZTIME=120s
+FUZZTIME ?= 10s
+
 .PHONY: fuzz
-fuzz: deps  ## Run fuzz tests for 30s each (developer target; not in CI)
-	@echo "==> Running fuzz tests"
-	@go test -fuzz=FuzzConvertVariantValue -fuzztime=30s ./types/ 2>&1 | grep -vE "^(fuzz: |PASS$$|ok )"; exit $${PIPESTATUS[0]}
-	@go test -fuzz=FuzzWkbToGeoJSON -fuzztime=30s ./types/ 2>&1 | grep -vE "^(fuzz: |PASS$$|ok )"; exit $${PIPESTATUS[0]}
-	@go test -fuzz=FuzzParseStructFieldTag -fuzztime=30s ./schema/ 2>&1 | grep -vE "^(fuzz: |PASS$$|ok )"; exit $${PIPESTATUS[0]}
+fuzz: deps  ## Run every fuzz test for FUZZTIME each (default 10s; developer target, not in CI)
+	@echo "==> Running fuzz tests (FUZZTIME=$(FUZZTIME) each)"
+	@rc=0; \
+	for pkg in $$($(GO) list ./...); do \
+		for fn in $$($(GO) test -list '^Fuzz' $$pkg 2>/dev/null | grep '^Fuzz'); do \
+			echo "--> $$pkg $$fn"; \
+			$(GO) test -run='^$$' -fuzz="^$$fn$$" -fuzztime=$(FUZZTIME) $$pkg 2>&1 | grep -vE "^(fuzz: |PASS$$|ok )"; \
+			s=$${PIPESTATUS[0]}; \
+			if [ $$s -ne 0 ]; then rc=$$s; fi; \
+		done; \
+	done; \
+	exit $$rc
 
 .PHONY: help
 help:  ## Print list of Makefile targets
