@@ -1346,3 +1346,23 @@ func TestReadAllPageHeaders_NilMetadata(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "metadata is nil")
 }
+
+// TestPageBodyDiskSize_NegativeCompressedSize guards the infinite loop fuzzing
+// found in readAllPageHeaders/readFirstDataPageHeader: a negative compressed
+// page size made the offset step non-positive, re-reading the same header
+// forever. pageBodyDiskSize must reject it instead.
+func TestPageBodyDiskSize_NegativeCompressedSize(t *testing.T) {
+	pageHeader := &parquet.PageHeader{
+		Type:               parquet.PageType_DATA_PAGE,
+		CompressedPageSize: -1,
+	}
+	_, err := pageBodyDiskSize(bytes.NewReader(nil), pageHeader, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative compressed page size")
+
+	// A non-negative size is returned as-is.
+	pageHeader.CompressedPageSize = 42
+	size, err := pageBodyDiskSize(bytes.NewReader(nil), pageHeader, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(42), size)
+}

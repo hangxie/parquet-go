@@ -28,6 +28,11 @@ type ColumnBufferType struct {
 
 	ChunkReadValues int64
 
+	// fileSize is the total byte size of the backing file, used as a hard ceiling
+	// on metadata-declared value counts to prevent a corrupt chunk from driving
+	// an unbounded null back-fill.
+	fileSize int64
+
 	DictPage *layout.Page
 
 	DataTable        *layout.Table
@@ -61,6 +66,12 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	if err != nil {
 		return nil, fmt.Errorf("clone file reader: %w", err)
 	}
+	// Capture the file size as a ceiling for metadata-declared counts. NextRowGroup
+	// re-seeks to the column offset before reading, so seeking to the end here is safe.
+	fileSize, err := newPFile.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, fmt.Errorf("determine file size: %w", err)
+	}
 	var opt layout.PageReadOptions
 	if opts != nil {
 		opt = *opts
@@ -72,6 +83,7 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 		PathStr:          pathStr,
 		DataTableNumRows: -1,
 		PageReadOptions:  opt,
+		fileSize:         fileSize,
 	}
 
 	if err := res.NextRowGroup(); err != nil && err != io.EOF {
@@ -101,6 +113,11 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	i := int64(0)
 	ln = int64(len(columnChunks))
 	for i = 0; i < ln; i++ {
+		// A column chunk with no metadata cannot be matched and must be skipped
+		// rather than dereferenced (corrupt footers may omit it).
+		if columnChunks[i] == nil || columnChunks[i].MetaData == nil {
+			continue
+		}
 		path := make([]string, 0)
 		path = append(path, cbt.SchemaHandler.GetRootInName())
 		path = append(path, columnChunks[i].MetaData.GetPathInSchema()...)
@@ -148,6 +165,34 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	return nil
 }
 
+// backfillEmptyChunk synthesizes all-null top-level rows for a column chunk that
+// declares values but yields no readable page data (an EOF on the first read).
+// It rejects a declared count larger than the file size, since a chunk with no
+// page bytes cannot legitimately hold more values than the file contains, which
+// guards against an unbounded allocation from a corrupt count.
+func (cbt *ColumnBufferType) backfillEmptyChunk() error {
+	if cbt.ChunkHeader.MetaData.GetNumValues() > cbt.fileSize {
+		return fmt.Errorf("read page: column chunk value count %d exceeds file size %d",
+			cbt.ChunkHeader.MetaData.GetNumValues(), cbt.fileSize)
+	}
+
+	if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists &&
+		index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
+		cbt.DataTable = layout.NewEmptyTable()
+		cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
+		cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
+	}
+
+	cbt.DataTableNumRows = cbt.ChunkHeader.MetaData.NumValues
+	for cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
+		cbt.DataTable.Values = append(cbt.DataTable.Values, nil)
+		cbt.DataTable.RepetitionLevels = append(cbt.DataTable.RepetitionLevels, int32(0))
+		cbt.DataTable.DefinitionLevels = append(cbt.DataTable.DefinitionLevels, int32(0))
+		cbt.ChunkReadValues++
+	}
+	return nil
+}
+
 func (cbt *ColumnBufferType) ReadPage() error {
 	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
 		if cbt.Reader != nil {
@@ -160,19 +205,8 @@ func (cbt *ColumnBufferType) ReadPage() error {
 			// data is nil and rl/dl=0, no pages in file
 			if err == io.EOF && cbt.DataTable == nil && cbt.SchemaHandler != nil &&
 				cbt.SchemaHandler.MapIndex != nil && cbt.SchemaHandler.SchemaElements != nil {
-				if index, exists := cbt.SchemaHandler.MapIndex[cbt.PathStr]; exists &&
-					index >= 0 && int(index) < len(cbt.SchemaHandler.SchemaElements) {
-					cbt.DataTable = layout.NewEmptyTable()
-					cbt.DataTable.Schema = cbt.SchemaHandler.SchemaElements[index]
-					cbt.DataTable.Path = common.StrToPath(cbt.PathStr)
-				}
-
-				cbt.DataTableNumRows = cbt.ChunkHeader.MetaData.NumValues
-				for cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
-					cbt.DataTable.Values = append(cbt.DataTable.Values, nil)
-					cbt.DataTable.RepetitionLevels = append(cbt.DataTable.RepetitionLevels, int32(0))
-					cbt.DataTable.DefinitionLevels = append(cbt.DataTable.DefinitionLevels, int32(0))
-					cbt.ChunkReadValues++
+				if ferr := cbt.backfillEmptyChunk(); ferr != nil {
+					return ferr
 				}
 			}
 

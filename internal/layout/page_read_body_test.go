@@ -297,6 +297,39 @@ func TestReadDataPageBody_V2Header(t *testing.T) {
 	require.Equal(t, []any{int32(7)}, page.DataTable.Values)
 }
 
+func TestReadDataPageBody_NumValuesExceedsChunk(t *testing.T) {
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+		{Name: "test_col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+	})
+	// Page claims a billion values but the column chunk only has 2 — must be
+	// rejected before allocating, not expanded into a huge slice.
+	pageHeader := &parquet.PageHeader{
+		Type:           parquet.PageType_DATA_PAGE,
+		DataPageHeader: &parquet.DataPageHeader{NumValues: 1 << 30, Encoding: parquet.Encoding_PLAIN},
+	}
+	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32, NumValues: 2}
+	path, name := leafPathName(schemaHandler, "Test_col")
+	_, _, _, err := readDataPageBody(pageHeader, []byte{0x01, 0x00, 0x00, 0x00}, path, name, schemaHandler, colMetaData)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds column chunk total")
+}
+
+func TestReadDictionaryPageBody_NumValuesExceedsChunk(t *testing.T) {
+	schemaHandler := &schema.SchemaHandler{
+		SchemaElements: []*parquet.SchemaElement{{Name: "dict_col", Type: common.ToPtr(parquet.Type_INT32)}},
+		MapIndex:       map[string]int32{"dict_col": 0},
+	}
+	pageHeader := &parquet.PageHeader{
+		Type:                 parquet.PageType_DICTIONARY_PAGE,
+		DictionaryPageHeader: &parquet.DictionaryPageHeader{NumValues: 1 << 30, Encoding: parquet.Encoding_PLAIN},
+	}
+	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32, NumValues: 2}
+	_, err := readDictionaryPageBody(pageHeader, []byte{0x01, 0x00, 0x00, 0x00}, []string{"dict_col"}, "dict_col", schemaHandler, colMetaData)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds column chunk total")
+}
+
 func TestReadDataPageBody_NilDataPageHeader(t *testing.T) {
 	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
 		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},

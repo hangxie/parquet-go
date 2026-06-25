@@ -14,6 +14,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
 )
 
 // Mock ParquetFileReader for testing NewColumnBuffer
@@ -1056,4 +1057,28 @@ func TestReadPageForSkip_RecursiveCall(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "EOF")
 	require.Nil(t, page)
+}
+
+// TestNextRowGroup_NilColumnMetaData guards the nil-pointer panic fuzzing found:
+// a footer row group containing a column chunk with no MetaData must be skipped
+// rather than dereferenced.
+func TestNextRowGroup_NilColumnMetaData(t *testing.T) {
+	sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+		{Name: "col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+	})
+	footer := &parquet.FileMetaData{
+		NumRows: 1,
+		RowGroups: []*parquet.RowGroup{
+			{NumRows: 1, Columns: []*parquet.ColumnChunk{{MetaData: nil}}},
+		},
+	}
+	pf := buffer.NewBufferReaderFromBytesNoAlloc([]byte("PAR1\x00\x00\x00\x00PAR1"))
+
+	require.NotPanics(t, func() {
+		// Unmatched path: the nil-metadata chunk is skipped, yielding a
+		// "column not found" error rather than a panic.
+		_, err := NewColumnBuffer(pf, footer, sh, "Parquet_go_root\x01Missing", nil)
+		require.Error(t, err)
+	})
 }

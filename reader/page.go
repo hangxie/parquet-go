@@ -126,6 +126,9 @@ func readPageHeader(pFile io.ReadSeeker, offset int64, decryptor *layout.PageDec
 // positioned immediately after the body when this returns.
 func pageBodyDiskSize(pFile io.ReadSeeker, pageHeader *parquet.PageHeader, decryptor *layout.PageDecryptor) (int64, error) {
 	if decryptor == nil {
+		if pageHeader.CompressedPageSize < 0 {
+			return 0, fmt.Errorf("negative compressed page size %d", pageHeader.CompressedPageSize)
+		}
 		return int64(pageHeader.CompressedPageSize), nil
 	}
 	var lengthBuf [4]byte
@@ -241,6 +244,11 @@ func readAllPageHeaders(pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk, d
 		if err != nil {
 			return nil, fmt.Errorf("read page body size at offset %d: %w", currentOffset, err)
 		}
+		// Each page must advance the read offset; a non-positive step indicates a
+		// corrupt header and would otherwise loop forever re-reading the same bytes.
+		if headerSize+bodySize <= 0 {
+			return nil, fmt.Errorf("non-advancing page at offset %d (header=%d, body=%d)", currentOffset, headerSize, bodySize)
+		}
 		currentOffset = currentOffset + headerSize + bodySize
 		pageIndex++
 		advancePageOrdinal(decryptor, pageHeader)
@@ -284,6 +292,11 @@ func readFirstDataPageHeader(pFile io.ReadSeeker, columnChunk *parquet.ColumnChu
 		bodySize, err := pageBodyDiskSize(pFile, pageHeader, decryptor)
 		if err != nil {
 			return nil, fmt.Errorf("read page body size at offset %d: %w", offset, err)
+		}
+		// Each page must advance the read offset; a non-positive step indicates a
+		// corrupt header and would otherwise loop forever re-reading the same bytes.
+		if headerSize+bodySize <= 0 {
+			return nil, fmt.Errorf("non-advancing page at offset %d (header=%d, body=%d)", offset, headerSize, bodySize)
 		}
 		offset = offset + headerSize + bodySize
 	}
