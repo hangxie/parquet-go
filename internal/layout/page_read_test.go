@@ -1157,6 +1157,148 @@ func TestReadPageErrorCases(t *testing.T) {
 	}
 }
 
+func bufferedTransportFrom(data ...[]byte) *thrift.TBufferedTransport {
+	mem := thrift.NewTMemoryBuffer()
+	for _, d := range data {
+		mem.Write(d)
+	}
+	return thrift.NewTBufferedTransport(mem, 1024)
+}
+
+func simpleInt32Schema(t *testing.T) (*schema.SchemaHandler, *parquet.ColumnMetaData) {
+	t.Helper()
+	sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "test_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+	})
+	cmd := &parquet.ColumnMetaData{
+		Type:         parquet.Type_INT32,
+		Codec:        parquet.CompressionCodec_UNCOMPRESSED,
+		PathInSchema: []string{"Test_col"},
+	}
+	return sh, cmd
+}
+
+func TestPageDecode_V2NonDictionaryEncoding(t *testing.T) {
+	page := &Page{
+		Header: &parquet.PageHeader{
+			DataPageHeaderV2: &parquet.DataPageHeaderV2{
+				Encoding: parquet.Encoding_PLAIN, // not a dictionary encoding
+			},
+		},
+		DataTable: &Table{Values: []any{int64(0)}},
+	}
+	dictPage := &Page{DataTable: &Table{Values: []any{"unused"}}}
+	page.Decode(dictPage)
+	// Non-dictionary V2 page must be left untouched.
+	require.Equal(t, int64(0), page.DataTable.Values[0])
+}
+
+func TestReadPageRawData_UnsupportedPageType(t *testing.T) {
+	sh, cmd := simpleInt32Schema(t)
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_INDEX_PAGE,
+		CompressedPageSize:   4,
+		UncompressedPageSize: 4,
+	}
+	reader := bufferedTransportFrom(serializePageHeader(t, header), []byte{0, 0, 0, 0})
+	_, err := ReadPageRawData(reader, sh, cmd, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported page type")
+}
+
+func TestReadPageRawData_ReadBodyError(t *testing.T) {
+	sh, cmd := simpleInt32Schema(t)
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE,
+		CompressedPageSize:   16, // declares more than is available
+		UncompressedPageSize: 16,
+		DataPageHeader:       &parquet.DataPageHeader{NumValues: 4, Encoding: parquet.Encoding_PLAIN},
+	}
+	reader := bufferedTransportFrom(serializePageHeader(t, header), []byte{0x01, 0x02})
+	_, err := ReadPageRawData(reader, sh, cmd, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "read page body")
+}
+
+func TestReadPageRawData_CRCFailure(t *testing.T) {
+	sh, cmd := simpleInt32Schema(t)
+	data := []byte{0x01, 0x00, 0x00, 0x00}
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE,
+		CompressedPageSize:   int32(len(data)),
+		UncompressedPageSize: int32(len(data)),
+		Crc:                  common.ToPtr(int32(0x12345678)),
+		DataPageHeader:       &parquet.DataPageHeader{NumValues: 1, Encoding: parquet.Encoding_PLAIN},
+	}
+	reader := bufferedTransportFrom(serializePageHeader(t, header), data)
+	_, err := ReadPageRawData(reader, sh, cmd, &PageReadOptions{CRCMode: common.CRCStrict})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "CRC validation failed")
+}
+
+func TestProcessDataPageV2_UncompressError(t *testing.T) {
+	sh, _ := simpleInt32Schema(t)
+	page := NewDataPage()
+	page.Header = &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   4,
+		UncompressedPageSize: 4,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:    1,
+			Encoding:     parquet.Encoding_PLAIN,
+			IsCompressed: true,
+		},
+	}
+	page.CompressType = parquet.CompressionCodec_SNAPPY
+	page.RawData = []byte{0xFF, 0xFF, 0xFF, 0xFF} // invalid snappy
+	page.Path = []string{"parquet_go_root", "Test_col"}
+	page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}
+	page.DataTable = &Table{Values: make([]any, 1), DefinitionLevels: []int32{0}, RepetitionLevels: []int32{0}}
+
+	err := page.processDataPageV2(sh)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "uncompress data page v2")
+}
+
+func TestReadPage_DictionaryBodyError(t *testing.T) {
+	sh, cmd := simpleInt32Schema(t)
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DICTIONARY_PAGE,
+		CompressedPageSize:   2,
+		UncompressedPageSize: 2,
+		DictionaryPageHeader: &parquet.DictionaryPageHeader{NumValues: 2, Encoding: parquet.Encoding_PLAIN},
+	}
+	// Only 2 bytes for 2 INT32 dictionary values -> decode error.
+	reader := bufferedTransportFrom(serializePageHeader(t, header), []byte{0x01, 0x02})
+	_, _, _, err := ReadPage(reader, sh, cmd, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "dictionary page body")
+}
+
+func TestReadPage_DataBodyError(t *testing.T) {
+	sh, cmd := simpleInt32Schema(t)
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE,
+		CompressedPageSize:   4,
+		UncompressedPageSize: 4,
+		DataPageHeader:       &parquet.DataPageHeader{NumValues: 2, Encoding: parquet.Encoding_PLAIN},
+	}
+	// 2 values requested but only one INT32 of data -> body decode error.
+	reader := bufferedTransportFrom(serializePageHeader(t, header), []byte{0x01, 0x00, 0x00, 0x00})
+	_, _, _, err := ReadPage(reader, sh, cmd, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "data page body")
+}
+
 func TestReadPageHeader(t *testing.T) {
 	testCases := []struct {
 		name      string

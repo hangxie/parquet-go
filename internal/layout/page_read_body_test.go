@@ -8,6 +8,7 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 )
@@ -145,6 +146,13 @@ func TestReadPageV1Data_ReadError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// leafPathName builds the InName path and joined name for a leaf column the same
+// way the page reader does (root InName + capitalized column InName).
+func leafPathName(sh *schema.SchemaHandler, colInName string) ([]string, string) {
+	path := []string{sh.GetRootInName(), colInName}
+	return path, common.PathToStr(path)
+}
+
 func TestReadDictionaryPageBody(t *testing.T) {
 	schemaHandler := &schema.SchemaHandler{
 		SchemaElements: []*parquet.SchemaElement{
@@ -244,9 +252,9 @@ func TestReadDataPageBody_Required(t *testing.T) {
 	}
 	// REQUIRED column has maxDef/maxRep == 0, so no level bytes; just two int32s: 42, 84.
 	buf := []byte{0x2A, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00}
-	path := []string{"parquet_go_root", "test_col"}
+	path, name := leafPathName(schemaHandler, "Test_col")
 
-	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, "parquet_go_root.test_col", schemaHandler, colMetaData)
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), numValues)
 	require.Equal(t, int64(2), numRows)
@@ -280,13 +288,235 @@ func TestReadDataPageBody_V2Header(t *testing.T) {
 		},
 	}
 	buf := []byte{0x07, 0x00, 0x00, 0x00} // int32(7)
-	path := []string{"parquet_go_root", "v2_col"}
+	path, name := leafPathName(schemaHandler, "V2_col")
 
-	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, "parquet_go_root.v2_col", schemaHandler, colMetaData)
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), numValues)
 	require.Equal(t, int64(1), numRows)
 	require.Equal(t, []any{int32(7)}, page.DataTable.Values)
+}
+
+func TestReadPageV2Data_CRCFailure(t *testing.T) {
+	data := []byte{0x01, 0x00, 0x00, 0x00}
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   int32(len(data)),
+		UncompressedPageSize: int32(len(data)),
+		Crc:                  common.ToPtr(int32(0x12345678)), // wrong CRC
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  1,
+			Encoding:                   parquet.Encoding_PLAIN,
+			IsCompressed:               false,
+			DefinitionLevelsByteLength: 0,
+			RepetitionLevelsByteLength: 0,
+		},
+	}
+	colMetaData := &parquet.ColumnMetaData{Codec: parquet.CompressionCodec_UNCOMPRESSED}
+
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write(data)
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	_, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{CRCMode: common.CRCStrict})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "CRC validation failed")
+}
+
+func TestReadPageV2Data_TruncatedDefinitionLevels(t *testing.T) {
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   8,
+		UncompressedPageSize: 8,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  1,
+			Encoding:                   parquet.Encoding_PLAIN,
+			RepetitionLevelsByteLength: 2,
+			DefinitionLevelsByteLength: 2,
+		},
+	}
+	colMetaData := &parquet.ColumnMetaData{Codec: parquet.CompressionCodec_UNCOMPRESSED}
+
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write([]byte{0x01, 0x02}) // only the 2 repetition-level bytes
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	_, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "definition levels")
+}
+
+func TestReadPageV2Data_TruncatedData(t *testing.T) {
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   8,
+		UncompressedPageSize: 8,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  1,
+			Encoding:                   parquet.Encoding_PLAIN,
+			RepetitionLevelsByteLength: 2,
+			DefinitionLevelsByteLength: 2,
+		},
+	}
+	colMetaData := &parquet.ColumnMetaData{Codec: parquet.CompressionCodec_UNCOMPRESSED}
+
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write([]byte{0x01, 0x02, 0x03, 0x04}) // rep+def levels but no data bytes
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	_, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "v2 data")
+}
+
+func TestReadPageV2Data_DecompressError(t *testing.T) {
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize:   4,
+		UncompressedPageSize: 4,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  1,
+			Encoding:                   parquet.Encoding_PLAIN,
+			IsCompressed:               true,
+			RepetitionLevelsByteLength: 0,
+			DefinitionLevelsByteLength: 0,
+		},
+	}
+	colMetaData := &parquet.ColumnMetaData{Codec: parquet.CompressionCodec_SNAPPY}
+
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF}) // not valid snappy data
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	_, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decompress v2 data")
+}
+
+func TestReadPageV1Data_CRCFailure(t *testing.T) {
+	data := []byte("some data")
+	header := &parquet.PageHeader{
+		Type:                 parquet.PageType_DATA_PAGE,
+		CompressedPageSize:   int32(len(data)),
+		UncompressedPageSize: int32(len(data)),
+		Crc:                  common.ToPtr(int32(0x12345678)), // wrong CRC
+		DataPageHeader: &parquet.DataPageHeader{
+			NumValues: 1,
+			Encoding:  parquet.Encoding_PLAIN,
+		},
+	}
+	colMetaData := &parquet.ColumnMetaData{Codec: parquet.CompressionCodec_UNCOMPRESSED}
+
+	mem := thrift.NewTMemoryBuffer()
+	mem.Write(data)
+	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
+
+	_, err := readPageV1Data(thriftReader, header, colMetaData, nil, PageReadOptions{CRCMode: common.CRCStrict})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "CRC validation failed")
+}
+
+func TestReadDataPageBody_WithNulls(t *testing.T) {
+	schemaElements := []*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "opt_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+		},
+	}
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
+
+	pageHeader := &parquet.PageHeader{
+		Type: parquet.PageType_DATA_PAGE,
+		DataPageHeader: &parquet.DataPageHeader{
+			NumValues: 3,
+			Encoding:  parquet.Encoding_PLAIN,
+		},
+	}
+
+	// OPTIONAL column: maxDef=1, maxRep=0. Definition levels [1,0,1] => middle is null.
+	defLevels, err := encoding.WriteRLEBitPackedHybrid([]any{int64(1), int64(0), int64(1)}, 1, parquet.Type_INT64)
+	require.NoError(t, err)
+	values, err := encoding.WritePlainINT32([]any{int32(11), int32(33)})
+	require.NoError(t, err)
+	buf := append(append([]byte(nil), defLevels...), values...)
+	path, name := leafPathName(schemaHandler, "Opt_col")
+
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), numValues)
+	require.Equal(t, int64(3), numRows)
+	require.Equal(t, []any{int32(11), nil, int32(33)}, page.DataTable.Values)
+	require.Equal(t, []int32{1, 0, 1}, page.DataTable.DefinitionLevels)
+}
+
+func TestReadDataPageBody_ConvertedType(t *testing.T) {
+	schemaElements := []*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "ts_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			ConvertedType:  common.ToPtr(parquet.ConvertedType_TIME_MILLIS),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+	}
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
+
+	pageHeader := &parquet.PageHeader{
+		Type: parquet.PageType_DATA_PAGE,
+		DataPageHeader: &parquet.DataPageHeader{
+			NumValues: 2,
+			Encoding:  parquet.Encoding_PLAIN,
+		},
+	}
+	buf := []byte{0x10, 0x27, 0x00, 0x00, 0x20, 0x4E, 0x00, 0x00} // int32 10000, 20000
+	path, name := leafPathName(schemaHandler, "Ts_col")
+
+	page, numValues, _, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), numValues)
+	require.Equal(t, []any{int32(10000), int32(20000)}, page.DataTable.Values)
+}
+
+func TestReadDataPageBody_DefinitionLevelError(t *testing.T) {
+	schemaElements := []*parquet.SchemaElement{
+		{
+			Name:           "parquet_go_root",
+			NumChildren:    common.ToPtr(int32(1)),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+		},
+		{
+			Name:           "opt_col",
+			Type:           common.ToPtr(parquet.Type_INT32),
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+		},
+	}
+	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
+
+	pageHeader := &parquet.PageHeader{
+		Type: parquet.PageType_DATA_PAGE,
+		DataPageHeader: &parquet.DataPageHeader{
+			NumValues: 3,
+			Encoding:  parquet.Encoding_PLAIN,
+		},
+	}
+	// OPTIONAL column needs RLE definition levels, but buffer is empty.
+	path, name := leafPathName(schemaHandler, "Opt_col")
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, colMetaData)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "definition levels")
 }
 
 func TestReadDataPageBody_ValuesError(t *testing.T) {
@@ -314,9 +544,9 @@ func TestReadDataPageBody_ValuesError(t *testing.T) {
 	}
 	// Two values requested but only one int32 worth of bytes.
 	buf := []byte{0x2A, 0x00, 0x00, 0x00}
-	path := []string{"parquet_go_root", "test_col"}
+	path, name := leafPathName(schemaHandler, "Test_col")
 
-	_, _, _, err := readDataPageBody(pageHeader, buf, path, "parquet_go_root.test_col", schemaHandler, colMetaData)
+	_, _, _, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read data page values")
 }
