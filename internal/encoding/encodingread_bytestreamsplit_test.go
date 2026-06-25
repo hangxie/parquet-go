@@ -48,6 +48,43 @@ func TestReadByteStreamSplitINT64_ZeroCount(t *testing.T) {
 	require.Empty(t, res)
 }
 
+func TestReadByteStreamSplitFloat32_RoundTrip(t *testing.T) {
+	data := []any{float32(0), float32(1.5), float32(-2.25), float32(math.MaxFloat32)}
+	encoded := WriteByteStreamSplit(data)
+	res, err := ReadByteStreamSplitFloat32(bytes.NewReader(encoded), uint64(len(data)))
+	require.NoError(t, err)
+	require.Equal(t, data, res)
+}
+
+func TestReadByteStreamSplitFloat64_RoundTrip(t *testing.T) {
+	data := []any{float64(0), float64(1.5), float64(-2.25), float64(math.MaxFloat64)}
+	encoded := WriteByteStreamSplit(data)
+	res, err := ReadByteStreamSplitFloat64(bytes.NewReader(encoded), uint64(len(data)))
+	require.NoError(t, err)
+	require.Equal(t, data, res)
+}
+
+func TestReadByteStreamSplitFloat32_TruncatedData(t *testing.T) {
+	_, err := ReadByteStreamSplitFloat32(bytes.NewReader([]byte{0x01, 0x02, 0x03}), 4)
+	require.Error(t, err)
+}
+
+func TestReadByteStreamSplitFloat64_TruncatedData(t *testing.T) {
+	_, err := ReadByteStreamSplitFloat64(bytes.NewReader([]byte{0x01, 0x02, 0x03, 0x04}), 2)
+	require.Error(t, err)
+}
+
+func TestReadByteStreamSplitFixedLenByteArray_TruncatedData(t *testing.T) {
+	_, err := ReadByteStreamSplitFixedLenByteArray(bytes.NewReader([]byte{0x01, 0x02, 0x03}), 3, 4)
+	require.Error(t, err)
+}
+
+func TestReadByteStreamSplitFixedLenByteArray_ZeroElemSize(t *testing.T) {
+	_, err := ReadByteStreamSplitFixedLenByteArray(bytes.NewReader(nil), 2, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "element size must be > 0")
+}
+
 func TestReadByteStreamSplitFixedLenByteArray_RoundTrip(t *testing.T) {
 	// 3 elements of 4 bytes each
 	data := []any{string([]byte{0x01, 0x02, 0x03, 0x04}), string([]byte{0x05, 0x06, 0x07, 0x08}), string([]byte{0x09, 0x0a, 0x0b, 0x0c})}
