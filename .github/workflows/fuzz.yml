@@ -1,0 +1,41 @@
+name: Fuzz
+
+permissions:
+  contents: read
+
+on:
+  # Nightly deep run; never gates PRs since fuzzing is non-deterministic.
+  schedule:
+    - cron: '0 7 * * *'
+  # Manual run with an optional custom duration per target.
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: Fuzz duration per target (e.g. 60s, 5m)
+        required: false
+        default: 60s
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go.sum
+      - name: Installing Dependencies
+        run: make deps
+      - name: Running fuzz tests
+        run: make fuzz FUZZTIME=${{ github.event.inputs.fuzztime || '60s' }}
+      - name: Upload fuzz findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: '**/testdata/fuzz/**'
+          if-no-files-found: ignore
