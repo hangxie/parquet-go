@@ -252,6 +252,95 @@ func TestParquetReader_Reset_MultipleResets(t *testing.T) {
 	}
 }
 
+type rtInner struct {
+	A int32  `parquet:"name=a, type=INT32"`
+	B string `parquet:"name=b, type=BYTE_ARRAY, convertedtype=UTF8"`
+}
+
+type rtComplexRow struct {
+	ID       int64            `parquet:"name=id, type=INT64, compression=SNAPPY"`
+	Name     string           `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, compression=SNAPPY"`
+	Score    *float64         `parquet:"name=score, type=DOUBLE, repetitiontype=OPTIONAL, compression=SNAPPY"`
+	Flag     bool             `parquet:"name=flag, type=BOOLEAN"`
+	Tags     []string         `parquet:"name=tags, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8, valuecompression=SNAPPY"`
+	Scores   map[string]int32 `parquet:"name=scores, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+	Repeated []int32          `parquet:"name=repeated, type=INT32, repetitiontype=REPEATED"`
+	Nested   rtInner          `parquet:"name=nested, type=STRUCT"`
+	Children []rtInner        `parquet:"name=children, type=LIST, valuetype=STRUCT"`
+}
+
+func roundTripComplexRows(t *testing.T, dataPageVersion int32) []rtComplexRow {
+	t.Helper()
+	score := 9.5
+	in := []rtComplexRow{
+		{
+			ID: 1, Name: "alice", Score: &score, Flag: true,
+			Tags:     []string{"x", "y"},
+			Scores:   map[string]int32{"math": 90},
+			Repeated: []int32{1, 2, 3},
+			Nested:   rtInner{A: 7, B: "inner"},
+			Children: []rtInner{{A: 1, B: "c1"}, {A: 2, B: "c2"}},
+		},
+		{
+			ID: 2, Name: "bob", Score: nil, Flag: false,
+			Tags:     []string{},
+			Scores:   map[string]int32{"sci": 80, "art": 70},
+			Repeated: []int32{},
+			Nested:   rtInner{A: 0, B: ""},
+			Children: []rtInner{},
+		},
+	}
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	opts := []writer.WriterOption{writer.WithNP(1)}
+	if dataPageVersion == 2 {
+		opts = append(opts, writer.WithDataPageVersion(2))
+	}
+	pw, err := writer.NewParquetWriter(fw, new(rtComplexRow), opts...)
+	require.NoError(t, err)
+	for _, r := range in {
+		require.NoError(t, pw.Write(r))
+	}
+	require.NoError(t, pw.WriteStop())
+
+	fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := NewParquetReader(fr, new(rtComplexRow), WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+
+	out := make([]rtComplexRow, len(in))
+	require.NoError(t, pr.Read(&out))
+	return out
+}
+
+func TestRoundTrip_ComplexNested_V1(t *testing.T) {
+	out := roundTripComplexRows(t, 1)
+	require.Len(t, out, 2)
+	require.Equal(t, int64(1), out[0].ID)
+	require.Equal(t, "alice", out[0].Name)
+	require.NotNil(t, out[0].Score)
+	require.InDelta(t, 9.5, *out[0].Score, 1e-9)
+	require.Equal(t, []string{"x", "y"}, out[0].Tags)
+	require.Equal(t, map[string]int32{"math": 90}, out[0].Scores)
+	require.Equal(t, []int32{1, 2, 3}, out[0].Repeated)
+	require.Equal(t, rtInner{A: 7, B: "inner"}, out[0].Nested)
+	require.Equal(t, []rtInner{{A: 1, B: "c1"}, {A: 2, B: "c2"}}, out[0].Children)
+
+	require.Equal(t, "bob", out[1].Name)
+	require.Nil(t, out[1].Score)
+	require.Equal(t, map[string]int32{"sci": 80, "art": 70}, out[1].Scores)
+}
+
+func TestRoundTrip_ComplexNested_V2(t *testing.T) {
+	out := roundTripComplexRows(t, 2)
+	require.Len(t, out, 2)
+	require.Equal(t, "alice", out[0].Name)
+	require.Equal(t, []string{"x", "y"}, out[0].Tags)
+	require.Equal(t, []rtInner{{A: 1, B: "c1"}, {A: 2, B: "c2"}}, out[0].Children)
+	require.Nil(t, out[1].Score)
+}
+
 func TestReadUnknownLogicalType(t *testing.T) {
 	type Row struct {
 		Name    string `parquet:"name=name, type=BYTE_ARRAY, logicaltype=STRING"`
