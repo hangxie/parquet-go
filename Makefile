@@ -30,7 +30,7 @@ LDFLAGS     := -w -s
 .EXPORT_ALL_VARIABLES:
 
 .PHONY: all
-all: deps tools format lint test fuzz example  ## Build all common targets
+all: deps tools format lint test example  ## Build all common targets
 
 .PHONY: format
 format: tools  ## Format all go code
@@ -111,7 +111,7 @@ benchmark:  ## Run benchmark
 FUZZTIME ?= 10s
 
 .PHONY: fuzz
-fuzz: deps  ## Run every fuzz test for FUZZTIME each (default 10s; developer target, not in CI)
+fuzz: deps  ## Run every fuzz test for FUZZTIME each (default 10s; runs nightly in CI)
 	@echo "==> Running fuzz tests (FUZZTIME=$(FUZZTIME) each)"
 	@rc=0; \
 	for pkg in $$($(GO) list ./...); do \
