@@ -376,6 +376,47 @@ func TestSchemaHandler_GetType(t *testing.T) {
 			path:          "Root",
 			expectedError: "OPTIONAL repetition type",
 		},
+		{
+			// reflect.StructOf panics if any StructField.Name is empty. A malformed
+			// Parquet file can carry a schema element with an empty name, which
+			// StringToVariableName converts to "". GetType must return an error
+			// instead of propagating the panic.
+			name: "empty_child_field_name_returns_error_not_panic",
+			setupHandler: func() *SchemaHandler {
+				int32Type := parquet.Type_INT32
+				reqRep := parquet.FieldRepetitionType_REQUIRED
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{
+						{
+							Name:           "root",
+							NumChildren:    common.ToPtr(int32(1)),
+							RepetitionType: &reqRep,
+						},
+						{
+							Name:           "",
+							Type:           &int32Type,
+							RepetitionType: &reqRep,
+							NumChildren:    common.ToPtr(int32(0)),
+						},
+					},
+					Infos: []*common.Tag{
+						{InName: "Root", ExName: "root"},
+						{InName: "", ExName: ""},
+					},
+					MapIndex: map[string]int32{
+						"Root": 0,
+					},
+					InPathToExPath: map[string]string{
+						"Root": "root",
+					},
+					ExPathToInPath: map[string]string{
+						"root": "Root",
+					},
+				}
+			},
+			path:          "Root",
+			expectedError: "empty field name",
+		},
 	}
 
 	for _, tt := range tests {

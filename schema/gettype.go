@@ -212,6 +212,11 @@ func (sh *SchemaHandler) isMapSchema(idx int32, elements [][]int32, cT *parquet.
 func (sh *SchemaHandler) resolveStructType(idx int32, elements [][]int32, elementTypes []reflect.Type, rT *parquet.FieldRepetitionType) reflect.Type {
 	fields := make([]reflect.StructField, 0, len(elements[idx]))
 	for _, ci := range elements[idx] {
+		if sh.Infos[ci].InName == "" {
+			// reflect.StructOf panics on empty field names; signal corrupt schema
+			// via nil so GetType can surface a proper error.
+			return nil
+		}
 		fields = append(fields, reflect.StructField{
 			Name: sh.Infos[ci].InName,
 			Type: typeOrAny(elementTypes[ci]),
@@ -336,5 +341,8 @@ func (sh *SchemaHandler) GetType(prefixPath string) (reflect.Type, error) {
 		toVisit = append(toVisit, children[cur]...)
 	}
 
+	if ts[idx] == nil {
+		return nil, fmt.Errorf("corrupt schema at %s: empty field name", prefixPath)
+	}
 	return ts[idx], nil
 }
