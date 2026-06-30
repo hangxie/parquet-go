@@ -377,6 +377,49 @@ func TestSchemaHandler_GetType(t *testing.T) {
 			expectedError: "OPTIONAL repetition type",
 		},
 		{
+			// reflect.SliceOf(nil) panics when a LIST's Element node resolves to nil
+			// (because that Element is a struct group with an empty-named child).
+			// GetType must return a usable type without panicking, consistent with
+			// how MAP already wraps its key/value types with typeOrAny.
+			name: "list_element_with_empty_named_child_no_panic",
+			setupHandler: func() *SchemaHandler {
+				reqRep := parquet.FieldRepetitionType_REQUIRED
+				repRep := parquet.FieldRepetitionType_REPEATED
+				listCT := parquet.ConvertedType_LIST
+				int32Type := parquet.Type_INT32
+				// root → tags (LIST) → List (REPEATED) → Element (GROUP) → "" (leaf)
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{
+						{Name: "root", NumChildren: common.ToPtr(int32(1)), RepetitionType: &reqRep},
+						{Name: "tags", NumChildren: common.ToPtr(int32(1)), ConvertedType: &listCT, RepetitionType: &reqRep},
+						{Name: "List", NumChildren: common.ToPtr(int32(1)), RepetitionType: &repRep},
+						{Name: "Element", NumChildren: common.ToPtr(int32(1)), RepetitionType: &reqRep},
+						{Name: "", Type: &int32Type, RepetitionType: &reqRep, NumChildren: common.ToPtr(int32(0))},
+					},
+					Infos: []*common.Tag{
+						{InName: "Root", ExName: "root"},
+						{InName: "Tags", ExName: "tags"},
+						{InName: "List", ExName: "list"},
+						{InName: "Element", ExName: "element"},
+						{InName: "", ExName: ""},
+					},
+					MapIndex: map[string]int32{
+						"Root": 0,
+					},
+					InPathToExPath: map[string]string{
+						"Root": "root",
+					},
+					ExPathToInPath: map[string]string{
+						"root": "Root",
+					},
+				}
+			},
+			path: "Root",
+			validateType: func(t *testing.T, resultType reflect.Type) {
+				require.NotNil(t, resultType)
+			},
+		},
+		{
 			// reflect.StructOf panics if any StructField.Name is empty. A malformed
 			// Parquet file can carry a schema element with an empty name, which
 			// StringToVariableName converts to "". GetType must return an error

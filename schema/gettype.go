@@ -237,7 +237,7 @@ func (sh *SchemaHandler) resolveGroupType(idx int32, elements [][]int32, element
 	switch {
 	case sh.isListSchema(idx, elements, cT):
 		cidx := elements[elements[idx][0]][0]
-		return applyRepetition(reflect.SliceOf(elementTypes[cidx]), rT)
+		return applyRepetition(reflect.SliceOf(typeOrAny(elementTypes[cidx])), rT)
 
 	case sh.isMapSchema(idx, elements, cT):
 		kIdx, vIdx := elements[elements[idx][0]][0], elements[elements[idx][0]][1]
