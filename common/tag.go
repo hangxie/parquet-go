@@ -18,6 +18,7 @@ type fieldAttr struct {
 	OmitStats        bool
 	RepetitionType   parquet.FieldRepetitionType
 	CompressionCodec *parquet.CompressionCodec // nil means use file-level compression
+	CompressionLevel *int                      // nil means use codec default level
 	BloomFilter      bool                      // enable bloom filter for this column
 	BloomFilterSize  int32                     // bloom filter size in bytes (0 = default)
 
@@ -87,11 +88,9 @@ func (mp *fieldAttr) update(key, val string) error {
 			return fmt.Errorf("parse encoding: %w", err)
 		}
 	case "compression":
-		codec, err := parquet.CompressionCodecFromString(strings.ToUpper(val))
-		if err != nil {
-			return fmt.Errorf("parse compression: %w", err)
+		if err = mp.parseCompression(val); err != nil {
+			return err
 		}
-		mp.CompressionCodec = &codec
 	default:
 		if strings.HasPrefix(key, "logicaltype") {
 			if mp.logicalTypeFields == nil {
@@ -101,6 +100,23 @@ func (mp *fieldAttr) update(key, val string) error {
 		} else {
 			return fmt.Errorf("unrecognized tag '%v'", key)
 		}
+	}
+	return nil
+}
+
+func (mp *fieldAttr) parseCompression(val string) error {
+	parts := strings.SplitN(val, ":", 2)
+	codec, err := parquet.CompressionCodecFromString(strings.ToUpper(parts[0]))
+	if err != nil {
+		return fmt.Errorf("parse compression: %w", err)
+	}
+	mp.CompressionCodec = &codec
+	if len(parts) == 2 {
+		level, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return fmt.Errorf("parse compression level '%s': %w", parts[1], err)
+		}
+		mp.CompressionLevel = &level
 	}
 	return nil
 }

@@ -454,6 +454,57 @@ func TestWriterOptionIsOpaque(t *testing.T) {
 	require.NotEqual(t, reflect.Func, optionType.Kind())
 }
 
+func TestParquetWriter_PerColumnCompressionLevel(t *testing.T) {
+	t.Parallel()
+
+	type Row struct {
+		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, compression=GZIP:5"`
+		Value int32  `parquet:"name=value, type=INT32, compression=ZSTD:3"`
+	}
+
+	pw, buf, err := createTestParquetWriter(new(Row), WithNP(1))
+	require.NoError(t, err)
+
+	// Column compressors should be populated for columns with explicit levels
+	require.NotNil(t, pw.columnCompressors, "columnCompressors should be built")
+	require.Len(t, pw.columnCompressors, 2)
+
+	want := []Row{
+		{Name: "alice", Value: 1},
+		{Name: "bob", Value: 2},
+	}
+	for _, r := range want {
+		require.NoError(t, pw.Write(r))
+	}
+	require.NoError(t, pw.WriteStop())
+
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(Row), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pf.Close()) }()
+
+	// Verify correct codecs are recorded in the footer
+	require.Equal(t, parquet.CompressionCodec_GZIP, pr.Footer.RowGroups[0].Columns[0].MetaData.GetCodec())
+	require.Equal(t, parquet.CompressionCodec_ZSTD, pr.Footer.RowGroups[0].Columns[1].MetaData.GetCodec())
+
+	// Round-trip validation
+	got := make([]Row, len(want))
+	require.NoError(t, pr.Read(&got))
+	require.Equal(t, want, got)
+}
+
+func TestParquetWriter_PerColumnCompressionLevelInvalidLevel(t *testing.T) {
+	t.Parallel()
+
+	// An invalid compression level (e.g., GZIP level 99) should fail at writer creation
+	type Row struct {
+		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, compression=GZIP:99"`
+	}
+
+	_, _, err := createTestParquetWriter(new(Row), WithNP(1))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "build column compressor")
+}
+
 func TestParquetWriter_UnknownLogicalType(t *testing.T) {
 	type Row struct {
 		ID      int32  `parquet:"name=id, type=INT32"`

@@ -420,6 +420,52 @@ func TestSchemaHandler_GetType(t *testing.T) {
 			},
 		},
 		{
+			name: "path_in_path_map_but_not_in_schema_index",
+			setupHandler: func() *SchemaHandler {
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{},
+					Infos:          []*common.Tag{},
+					MapIndex:       map[string]int32{},
+					InPathToExPath: map[string]string{
+						"MyField": "my_field",
+					},
+					ExPathToInPath: map[string]string{
+						"my_field": "MyField",
+					},
+				}
+			},
+			path:          "MyField",
+			expectedError: "GetType: path not found",
+		},
+		{
+			name: "leaf_with_no_physical_type_is_unsupported",
+			setupHandler: func() *SchemaHandler {
+				return &SchemaHandler{
+					SchemaElements: []*parquet.SchemaElement{
+						{
+							Name:           "root",
+							NumChildren:    common.ToPtr(int32(1)),
+							RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+						},
+						{
+							Name:        "unknown_leaf",
+							Type:        nil, // no physical type → resolves to interface{}
+							NumChildren: common.ToPtr(int32(0)),
+						},
+					},
+					Infos: []*common.Tag{
+						{InName: "Root", ExName: "root"},
+						{InName: "Unknown_leaf", ExName: "unknown_leaf"},
+					},
+					MapIndex:       map[string]int32{"Root": 0},
+					InPathToExPath: map[string]string{"Root": "root"},
+					ExPathToInPath: map[string]string{"root": "Root"},
+				}
+			},
+			path:          "Root",
+			expectedError: "corrupt or unsupported schema",
+		},
+		{
 			// reflect.StructOf panics if any StructField.Name is empty. A malformed
 			// Parquet file can carry a schema element with an empty name, which
 			// StringToVariableName converts to "". GetType must return an error
@@ -1122,6 +1168,27 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			},
 			expectedCount: 2, // root and field1
 		},
+		{
+			name: "variant_group_resolves_to_interface",
+			setupHandler: func() *SchemaHandler {
+				type testStruct struct {
+					V any `parquet:"name=v, type=VARIANT, logicaltype=VARIANT"`
+				}
+				sh, err := NewSchemaHandlerFromStruct(new(testStruct))
+				if err != nil {
+					panic(err)
+				}
+				return sh
+			},
+			expectedCount: 4, // root, V group, Metadata, Value
+			validateTypes: func(t *testing.T, types []reflect.Type) {
+				// VARIANT group resolves to interface{} via resolveGroupType
+				require.Equal(t, reflect.Interface, types[1].Kind())
+				// BYTE_ARRAY leaves resolve to string
+				require.Equal(t, reflect.String, types[2].Kind())
+				require.Equal(t, reflect.String, types[3].Kind())
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1659,6 +1726,32 @@ func TestShreddedVariantSchema(t *testing.T) {
 		info := sh.getVariantSchemaInfo(idx, children)
 		require.NotNil(t, info)
 		require.Len(t, info.TypedValueIdxs, 0, "REQUIRED typed_value should not be included")
+	})
+
+	t.Run("non_standard_optional_field_treated_as_shredded", func(t *testing.T) {
+		// A child that is not Metadata/Value/Typed_value but is OPTIONAL
+		// hits the else branch in getVariantSchemaInfo.
+		requiredRep := parquet.FieldRepetitionType_REQUIRED
+		optionalRep := parquet.FieldRepetitionType_OPTIONAL
+		byteArrayType := parquet.Type_BYTE_ARRAY
+		int32Type := parquet.Type_INT32
+		variantLT := parquet.NewLogicalType()
+		variantLT.VARIANT = parquet.NewVariantType()
+
+		schemas := []*parquet.SchemaElement{
+			{Name: "Root", NumChildren: ptr(int32(1))},
+			{Name: "V", NumChildren: ptr(int32(3)), RepetitionType: &requiredRep, LogicalType: variantLT},
+			{Name: "Metadata", Type: &byteArrayType, RepetitionType: &requiredRep},
+			{Name: "Value", Type: &byteArrayType, RepetitionType: &requiredRep},
+			{Name: "custom_shard", Type: &int32Type, RepetitionType: &optionalRep},
+		}
+		sh := NewSchemaHandlerFromSchemaList(schemas)
+		sh.childrenMap = sh.buildChildrenMap()
+
+		info := sh.getVariantSchemaInfo(1, sh.childrenMap[1])
+		require.NotNil(t, info)
+		require.True(t, info.IsShredded)
+		require.Len(t, info.TypedValueIdxs, 1)
 	})
 }
 

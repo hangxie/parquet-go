@@ -17,6 +17,12 @@ import (
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
+// columnCompressorKey uniquely identifies a (codec, level) combination for sharing compressor instances.
+type columnCompressorKey struct {
+	codec parquet.CompressionCodec
+	level int
+}
+
 // WriterOption configures a ParquetWriter when passed to constructors such as
 // NewParquetWriter. WriterOption values are opaque; callers should not use them
 // to mutate an already-created writer.
@@ -84,6 +90,7 @@ type ParquetWriter struct {
 	compressionType   parquet.CompressionCodec
 	compressionLevels map[parquet.CompressionCodec]int
 	compressor        *compress.Compressor
+	columnCompressors map[string]*compress.Compressor
 	dataPageVersion   int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
 	writeCRC          bool  // compute and write CRC32 checksums on pages (default false)
 	encryptionConfig  *EncryptionConfig
@@ -213,6 +220,47 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	return nil
 }
 
+// buildColumnCompressors creates per-column compressors for columns that specify
+// an explicit compression level in their tag (e.g. compression=ZSTD:3).
+// Columns sharing the same (codec, level) pair reuse the same compressor instance.
+func (pw *ParquetWriter) buildColumnCompressors() error {
+	pw.columnCompressors = nil
+	if pw.SchemaHandler == nil {
+		return nil
+	}
+
+	shared := make(map[columnCompressorKey]*compress.Compressor)
+	for name, idx := range pw.SchemaHandler.MapIndex {
+		info := pw.SchemaHandler.Infos[idx]
+		if info == nil || info.CompressionCodec == nil || info.CompressionLevel == nil {
+			continue
+		}
+		k := columnCompressorKey{*info.CompressionCodec, *info.CompressionLevel}
+		if _, exists := shared[k]; !exists {
+			c, err := compress.NewCompressor(compress.WithCompressionLevel(k.codec, k.level))
+			if err != nil {
+				return fmt.Errorf("build column compressor for %s level %d: %w", k.codec, k.level, err)
+			}
+			shared[k] = c
+		}
+		if pw.columnCompressors == nil {
+			pw.columnCompressors = make(map[string]*compress.Compressor)
+		}
+		k2 := columnCompressorKey{*info.CompressionCodec, *info.CompressionLevel}
+		pw.columnCompressors[name] = shared[k2]
+	}
+	return nil
+}
+
+func (pw *ParquetWriter) compressorForColumn(name string) *compress.Compressor {
+	if pw.columnCompressors != nil {
+		if c, ok := pw.columnCompressors[name]; ok {
+			return c
+		}
+	}
+	return pw.compressor
+}
+
 func formatOptionErrors(errs []error) string {
 	parts := make([]string, 0, len(errs))
 	for _, err := range errs {
@@ -252,6 +300,9 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOpt
 		}
 	}
 
+	if err := res.buildColumnCompressors(); err != nil {
+		return nil, fmt.Errorf("build column compressors: %w", err)
+	}
 	if err := res.initBloomFilters(); err != nil {
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
@@ -272,6 +323,9 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	}
 	pw.Footer.Schema = pw.Footer.Schema[:0]
 	pw.Footer.Schema = append(pw.Footer.Schema, pw.SchemaHandler.SchemaElements...)
+	if err := pw.buildColumnCompressors(); err != nil {
+		return fmt.Errorf("build column compressors: %w", err)
+	}
 	if err := pw.initBloomFilters(); err != nil {
 		return fmt.Errorf("init bloom filters: %w", err)
 	}

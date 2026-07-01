@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/hangxie/parquet-go/v3/internal/compress"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
@@ -15,7 +16,7 @@ func (pw *ParquetWriter) tableCompressionCodec(table *layout.Table) parquet.Comp
 	return pw.compressionType
 }
 
-func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, compressionType parquet.CompressionCodec, convMu *sync.Mutex) ([]*layout.Page, error) {
+func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, compressionType parquet.CompressionCodec, compressor *compress.Compressor, convMu *sync.Mutex) ([]*layout.Page, error) {
 	var dictRec *layout.DictRecType
 	if v, ok := pw.DictRecs.Load(name); ok {
 		dictRec = v.(*layout.DictRecType)
@@ -30,7 +31,7 @@ func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, comp
 		PageSize:     int32(pw.pageSize),
 		CompressType: compressionType,
 		WriteCRC:     pw.writeCRC,
-		Compressor:   pw.compressor,
+		Compressor:   compressor,
 	})
 	convMu.Unlock()
 	if err != nil {
@@ -39,13 +40,13 @@ func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, comp
 	return pages, nil
 }
 
-func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType parquet.CompressionCodec) ([]*layout.Page, error) {
+func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType parquet.CompressionCodec, compressor *compress.Compressor) ([]*layout.Page, error) {
 	pages, _, err := layout.TableToDataPagesWithOption(table, layout.PageWriteOption{
 		PageSize:        int32(pw.pageSize),
 		CompressType:    compressionType,
 		DataPageVersion: pw.dataPageVersion,
 		WriteCRC:        pw.writeCRC,
-		Compressor:      pw.compressor,
+		Compressor:      compressor,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build data pages: %w", err)
@@ -55,11 +56,12 @@ func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType 
 
 func (pw *ParquetWriter) convertTableToPages(name string, table *layout.Table, convMu *sync.Mutex) ([]*layout.Page, error) {
 	compressionType := pw.tableCompressionCodec(table)
+	compressor := pw.compressorForColumn(name)
 	if table.Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY ||
 		table.Info.Encoding == parquet.Encoding_RLE_DICTIONARY {
-		return pw.tableToDictPages(name, table, compressionType, convMu)
+		return pw.tableToDictPages(name, table, compressionType, compressor, convMu)
 	}
-	return pw.tableToPlainPages(table, compressionType)
+	return pw.tableToPlainPages(table, compressionType, compressor)
 }
 
 func (pw *ParquetWriter) mergePageResults(pagesMapList []map[string][]*layout.Page) {

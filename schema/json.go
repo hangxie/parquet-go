@@ -169,6 +169,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			metadataInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
 			metadataInfo.Encoding = info.Encoding
 			metadataInfo.CompressionCodec = info.CompressionCodec
+			metadataInfo.CompressionLevel = info.CompressionLevel
 			infos = append(infos, metadataInfo)
 
 			// Add value child (required binary)
@@ -184,6 +185,7 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			valueInfo.RepetitionType = parquet.FieldRepetitionType_REQUIRED
 			valueInfo.Encoding = info.Encoding
 			valueInfo.CompressionCodec = info.CompressionCodec
+			valueInfo.CompressionLevel = info.CompressionLevel
 			infos = append(infos, valueInfo)
 		default: // normal variable
 			schema, err := common.NewSchemaElementFromTagMap(info)

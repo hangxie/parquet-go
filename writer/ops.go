@@ -160,6 +160,7 @@ func (pw *ParquetWriter) buildChunkMap() (map[string]*layout.Chunk, error) {
 				PageSize:     int32(pw.pageSize),
 				CompressType: compressionType,
 				WriteCRC:     pw.writeCRC,
+				Compressor:   pw.compressorForColumn(name),
 			})
 			if err != nil {
 				return nil, fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)
