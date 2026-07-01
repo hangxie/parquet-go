@@ -71,6 +71,24 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			errorContains: "MAP needs exactly 2 fields",
 		},
 		{
+			name: "valid_map_schema",
+			jsonSchema: `
+			{
+			  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
+			  "Fields": [
+				{
+				  "Tag": "name=scores, type=MAP, repetitiontype=REQUIRED",
+				  "Fields": [
+					{"Tag": "name=key, type=BYTE_ARRAY, repetitiontype=REQUIRED"},
+					{"Tag": "name=value, type=INT32, repetitiontype=REQUIRED"}
+				  ]
+				}
+			  ]
+			}
+			`,
+			expectedElems: func() *int { e := 5; return &e }(),
+		},
+		{
 			name: "group_invalid_convertedtype",
 			jsonSchema: `
 			{
@@ -152,6 +170,18 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 			`,
 			expectedElems: func() *int { e := 4; return &e }(),
 		},
+		{
+			name: "variant_with_compression_level",
+			jsonSchema: `
+			{
+			  "Tag": "name=parquet-go-root, repetitiontype=REQUIRED",
+			  "Fields": [
+				{"Tag": "name=data, type=VARIANT, compression=ZSTD:3, repetitiontype=REQUIRED"}
+			  ]
+			}
+			`,
+			expectedElems: func() *int { e := 4; return &e }(),
+		},
 	}
 
 	for _, tt := range tests {
@@ -183,6 +213,18 @@ func TestNewSchemaHandlerFromJSON(t *testing.T) {
 				require.Equal(t, "PLAIN", handler.Infos[3].Encoding.String())
 				require.NotNil(t, handler.Infos[3].CompressionCodec)
 				require.Equal(t, "GZIP", handler.Infos[3].CompressionCodec.String())
+			}
+
+			if tt.name == "variant_with_compression_level" {
+				require.Equal(t, 4, len(handler.SchemaElements))
+				require.NotNil(t, handler.Infos[2].CompressionCodec)
+				require.Equal(t, "ZSTD", handler.Infos[2].CompressionCodec.String())
+				require.NotNil(t, handler.Infos[2].CompressionLevel)
+				require.Equal(t, 3, *handler.Infos[2].CompressionLevel)
+				require.NotNil(t, handler.Infos[3].CompressionCodec)
+				require.Equal(t, "ZSTD", handler.Infos[3].CompressionCodec.String())
+				require.NotNil(t, handler.Infos[3].CompressionLevel)
+				require.Equal(t, 3, *handler.Infos[3].CompressionLevel)
 			}
 		})
 	}
