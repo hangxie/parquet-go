@@ -22,7 +22,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.26
 	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.11.1
-	go.mongodb.org/mongo-driver/v2 v2.6.0
+	go.mongodb.org/mongo-driver/v2 v2.7.0
 	gocloud.dev v0.45.0
 	golang.org/x/sync v0.19.0
 	google.golang.org/api v0.267.0
