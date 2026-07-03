@@ -22,11 +22,11 @@ func (pr *ParquetReader) detectBloomFilters() {
 	}
 
 	for columnOrdinal, cc := range rg.Columns {
-		if cc.MetaData == nil || !cc.MetaData.IsSetBloomFilterOffset() {
+		if cc == nil || cc.MetaData == nil || !cc.MetaData.IsSetBloomFilterOffset() {
 			continue
 		}
 
-		pathStr := common.PathToStr(append([]string{pr.SchemaHandler.GetRootInName()}, cc.MetaData.GetPathInSchema()...))
+		pathStr := columnPathToInPath(pr.SchemaHandler, cc.MetaData.GetPathInSchema(), pr.caseInsensitive)
 		if index, ok := pr.SchemaHandler.MapIndex[pathStr]; ok {
 			pr.SchemaHandler.Infos[index].BloomFilter = true
 			// Read the bloom filter header from the file to get the actual bitset size.
@@ -72,7 +72,10 @@ func (pr *ParquetReader) BloomFilterCheck(columnPath string, rowGroupIndex int, 
 	var columnType parquet.Type
 	columnOrdinal := int16(0)
 	for i, cc := range rg.Columns {
-		ccPath := common.PathToStr(append([]string{pr.SchemaHandler.GetRootInName()}, cc.MetaData.GetPathInSchema()...))
+		if cc == nil || cc.MetaData == nil {
+			continue
+		}
+		ccPath := columnPathToInPath(pr.SchemaHandler, cc.MetaData.GetPathInSchema(), pr.caseInsensitive)
 		if ccPath == inPath {
 			columnChunk = cc
 			columnOrdinal = int16(i)

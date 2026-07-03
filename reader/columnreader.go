@@ -28,7 +28,6 @@ func NewParquetColumnReader(pFile source.ParquetFileReader, opts ...ReaderOption
 	if err := res.validateColumnKeyPaths(); err != nil {
 		return res, err
 	}
-	res.RenameSchema()
 
 	return res, nil
 }

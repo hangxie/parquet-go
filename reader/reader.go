@@ -104,7 +104,6 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOpt
 	if err = res.validateColumnKeyPaths(); err != nil {
 		return res, err
 	}
-	res.RenameSchema()
 	for i := range len(res.SchemaHandler.SchemaElements) {
 		schema := res.SchemaHandler.SchemaElements[i]
 		if schema == nil {
@@ -112,12 +111,8 @@ func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOpt
 		}
 		if schema.GetNumChildren() == 0 {
 			if pathStr, exists := res.SchemaHandler.IndexMap[int32(i)]; exists {
-				if res.ColumnBuffers[pathStr], err = NewColumnBuffer(pFile, res.Footer, res.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: res.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+				if res.ColumnBuffers[pathStr], err = res.newColumnBuffer(pathStr); err != nil {
 					return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
-				}
-				res.ColumnBuffers[pathStr].Reader = res
-				if err := res.reconfigureOptionalDecryptorForBuffer(res.ColumnBuffers[pathStr]); err != nil {
-					return res, fmt.Errorf("configure page decryptor for %s: %w", pathStr, err)
 				}
 			}
 		}
@@ -138,17 +133,12 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 		return err
 	}
 
-	pr.RenameSchema()
 	for i := range len(pr.SchemaHandler.SchemaElements) {
 		schemaElement := pr.SchemaHandler.SchemaElements[i]
 		if schemaElement.GetNumChildren() == 0 {
 			pathStr := pr.SchemaHandler.IndexMap[int32(i)]
-			if pr.ColumnBuffers[pathStr], err = NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}); err != nil {
+			if pr.ColumnBuffers[pathStr], err = pr.newColumnBuffer(pathStr); err != nil {
 				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
-			}
-			pr.ColumnBuffers[pathStr].Reader = pr
-			if err := pr.reconfigureOptionalDecryptorForBuffer(pr.ColumnBuffers[pathStr]); err != nil {
-				return fmt.Errorf("configure page decryptor for %s: %w", pathStr, err)
 			}
 		}
 	}
@@ -157,7 +147,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 }
 
 func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, error) {
-	cb, err := NewColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
+	cb, err := newColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}, pr.caseInsensitive)
 	if err != nil {
 		return nil, fmt.Errorf("new column buffer for %s: %w", pathStr, err)
 	}
@@ -167,55 +157,6 @@ func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, err
 		return nil, fmt.Errorf("configure decryptor for %s: %w", pathStr, err)
 	}
 	return cb, nil
-}
-
-// Rename schema name to inname
-func (pr *ParquetReader) RenameSchema() {
-	if pr.SchemaHandler == nil || pr.SchemaHandler.Infos == nil || pr.Footer == nil || pr.Footer.Schema == nil {
-		return
-	}
-
-	for i := range len(pr.SchemaHandler.Infos) {
-		if i < len(pr.Footer.Schema) && pr.Footer.Schema[i] != nil && pr.SchemaHandler.Infos[i] != nil {
-			pr.Footer.Schema[i].Name = pr.SchemaHandler.Infos[i].InName
-		}
-	}
-
-	exPathToInPath := make(map[string]string)
-	if pr.caseInsensitive {
-		for exPath, inPath := range pr.SchemaHandler.ExPathToInPath {
-			lowerCaseKey := strings.ToLower(exPath)
-			exPathToInPath[lowerCaseKey] = inPath
-		}
-	} else {
-		exPathToInPath = pr.SchemaHandler.ExPathToInPath
-	}
-
-	if pr.Footer.RowGroups == nil {
-		return
-	}
-
-	for _, rowGroup := range pr.Footer.RowGroups {
-		if rowGroup == nil || rowGroup.Columns == nil {
-			continue
-		}
-		for _, chunk := range rowGroup.Columns {
-			if chunk == nil || chunk.MetaData == nil {
-				continue
-			}
-			exPath := append([]string{pr.SchemaHandler.GetRootExName()}, chunk.MetaData.GetPathInSchema()...)
-			exPathStr := common.PathToStr(exPath)
-
-			if pr.caseInsensitive {
-				exPathStr = strings.ToLower(exPathStr)
-			}
-
-			if inPathStr, exists := exPathToInPath[exPathStr]; exists {
-				inPath := common.StrToPath(inPathStr)[1:]
-				chunk.MetaData.PathInSchema = inPath
-			}
-		}
-	}
 }
 
 func (pr *ParquetReader) GetNumRows() int64 {

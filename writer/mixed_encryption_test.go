@@ -199,13 +199,13 @@ func TestMixedEncryptedFooterMetadata(t *testing.T) {
 		cols[leaf] = c
 	}
 
-	require.Nil(t, cols["ID"].CryptoMetadata)
-	require.Empty(t, cols["ID"].EncryptedColumnMetadata)
-	require.Nil(t, cols["Score"].CryptoMetadata)
-	require.Empty(t, cols["Score"].EncryptedColumnMetadata)
+	require.Nil(t, cols["id"].CryptoMetadata)
+	require.Empty(t, cols["id"].EncryptedColumnMetadata)
+	require.Nil(t, cols["score"].CryptoMetadata)
+	require.Empty(t, cols["score"].EncryptedColumnMetadata)
 
-	require.NotNil(t, cols["Name"].CryptoMetadata)
-	require.True(t, cols["Name"].CryptoMetadata.IsSetENCRYPTION_WITH_COLUMN_KEY())
+	require.NotNil(t, cols["name"].CryptoMetadata)
+	require.True(t, cols["name"].CryptoMetadata.IsSetENCRYPTION_WITH_COLUMN_KEY())
 }
 
 // TestMixedEncryptedFooterPartialRead verifies that reading without the
@@ -326,10 +326,10 @@ func TestMixedFooterKeyColumn(t *testing.T) {
 	for _, c := range rg.Columns {
 		cols[c.MetaData.PathInSchema[len(c.MetaData.PathInSchema)-1]] = c
 	}
-	require.NotNil(t, cols["Name"].CryptoMetadata)
-	require.True(t, cols["Name"].CryptoMetadata.IsSetENCRYPTION_WITH_FOOTER_KEY())
-	require.Nil(t, cols["ID"].CryptoMetadata)
-	require.Nil(t, cols["Score"].CryptoMetadata)
+	require.NotNil(t, cols["name"].CryptoMetadata)
+	require.True(t, cols["name"].CryptoMetadata.IsSetENCRYPTION_WITH_FOOTER_KEY())
+	require.Nil(t, cols["id"].CryptoMetadata)
+	require.Nil(t, cols["score"].CryptoMetadata)
 }
 
 // TestMixedPlaintextFooterRoundTrip covers a plaintext footer with
@@ -397,8 +397,8 @@ func TestMixedPlaintextFooterMetadataStripping(t *testing.T) {
 	}
 
 	// Plaintext columns keep their statistics.
-	require.NotNil(t, cols["ID"].MetaData.Statistics)
-	require.NotNil(t, cols["Score"].MetaData.Statistics)
+	require.NotNil(t, cols["id"].MetaData.Statistics)
+	require.NotNil(t, cols["score"].MetaData.Statistics)
 
 	// The encrypted column-key column had its statistics stripped from
 	// the plaintext copy. The reader rehydrates them from
@@ -474,7 +474,7 @@ func TestMixedPlaintextPageRawVerification(t *testing.T) {
 		cols[c.MetaData.PathInSchema[len(c.MetaData.PathInSchema)-1]] = c
 	}
 
-	categoryCol := cols["Category"]
+	categoryCol := cols["category"]
 	require.Nil(t, categoryCol.CryptoMetadata)
 	require.NotNil(t, categoryCol.MetaData)
 	require.NotNil(t, categoryCol.MetaData.DictionaryPageOffset)
@@ -494,7 +494,7 @@ func TestMixedPlaintextPageRawVerification(t *testing.T) {
 	dataBodyEnd := categoryCol.MetaData.DataPageOffset + int64(dataHeaderLen) + int64(dataHeader.GetCompressedPageSize())
 	require.LessOrEqual(t, dataBodyEnd, columnEnd)
 
-	secretCol := cols["Secret"]
+	secretCol := cols["secret"]
 	require.NotNil(t, secretCol.CryptoMetadata)
 	require.True(t, secretCol.CryptoMetadata.IsSetENCRYPTION_WITH_COLUMN_KEY())
 	encryptedHeader := parquet.NewPageHeader()
@@ -601,12 +601,12 @@ func TestThreeWayMixRoundTrip(t *testing.T) {
 	for _, c := range rg.Columns {
 		cols[c.MetaData.PathInSchema[len(c.MetaData.PathInSchema)-1]] = c
 	}
-	require.Nil(t, cols["PlainID"].CryptoMetadata)
-	require.Nil(t, cols["PlainScore"].CryptoMetadata)
-	require.NotNil(t, cols["FooterTag"].CryptoMetadata)
-	require.True(t, cols["FooterTag"].CryptoMetadata.IsSetENCRYPTION_WITH_FOOTER_KEY())
-	require.NotNil(t, cols["SecretName"].CryptoMetadata)
-	require.True(t, cols["SecretName"].CryptoMetadata.IsSetENCRYPTION_WITH_COLUMN_KEY())
+	require.Nil(t, cols["plain_id"].CryptoMetadata)
+	require.Nil(t, cols["plain_score"].CryptoMetadata)
+	require.NotNil(t, cols["footer_tag"].CryptoMetadata)
+	require.True(t, cols["footer_tag"].CryptoMetadata.IsSetENCRYPTION_WITH_FOOTER_KEY())
+	require.NotNil(t, cols["secret_name"].CryptoMetadata)
+	require.True(t, cols["secret_name"].CryptoMetadata.IsSetENCRYPTION_WITH_COLUMN_KEY())
 }
 
 // TestThreeWayBloomFilterAccess verifies bloom-filter lookups for each
