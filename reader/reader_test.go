@@ -876,6 +876,113 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	_ = pr3.ReadStop()
 }
 
+func TestNewParquetReaderFooterPathInSchemaPreservesExternalNames(t *testing.T) {
+	type renamedColumnRecord struct {
+		ColL1 string `parquet:"name=col_l1, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := writer.NewParquetWriter(fw, new(renamedColumnRecord), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.Write(renamedColumnRecord{ColL1: "value"}))
+	require.NoError(t, pw.WriteStop())
+
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := NewParquetReader(pf, new(renamedColumnRecord), WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStop() }()
+
+	require.NotEmpty(t, pr.Footer.GetRowGroups())
+	require.NotEmpty(t, pr.Footer.RowGroups[0].GetColumns())
+	require.Equal(t, "col_l1", pr.Footer.Schema[1].GetName())
+	require.Equal(t, []string{"col_l1"}, pr.Footer.RowGroups[0].Columns[0].MetaData.GetPathInSchema())
+
+	rows, err := pr.ReadByNumber(1)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "value", rows[0].(renamedColumnRecord).ColL1)
+}
+
+func TestParquetReaderInternalFooter(t *testing.T) {
+	type renamedColumnRecord struct {
+		ColL1 string `parquet:"name=col_l1, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := writer.NewParquetWriter(fw, new(renamedColumnRecord), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.Write(renamedColumnRecord{ColL1: "value"}))
+	require.NoError(t, pw.WriteStop())
+
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := NewParquetReader(pf, new(renamedColumnRecord), WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStop() }()
+
+	internalFooter, err := pr.InternalFooter()
+	require.NoError(t, err)
+	require.NotSame(t, pr.Footer, internalFooter)
+
+	require.Equal(t, "col_l1", pr.Footer.Schema[1].GetName())
+	require.Equal(t, []string{"col_l1"}, pr.Footer.RowGroups[0].Columns[0].MetaData.GetPathInSchema())
+	require.Equal(t, "ColL1", internalFooter.Schema[1].GetName())
+	require.Equal(t, []string{"ColL1"}, internalFooter.RowGroups[0].Columns[0].MetaData.GetPathInSchema())
+
+	internalFooter.Schema[1].Name = "Changed"
+	internalFooter.RowGroups[0].Columns[0].MetaData.PathInSchema[0] = "Changed"
+	require.Equal(t, "col_l1", pr.Footer.Schema[1].GetName())
+	require.Equal(t, []string{"col_l1"}, pr.Footer.RowGroups[0].Columns[0].MetaData.GetPathInSchema())
+
+	rows, err := pr.ReadByNumber(1)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "value", rows[0].(renamedColumnRecord).ColL1)
+}
+
+func TestParquetColumnReaderInternalFooter(t *testing.T) {
+	type renamedColumnRecord struct {
+		ColL1 string `parquet:"name=col_l1, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := writer.NewParquetWriter(fw, new(renamedColumnRecord), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.Write(renamedColumnRecord{ColL1: "value"}))
+	require.NoError(t, pw.WriteStop())
+
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := NewParquetColumnReader(pf, WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStop() }()
+
+	internalFooter, err := pr.InternalFooter()
+	require.NoError(t, err)
+	require.NotSame(t, pr.Footer, internalFooter)
+
+	require.Equal(t, "col_l1", pr.Footer.Schema[1].GetName())
+	require.Equal(t, []string{"col_l1"}, pr.Footer.RowGroups[0].Columns[0].MetaData.GetPathInSchema())
+	require.Equal(t, "Col_l1", internalFooter.Schema[1].GetName())
+	require.Equal(t, []string{"Col_l1"}, internalFooter.RowGroups[0].Columns[0].MetaData.GetPathInSchema())
+
+	internalFooter.Schema[1].Name = "Changed"
+	internalFooter.RowGroups[0].Columns[0].MetaData.PathInSchema[0] = "Changed"
+	require.Equal(t, "col_l1", pr.Footer.Schema[1].GetName())
+	require.Equal(t, []string{"col_l1"}, pr.Footer.RowGroups[0].Columns[0].MetaData.GetPathInSchema())
+}
+
+func TestParquetReaderInternalFooterNil(t *testing.T) {
+	footer, err := (*ParquetReader)(nil).InternalFooter()
+	require.NoError(t, err)
+	require.Nil(t, footer)
+
+	footer, err = (&ParquetReader{}).InternalFooter()
+	require.NoError(t, err)
+	require.Nil(t, footer)
+}
+
 func TestNewParquetReader_DefaultNP(t *testing.T) {
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(parquetBuf)
 	pr, err := NewParquetReader(pf, new(Record))

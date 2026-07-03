@@ -40,9 +40,16 @@ type ColumnBufferType struct {
 
 	PageReadOptions layout.PageReadOptions
 	Reader          *ParquetReader
+
+	caseInsensitive   bool
+	chunkReadMetaData *parquet.ColumnMetaData
 }
 
 func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions) (*ColumnBufferType, error) {
+	return newColumnBuffer(pFile, footer, schemaHandler, pathStr, opts, false)
+}
+
+func newColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions, caseInsensitive bool) (*ColumnBufferType, error) {
 	if pFile == nil {
 		return nil, fmt.Errorf("pFile is nil")
 	}
@@ -84,6 +91,7 @@ func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 		DataTableNumRows: -1,
 		PageReadOptions:  opt,
 		fileSize:         fileSize,
+		caseInsensitive:  caseInsensitive,
 	}
 
 	if err := res.NextRowGroup(); err != nil && err != io.EOF {
@@ -108,6 +116,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	}
 
 	cbt.RowGroupIndex++
+	cbt.chunkReadMetaData = nil
 
 	columnChunks := rowGroups[cbt.RowGroupIndex-1].GetColumns()
 	i := int64(0)
@@ -118,11 +127,9 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		if columnChunks[i] == nil || columnChunks[i].MetaData == nil {
 			continue
 		}
-		path := make([]string, 0)
-		path = append(path, cbt.SchemaHandler.GetRootInName())
-		path = append(path, columnChunks[i].MetaData.GetPathInSchema()...)
+		path := columnPathToInPath(cbt.SchemaHandler, columnChunks[i].MetaData.GetPathInSchema(), cbt.caseInsensitive)
 
-		if common.ReformPathStr(cbt.PathStr) == common.PathToStr(path) {
+		if common.ReformPathStr(cbt.PathStr) == path {
 			break
 		}
 	}
@@ -132,6 +139,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	}
 
 	cbt.ChunkHeader = columnChunks[i]
+	cbt.chunkReadMetaData = columnMetaDataForRead(cbt.SchemaHandler, cbt.ChunkHeader.MetaData, cbt.caseInsensitive)
 	cbt.ColumnOrdinal = int16(i)
 	if cbt.Reader != nil {
 		if err := cbt.Reader.configureOptionalPageDecryptor(cbt, rowGroups[cbt.RowGroupIndex-1], int16(i)); err != nil {
@@ -163,6 +171,16 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	cbt.ChunkReadValues = 0
 	cbt.DictPage = nil
 	return nil
+}
+
+func (cbt *ColumnBufferType) readMetaData() *parquet.ColumnMetaData {
+	if cbt.chunkReadMetaData != nil {
+		return cbt.chunkReadMetaData
+	}
+	if cbt.ChunkHeader == nil {
+		return nil
+	}
+	return columnMetaDataForRead(cbt.SchemaHandler, cbt.ChunkHeader.MetaData, cbt.caseInsensitive)
 }
 
 // backfillEmptyChunk synthesizes all-null top-level rows for a column chunk that
@@ -200,7 +218,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 				return fmt.Errorf("require page decryptor: %w", err)
 			}
 		}
-		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, &cbt.PageReadOptions)
+		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
 		if err != nil {
 			// data is nil and rl/dl=0, no pages in file
 			if err == io.EOF && cbt.DataTable == nil && cbt.SchemaHandler != nil &&
@@ -243,7 +261,7 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 				return nil, fmt.Errorf("require page decryptor: %w", err)
 			}
 		}
-		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.ChunkHeader.MetaData, &cbt.PageReadOptions)
+		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
 		if err != nil {
 			return nil, fmt.Errorf("read page raw data: %w", err)
 		}

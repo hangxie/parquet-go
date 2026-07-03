@@ -523,15 +523,15 @@ func TestParquetWriter_UnknownLogicalType(t *testing.T) {
 	defer func() { require.NoError(t, pf.Close()) }()
 
 	// The footer schema must preserve the UNKNOWN logical type annotation.
-	// Footer schema element names reflect the Go struct field name.
+	// Reader footers expose the external Parquet field name.
 	var unknownElem *parquet.SchemaElement
 	for _, se := range pr.Footer.Schema {
-		if se.Name == "NullCol" {
+		if se.Name == "null_col" {
 			unknownElem = se
 			break
 		}
 	}
-	require.NotNil(t, unknownElem, "NullCol schema element not found in footer")
+	require.NotNil(t, unknownElem, "null_col schema element not found in footer")
 	require.NotNil(t, unknownElem.LogicalType, "null_col must have a LogicalType in the footer")
 	require.NotNil(t, unknownElem.LogicalType.UNKNOWN, "null_col LogicalType must be UNKNOWN")
 

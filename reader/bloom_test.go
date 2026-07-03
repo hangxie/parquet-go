@@ -445,7 +445,7 @@ func TestDetectBloomFilters(t *testing.T) {
 		defer func() { _ = pr.ReadStop() }()
 
 		// BloomFilterSize should be the bitset size (4096), not including Thrift header overhead.
-		// After RenameSchema, the internal name "Name" (Go field name) is used in MapIndex.
+		// The schema handler keeps the internal name "Name" in MapIndex.
 		nameIdx, ok := pr.SchemaHandler.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"Name"]
 		require.True(t, ok)
 		require.True(t, pr.SchemaHandler.Infos[nameIdx].BloomFilter)

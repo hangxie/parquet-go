@@ -164,6 +164,8 @@ Common reader options:
 
 Encryption-related options are covered in [Encryption](#encryption).
 
+Reader footers expose schema and column paths as stored in the Parquet file. Use `ParquetReader.InternalFooter()` when a tool needs a converted footer with internal Go schema names.
+
 ## Schema Definition
 
 Only fields included in the schema are written. Struct fields must be exported.
