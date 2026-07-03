@@ -75,6 +75,32 @@ func TestCSVWriter(t *testing.T) {
 		require.Equal(t, parquet.CompressionCodec_GZIP, cw.compressionType)
 	})
 
+	t.Run("new_csv_writer_invalid_option", func(t *testing.T) {
+		var buf bytes.Buffer
+		bw := bufio.NewWriter(&buf)
+		_, err := NewCSVWriterFromWriter(nil, bw, WithNP(0))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "init CSV writer base")
+	})
+
+	t.Run("new_csv_writer_invalid_column_key_path", func(t *testing.T) {
+		schema := []string{
+			"Name=id, Type=INT32",
+			"Name=name, Type=BYTE_ARRAY, ConvertedType=UTF8",
+		}
+		var buf bytes.Buffer
+		bw := bufio.NewWriter(&buf)
+		_, err := NewCSVWriterFromWriter(
+			schema,
+			bw,
+			WithFooterKey([]byte("0123456789abcdef")),
+			WithColumnEncrypted("invalid_name", ColumnKey([]byte("abcdef0123456789"))),
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "validate encryption column keys")
+		require.Contains(t, err.Error(), "invalid_name")
+	})
+
 	t.Run("write_csv", func(t *testing.T) {
 		testCases := map[string]struct {
 			data   []*string

@@ -234,15 +234,15 @@ func TestWithEncryptionUnsupportedAlgorithm(t *testing.T) {
 func TestWithColumnEncryptedValidatesPathAgainstSchema(t *testing.T) {
 	t.Parallel()
 
-	t.Run("typo in column encryption path is rejected", func(t *testing.T) {
+	t.Run("unknown column encryption path is rejected", func(t *testing.T) {
 		t.Parallel()
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnEncrypted("nmae", ColumnKey([]byte("abcdef0123456789"))),
+			WithColumnEncrypted("invalid_name", ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.ErrorContains(t, err, "WithColumnEncrypted")
-		require.ErrorContains(t, err, "nmae")
+		require.ErrorContains(t, err, "invalid_name")
 	})
 
 	t.Run("intermediate path is rejected", func(t *testing.T) {
@@ -293,11 +293,11 @@ func TestWithColumnEncryptedValidatesPathAgainstSchema(t *testing.T) {
 			writerfile.NewWriterFile(&buf),
 			nil,
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnEncrypted("nmae", ColumnKey([]byte("abcdef0123456789"))),
+			WithColumnEncrypted("invalid_name", ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.NoError(t, err) // no schema yet, validation deferred
 		err = pw.SetSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": [{"Tag": "name=id, type=INT32"}, {"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"}]}`)
-		require.ErrorContains(t, err, "nmae")
+		require.ErrorContains(t, err, "invalid_name")
 	})
 }
 

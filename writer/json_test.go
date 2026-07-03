@@ -353,16 +353,16 @@ func TestJSONWriterValidatesEncryptionColumnKeys(t *testing.T) {
 		]
 	}`
 
-	t.Run("typo in column encryption path is rejected", func(t *testing.T) {
+	t.Run("unknown column encryption path is rejected", func(t *testing.T) {
 		t.Parallel()
 		var buf bytes.Buffer
 		_, err := NewJSONWriter(
 			jsonSchema,
 			writerfile.NewWriterFile(&buf),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnEncrypted("nmae", ColumnKey([]byte("abcdef0123456789"))),
+			WithColumnEncrypted("invalid_name", ColumnKey([]byte("abcdef0123456789"))),
 		)
-		require.ErrorContains(t, err, "nmae")
+		require.ErrorContains(t, err, "invalid_name")
 	})
 
 	t.Run("valid column encryption path is accepted", func(t *testing.T) {
