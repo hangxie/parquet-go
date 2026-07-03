@@ -93,8 +93,8 @@ func TestResolveColumnKeyHonorsCaseInsensitive(t *testing.T) {
 	require.Equal(t, key, got)
 }
 
-// TestNewParquetReaderRejectsUnknownColumnKeyPath checks that typos fail at
-// construction instead of becoming read-time missing-key errors.
+// TestNewParquetReaderRejectsUnknownColumnKeyPath checks that unknown paths
+// fail at construction instead of becoming read-time missing-key errors.
 func TestNewParquetReaderRejectsUnknownColumnKeyPath(t *testing.T) {
 	t.Parallel()
 
@@ -106,7 +106,7 @@ func TestNewParquetReaderRejectsUnknownColumnKeyPath(t *testing.T) {
 		name string
 		path string
 	}{
-		{name: "typo", path: "nmae"},
+		{name: "invalid leaf", path: "invalid_name"},
 		{name: "bare root", path: common.ParGoRootExName},
 		{name: "root-prefixed leaf", path: common.ParGoRootExName + ".name"},
 		{name: "go field name", path: "Name"},
@@ -138,11 +138,11 @@ func TestNewParquetColumnReaderRejectsUnknownColumnKeyPath(t *testing.T) {
 	_, err := NewParquetColumnReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		WithFooterKey(footerKey),
-		WithColumnKey("nmae", nameKey),
+		WithColumnKey("invalid_name", nameKey),
 	)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "WithColumnKey")
-	require.ErrorContains(t, err, "nmae")
+	require.ErrorContains(t, err, "invalid_name")
 }
 
 func TestNewParquetReaderColumnKeyCaseInsensitiveCombinations(t *testing.T) {
@@ -191,7 +191,7 @@ func TestNewParquetReaderColumnKeyCaseInsensitiveCombinations(t *testing.T) {
 		},
 		{
 			name:    "nonmatching path rejected",
-			path:    "nmae",
+			path:    "invalid_name",
 			opts:    []ReaderOption{WithCaseInsensitive(true)},
 			wantErr: true,
 		},
