@@ -186,6 +186,23 @@ func TestParquetWriter(t *testing.T) {
 		require.Contains(t, err.Error(), "unmarshal json schema")
 	})
 
+	t.Run("set_schema_handler_from_json_invalid_compression", func(t *testing.T) {
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(struct{}), WithNP(1))
+		require.NoError(t, err)
+
+		jsonSchema := `{
+			"Tag": "name=parquet-go-root",
+			"Fields": [
+				{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8, compression=GZIP:99"}
+			]
+		}`
+		err = pw.SetSchemaHandlerFromJSON(jsonSchema)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "build column compressors")
+	})
+
 	t.Run("write_stop_race_condition_on_error", func(t *testing.T) {
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)

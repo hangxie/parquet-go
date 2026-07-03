@@ -716,10 +716,10 @@ func TestMixedPlaintextFooterNoKeyOpens(t *testing.T) {
 	require.Equal(t, []any{int64(1), int64(2), int64(3)}, idValues)
 }
 
-// TestColumnEncryptedTypoFailsValidation verifies that a path that does
+// TestColumnEncryptedInvalidPathFailsValidation verifies that a path that does
 // not match a leaf in the schema errors at writer construction, for every
 // sub-option.
-func TestColumnEncryptedTypoFailsValidation(t *testing.T) {
+func TestColumnEncryptedInvalidPathFailsValidation(t *testing.T) {
 	t.Parallel()
 
 	footerKey := []byte("0123456789abcdef")
@@ -729,10 +729,10 @@ func TestColumnEncryptedTypoFailsValidation(t *testing.T) {
 		name string
 		opt  WriterOption
 	}{
-		{"footer-key (zero-opt)", WithColumnEncrypted("nmae")},
-		{"footer-key (explicit)", WithColumnEncrypted("nmae", ColumnFooterKey())},
-		{"column-key literal", WithColumnEncrypted("nmae", ColumnKey(otherKey))},
-		{"column-key by metadata", WithColumnEncrypted("nmae", ColumnKeyByMetadata([]byte("kid")))},
+		{"footer-key (zero-opt)", WithColumnEncrypted("invalid_name")},
+		{"footer-key (explicit)", WithColumnEncrypted("invalid_name", ColumnFooterKey())},
+		{"column-key literal", WithColumnEncrypted("invalid_name", ColumnKey(otherKey))},
+		{"column-key by metadata", WithColumnEncrypted("invalid_name", ColumnKeyByMetadata([]byte("kid")))},
 	}
 
 	for _, tc := range cases {
@@ -745,7 +745,7 @@ func TestColumnEncryptedTypoFailsValidation(t *testing.T) {
 				tc.opt,
 			)
 			require.Error(t, err)
-			require.ErrorContains(t, err, `path "nmae" resolves to "parquet_go_root.nmae"`)
+			require.ErrorContains(t, err, `path "invalid_name" resolves to "parquet_go_root.invalid_name"`)
 			require.ErrorContains(t, err, "does not match any schema column")
 		})
 	}
