@@ -444,7 +444,7 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 		}
 	}
 
-	if err := processVariantReconstruction(variantReconstructors, root, prefixPath, schemaHandler, tableBgn, tableEnd, state.sliceRecords); err != nil {
+	if err := processVariantReconstruction(variantReconstructors, root, prefixPath, tableBgn, tableEnd, state.sliceRecords); err != nil {
 		return fmt.Errorf("reconstruct variants: %w", err)
 	}
 
