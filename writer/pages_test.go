@@ -181,15 +181,61 @@ func TestColumnIndex(t *testing.T) {
 		columns := pr.Footer.RowGroups[0].GetColumns()
 		require.Equal(t, 2, len(columns))
 
+		// Column x has real values: not a null page, with genuine min/max.
 		colIdx, err := readColumnIndex(pr.PFile, *columns[0].ColumnIndexOffset)
 		require.NoError(t, err)
 		require.Equal(t, true, colIdx.IsSetNullCounts())
 		require.Equal(t, []int64{0}, colIdx.GetNullCounts())
+		require.Equal(t, []bool{false}, colIdx.GetNullPages())
 
+		// Column z is entirely null: the single page must be flagged as a null
+		// page with empty (not bogus) min/max bounds.
 		colIdx, err = readColumnIndex(pr.PFile, *columns[1].ColumnIndexOffset)
 		require.NoError(t, err)
 		require.Equal(t, true, colIdx.IsSetNullCounts())
 		require.Equal(t, []int64{6}, colIdx.GetNullCounts())
+		require.Equal(t, []bool{true}, colIdx.GetNullPages())
+		require.Equal(t, [][]byte{{}}, colIdx.GetMinValues())
+		require.Equal(t, [][]byte{{}}, colIdx.GetMaxValues())
+	})
+
+	t.Run("all_null_byte_array_page", func(t *testing.T) {
+		// Regression for the spec-violating case in issue #327: an all-null
+		// BYTE_ARRAY page must set null_pages=true with empty min/max. Otherwise
+		// the empty byte-array bound reads as a real min of "", and a
+		// predicate-pushdown engine evaluating `col <= ""` would wrongly match
+		// this page.
+		type Entry struct {
+			S *string `parquet:"name=s, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := NewParquetWriter(fw, new(Entry), WithNP(1))
+		require.NoError(t, err)
+
+		for range 4 {
+			require.NoError(t, pw.Write(Entry{S: nil}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() {
+			require.NoError(t, pf.Close())
+		}()
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+		require.NoError(t, err)
+		require.NoError(t, pr.ReadFooter())
+
+		columns := pr.Footer.RowGroups[0].GetColumns()
+		require.Equal(t, 1, len(columns))
+
+		colIdx, err := readColumnIndex(pr.PFile, *columns[0].ColumnIndexOffset)
+		require.NoError(t, err)
+		require.Equal(t, []bool{true}, colIdx.GetNullPages())
+		require.Equal(t, []int64{4}, colIdx.GetNullCounts())
+		require.Equal(t, [][]byte{{}}, colIdx.GetMinValues())
+		require.Equal(t, [][]byte{{}}, colIdx.GetMaxValues())
 	})
 
 	t.Run("null_counts", func(t *testing.T) {
@@ -204,6 +250,7 @@ func TestColumnIndex(t *testing.T) {
 		type Expect struct {
 			IsSetNullCounts bool
 			NullCounts      []int64
+			NullPages       []bool
 		}
 
 		var buf bytes.Buffer
@@ -234,18 +281,22 @@ func TestColumnIndex(t *testing.T) {
 		chunks := pr.Footer.RowGroups[0].GetColumns()
 		require.Equal(t, 5, len(chunks))
 
+		// Every column here has at least one real value per page, so none is a
+		// null page even where statistics are omitted (histogram-based detection
+		// stays correct without min/max).
 		expects := []Expect{
-			{true, []int64{2}},
-			{true, []int64{1}},
-			{false, nil},
-			{true, []int64{0}},
-			{false, nil},
+			{true, []int64{2}, []bool{false}},
+			{true, []int64{1}, []bool{false}},
+			{false, nil, []bool{false}},
+			{true, []int64{0}, []bool{false}},
+			{false, nil, []bool{false}},
 		}
 		for i, chunk := range chunks {
 			colIdx, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
 			require.NoError(t, err)
 			require.Equal(t, expects[i].IsSetNullCounts, colIdx.IsSetNullCounts())
 			require.Equal(t, expects[i].NullCounts, colIdx.GetNullCounts())
+			require.Equal(t, expects[i].NullPages, colIdx.GetNullPages())
 		}
 	})
 
