@@ -2,6 +2,7 @@ package layout
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -524,6 +525,95 @@ func TestTableToDataPages(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, pages)
 	require.Positive(t, totalSize)
+}
+
+func TestTableToDataPagesRowAligned(t *testing.T) {
+	// Three rows of a repeated INT32 column, each row holding four values.
+	// A tiny page size would split a row mid-way if pages were sized purely by
+	// byte budget; row-aligned splitting must instead end every page on a row
+	// boundary (repetition level 0).
+	const rowCount, valuesPerRow = 3, 4
+	values := make([]any, 0, rowCount*valuesPerRow)
+	defLevels := make([]int32, 0, rowCount*valuesPerRow)
+	repLevels := make([]int32, 0, rowCount*valuesPerRow)
+	for row := range rowCount {
+		for v := range valuesPerRow {
+			values = append(values, int32(row*valuesPerRow+v))
+			defLevels = append(defLevels, 1)
+			if v == 0 {
+				repLevels = append(repLevels, 0)
+			} else {
+				repLevels = append(repLevels, 1)
+			}
+		}
+	}
+
+	for _, version := range []int32{1, 2} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			table := &Table{
+				Schema: &parquet.SchemaElement{
+					Type:           common.ToPtr(parquet.Type_INT32),
+					Name:           "vals",
+					RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+				},
+				Values:             values,
+				DefinitionLevels:   defLevels,
+				RepetitionLevels:   repLevels,
+				MaxDefinitionLevel: 1,
+				MaxRepetitionLevel: 1,
+				Info:               &common.Tag{},
+			}
+
+			// Page size of 6 bytes forces a break partway through each 4-value row.
+			pages, _, err := TableToDataPagesWithOption(table, PageWriteOption{
+				PageSize:        6,
+				CompressType:    parquet.CompressionCodec_UNCOMPRESSED,
+				DataPageVersion: version,
+			})
+			require.NoError(t, err)
+			require.Greater(t, len(pages), 1)
+
+			assertRowAligned(t, pages, rowCount)
+		})
+	}
+
+	t.Run("dict", func(t *testing.T) {
+		table := &Table{
+			Schema: &parquet.SchemaElement{
+				Type:           common.ToPtr(parquet.Type_INT32),
+				Name:           "vals",
+				RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+			},
+			Values:             values,
+			DefinitionLevels:   defLevels,
+			RepetitionLevels:   repLevels,
+			MaxDefinitionLevel: 1,
+			MaxRepetitionLevel: 1,
+			Info:               &common.Tag{},
+		}
+
+		pages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, 32, PageWriteOption{
+			PageSize:     6,
+			CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+		})
+		require.NoError(t, err)
+		require.Greater(t, len(pages), 1)
+		assertRowAligned(t, pages, rowCount)
+	})
+}
+
+// assertRowAligned checks that every page begins on a row boundary, holds at
+// least one whole row, and that the page rows sum to the expected total.
+func assertRowAligned(t *testing.T, pages []*Page, wantRows int) {
+	t.Helper()
+	var totalRows int64
+	for _, page := range pages {
+		require.NotEmpty(t, page.DataTable.RepetitionLevels)
+		require.Zero(t, page.DataTable.RepetitionLevels[0])
+		require.GreaterOrEqual(t, page.NumRows, int64(1))
+		totalRows += page.NumRows
+	}
+	require.Equal(t, int64(wantRows), totalRows)
 }
 
 func TestTableToDataPagesComplexScenarios(t *testing.T) {
@@ -1232,6 +1322,7 @@ func TestComputeLevelHistograms(t *testing.T) {
 		wantDefHist    []int64
 		wantRepHist    []int64
 		wantByteArrayN *int64
+		wantNumRows    int64
 	}{
 		"nil_data_table": {
 			page: &Page{
@@ -1240,6 +1331,7 @@ func TestComputeLevelHistograms(t *testing.T) {
 			wantDefHist:    nil,
 			wantRepHist:    nil,
 			wantByteArrayN: nil,
+			wantNumRows:    0,
 		},
 		"definition_level_histogram_only": {
 			page: &Page{
@@ -1257,6 +1349,7 @@ func TestComputeLevelHistograms(t *testing.T) {
 			wantDefHist:    []int64{1, 2},
 			wantRepHist:    nil,
 			wantByteArrayN: nil,
+			wantNumRows:    3,
 		},
 		"repetition_level_histogram_only": {
 			page: &Page{
@@ -1274,6 +1367,7 @@ func TestComputeLevelHistograms(t *testing.T) {
 			wantDefHist:    nil,
 			wantRepHist:    []int64{2, 2},
 			wantByteArrayN: nil,
+			wantNumRows:    2,
 		},
 		"both_def_and_rep_histograms": {
 			page: &Page{
@@ -1291,6 +1385,25 @@ func TestComputeLevelHistograms(t *testing.T) {
 			wantDefHist:    []int64{1, 3},
 			wantRepHist:    []int64{3, 1},
 			wantByteArrayN: nil,
+			wantNumRows:    3,
+		},
+		"repeated_multiple_rows": {
+			page: &Page{
+				Schema: &parquet.SchemaElement{
+					Type: common.ToPtr(parquet.Type_INT32),
+				},
+				DataTable: &Table{
+					Values:             []any{int32(1), int32(2), int32(3)},
+					DefinitionLevels:   []int32{1, 1, 1},
+					RepetitionLevels:   []int32{0, 1, 0},
+					MaxDefinitionLevel: 1,
+					MaxRepetitionLevel: 1,
+				},
+			},
+			wantDefHist:    []int64{0, 3},
+			wantRepHist:    []int64{2, 1},
+			wantByteArrayN: nil,
+			wantNumRows:    2,
 		},
 		"byte_array_string_values": {
 			page: &Page{
@@ -1308,6 +1421,7 @@ func TestComputeLevelHistograms(t *testing.T) {
 			wantDefHist:    []int64{1, 2},
 			wantRepHist:    nil,
 			wantByteArrayN: common.ToPtr(int64(10)), // "hello"(5) + "world"(5)
+			wantNumRows:    3,
 		},
 		"byte_array_byte_slice_values": {
 			page: &Page{
@@ -1325,6 +1439,7 @@ func TestComputeLevelHistograms(t *testing.T) {
 			wantDefHist:    []int64{1, 2},
 			wantRepHist:    nil,
 			wantByteArrayN: common.ToPtr(int64(5)), // 3 + 2
+			wantNumRows:    3,
 		},
 		"required_field_no_histograms": {
 			page: &Page{
@@ -1342,6 +1457,7 @@ func TestComputeLevelHistograms(t *testing.T) {
 			wantDefHist:    nil,
 			wantRepHist:    nil,
 			wantByteArrayN: nil,
+			wantNumRows:    2,
 		},
 	}
 
@@ -1350,6 +1466,7 @@ func TestComputeLevelHistograms(t *testing.T) {
 			tt.page.computeLevelHistograms()
 			require.Equal(t, tt.wantDefHist, tt.page.DefinitionLevelHistogram)
 			require.Equal(t, tt.wantRepHist, tt.page.RepetitionLevelHistogram)
+			require.Equal(t, tt.wantNumRows, tt.page.NumRows)
 			if tt.wantByteArrayN == nil {
 				require.Nil(t, tt.page.UnencodedByteArrayDataBytes)
 			} else {

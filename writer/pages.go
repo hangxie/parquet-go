@@ -168,16 +168,6 @@ func extractPageStats(page *layout.Page) pageStats {
 	return pageStats{}
 }
 
-func dataPageNumValues(page *layout.Page) int64 {
-	if page.Header.DataPageHeader != nil {
-		return int64(page.Header.DataPageHeader.NumValues)
-	}
-	if page.Header.DataPageHeaderV2 != nil {
-		return int64(page.Header.DataPageHeaderV2.NumValues)
-	}
-	return 0
-}
-
 func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.ColumnIndex, offsetIndex *parquet.OffsetIndex, dataPageIdx, dataPageCount int, firstRowIndex *int64) error {
 	if page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil {
 		return fmt.Errorf("unsupported data page: %s", page.Header.String())
@@ -202,11 +192,17 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 
 	pageLocation := parquet.NewPageLocation()
 	pageLocation.Offset = pw.offset
+	// first_row_index is the row-group-relative index of the first row in the
+	// page. Pages are built row-aligned, so *firstRowIndex is exactly the index
+	// of this page's first row.
 	pageLocation.FirstRowIndex = *firstRowIndex
 	pageLocation.CompressedPageSize = int32(len(page.RawData))
 	offsetIndex.PageLocations = append(offsetIndex.PageLocations, pageLocation)
 
-	*firstRowIndex += dataPageNumValues(page)
+	// Advance by the row (record) count, not the leaf value count: per the
+	// Parquet spec first_row_index counts repetition-level-0 entries, which
+	// differs from NumValues for columns under repeated (LIST/MAP) fields.
+	*firstRowIndex += page.NumRows
 	return nil
 }
 

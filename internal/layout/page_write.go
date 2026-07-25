@@ -65,7 +65,18 @@ func scanPageValues(table *Table, startIdx int, pageSize int32, omitStats bool, 
 		maxVal: table.Values[startIdx],
 	}
 
-	for r.endIdx < totalLn && r.size < pageSize {
+	for r.endIdx < totalLn {
+		// A data page may only end on a row boundary — a repetition-level-0
+		// entry. A repeated column contributes a run of values per row (until
+		// the next rep-0 entry); splitting that run across pages would leave a
+		// page starting mid-row, which the offset index cannot address (its
+		// first_row_index must name a row start and increase strictly). Once
+		// the size budget is met, keep scanning to the next rep-0 entry before
+		// ending the page. Flat columns have a rep-0 entry at every value, so
+		// this never extends a page.
+		if r.endIdx > startIdx && r.size >= pageSize && table.RepetitionLevels[r.endIdx] == 0 {
+			break
+		}
 		if table.Values[r.endIdx] == nil {
 			if err := checkRequiredNil(table, r.endIdx); err != nil {
 				return r, fmt.Errorf("page scan index %d: %w", r.endIdx, err)
