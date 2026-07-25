@@ -5,11 +5,10 @@ import (
 	"reflect"
 
 	"github.com/hangxie/parquet-go/v3/common"
-	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
-func processVariantReconstruction(variantReconstructors map[string]*variantReconstructor, root reflect.Value, prefixPath string, schemaHandler *schema.SchemaHandler, tableBgn, tableEnd map[string]int, sliceRecords map[any]*SliceRecord) error {
+func processVariantReconstruction(variantReconstructors map[string]*variantReconstructor, root reflect.Value, prefixPath string, tableBgn, tableEnd map[string]int, sliceRecords map[any]*SliceRecord) error {
 	for variantPath, reconstructor := range variantReconstructors {
 		numRows := countVariantRows(reconstructor, tableBgn, tableEnd)
 		expandRootForVariants(root, numRows, sliceRecords)
@@ -19,7 +18,7 @@ func processVariantReconstruction(variantReconstructors map[string]*variantRecon
 			if err != nil {
 				return fmt.Errorf("reconstruct variant at %s row %d: %w", variantPath, rowIdx, err)
 			}
-			if err := setVariantValue(root, variantPath, prefixPath, schemaHandler, variant, rowIdx, sliceRecords); err != nil {
+			if err := setVariantValue(root, variantPath, prefixPath, variant, rowIdx, sliceRecords); err != nil {
 				return fmt.Errorf("set variant at %s row %d: %w", variantPath, rowIdx, err)
 			}
 		}
@@ -170,7 +169,7 @@ func navigateToVariantTarget(root reflect.Value, path []string, prefixIndex int,
 }
 
 // setVariantValue navigates the struct path and sets a variant value at the specified location.
-func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *schema.SchemaHandler, variant types.Variant, rowIdx int, sliceRecords map[any]*SliceRecord) error {
+func setVariantValue(root reflect.Value, variantPath, prefixPath string, variant types.Variant, rowIdx int, sliceRecords map[any]*SliceRecord) error {
 	path := common.StrToPath(variantPath)
 	prefixIndex := common.PathStrIndex(prefixPath)
 

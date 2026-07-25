@@ -21,7 +21,6 @@ func TestSetVariantValue(t *testing.T) {
 			Var  types.Variant
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := SimpleStruct{Name: "test"}
@@ -32,7 +31,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testStruct.Var)
 	})
@@ -43,7 +42,6 @@ func TestSetVariantValue(t *testing.T) {
 			Var  *types.Variant
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithPtrVariant{Name: "test"}
@@ -54,7 +52,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.NotNil(t, testStruct.Var)
 		require.Equal(t, variant, *testStruct.Var)
@@ -68,7 +66,6 @@ func TestSetVariantValue(t *testing.T) {
 			Inner Inner
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := Outer{}
@@ -79,7 +76,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Inner"+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Inner"+common.ParGoPathDelimiter+"Var", "", variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testStruct.Inner.Var)
 	})
@@ -89,7 +86,6 @@ func TestSetVariantValue(t *testing.T) {
 			Var types.Variant
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testSlice := []ItemWithVariant{{}, {}}
@@ -109,7 +105,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 1, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", variant, 1, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testSlice[1].Var)
 	})
@@ -119,7 +115,6 @@ func TestSetVariantValue(t *testing.T) {
 			Name string
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := SimpleStruct{Name: "test"}
@@ -130,7 +125,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"NonExistent", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"NonExistent", "", variant, 0, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not found")
 	})
@@ -142,7 +137,6 @@ func TestSetVariantValue(t *testing.T) {
 			}
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithPtrNested{}
@@ -153,7 +147,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Inner"+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Inner"+common.ParGoPathDelimiter+"Var", "", variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.NotNil(t, testStruct.Inner)
 		require.Equal(t, variant, testStruct.Inner.Var)
@@ -164,7 +158,6 @@ func TestSetVariantValue(t *testing.T) {
 			Var types.Variant
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testSlice := []ItemWithVariant{{}}
@@ -176,7 +169,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		// rowIdx 5 is out of bounds for a slice with 1 element
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 5, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", variant, 5, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "out of bounds")
 	})
@@ -186,7 +179,6 @@ func TestSetVariantValue(t *testing.T) {
 			Data []byte
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithBytes{Data: []byte{1, 2, 3}}
@@ -197,7 +189,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Data"+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Data"+common.ParGoPathDelimiter+"Var", "", variant, 0, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "[]byte")
 	})
@@ -207,7 +199,6 @@ func TestSetVariantValue(t *testing.T) {
 			Value int
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithInt{Value: 42}
@@ -218,7 +209,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Value"+common.ParGoPathDelimiter+"Var", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Value"+common.ParGoPathDelimiter+"Var", "", variant, 0, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "unexpected kind")
 	})
@@ -228,7 +219,6 @@ func TestSetVariantValue(t *testing.T) {
 			Name string
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithString{Name: "test"}
@@ -239,7 +229,7 @@ func TestSetVariantValue(t *testing.T) {
 			Value:    []byte{0x00},
 		}
 
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Name", "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Name", "", variant, 0, sliceRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "could not set variant value at path end")
 	})
@@ -249,7 +239,6 @@ func TestSetVariantValue(t *testing.T) {
 			Var types.Variant
 		}
 
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord) // Empty - no SliceRecord for this slice
 
 		testSlice := []ItemWithVariant{{}, {}, {}}
@@ -261,14 +250,13 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		// Access row 1 without SliceRecord - should use direct po.Index(rowIdx)
-		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", sh, variant, 1, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName+common.ParGoPathDelimiter+"Var", "", variant, 1, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testSlice[1].Var)
 	})
 
 	t.Run("path_ends_at_variant_type_directly", func(t *testing.T) {
 		// Test case where the path ends right at a types.Variant field
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		// Create a Variant directly
@@ -281,14 +269,13 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		// Path is just the root (empty path after prefix)
-		err := setVariantValue(root, common.ParGoRootInName, "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName, "", variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.Equal(t, variant, testVariant)
 	})
 
 	t.Run("path_ends_at_pointer_to_variant_directly", func(t *testing.T) {
 		// Test case where the path ends at a *types.Variant field
-		sh := &schema.SchemaHandler{}
 		sliceRecords := make(map[any]*SliceRecord)
 
 		var testVariant *types.Variant
@@ -300,7 +287,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		// Path is just the root (empty path after prefix)
-		err := setVariantValue(root, common.ParGoRootInName, "", sh, variant, 0, sliceRecords)
+		err := setVariantValue(root, common.ParGoRootInName, "", variant, 0, sliceRecords)
 		require.NoError(t, err)
 		require.NotNil(t, testVariant)
 		require.Equal(t, variant, *testVariant)
