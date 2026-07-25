@@ -89,8 +89,8 @@ func computeTableBounds(tableMap *map[string]*layout.Table, prefixPath string, b
 	return tableNeeds, tableBgn, tableEnd, true
 }
 
-func identifyVariants(schemaHandler *schema.SchemaHandler, prefixPath string, tableNeeds map[string]*layout.Table, tableMap *map[string]*layout.Table) (map[string]*ShreddedVariantReconstructor, map[string]string) {
-	variantReconstructors := make(map[string]*ShreddedVariantReconstructor)
+func identifyVariants(schemaHandler *schema.SchemaHandler, prefixPath string, tableNeeds map[string]*layout.Table, tableMap *map[string]*layout.Table) (map[string]*variantReconstructor, map[string]string) {
+	variantReconstructors := make(map[string]*variantReconstructor)
 	variantChildPaths := make(map[string]string)
 	if schemaHandler.VariantSchemas == nil {
 		return variantReconstructors, variantChildPaths
@@ -99,7 +99,7 @@ func identifyVariants(schemaHandler *schema.SchemaHandler, prefixPath string, ta
 		if prefixPath != "" && !common.IsChildPath(prefixPath, variantPath) {
 			continue
 		}
-		variantReconstructors[variantPath] = NewShreddedVariantReconstructor(variantPath, info, tableMap, schemaHandler)
+		variantReconstructors[variantPath] = newVariantReconstructor(variantPath, info, tableMap, schemaHandler)
 		for childPath := range tableNeeds {
 			if strings.HasPrefix(childPath, variantPath+common.ParGoPathDelimiter) {
 				variantChildPaths[childPath] = variantPath
