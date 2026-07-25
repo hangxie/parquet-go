@@ -22,7 +22,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := SimpleStruct{Name: "test"}
 		root := reflect.ValueOf(&testStruct).Elem()
@@ -44,7 +44,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithPtrVariant{Name: "test"}
 		root := reflect.ValueOf(&testStruct).Elem()
@@ -69,7 +69,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := Outer{}
 		root := reflect.ValueOf(&testStruct).Elem()
@@ -90,13 +90,13 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testSlice := []ItemWithVariant{{}, {}}
 		root := reflect.ValueOf(&testSlice).Elem()
 
 		// Create slice record to track slice values
-		sliceRecords[root] = &SliceRecord{
+		sliceRecords[valueIdentity(root)] = &SliceRecord{
 			Values: []reflect.Value{
 				reflect.ValueOf(&testSlice[0]).Elem(),
 				reflect.ValueOf(&testSlice[1]).Elem(),
@@ -120,7 +120,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := SimpleStruct{Name: "test"}
 		root := reflect.ValueOf(&testStruct).Elem()
@@ -143,7 +143,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithPtrNested{}
 		root := reflect.ValueOf(&testStruct).Elem()
@@ -165,7 +165,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testSlice := []ItemWithVariant{{}}
 		root := reflect.ValueOf(&testSlice).Elem()
@@ -187,7 +187,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithBytes{Data: []byte{1, 2, 3}}
 		root := reflect.ValueOf(&testStruct).Elem()
@@ -208,7 +208,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithInt{Value: 42}
 		root := reflect.ValueOf(&testStruct).Elem()
@@ -229,7 +229,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		testStruct := StructWithString{Name: "test"}
 		root := reflect.ValueOf(&testStruct).Elem()
@@ -250,7 +250,7 @@ func TestSetVariantValue(t *testing.T) {
 		}
 
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord) // Empty - no SliceRecord for this slice
+		sliceRecords := make(map[any]*SliceRecord) // Empty - no SliceRecord for this slice
 
 		testSlice := []ItemWithVariant{{}, {}, {}}
 		root := reflect.ValueOf(&testSlice).Elem()
@@ -269,7 +269,7 @@ func TestSetVariantValue(t *testing.T) {
 	t.Run("path_ends_at_variant_type_directly", func(t *testing.T) {
 		// Test case where the path ends right at a types.Variant field
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		// Create a Variant directly
 		testVariant := types.Variant{}
@@ -289,7 +289,7 @@ func TestSetVariantValue(t *testing.T) {
 	t.Run("path_ends_at_pointer_to_variant_directly", func(t *testing.T) {
 		// Test case where the path ends at a *types.Variant field
 		sh := &schema.SchemaHandler{}
-		sliceRecords := make(map[reflect.Value]*SliceRecord)
+		sliceRecords := make(map[any]*SliceRecord)
 
 		var testVariant *types.Variant
 		root := reflect.ValueOf(&testVariant).Elem()
@@ -399,14 +399,14 @@ func TestExpandRootForVariants_Coverage(t *testing.T) {
 	// Test slice expansion
 	testSlice := []int32{1}
 	root := reflect.ValueOf(&testSlice).Elem()
-	sliceRecords := make(map[reflect.Value]*SliceRecord)
+	sliceRecords := make(map[any]*SliceRecord)
 
 	expandRootForVariants(root, 5, sliceRecords)
 	require.Equal(t, 5, root.Len())
 	require.Equal(t, int32(1), testSlice[0])
 
 	// Test with sliceRecord already having enough values
-	sliceRecords[root] = &SliceRecord{Values: make([]reflect.Value, 10)}
+	sliceRecords[valueIdentity(root)] = &SliceRecord{Values: make([]reflect.Value, 10)}
 	expandRootForVariants(root, 5, sliceRecords)
 	require.Equal(t, 5, root.Len()) // No further expansion
 }

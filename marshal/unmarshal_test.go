@@ -405,6 +405,34 @@ func TestUnmarshal_MapAndList_MultipleEntries(t *testing.T) {
 	require.Equal(t, src, dst)
 }
 
+// TestValueIdentity checks the record-tracking invariant: two reflect.Values
+// map to the same key iff they share storage of the same type.
+func TestValueIdentity(t *testing.T) {
+	type inner struct{ V int32 }
+	type outer struct {
+		A inner
+		B inner
+	}
+
+	t.Run("same storage and type compares equal", func(t *testing.T) {
+		v := reflect.ValueOf(&outer{}).Elem()
+		require.True(t, valueIdentity(v.Field(0)) == valueIdentity(v.FieldByName("A")))
+	})
+
+	t.Run("distinct storage compares unequal", func(t *testing.T) {
+		v := reflect.ValueOf(&outer{}).Elem()
+		require.False(t, valueIdentity(v.Field(0)) == valueIdentity(v.Field(1)))
+	})
+
+	t.Run("same address but different type compares unequal", func(t *testing.T) {
+		// A struct and its offset-zero field share an address; the typed pointer
+		// identity keeps them distinct, where a bare uintptr key would collide.
+		v := reflect.ValueOf(&outer{}).Elem()
+		require.Equal(t, v.Addr().Pointer(), v.Field(0).Addr().Pointer())
+		require.False(t, valueIdentity(v) == valueIdentity(v.Field(0)))
+	})
+}
+
 // Test helper types and functions for old list format testing
 type TestTarget [][]int32
 

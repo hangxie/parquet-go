@@ -29,15 +29,24 @@ type SliceRecord struct {
 
 type unmarshalState struct {
 	schemaHandler     *schema.SchemaHandler
-	mapRecords        map[reflect.Value]*MapRecord
+	mapRecords        map[any]*MapRecord
 	mapRecordsStack   []reflect.Value
-	sliceRecords      map[reflect.Value]*SliceRecord
+	sliceRecords      map[any]*SliceRecord
 	sliceRecordsStack []reflect.Value
 	prevType          reflect.Type
 	prevFieldName     string
 	prevFieldIndex    []int
-	prevSlicePo       reflect.Value
+	prevSlicePo       any
 	prevSliceRecord   *SliceRecord
+}
+
+// valueIdentity keys a reflect.Value by its underlying storage, used by the
+// record maps in place of the reflect.Value itself, whose equality the Go spec
+// does not define for identity use. The typed *T pointer (not a bare uintptr)
+// keeps the storage GC-visible and distinguishes values by type as well as
+// address. Every value tracked here is addressable.
+func valueIdentity(v reflect.Value) any {
+	return v.Addr().Interface()
 }
 
 type tableContext struct {
@@ -174,14 +183,15 @@ func handleOldListLeaf(po reflect.Value, val any) {
 }
 
 func (s *unmarshalState) getSliceRecord(po reflect.Value) *SliceRecord {
-	if s.prevSlicePo == po {
+	key := valueIdentity(po)
+	if s.prevSlicePo != nil && s.prevSlicePo == key {
 		return s.prevSliceRecord
 	}
-	s.prevSlicePo = po
-	sliceRec, ok := s.sliceRecords[po]
+	s.prevSlicePo = key
+	sliceRec, ok := s.sliceRecords[key]
 	if !ok {
 		sliceRec = &SliceRecord{Values: []reflect.Value{}, Index: -1}
-		s.sliceRecords[po] = sliceRec
+		s.sliceRecords[key] = sliceRec
 		s.sliceRecordsStack = append(s.sliceRecordsStack, po)
 	}
 	s.prevSliceRecord = sliceRec
@@ -240,10 +250,11 @@ func (s *unmarshalState) handleMap(po reflect.Value, tc *tableContext, index int
 		po.Set(reflect.MakeMap(poType))
 	}
 
-	mapRec, ok := s.mapRecords[po]
+	key := valueIdentity(po)
+	mapRec, ok := s.mapRecords[key]
 	if !ok {
 		mapRec = &MapRecord{KeyValues: []KeyValue{}, Index: -1}
-		s.mapRecords[po] = mapRec
+		s.mapRecords[key] = mapRec
 		s.mapRecordsStack = append(s.mapRecordsStack, po)
 	}
 
@@ -391,7 +402,7 @@ func (s *unmarshalState) processTable(root reflect.Value, prefixIndex int, table
 	s.prevType = nil
 	s.prevFieldName = ""
 	s.prevFieldIndex = nil
-	s.prevSlicePo = reflect.Value{}
+	s.prevSlicePo = nil
 	s.prevSliceRecord = nil
 
 	for i := bgn; i < end; i++ {
@@ -420,8 +431,8 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 	state := &unmarshalState{
 		schemaHandler: schemaHandler,
-		mapRecords:    make(map[reflect.Value]*MapRecord),
-		sliceRecords:  make(map[reflect.Value]*SliceRecord),
+		mapRecords:    make(map[any]*MapRecord),
+		sliceRecords:  make(map[any]*SliceRecord),
 	}
 
 	for name, table := range tableNeeds {
@@ -439,12 +450,12 @@ func Unmarshal(tableMap *map[string]*layout.Table, bgn, end int, dstInterface an
 
 	for i := len(state.sliceRecordsStack) - 1; i >= 0; i-- {
 		po := state.sliceRecordsStack[i]
-		vs := state.sliceRecords[po]
+		vs := state.sliceRecords[valueIdentity(po)]
 		po.Set(reflect.Append(po, vs.Values...))
 	}
 	for i := len(state.mapRecordsStack) - 1; i >= 0; i-- {
 		po := state.mapRecordsStack[i]
-		for _, kv := range state.mapRecords[po].KeyValues {
+		for _, kv := range state.mapRecords[valueIdentity(po)].KeyValues {
 			po.SetMapIndex(kv.Key, kv.Value)
 		}
 	}
