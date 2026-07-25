@@ -168,14 +168,40 @@ func extractPageStats(page *layout.Page) pageStats {
 	return pageStats{}
 }
 
+// pageIsAllNull reports whether a data page contains no non-null leaf values.
+// The definition-level histogram's top bucket (max definition level) counts the
+// fully-defined, non-null leaf values in the page; it is computed for every page
+// of a nullable column (max definition level > 0). A required, non-nested column
+// has no histogram (nil) and can never be all-null. Relying on the histogram
+// keeps detection correct even when statistics are omitted or the column type
+// (GEOMETRY/GEOGRAPHY, INTERVAL) intentionally carries no min/max.
+func pageIsAllNull(page *layout.Page) bool {
+	hist := page.DefinitionLevelHistogram
+	if len(hist) == 0 {
+		return false
+	}
+	return hist[len(hist)-1] == 0
+}
+
 func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.ColumnIndex, offsetIndex *parquet.OffsetIndex, dataPageIdx, dataPageCount int, firstRowIndex *int64) error {
 	if page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil {
 		return fmt.Errorf("unsupported data page: %s", page.Header.String())
 	}
 
 	stats := extractPageStats(page)
-	columnIndex.MinValues[dataPageIdx] = stats.minVal
-	columnIndex.MaxValues[dataPageIdx] = stats.maxVal
+	if pageIsAllNull(page) {
+		// A page holding only null values carries no real min/max. Per the
+		// Parquet spec such a page must set null_pages[i]=true, and only then
+		// may min_values[i]/max_values[i] be empty byte arrays. Leaving
+		// null_pages false with empty min/max would advertise a bogus bound
+		// (e.g. "" for BYTE_ARRAY) that a predicate-pushdown engine trusts.
+		columnIndex.NullPages[dataPageIdx] = true
+		columnIndex.MinValues[dataPageIdx] = []byte{}
+		columnIndex.MaxValues[dataPageIdx] = []byte{}
+	} else {
+		columnIndex.MinValues[dataPageIdx] = stats.minVal
+		columnIndex.MaxValues[dataPageIdx] = stats.maxVal
+	}
 	if stats.nullCount != nil {
 		if columnIndex.NullCounts == nil {
 			columnIndex.NullCounts = make([]int64, dataPageCount)
