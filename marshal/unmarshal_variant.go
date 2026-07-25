@@ -9,7 +9,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
-func processVariantReconstruction(variantReconstructors map[string]*ShreddedVariantReconstructor, root reflect.Value, prefixPath string, schemaHandler *schema.SchemaHandler, tableBgn, tableEnd map[string]int, sliceRecords map[reflect.Value]*SliceRecord) error {
+func processVariantReconstruction(variantReconstructors map[string]*ShreddedVariantReconstructor, root reflect.Value, prefixPath string, schemaHandler *schema.SchemaHandler, tableBgn, tableEnd map[string]int, sliceRecords map[any]*SliceRecord) error {
 	for variantPath, reconstructor := range variantReconstructors {
 		numRows := countVariantRows(reconstructor, tableBgn, tableEnd)
 		expandRootForVariants(root, numRows, sliceRecords)
@@ -45,8 +45,8 @@ func countVariantRows(reconstructor *ShreddedVariantReconstructor, tableBgn, tab
 	return numRows
 }
 
-func expandRootForVariants(root reflect.Value, numRows int, sliceRecords map[reflect.Value]*SliceRecord) {
-	if sliceRec, ok := sliceRecords[root]; ok && len(sliceRec.Values) >= numRows {
+func expandRootForVariants(root reflect.Value, numRows int, sliceRecords map[any]*SliceRecord) {
+	if sliceRec, ok := sliceRecords[valueIdentity(root)]; ok && len(sliceRec.Values) >= numRows {
 		return
 	}
 	if root.Kind() == reflect.Slice && root.Len() < numRows {
@@ -112,7 +112,7 @@ func assignVariantToTarget(po reflect.Value, variant types.Variant) error {
 	return fmt.Errorf("could not set variant value at path end")
 }
 
-func navigateToVariantTarget(root reflect.Value, path []string, prefixIndex int, variant types.Variant, rowIdx int, sliceRecords map[reflect.Value]*SliceRecord) (reflect.Value, error) {
+func navigateToVariantTarget(root reflect.Value, path []string, prefixIndex int, variant types.Variant, rowIdx int, sliceRecords map[any]*SliceRecord) (reflect.Value, error) {
 	po := root
 	for i := prefixIndex; i < len(path); i++ {
 		if !po.IsValid() {
@@ -132,7 +132,7 @@ func navigateToVariantTarget(root reflect.Value, path []string, prefixIndex int,
 			if po.Type().Elem().Kind() == reflect.Uint8 {
 				return po, fmt.Errorf("unexpected []byte at path index %d", i)
 			}
-			sliceRec, ok := sliceRecords[po]
+			sliceRec, ok := sliceRecords[valueIdentity(po)]
 			if ok && rowIdx < len(sliceRec.Values) {
 				po = sliceRec.Values[rowIdx]
 			} else if rowIdx < po.Len() {
@@ -170,7 +170,7 @@ func navigateToVariantTarget(root reflect.Value, path []string, prefixIndex int,
 }
 
 // setVariantValue navigates the struct path and sets a variant value at the specified location.
-func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *schema.SchemaHandler, variant types.Variant, rowIdx int, sliceRecords map[reflect.Value]*SliceRecord) error {
+func setVariantValue(root reflect.Value, variantPath, prefixPath string, _ *schema.SchemaHandler, variant types.Variant, rowIdx int, sliceRecords map[any]*SliceRecord) error {
 	path := common.StrToPath(variantPath)
 	prefixIndex := common.PathStrIndex(prefixPath)
 
