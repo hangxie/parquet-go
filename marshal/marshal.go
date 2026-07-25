@@ -98,11 +98,10 @@ func (p *ParquetMapStruct) Marshal(node *Node, nodeBuf *NodeBufType, stack []*No
 		return stack, nil
 	}
 
+	// Track every child, leaf and group alike, so absent keys still get nils.
 	missingKeys := make(map[string]bool)
-	for k, typ := range node.PathMap.Children {
-		if len(typ.Children) == 0 {
-			missingKeys[k] = true
-		}
+	for k := range node.PathMap.Children {
+		missingKeys[k] = true
 	}
 	for j := len(keys) - 1; j >= 0; j-- {
 		key := keys[j]
@@ -326,6 +325,25 @@ func processNode(node *Node, res map[string]*layout.Table, schemaHandler *schema
 		return nil, handleErr
 	} else if handled {
 		return newStack, nil
+	}
+
+	// Validate group nodes before primitive dispatch: an absent value back-fills
+	// the subtree as a missing group; a present non-group value is a mismatch.
+	if se.GetNumChildren() > 0 {
+		if !node.Val.IsValid() {
+			appendNilToChildren(node, res, schemaHandler)
+			return stack, nil
+		}
+		switch node.Val.Kind() {
+		case reflect.Map, reflect.Struct, reflect.Pointer, reflect.Interface:
+			// valid group containers — fall through to marshaler dispatch
+		case reflect.Slice:
+			if isByteSlice(node) { // a byte slice is a scalar, never a group
+				return nil, fmt.Errorf("expected a group for %s, got []byte", node.PathMap.Path)
+			}
+		default:
+			return nil, fmt.Errorf("expected a group for %s, got %s", node.PathMap.Path, node.Val.Kind())
+		}
 	}
 
 	// []byte should be treated as primitive BYTE_ARRAY, not as a LIST
