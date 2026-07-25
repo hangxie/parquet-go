@@ -559,3 +559,66 @@ func TestParquetWriter_UnknownLogicalType(t *testing.T) {
 		require.Nil(t, row.NullCol)
 	}
 }
+
+// TestDeprecatedMinMaxBySortOrder verifies that the deprecated Statistics
+// Min/Max fields (PARQUET-251) are only written for columns whose sort order is
+// signed. The current MinValue/MaxValue fields are written for every column.
+func TestDeprecatedMinMaxBySortOrder(t *testing.T) {
+	type Row struct {
+		Signed   int64  `parquet:"name=signed, type=INT64"`
+		Unsigned uint64 `parquet:"name=unsigned, type=INT64, convertedtype=UINT_64"`
+		Str      string `parquet:"name=str, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	pw, buf, err := createTestParquetWriter(new(Row), WithNP(1))
+	require.NoError(t, err)
+	for i := range 3 {
+		require.NoError(t, pw.Write(Row{
+			Signed:   int64(i) - 1, // includes a negative value
+			Unsigned: uint64(i),
+			Str:      fmt.Sprintf("v%d", i),
+		}))
+	}
+	require.NoError(t, pw.WriteStop())
+
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(Row), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, pf.Close())
+	}()
+
+	require.Len(t, pr.Footer.RowGroups, 1)
+	columns := pr.Footer.RowGroups[0].Columns
+
+	byName := func(name string) *parquet.Statistics {
+		for _, c := range columns {
+			if c.MetaData != nil && len(c.MetaData.PathInSchema) > 0 &&
+				c.MetaData.PathInSchema[len(c.MetaData.PathInSchema)-1] == name {
+				return c.MetaData.Statistics
+			}
+		}
+		t.Fatalf("column %q not found", name)
+		return nil
+	}
+
+	// Signed column: both current and deprecated fields are populated.
+	signed := byName("signed")
+	require.NotNil(t, signed)
+	require.NotNil(t, signed.MinValue)
+	require.NotNil(t, signed.MaxValue)
+	require.NotNil(t, signed.Min)
+	require.NotNil(t, signed.Max)
+	require.Equal(t, signed.MinValue, signed.Min)
+	require.Equal(t, signed.MaxValue, signed.Max)
+
+	// Unsigned integer and UTF8 columns: only the current fields are populated;
+	// the deprecated signed Min/Max are omitted.
+	for _, name := range []string{"unsigned", "str"} {
+		stats := byName(name)
+		require.NotNil(t, stats, name)
+		require.NotNil(t, stats.MinValue, name)
+		require.NotNil(t, stats.MaxValue, name)
+		require.Nil(t, stats.Min, name)
+		require.Nil(t, stats.Max, name)
+	}
+}

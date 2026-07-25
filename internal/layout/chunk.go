@@ -86,11 +86,12 @@ func aggregatePageMetrics(pages []*Page, statsStartIdx int, funcTable common.Fun
 	return numValues, totalUncompressed, totalCompressed, minVal, maxVal, nullCount, encodings
 }
 
-func populateStatistics(metaData *parquet.ColumnMetaData, pT *parquet.Type, minVal, maxVal any, nullCount int64, omitStats bool) error {
+func populateStatistics(metaData *parquet.ColumnMetaData, schema *parquet.SchemaElement, minVal, maxVal any, nullCount int64, omitStats bool) error {
 	metaData.Statistics = parquet.NewStatistics()
 	if omitStats {
 		return nil
 	}
+	pT := schema.Type
 	metaData.Statistics.NullCount = &nullCount
 	if maxVal == nil || minVal == nil {
 		return nil
@@ -107,10 +108,13 @@ func populateStatistics(metaData *parquet.ColumnMetaData, pT *parquet.Type, minV
 		tmpBufMax = tmpBufMax[4:]
 		tmpBufMin = tmpBufMin[4:]
 	}
-	metaData.Statistics.Max = tmpBufMax
-	metaData.Statistics.Min = tmpBufMin
 	metaData.Statistics.MaxValue = tmpBufMax
 	metaData.Statistics.MinValue = tmpBufMin
+	// Deprecated Min/Max (PARQUET-251) only for signed sort orders.
+	if common.IsSignedSortOrder(pT, schema.ConvertedType, schema.LogicalType) {
+		metaData.Statistics.Max = tmpBufMax
+		metaData.Statistics.Min = tmpBufMin
+	}
 
 	return nil
 }
@@ -144,7 +148,7 @@ func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 	metaData.TotalUncompressedSize = totalUncompressed
 	metaData.PathInSchema = pages[metadataPageIdx].Path
 
-	if err := populateStatistics(metaData, pT, minVal, maxVal, nullCount, omitStats); err != nil {
+	if err := populateStatistics(metaData, pages[metadataPageIdx].Schema, minVal, maxVal, nullCount, omitStats); err != nil {
 		return nil, fmt.Errorf("populate chunk statistics: %w", err)
 	}
 

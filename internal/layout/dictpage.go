@@ -263,30 +263,9 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 	page.Header.DataPageHeader.Encoding = parquet.Encoding_RLE_DICTIONARY
 
 	page.Header.DataPageHeader.Statistics = parquet.NewStatistics()
-	if page.MaxVal != nil {
-		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
-		if err != nil {
-			return nil, fmt.Errorf("encode dict page max statistic: %w", err)
-		}
-		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
-			tmpBuf = tmpBuf[4:]
-		}
-		page.Header.DataPageHeader.Statistics.Max = tmpBuf
-		page.Header.DataPageHeader.Statistics.MaxValue = tmpBuf
+	if err := page.setPageStatistics(page.Header.DataPageHeader.Statistics); err != nil {
+		return nil, fmt.Errorf("set dict page statistics: %w", err)
 	}
-	if page.MinVal != nil {
-		tmpBuf, err := encoding.WritePlain([]any{page.MinVal}, *page.Schema.Type)
-		if err != nil {
-			return nil, fmt.Errorf("encode dict page min statistic: %w", err)
-		}
-		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
-			tmpBuf = tmpBuf[4:]
-		}
-		page.Header.DataPageHeader.Statistics.Min = tmpBuf
-		page.Header.DataPageHeader.Statistics.MinValue = tmpBuf
-	}
-
-	page.Header.DataPageHeader.Statistics.NullCount = page.NullCount
 
 	return dataEncodeBuf, nil
 }

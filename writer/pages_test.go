@@ -29,8 +29,8 @@ func TestExtractPageStats(t *testing.T) {
 				Header: &parquet.PageHeader{
 					DataPageHeader: &parquet.DataPageHeader{
 						Statistics: &parquet.Statistics{
-							Min:       []byte("a"),
-							Max:       []byte("z"),
+							MinValue:  []byte("a"),
+							MaxValue:  []byte("z"),
 							NullCount: &nullCount,
 						},
 					},
@@ -44,8 +44,8 @@ func TestExtractPageStats(t *testing.T) {
 				Header: &parquet.PageHeader{
 					DataPageHeaderV2: &parquet.DataPageHeaderV2{
 						Statistics: &parquet.Statistics{
-							Min:       []byte("b"),
-							Max:       []byte("y"),
+							MinValue:  []byte("b"),
+							MaxValue:  []byte("y"),
 							NullCount: &nullCount,
 						},
 					},

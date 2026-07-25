@@ -13,12 +13,12 @@ import (
 // max- and min-value encoding when the value type does not match the parquet
 // type (WritePlain returns a type-assertion error).
 func TestPopulateStatistics_EncodeErrors(t *testing.T) {
-	pT := common.ToPtr(parquet.Type_INT32)
+	schema := &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}
 
 	t.Run("max_encode_error", func(t *testing.T) {
 		meta := parquet.NewColumnMetaData()
 		// maxVal is a string but the type is INT32, so WritePlain fails.
-		err := populateStatistics(meta, pT, int32(1), "not-an-int", 0, false)
+		err := populateStatistics(meta, schema, int32(1), "not-an-int", 0, false)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "encode chunk max statistic")
 	})
@@ -26,7 +26,7 @@ func TestPopulateStatistics_EncodeErrors(t *testing.T) {
 	t.Run("min_encode_error", func(t *testing.T) {
 		meta := parquet.NewColumnMetaData()
 		// maxVal is valid INT32, but minVal is a string, so the min encode fails.
-		err := populateStatistics(meta, pT, "not-an-int", int32(1), 0, false)
+		err := populateStatistics(meta, schema, "not-an-int", int32(1), 0, false)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "encode chunk min statistic")
 	})
@@ -1250,16 +1250,17 @@ func TestChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 
 				// Check min/max statistics based on expectation
 				if tt.expectMinMaxStats {
-					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.Max)
-					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.Min)
 					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.MaxValue)
 					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.MinValue)
 				} else {
-					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Max)
-					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Min)
 					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.MaxValue)
 					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.MinValue)
 				}
+				// These columns are UNSIGNED (BYTE_ARRAY) or UNKNOWN-ordered
+				// (GEOMETRY/GEOGRAPHY/INTERVAL), so the deprecated signed Min/Max
+				// are never written (PARQUET-251).
+				require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Max)
+				require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Min)
 
 				// Null count should always be present
 				require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.NullCount)
@@ -1333,16 +1334,17 @@ func TestChunkLevel_SkipMinMaxStatistics_ForGeospatialTypes(t *testing.T) {
 
 				// Check min/max statistics based on expectation
 				if tt.expectMinMaxStats {
-					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.Max)
-					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.Min)
 					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.MaxValue)
 					require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.MinValue)
 				} else {
-					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Max)
-					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Min)
 					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.MaxValue)
 					require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.MinValue)
 				}
+				// These columns are UNSIGNED (BYTE_ARRAY) or UNKNOWN-ordered
+				// (GEOMETRY/GEOGRAPHY/INTERVAL), so the deprecated signed Min/Max
+				// are never written (PARQUET-251).
+				require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Max)
+				require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.Min)
 
 				// Null count should always be present
 				require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics.NullCount)

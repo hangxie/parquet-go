@@ -157,13 +157,15 @@ type pageStats struct {
 }
 
 func extractPageStats(page *layout.Page) pageStats {
+	// Use MinValue/MaxValue: always populated, whereas the deprecated Min/Max
+	// are omitted for unsigned/unknown-ordered columns (PARQUET-251).
 	if page.Header.DataPageHeader != nil && page.Header.DataPageHeader.Statistics != nil {
 		s := page.Header.DataPageHeader.Statistics
-		return pageStats{minVal: s.Min, maxVal: s.Max, nullCount: s.NullCount}
+		return pageStats{minVal: s.MinValue, maxVal: s.MaxValue, nullCount: s.NullCount}
 	}
 	if page.Header.DataPageHeaderV2 != nil && page.Header.DataPageHeaderV2.Statistics != nil {
 		s := page.Header.DataPageHeaderV2.Statistics
-		return pageStats{minVal: s.Min, maxVal: s.Max, nullCount: s.NullCount}
+		return pageStats{minVal: s.MinValue, maxVal: s.MaxValue, nullCount: s.NullCount}
 	}
 	return pageStats{}
 }

@@ -300,6 +300,7 @@ Encoding notes:
 - For maximum compatibility, use `PLAIN` and `PLAIN_DICTIONARY`.
 - Avoid dictionary encoding for high-cardinality fields because dictionaries can consume significant memory.
 - Use `omitstats=true` in a field tag to skip statistics for large array fields.
+- Whenever min/max statistics are available, the current `min_value`/`max_value` fields are written. The deprecated `min`/`max` fields (PARQUET-251) are limited to signed sort orders; for unsigned-ordered columns (e.g. `BYTE_ARRAY`/UTF8 and unsigned integer logical types) they are omitted so legacy readers do not misinterpret them.
 
 ## Compression Support
 
