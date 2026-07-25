@@ -17,7 +17,14 @@ func (pw *ParquetWriter) writeColumnIndexes(ts *thrift.TSerializer) error {
 	idx := 0
 	for rowGroupIndex, rowGroup := range pw.Footer.RowGroups {
 		for columnOrdinal, columnChunk := range rowGroup.Columns {
-			columnIndexBuf, err := ts.Write(context.TODO(), pw.columnIndexes[idx])
+			columnIndex := pw.columnIndexes[idx]
+			idx++
+			// A nil slot means the chunk has no valid ColumnIndex (its non-null
+			// pages lack min/max bounds); leave ColumnIndexOffset unset.
+			if columnIndex == nil {
+				continue
+			}
+			columnIndexBuf, err := ts.Write(context.TODO(), columnIndex)
 			if err != nil {
 				return fmt.Errorf("serialize column index: %w", err)
 			}
@@ -39,8 +46,6 @@ func (pw *ParquetWriter) writeColumnIndexes(ts *thrift.TSerializer) error {
 			if _, err = pw.PFile.Write(columnIndexBuf); err != nil {
 				return fmt.Errorf("write column index: %w", err)
 			}
-
-			idx++
 
 			pos := pw.offset
 			columnChunk.ColumnIndexOffset = &pos

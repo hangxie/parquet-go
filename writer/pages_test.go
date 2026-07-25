@@ -248,6 +248,7 @@ func TestColumnIndex(t *testing.T) {
 		}
 
 		type Expect struct {
+			HasColumnIndex  bool
 			IsSetNullCounts bool
 			NullCounts      []int64
 			NullPages       []bool
@@ -281,17 +282,23 @@ func TestColumnIndex(t *testing.T) {
 		chunks := pr.Footer.RowGroups[0].GetColumns()
 		require.Equal(t, 5, len(chunks))
 
-		// Every column here has at least one real value per page, so none is a
-		// null page even where statistics are omitted (histogram-based detection
-		// stays correct without min/max).
+		// Columns z and v use omitstats: their non-null pages have no min/max,
+		// so no ColumnIndex may be written for them (empty bounds with
+		// null_pages=false would violate the spec). The stats-bearing columns
+		// each have a real value per page and so are never null pages.
 		expects := []Expect{
-			{true, []int64{2}, []bool{false}},
-			{true, []int64{1}, []bool{false}},
-			{false, nil, []bool{false}},
-			{true, []int64{0}, []bool{false}},
-			{false, nil, []bool{false}},
+			{true, true, []int64{2}, []bool{false}},
+			{true, true, []int64{1}, []bool{false}},
+			{false, false, nil, nil},
+			{true, true, []int64{0}, []bool{false}},
+			{false, false, nil, nil},
 		}
 		for i, chunk := range chunks {
+			if !expects[i].HasColumnIndex {
+				require.False(t, chunk.IsSetColumnIndexOffset())
+				continue
+			}
+			require.True(t, chunk.IsSetColumnIndexOffset())
 			colIdx, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
 			require.NoError(t, err)
 			require.Equal(t, expects[i].IsSetNullCounts, colIdx.IsSetNullCounts())
