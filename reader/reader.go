@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"strings"
 	"sync"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -381,7 +380,7 @@ func (pr *ParquetReader) fetchColumnData(num int, prefixPath string, tmap map[st
 		go worker()
 	}
 	for key := range pr.ColumnBuffers {
-		if strings.HasPrefix(key, prefixPath) {
+		if prefixPath == "" || common.IsChildPath(prefixPath, key) {
 			taskChan <- key
 		}
 	}

@@ -81,6 +81,49 @@ func TestParquetReader_ReadPartial(t *testing.T) {
 	require.Contains(t, err.Error(), "dstInterface is nil")
 }
 
+func TestParquetReader_ReadPartial_SiblingPrefix(t *testing.T) {
+	// Reproduces issue #325: reading prefix "name" must not pick up data from
+	// the sibling column "name2" whose path shares the same string prefix.
+	type siblingInner struct {
+		Value int64 `parquet:"name=value, type=INT64"`
+	}
+	type siblingRecord struct {
+		Name  *siblingInner `parquet:"name=name"`
+		Name2 *siblingInner `parquet:"name=name2"`
+	}
+
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	pw, err := writer.NewParquetWriter(fw, new(siblingRecord), writer.WithNP(1))
+	require.NoError(t, err)
+
+	const rows = 3
+	for i := range int64(rows) {
+		require.NoError(t, pw.Write(siblingRecord{
+			Name:  &siblingInner{Value: i},
+			Name2: &siblingInner{Value: i + 100},
+		}))
+	}
+	require.NoError(t, pw.WriteStop())
+
+	// Run multiple times: before the fix, map iteration order made the sibling
+	// column's data win nondeterministically.
+	for range 20 {
+		br := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := NewParquetReader(br, new(siblingRecord), WithNP(1))
+		require.NoError(t, err)
+
+		out := make([]siblingInner, rows)
+		err = pr.ReadPartial(&out, common.ReformPathStr(common.ParGoRootExName+".name"))
+		require.NoError(t, err)
+		_ = pr.ReadStop()
+
+		for i := range int64(rows) {
+			require.Equal(t, i, out[i].Value)
+		}
+	}
+}
+
 func TestParquetReader_ReadPartialByNumber(t *testing.T) {
 	// Create test data
 	data, err := createNestedParquetData()
