@@ -183,12 +183,20 @@ func pageIsAllNull(page *layout.Page) bool {
 	return hist[len(hist)-1] == 0
 }
 
-func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.ColumnIndex, offsetIndex *parquet.OffsetIndex, dataPageIdx, dataPageCount int, firstRowIndex *int64) error {
+// recordDataPage fills the ColumnIndex/OffsetIndex entries for one data page.
+// It returns hasValidBounds=false when the page is a non-null page that carries
+// no min/max (statistics omitted, or a type such as GEOMETRY/GEOGRAPHY/INTERVAL
+// that intentionally has none). The caller must not emit a ColumnIndex whose
+// non-null pages lack bounds: the Parquet spec requires min_values[i]/
+// max_values[i] to be valid whenever null_pages[i] is false, so an index with
+// empty bounds there would make predicate-pushdown readers skip matching rows.
+func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.ColumnIndex, offsetIndex *parquet.OffsetIndex, dataPageIdx, dataPageCount int, firstRowIndex *int64) (hasValidBounds bool, err error) {
 	if page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil {
-		return fmt.Errorf("unsupported data page: %s", page.Header.String())
+		return false, fmt.Errorf("unsupported data page: %s", page.Header.String())
 	}
 
 	stats := extractPageStats(page)
+	hasValidBounds = true
 	if pageIsAllNull(page) {
 		// A page holding only null values carries no real min/max. Per the
 		// Parquet spec such a page must set null_pages[i]=true, and only then
@@ -199,6 +207,12 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 		columnIndex.MinValues[dataPageIdx] = []byte{}
 		columnIndex.MaxValues[dataPageIdx] = []byte{}
 	} else {
+		// nil (as opposed to an empty-but-non-nil slice, which is the valid
+		// encoding of e.g. an empty BYTE_ARRAY value) means no statistic was
+		// computed for this non-null page, so the whole ColumnIndex is invalid.
+		if stats.minVal == nil || stats.maxVal == nil {
+			hasValidBounds = false
+		}
 		columnIndex.MinValues[dataPageIdx] = stats.minVal
 		columnIndex.MaxValues[dataPageIdx] = stats.maxVal
 	}
@@ -229,7 +243,7 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 	// Parquet spec first_row_index counts repetition-level-0 entries, which
 	// differs from NumValues for columns under repeated (LIST/MAP) fields.
 	*firstRowIndex += page.NumRows
-	return nil
+	return hasValidBounds, nil
 }
 
 func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, columnOrdinal int16) error {
@@ -255,6 +269,7 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 	columnIndex.MinValues = make([][]byte, dataPageCount)
 	columnIndex.MaxValues = make([][]byte, dataPageCount)
 	columnIndex.BoundaryOrder = parquet.BoundaryOrder_UNORDERED
+	columnIndexSlot := len(pw.columnIndexes)
 	pw.columnIndexes = append(pw.columnIndexes, columnIndex)
 
 	offsetIndex := parquet.NewOffsetIndex()
@@ -263,6 +278,7 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 
 	firstRowIndex := int64(0)
 	dataPageIdx := 0
+	columnIndexValid := true
 
 	for _, page := range pages {
 		pageOrdinal := int16(dataPageIdx)
@@ -282,8 +298,12 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 			chunk.ChunkHeader.MetaData.TotalCompressedSize += int64(len(page.RawData) - plainRawLen)
 		}
 		if isDataPage {
-			if err := pw.recordDataPage(page, columnIndex, offsetIndex, dataPageIdx, dataPageCount, &firstRowIndex); err != nil {
+			hasValidBounds, err := pw.recordDataPage(page, columnIndex, offsetIndex, dataPageIdx, dataPageCount, &firstRowIndex)
+			if err != nil {
 				return fmt.Errorf("record data page %d: %w", dataPageIdx, err)
+			}
+			if !hasValidBounds {
+				columnIndexValid = false
 			}
 			dataPageIdx++
 		}
@@ -291,6 +311,14 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 			return fmt.Errorf("write page data: %w", err)
 		}
 		pw.offset += int64(len(page.RawData))
+	}
+
+	// Drop a ColumnIndex whose non-null pages lack valid min/max bounds (e.g. a
+	// column written with omitstats, or a type that carries no min/max). A nil
+	// slot signals writeColumnIndexes to leave this chunk's ColumnIndexOffset
+	// unset, which is spec-valid and keeps the per-chunk slot alignment intact.
+	if !columnIndexValid {
+		pw.columnIndexes[columnIndexSlot] = nil
 	}
 	return nil
 }
