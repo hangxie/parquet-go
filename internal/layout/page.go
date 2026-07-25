@@ -53,6 +53,14 @@ type Page struct {
 	DefinitionLevelHistogram []int64
 	RepetitionLevelHistogram []int64
 
+	// NumRows is the number of rows (records, i.e. repetition-level-0 entries)
+	// contained in the page. It is the unit used for OffsetIndex
+	// first_row_index and differs from the leaf value count for repeated
+	// fields. Computed during page creation so it survives DataTable being
+	// nilled out later. Pages are built row-aligned, so this is always >= 1
+	// for a non-empty page and first_row_index values are strictly increasing.
+	NumRows int64
+
 	// UnencodedByteArrayDataBytes tracks the total byte size of BYTE_ARRAY
 	// data values (excluding 4-byte length prefixes) for SizeStatistics.
 	// Only set for BYTE_ARRAY physical type columns; nil otherwise.

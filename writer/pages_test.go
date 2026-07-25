@@ -75,38 +75,72 @@ func TestExtractPageStats(t *testing.T) {
 	}
 }
 
-func TestDataPageNumValues(t *testing.T) {
-	tests := []struct {
-		name string
-		page *layout.Page
-		want int64
-	}{
-		{
-			name: "data_page_v1",
-			page: &layout.Page{Header: &parquet.PageHeader{
-				DataPageHeader: &parquet.DataPageHeader{NumValues: 7},
-			}},
-			want: 7,
-		},
-		{
-			name: "data_page_v2",
-			page: &layout.Page{Header: &parquet.PageHeader{
-				DataPageHeaderV2: &parquet.DataPageHeaderV2{NumValues: 11},
-			}},
-			want: 11,
-		},
-		{
-			name: "not_data_page",
-			page: &layout.Page{Header: &parquet.PageHeader{}},
-			want: 0,
-		},
+// TestOffsetIndexFirstRowIndex verifies that PageLocation.first_row_index
+// advances by the number of rows (repetition-level-0 entries) in each page,
+// not by the leaf value count. For a repeated column values > rows, so the
+// value-based math would push first_row_index past the row-group row count.
+// Pages are row-aligned, so first_row_index must be strictly increasing and
+// every indexed page must begin at a row boundary.
+func TestOffsetIndexFirstRowIndex(t *testing.T) {
+	type ListStruct struct {
+		ID     int32   `parquet:"name=id, type=INT32"`
+		Values []int32 `parquet:"name=values, type=INT32, repetitiontype=REPEATED"`
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, dataPageNumValues(tt.page))
-		})
+	const numRows = 8
+	const valuesPerRow = 50
+
+	assertOffsetIndex := func(t *testing.T, pw *ParquetWriter, buf *bytes.Buffer) {
+		for i := range numRows {
+			values := make([]int32, valuesPerRow)
+			for j := range values {
+				values[j] = int32(i*valuesPerRow + j)
+			}
+			require.NoError(t, pw.Write(ListStruct{ID: int32(i), Values: values}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(ListStruct), reader.WithNP(1))
+		require.NoError(t, err)
+		defer func() { _ = pf.Close() }()
+		defer func() { _ = pr.ReadStop() }()
+
+		require.Equal(t, int64(numRows), pr.GetNumRows())
+
+		// The leaf column "values" carries repeated data; find it and check
+		// every page location advertises a row-based first_row_index.
+		var checkedMultiPage bool
+		for col := range pr.Footer.RowGroups[0].Columns {
+			oi, err := pr.ReadOffsetIndex(0, col)
+			require.NoError(t, err)
+			if oi == nil {
+				continue
+			}
+			prev := int64(-1)
+			for _, loc := range oi.PageLocations {
+				require.Greater(t, loc.FirstRowIndex, prev)
+				require.Less(t, loc.FirstRowIndex, int64(numRows))
+				prev = loc.FirstRowIndex
+			}
+			require.Equal(t, int64(0), oi.PageLocations[0].FirstRowIndex)
+			if len(oi.PageLocations) > 1 {
+				checkedMultiPage = true
+			}
+		}
+		require.True(t, checkedMultiPage)
 	}
+
+	t.Run("v1", func(t *testing.T) {
+		pw, buf, err := createTestParquetWriter(new(ListStruct), WithNP(1), WithPageSize(64))
+		require.NoError(t, err)
+		assertOffsetIndex(t, pw, buf)
+	})
+
+	t.Run("v2", func(t *testing.T) {
+		pw, buf, err := createTestParquetWriter(new(ListStruct), WithNP(1), WithPageSize(64), WithDataPageVersion(2))
+		require.NoError(t, err)
+		assertOffsetIndex(t, pw, buf)
+	})
 }
 
 func TestColumnIndex(t *testing.T) {

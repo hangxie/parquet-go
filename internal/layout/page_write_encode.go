@@ -77,6 +77,19 @@ func (page *Page) computeLevelHistograms() {
 	if page.DataTable == nil {
 		return
 	}
+	// A row starts at every repetition-level-0 entry. When the column is not
+	// repeated every entry is its own row, so the entry count is the row count.
+	if page.DataTable.MaxRepetitionLevel == 0 {
+		page.NumRows = int64(len(page.DataTable.DefinitionLevels))
+	} else {
+		var rows int64
+		for _, rl := range page.DataTable.RepetitionLevels {
+			if rl == 0 {
+				rows++
+			}
+		}
+		page.NumRows = rows
+	}
 	if page.DataTable.MaxDefinitionLevel > 0 {
 		page.DefinitionLevelHistogram = make([]int64, page.DataTable.MaxDefinitionLevel+1)
 		for _, dl := range page.DataTable.DefinitionLevels {
