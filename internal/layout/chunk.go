@@ -2,6 +2,7 @@ package layout
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/encoding"
@@ -78,6 +79,10 @@ func aggregatePageMetrics(pages []*Page, statsStartIdx int, funcTable common.Fun
 	for encoding := range encodingsMap {
 		encodings = append(encodings, encoding)
 	}
+	// Sort for deterministic output: map iteration order is randomized, which
+	// would otherwise make ColumnMetaData.Encodings order vary between runs and
+	// produce byte-different files for identical input.
+	slices.Sort(encodings)
 	return numValues, totalUncompressed, totalCompressed, minVal, maxVal, nullCount, encodings
 }
 

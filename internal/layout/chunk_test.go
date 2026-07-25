@@ -219,6 +219,44 @@ func TestPagesToChunk(t *testing.T) {
 	}
 }
 
+// TestAggregatePageMetrics_EncodingsSorted verifies that the aggregated
+// Encodings slice is deterministically sorted. The encodings are collected via
+// a map, whose iteration order Go randomizes, so without an explicit sort the
+// order would vary between runs and produce byte-different files for identical
+// input. Repeating the aggregation exercises the randomized iteration.
+func TestAggregatePageMetrics_EncodingsSorted(t *testing.T) {
+	makePages := func() []*Page {
+		dictPage := NewDictPage()
+		dictPage.Header.DictionaryPageHeader = &parquet.DictionaryPageHeader{
+			Encoding: parquet.Encoding_PLAIN,
+		}
+
+		dataPage := NewDataPage()
+		dataPage.Header.DataPageHeader = &parquet.DataPageHeader{
+			NumValues:               1,
+			Encoding:                parquet.Encoding_RLE_DICTIONARY,
+			DefinitionLevelEncoding: parquet.Encoding_RLE,
+			RepetitionLevelEncoding: parquet.Encoding_BIT_PACKED,
+		}
+
+		return []*Page{dictPage, dataPage}
+	}
+
+	want := []parquet.Encoding{
+		parquet.Encoding_PLAIN,
+		parquet.Encoding_RLE,
+		parquet.Encoding_BIT_PACKED,
+		parquet.Encoding_RLE_DICTIONARY,
+	}
+
+	// Run repeatedly so randomized map iteration order is exercised; the result
+	// must be identical and sorted every time.
+	for range 100 {
+		_, _, _, _, _, _, encodings := aggregatePageMetrics(makePages(), 0, nil, true)
+		require.Equal(t, want, encodings)
+	}
+}
+
 func TestPagesToDictChunk(t *testing.T) {
 	// Create dictionary page
 	dictPage := NewDictPage()
