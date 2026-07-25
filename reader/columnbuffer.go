@@ -212,89 +212,86 @@ func (cbt *ColumnBufferType) backfillEmptyChunk() error {
 }
 
 func (cbt *ColumnBufferType) ReadPage() error {
-	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
-		if cbt.Reader != nil {
-			if err := cbt.Reader.requirePageDecryptor(cbt); err != nil {
-				return fmt.Errorf("require page decryptor: %w", err)
+	for cbt.ChunkHeader == nil || cbt.ChunkHeader.MetaData == nil || cbt.ChunkReadValues >= cbt.ChunkHeader.MetaData.NumValues {
+		// Current chunk is exhausted; advance to the next row group and retry.
+		if err := cbt.NextRowGroup(); err != nil {
+			return fmt.Errorf("move to next row group: %w", err)
+		}
+	}
+
+	if cbt.Reader != nil {
+		if err := cbt.Reader.requirePageDecryptor(cbt); err != nil {
+			return fmt.Errorf("require page decryptor: %w", err)
+		}
+	}
+	page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
+	if err != nil {
+		// data is nil and rl/dl=0, no pages in file
+		if err == io.EOF && cbt.DataTable == nil && cbt.SchemaHandler != nil &&
+			cbt.SchemaHandler.MapIndex != nil && cbt.SchemaHandler.SchemaElements != nil {
+			if ferr := cbt.backfillEmptyChunk(); ferr != nil {
+				return ferr
 			}
 		}
-		page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
-		if err != nil {
-			// data is nil and rl/dl=0, no pages in file
-			if err == io.EOF && cbt.DataTable == nil && cbt.SchemaHandler != nil &&
-				cbt.SchemaHandler.MapIndex != nil && cbt.SchemaHandler.SchemaElements != nil {
-				if ferr := cbt.backfillEmptyChunk(); ferr != nil {
-					return ferr
-				}
-			}
 
-			return fmt.Errorf("read page: %w", err)
-		}
+		return fmt.Errorf("read page: %w", err)
+	}
 
-		if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
-			cbt.DictPage = page
-			return nil
-		}
-
-		page.Decode(cbt.DictPage)
-		if cbt.DataTable == nil {
-			cbt.DataTable = layout.NewTableFromTable(page.DataTable)
-		}
-
-		cbt.DataTable.Merge(page.DataTable)
-		cbt.ChunkReadValues += numValues
-		cbt.DataTableNumRows += numRows
+	if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
+		cbt.DictPage = page
 		return nil
 	}
 
-	if err := cbt.NextRowGroup(); err != nil {
-		return fmt.Errorf("move to next row group: %w", err)
+	page.Decode(cbt.DictPage)
+	if cbt.DataTable == nil {
+		cbt.DataTable = layout.NewTableFromTable(page.DataTable)
 	}
 
-	return cbt.ReadPage()
+	cbt.DataTable.Merge(page.DataTable)
+	cbt.ChunkReadValues += numValues
+	cbt.DataTableNumRows += numRows
+	return nil
 }
 
 func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
-	if cbt.ChunkHeader != nil && cbt.ChunkHeader.MetaData != nil && cbt.ChunkReadValues < cbt.ChunkHeader.MetaData.NumValues {
-		if cbt.Reader != nil {
-			if err := cbt.Reader.requirePageDecryptor(cbt); err != nil {
-				return nil, fmt.Errorf("require page decryptor: %w", err)
-			}
+	for cbt.ChunkHeader == nil || cbt.ChunkHeader.MetaData == nil || cbt.ChunkReadValues >= cbt.ChunkHeader.MetaData.NumValues {
+		// Current chunk is exhausted; advance to the next row group and retry.
+		if err := cbt.NextRowGroup(); err != nil {
+			return nil, fmt.Errorf("move to next row group: %w", err)
 		}
-		page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
-		if err != nil {
-			return nil, fmt.Errorf("read page raw data: %w", err)
-		}
+	}
 
-		numValues, numRows, err := page.GetRLDLFromRawData(cbt.SchemaHandler)
-		if err != nil {
-			return nil, fmt.Errorf("read repetition/definition levels: %w", err)
+	if cbt.Reader != nil {
+		if err := cbt.Reader.requirePageDecryptor(cbt); err != nil {
+			return nil, fmt.Errorf("require page decryptor: %w", err)
 		}
+	}
+	page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
+	if err != nil {
+		return nil, fmt.Errorf("read page raw data: %w", err)
+	}
 
-		if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
-			if err := page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
-				return nil, fmt.Errorf("decode dictionary page: %w", err)
-			}
-			cbt.DictPage = page
-			return page, nil
+	numValues, numRows, err := page.GetRLDLFromRawData(cbt.SchemaHandler)
+	if err != nil {
+		return nil, fmt.Errorf("read repetition/definition levels: %w", err)
+	}
+
+	if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
+		if err := page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
+			return nil, fmt.Errorf("decode dictionary page: %w", err)
 		}
-
-		if cbt.DataTable == nil {
-			cbt.DataTable = layout.NewTableFromTable(page.DataTable)
-		}
-
-		cbt.DataTable.Merge(page.DataTable)
-		cbt.ChunkReadValues += numValues
-		cbt.DataTableNumRows += numRows
+		cbt.DictPage = page
 		return page, nil
-
 	}
 
-	if err := cbt.NextRowGroup(); err != nil {
-		return nil, fmt.Errorf("move to next row group: %w", err)
+	if cbt.DataTable == nil {
+		cbt.DataTable = layout.NewTableFromTable(page.DataTable)
 	}
 
-	return cbt.ReadPageForSkip()
+	cbt.DataTable.Merge(page.DataTable)
+	cbt.ChunkReadValues += numValues
+	cbt.DataTableNumRows += numRows
+	return page, nil
 }
 
 // SkipRows skips up to num rows and returns how many were skipped.
