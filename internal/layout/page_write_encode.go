@@ -5,6 +5,7 @@ import (
 	"math/bits"
 	"slices"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
 	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -120,8 +121,11 @@ func (page *Page) computeLevelHistograms() {
 	}
 }
 
-// setPageStatistics sets the min/max/null statistics on a Statistics object
+// setPageStatistics sets the min/max/null statistics on a Statistics object.
+// MinValue/MaxValue are always written; the deprecated Min/Max (PARQUET-251,
+// signed byte-wise) only for signed sort orders.
 func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
+	signed := common.IsSignedSortOrder(page.Schema.Type, page.Schema.ConvertedType, page.Schema.LogicalType)
 	if page.MaxVal != nil {
 		tmpBuf, err := encoding.WritePlain([]any{page.MaxVal}, *page.Schema.Type)
 		if err != nil {
@@ -130,8 +134,10 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
 			tmpBuf = tmpBuf[4:]
 		}
-		stats.Max = tmpBuf
 		stats.MaxValue = tmpBuf
+		if signed {
+			stats.Max = tmpBuf
+		}
 	}
 	if page.MinVal != nil {
 		tmpBuf, err := encoding.WritePlain([]any{page.MinVal}, *page.Schema.Type)
@@ -141,8 +147,10 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 		if *page.Schema.Type == parquet.Type_BYTE_ARRAY {
 			tmpBuf = tmpBuf[4:]
 		}
-		stats.Min = tmpBuf
 		stats.MinValue = tmpBuf
+		if signed {
+			stats.Min = tmpBuf
+		}
 	}
 	stats.NullCount = page.NullCount
 	return nil

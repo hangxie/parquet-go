@@ -256,9 +256,13 @@ func TestDictDataPageCompress_ByteArrayStats(t *testing.T) {
 	compressedData, err := page.dictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 1, []int32{0, 1}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, compressedData)
-	// BYTE_ARRAY stats strip the 4-byte length prefix.
-	require.Equal(t, []byte("zzz"), page.Header.DataPageHeader.Statistics.Max)
-	require.Equal(t, []byte("aaa"), page.Header.DataPageHeader.Statistics.Min)
+	// BYTE_ARRAY stats strip the 4-byte length prefix. Its sort order is
+	// UNSIGNED, so only MinValue/MaxValue are written; the deprecated (signed)
+	// Min/Max fields are omitted (PARQUET-251).
+	require.Equal(t, []byte("zzz"), page.Header.DataPageHeader.Statistics.MaxValue)
+	require.Equal(t, []byte("aaa"), page.Header.DataPageHeader.Statistics.MinValue)
+	require.Nil(t, page.Header.DataPageHeader.Statistics.Max)
+	require.Nil(t, page.Header.DataPageHeader.Statistics.Min)
 }
 
 func TestDictDataPageCompress_CompressError(t *testing.T) {

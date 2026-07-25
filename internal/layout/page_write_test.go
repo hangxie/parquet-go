@@ -38,10 +38,14 @@ func TestDataPageCompressWithStatistics(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, data)
 
-	// Verify that statistics were set
+	// Verify that statistics were set. BYTE_ARRAY has UNSIGNED sort order, so
+	// MinValue/MaxValue are populated but the deprecated (signed) Min/Max are
+	// omitted (PARQUET-251).
 	require.NotNil(t, page.Header.DataPageHeader.Statistics)
-	require.NotNil(t, page.Header.DataPageHeader.Statistics.Max)
-	require.NotNil(t, page.Header.DataPageHeader.Statistics.Min)
+	require.NotNil(t, page.Header.DataPageHeader.Statistics.MaxValue)
+	require.NotNil(t, page.Header.DataPageHeader.Statistics.MinValue)
+	require.Nil(t, page.Header.DataPageHeader.Statistics.Max)
+	require.Nil(t, page.Header.DataPageHeader.Statistics.Min)
 	require.NotNil(t, page.Header.DataPageHeader.Statistics.NullCount)
 }
 
@@ -58,13 +62,17 @@ func TestGeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 		logicalType         *parquet.LogicalType
 		convertedType       *parquet.ConvertedType
 		expectMinMaxStats   bool
+		expectDeprecatedMin bool
 		expectNullCountStat bool
 	}{
 		{
+			// BYTE_ARRAY has UNSIGNED sort order, so MinValue/MaxValue are
+			// written but the deprecated (signed) Min/Max fields are omitted.
 			name:                "regular_byte_array_field",
 			logicalType:         nil,
 			convertedType:       nil,
 			expectMinMaxStats:   true,
+			expectDeprecatedMin: false,
 			expectNullCountStat: true,
 		},
 		{
@@ -74,6 +82,7 @@ func TestGeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			},
 			convertedType:       nil,
 			expectMinMaxStats:   false,
+			expectDeprecatedMin: false,
 			expectNullCountStat: true,
 		},
 		{
@@ -83,6 +92,7 @@ func TestGeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			},
 			convertedType:       nil,
 			expectMinMaxStats:   false,
+			expectDeprecatedMin: false,
 			expectNullCountStat: true,
 		},
 		{
@@ -90,6 +100,7 @@ func TestGeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 			logicalType:         nil,
 			convertedType:       common.ToPtr(parquet.ConvertedType_INTERVAL),
 			expectMinMaxStats:   false,
+			expectDeprecatedMin: false,
 			expectNullCountStat: true,
 		},
 	}
@@ -146,15 +157,18 @@ func TestGeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 
 				// Check min/max statistics based on expectation
 				if tt.expectMinMaxStats {
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.Max)
-					require.NotNil(t, page.Header.DataPageHeader.Statistics.Min)
 					require.NotNil(t, page.Header.DataPageHeader.Statistics.MaxValue)
 					require.NotNil(t, page.Header.DataPageHeader.Statistics.MinValue)
 				} else {
-					require.Nil(t, page.Header.DataPageHeader.Statistics.Max)
-					require.Nil(t, page.Header.DataPageHeader.Statistics.Min)
 					require.Nil(t, page.Header.DataPageHeader.Statistics.MaxValue)
 					require.Nil(t, page.Header.DataPageHeader.Statistics.MinValue)
+				}
+				if tt.expectDeprecatedMin {
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.Max)
+					require.NotNil(t, page.Header.DataPageHeader.Statistics.Min)
+				} else {
+					require.Nil(t, page.Header.DataPageHeader.Statistics.Max)
+					require.Nil(t, page.Header.DataPageHeader.Statistics.Min)
 				}
 
 				// Null count should always be present (not skipped)
@@ -219,15 +233,18 @@ func TestGeospatialFields_SkipMinMaxStatistics(t *testing.T) {
 
 				// Check min/max statistics based on expectation
 				if tt.expectMinMaxStats {
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Max)
-					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Min)
 					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue)
 					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.MinValue)
 				} else {
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Max)
-					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Min)
 					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MaxValue)
 					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.MinValue)
+				}
+				if tt.expectDeprecatedMin {
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Max)
+					require.NotNil(t, page.Header.DataPageHeaderV2.Statistics.Min)
+				} else {
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Max)
+					require.Nil(t, page.Header.DataPageHeaderV2.Statistics.Min)
 				}
 
 				// Null count should always be present (not skipped)
