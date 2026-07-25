@@ -12,7 +12,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
-func TestNewShreddedVariantReconstructor(t *testing.T) {
+func TestNewVariantReconstructor(t *testing.T) {
 	// Create schema with variant
 	variantInfo := &schema.VariantSchemaInfo{
 		MetadataIdx:    2,
@@ -55,7 +55,7 @@ func TestNewShreddedVariantReconstructor(t *testing.T) {
 	}
 
 	t.Run("all_tables_present", func(t *testing.T) {
-		r := NewShreddedVariantReconstructor(
+		r := newVariantReconstructor(
 			"Root"+common.ParGoPathDelimiter+"Var",
 			variantInfo,
 			tableMap,
@@ -77,7 +77,7 @@ func TestNewShreddedVariantReconstructor(t *testing.T) {
 			IsShredded:     true,
 		}
 
-		r := NewShreddedVariantReconstructor(
+		r := newVariantReconstructor(
 			"Root"+common.ParGoPathDelimiter+"Var",
 			infoNoValue,
 			tableMap,
@@ -93,7 +93,7 @@ func TestNewShreddedVariantReconstructor(t *testing.T) {
 	t.Run("missing_tables_in_map", func(t *testing.T) {
 		emptyTableMap := &map[string]*layout.Table{}
 
-		r := NewShreddedVariantReconstructor(
+		r := newVariantReconstructor(
 			"Root"+common.ParGoPathDelimiter+"Var",
 			variantInfo,
 			emptyTableMap,
@@ -107,7 +107,7 @@ func TestNewShreddedVariantReconstructor(t *testing.T) {
 	})
 }
 
-func TestShreddedVariantReconstructor_GetValueAtRow(t *testing.T) {
+func TestVariantReconstructor_GetValueAtRow(t *testing.T) {
 	sh := &schema.SchemaHandler{
 		MapIndex: map[string]int32{
 			"Root": 0,
@@ -121,7 +121,7 @@ func TestShreddedVariantReconstructor_GetValueAtRow(t *testing.T) {
 		},
 	}
 
-	r := &ShreddedVariantReconstructor{
+	r := &variantReconstructor{
 		SchemaHandler: sh,
 	}
 
@@ -216,7 +216,7 @@ func TestShreddedVariantReconstructor_GetValueAtRow(t *testing.T) {
 	})
 }
 
-func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
+func TestVariantReconstructor_Reconstruct(t *testing.T) {
 	sh := &schema.SchemaHandler{
 		MapIndex: map[string]int32{
 			"Root": 0,
@@ -260,7 +260,7 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    valueTable,
 		}
 
-		r := NewShreddedVariantReconstructor(
+		r := newVariantReconstructor(
 			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
@@ -299,7 +299,7 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": metadataTable,
 		}
 
-		r := NewShreddedVariantReconstructor(
+		r := newVariantReconstructor(
 			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
@@ -335,7 +335,7 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata": metadataTable,
 		}
 
-		r := NewShreddedVariantReconstructor(
+		r := newVariantReconstructor(
 			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
@@ -378,7 +378,7 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value":    valueTable,
 		}
 
-		r := NewShreddedVariantReconstructor(
+		r := newVariantReconstructor(
 			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
@@ -423,7 +423,7 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 			"Root" + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Typed_value": typedValueTable,
 		}
 
-		r := NewShreddedVariantReconstructor(
+		r := newVariantReconstructor(
 			"Root"+common.ParGoPathDelimiter+"Var",
 			&schema.VariantSchemaInfo{
 				MetadataIdx:    2,
@@ -450,7 +450,7 @@ func TestShreddedVariantReconstructor_Reconstruct(t *testing.T) {
 	})
 }
 
-func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
+func TestVariantReconstructor_Recursive(t *testing.T) {
 	// Root.Var (VARIANT) shredded into:
 	// Root.Var.Metadata
 	// Root.Var.Typed_value.a.Metadata
@@ -522,7 +522,7 @@ func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
 		break
 	}
 
-	r := NewShreddedVariantReconstructor(path, info, &tableMap, sh)
+	r := newVariantReconstructor(path, info, &tableMap, sh)
 
 	tableBgn := map[string]int{mKey: 0, vKey: 0, imKey: 0, ivKey: 0}
 	tableEnd := map[string]int{mKey: 1, vKey: 1, imKey: 1, ivKey: 1}
@@ -537,7 +537,7 @@ func TestShreddedVariantReconstructor_Recursive(t *testing.T) {
 	require.Equal(t, expected, decoded)
 }
 
-func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
+func TestVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 	t.Run("reconstruct_value_error_propagation", func(t *testing.T) {
 		metadata := types.EncodeVariantMetadata([]string{"a"})
 		metadataTable := &layout.Table{
@@ -572,7 +572,7 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 			break
 		}
 
-		r := NewShreddedVariantReconstructor(path, info, &tableMap, sh)
+		r := newVariantReconstructor(path, info, &tableMap, sh)
 
 		mKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata"
 		vKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value"
@@ -625,7 +625,7 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 			break
 		}
 
-		r := NewShreddedVariantReconstructor(path, info, &tableMap, sh)
+		r := newVariantReconstructor(path, info, &tableMap, sh)
 
 		mKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Metadata"
 		vKey := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "Value"
@@ -639,7 +639,7 @@ func TestShreddedVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 	})
 }
 
-func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
+func TestVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 	t.Run("nested_list_reconstruction", func(t *testing.T) {
 		// Mock a LIST of Variants
 		// Root.Var (LIST)
@@ -688,7 +688,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		// reconstructValue handles LIST by going to List/Element.
 
 		// Manually create reconstructor since it's not a top-level Variant group
-		r := &ShreddedVariantReconstructor{
+		r := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,
@@ -735,7 +735,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 			},
 		}
 
-		r := &ShreddedVariantReconstructor{
+		r := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Obj",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,
@@ -778,7 +778,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 			},
 		}
 
-		r1 := &ShreddedVariantReconstructor{
+		r1 := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap1,
 			SchemaHandler: sh1,
@@ -816,7 +816,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 				DefinitionLevels: []int32{1},
 			},
 		}
-		r2 := &ShreddedVariantReconstructor{
+		r2 := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap2,
 			SchemaHandler: sh2,
@@ -848,7 +848,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		}
 		tableBgn2[tKey3], tableEnd2[tKey3] = 0, 1
 
-		r3 := &ShreddedVariantReconstructor{
+		r3 := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap2,
 			SchemaHandler: sh3,
@@ -863,7 +863,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
 			Var int32 `parquet:"name=Var, type=VARIANT"`
 		}))
-		r := &ShreddedVariantReconstructor{
+		r := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &map[string]*layout.Table{},
 			SchemaHandler: sh,
@@ -911,7 +911,7 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 				DefinitionLevels: []int32{1},
 			},
 		}
-		r := &ShreddedVariantReconstructor{
+		r := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,
@@ -923,10 +923,10 @@ func TestShreddedVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 	})
 }
 
-// TestShreddedVariantReconstructor_reconstructElementChildren covers the code path where
+// TestVariantReconstructor_reconstructElementChildren covers the code path where
 // a LIST element contains non-variant struct children (not Metadata/Value/Typed_value),
 // which routes through reconstructElementChildren and collectChildValues.
-func TestShreddedVariantReconstructor_reconstructElementChildren(t *testing.T) {
+func TestVariantReconstructor_reconstructElementChildren(t *testing.T) {
 	t.Run("list_of_struct_elements", func(t *testing.T) {
 		// Schema:  Root.Var (LIST)
 		//            List (REPEATED)
@@ -966,7 +966,7 @@ func TestShreddedVariantReconstructor_reconstructElementChildren(t *testing.T) {
 			} `parquet:"name=Var, type=LIST"`
 		}))
 
-		r := &ShreddedVariantReconstructor{
+		r := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,
@@ -1018,7 +1018,7 @@ func TestShreddedVariantReconstructor_reconstructElementChildren(t *testing.T) {
 			} `parquet:"name=Var, type=LIST"`
 		}))
 
-		r := &ShreddedVariantReconstructor{
+		r := &variantReconstructor{
 			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
 			tableMap:      &tableMap,
 			SchemaHandler: sh,

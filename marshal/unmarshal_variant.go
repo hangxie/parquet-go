@@ -9,7 +9,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
-func processVariantReconstruction(variantReconstructors map[string]*ShreddedVariantReconstructor, root reflect.Value, prefixPath string, schemaHandler *schema.SchemaHandler, tableBgn, tableEnd map[string]int, sliceRecords map[any]*SliceRecord) error {
+func processVariantReconstruction(variantReconstructors map[string]*variantReconstructor, root reflect.Value, prefixPath string, schemaHandler *schema.SchemaHandler, tableBgn, tableEnd map[string]int, sliceRecords map[any]*SliceRecord) error {
 	for variantPath, reconstructor := range variantReconstructors {
 		numRows := countVariantRows(reconstructor, tableBgn, tableEnd)
 		expandRootForVariants(root, numRows, sliceRecords)
@@ -27,7 +27,7 @@ func processVariantReconstruction(variantReconstructors map[string]*ShreddedVari
 	return nil
 }
 
-func countVariantRows(reconstructor *ShreddedVariantReconstructor, tableBgn, tableEnd map[string]int) int {
+func countVariantRows(reconstructor *variantReconstructor, tableBgn, tableEnd map[string]int) int {
 	if reconstructor.MetadataTable == nil {
 		return 0
 	}

@@ -11,10 +11,10 @@ import (
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
-// ShreddedVariantReconstructor handles the reconstruction of shredded VARIANT columns.
+// variantReconstructor handles the reconstruction of shredded VARIANT columns.
 // It collects related tables (metadata, value, typed_value) and reconstructs full
 // Variant values row by row.
-type ShreddedVariantReconstructor struct {
+type variantReconstructor struct {
 	Path             string                    // Path of the variant group
 	Info             *schema.VariantSchemaInfo // Schema info for this variant
 	MetadataTable    *layout.Table             // metadata column (always present)
@@ -24,14 +24,14 @@ type ShreddedVariantReconstructor struct {
 	SchemaHandler    *schema.SchemaHandler     // Schema handler for path resolution
 }
 
-// NewShreddedVariantReconstructor creates a reconstructor for a shredded variant column.
-func NewShreddedVariantReconstructor(
+// newVariantReconstructor creates a reconstructor for a shredded variant column.
+func newVariantReconstructor(
 	path string,
 	info *schema.VariantSchemaInfo,
 	tableMap *map[string]*layout.Table,
 	sh *schema.SchemaHandler,
-) *ShreddedVariantReconstructor {
-	r := &ShreddedVariantReconstructor{
+) *variantReconstructor {
+	r := &variantReconstructor{
 		Path:          path,
 		Info:          info,
 		SchemaHandler: sh,
@@ -75,7 +75,7 @@ func NewShreddedVariantReconstructor(
 // It handles definition levels to return nil for missing values.
 // getValueAtRow returns the value from a table at the given row index.
 // It handles repeated fields by returning a slice of values.
-func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx int, tableBgn, tableEnd map[string]int) (any, error) {
+func (r *variantReconstructor) getValueAtRow(table *layout.Table, rowIdx int, tableBgn, tableEnd map[string]int) (any, error) {
 	if table == nil {
 		return nil, nil
 	}
@@ -132,7 +132,7 @@ func (r *ShreddedVariantReconstructor) getValueAtRow(table *layout.Table, rowIdx
 	return values[0], nil
 }
 
-func (r *ShreddedVariantReconstructor) findChildTables(pathPrefix string) map[string][]*layout.Table {
+func (r *variantReconstructor) findChildTables(pathPrefix string) map[string][]*layout.Table {
 	childTables := make(map[string][]*layout.Table)
 	for tableName, table := range *r.tableMap {
 		if strings.HasPrefix(tableName, pathPrefix+common.ParGoPathDelimiter) {
@@ -163,7 +163,7 @@ func findVariantChildNames(childTables map[string][]*layout.Table) (variantChild
 	return names, names.meta != "" || names.value != "" || names.typed != ""
 }
 
-func (r *ShreddedVariantReconstructor) reconstructChildValues(pathPrefix, childName string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte) ([]any, bool, error) {
+func (r *variantReconstructor) reconstructChildValues(pathPrefix, childName string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte) ([]any, bool, error) {
 	if childName == "" {
 		return nil, false, nil
 	}
@@ -180,7 +180,7 @@ func (r *ShreddedVariantReconstructor) reconstructChildValues(pathPrefix, childN
 	return nil, false, nil
 }
 
-func (r *ShreddedVariantReconstructor) isChildTablesRepeated(childTables map[string][]*layout.Table) (bool, error) {
+func (r *variantReconstructor) isChildTablesRepeated(childTables map[string][]*layout.Table) (bool, error) {
 	for _, tables := range childTables {
 		for _, table := range tables {
 			maxRL, err := r.SchemaHandler.MaxRepetitionLevel(table.Path)
@@ -195,7 +195,7 @@ func (r *ShreddedVariantReconstructor) isChildTablesRepeated(childTables map[str
 	return false, nil
 }
 
-func (r *ShreddedVariantReconstructor) reconstructVariantGroup(
+func (r *variantReconstructor) reconstructVariantGroup(
 	pathPrefix string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte,
 	childTables map[string][]*layout.Table, names variantChildNames,
 ) (any, error) {
@@ -238,7 +238,7 @@ func (r *ShreddedVariantReconstructor) reconstructVariantGroup(
 	return variantResultsToAny(results, isRepeated)
 }
 
-func (r *ShreddedVariantReconstructor) reconstructElementChildren(
+func (r *variantReconstructor) reconstructElementChildren(
 	pathPrefix string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte,
 	childTables map[string][]*layout.Table,
 ) (any, error) {
@@ -263,7 +263,7 @@ func (r *ShreddedVariantReconstructor) reconstructElementChildren(
 	return elements, nil
 }
 
-func (r *ShreddedVariantReconstructor) collectChildValues(
+func (r *variantReconstructor) collectChildValues(
 	pathPrefix string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte,
 	childTables map[string][]*layout.Table,
 ) (map[string][]any, int, error) {
@@ -289,7 +289,7 @@ func (r *ShreddedVariantReconstructor) collectChildValues(
 	return tableValues, maxLen, nil
 }
 
-func (r *ShreddedVariantReconstructor) resolveExName(childName, pathPrefix string) string {
+func (r *variantReconstructor) resolveExName(childName, pathPrefix string) string {
 	childPath := pathPrefix + common.ParGoPathDelimiter + childName
 	if idx, ok := r.SchemaHandler.MapIndex[childPath]; ok {
 		return r.SchemaHandler.Infos[idx].ExName
@@ -297,7 +297,7 @@ func (r *ShreddedVariantReconstructor) resolveExName(childName, pathPrefix strin
 	return childName
 }
 
-func (r *ShreddedVariantReconstructor) reconstructMapChildren(
+func (r *variantReconstructor) reconstructMapChildren(
 	pathPrefix string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte,
 	childTables map[string][]*layout.Table,
 ) (any, error) {
@@ -354,7 +354,7 @@ func (r *ShreddedVariantReconstructor) reconstructMapChildren(
 }
 
 // reconstructValue recursively builds a Go value from shredded columns.
-func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte) (any, error) {
+func (r *variantReconstructor) reconstructValue(pathPrefix string, rowIdx int, tableBgn, tableEnd map[string]int, metadata []byte) (any, error) {
 	if table, ok := (*r.tableMap)[pathPrefix]; ok {
 		return r.getValueAtRow(table, rowIdx, tableBgn, tableEnd)
 	}
@@ -394,7 +394,7 @@ func (r *ShreddedVariantReconstructor) reconstructValue(pathPrefix string, rowId
 }
 
 // Reconstruct reconstructs a Variant value for the given row index.
-func (r *ShreddedVariantReconstructor) Reconstruct(rowIdx int, tableBgn, tableEnd map[string]int) (types.Variant, error) {
+func (r *variantReconstructor) Reconstruct(rowIdx int, tableBgn, tableEnd map[string]int) (types.Variant, error) {
 	val, err := r.reconstructValue(r.Path, rowIdx, tableBgn, tableEnd, nil)
 	if err != nil {
 		return types.Variant{}, fmt.Errorf("reconstruct variant at %s row %d: %w", r.Path, rowIdx, err)
