@@ -51,7 +51,7 @@ func computeTableBounds(tableMap *map[string]*layout.Table, prefixPath string, b
 	tableNeeds := make(map[string]*layout.Table)
 	tableBgn, tableEnd := make(map[string]int), make(map[string]int)
 	for name, table := range *tableMap {
-		if !strings.HasPrefix(name, prefixPath) {
+		if prefixPath != "" && !common.IsChildPath(prefixPath, name) {
 			continue
 		}
 		tableNeeds[name] = table
@@ -87,7 +87,7 @@ func identifyVariants(schemaHandler *schema.SchemaHandler, prefixPath string, ta
 		return variantReconstructors, variantChildPaths
 	}
 	for variantPath, info := range schemaHandler.VariantSchemas {
-		if !strings.HasPrefix(variantPath, prefixPath) {
+		if prefixPath != "" && !common.IsChildPath(prefixPath, variantPath) {
 			continue
 		}
 		variantReconstructors[variantPath] = NewShreddedVariantReconstructor(variantPath, info, tableMap, schemaHandler)
