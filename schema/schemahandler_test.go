@@ -514,3 +514,81 @@ func TestSchemaHandler_ValidateEncodingsForDataPageVersion(t *testing.T) {
 		require.Contains(t, err.Error(), "Field2")
 	})
 }
+
+func TestSchemaHandler_ConvertToInPathStr(t *testing.T) {
+	sh, err := NewSchemaHandlerFromStruct(new(struct {
+		Name  string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Inner struct {
+			Value int64 `parquet:"name=value, type=INT64"`
+		} `parquet:"name=inner"`
+	}))
+	require.NoError(t, err)
+
+	root := common.ParGoRootExName
+	inRoot := common.ParGoRootInName
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:  "external path",
+			input: common.PathToStr([]string{root, "name"}),
+			want:  common.PathToStr([]string{inRoot, "Name"}),
+		},
+		{
+			name:  "nested external path",
+			input: common.PathToStr([]string{root, "inner", "value"}),
+			want:  common.PathToStr([]string{inRoot, "Inner", "Value"}),
+		},
+		{
+			name:  "internal path returned as-is",
+			input: common.PathToStr([]string{inRoot, "Name"}),
+			want:  common.PathToStr([]string{inRoot, "Name"}),
+		},
+		{
+			name:    "dot separator is not accepted",
+			input:   root + ".name",
+			wantErr: true,
+		},
+		{
+			name:    "unknown path reports original input",
+			input:   common.PathToStr([]string{root, "nonexistent"}),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := sh.ConvertToInPathStr(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.input)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestSchemaHandler_ConvertToInPathStr_DottedName checks that a column named
+// "a.b" is a single path component, not mis-split on the dot.
+func TestSchemaHandler_ConvertToInPathStr_DottedName(t *testing.T) {
+	sh, err := NewSchemaHandlerFromStruct(new(struct {
+		Dotted int64 `parquet:"name=a.b, type=INT64"`
+	}))
+	require.NoError(t, err)
+
+	externalPath := common.PathToStr([]string{common.ParGoRootExName, "a.b"})
+	wantIn := common.PathToStr([]string{common.ParGoRootInName, "Dotted"})
+	got, err := sh.ConvertToInPathStr(externalPath)
+	require.NoError(t, err)
+	require.Equal(t, wantIn, got)
+
+	// Splitting "a.b" into two components must not resolve.
+	_, err = sh.ConvertToInPathStr(common.PathToStr([]string{common.ParGoRootExName, "a", "b"}))
+	require.Error(t, err)
+}

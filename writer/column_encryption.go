@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/hangxie/parquet-go/v3/common"
 )
 
 // ColumnEncryptionOption selects how a column is encrypted by
@@ -88,8 +86,10 @@ func ColumnKeyByMetadata(keyMetadata []byte) ColumnEncryptionOption {
 }
 
 // WithColumnEncrypted enables per-column encryption for path. The path is
-// rootless, dot-separated, and matched against external Parquet names. At most
-// one sub-option is accepted. With no sub-options, the column uses the footer key.
+// rootless and matched against external Parquet names. Path components must be
+// separated by common.ParGoPathDelimiter (build it with common.PathToStr); "." is
+// treated as an ordinary character in a name. At most one sub-option is accepted.
+// With no sub-options, the column uses the footer key.
 //
 // Repeated calls for the same path follow standard Go map semantics: the
 // last call wins. No conflict detection runs.
@@ -103,8 +103,6 @@ func WithColumnEncrypted(path string, opts ...ColumnEncryptionOption) WriterOpti
 		if config.ColumnKeys == nil {
 			config.ColumnKeys = make(map[string]EncryptionColumnKey)
 		}
-		normPath := common.ReformPathStr(path)
-
 		var spec columnEncryptionSpec
 		switch len(opts) {
 		case 0:
@@ -131,6 +129,6 @@ func WithColumnEncrypted(path string, opts ...ColumnEncryptionOption) WriterOpti
 			entry.KeyMetadata = spec.keyMetadata
 			// Key intentionally nil - signals retrieve via KeyRetriever.
 		}
-		config.ColumnKeys[normPath] = entry
+		config.ColumnKeys[path] = entry
 	})
 }

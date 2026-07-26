@@ -32,8 +32,8 @@ func TestColumnFooterKeyOption(t *testing.T) {
 	)
 	require.Empty(t, errs)
 	require.NotNil(t, cfg)
-	require.Equal(t, EncryptionColumnKey{}, cfg.ColumnKeys[common.ReformPathStr("name")])
-	require.Equal(t, EncryptionColumnKey{}, cfg.ColumnKeys[common.ReformPathStr("score")])
+	require.Equal(t, EncryptionColumnKey{}, cfg.ColumnKeys[common.PathToStr([]string{"name"})])
+	require.Equal(t, EncryptionColumnKey{}, cfg.ColumnKeys[common.PathToStr([]string{"score"})])
 }
 
 func TestWithColumnEncryptedRejectsEmptyPath(t *testing.T) {
@@ -60,7 +60,7 @@ func TestColumnKeyOption(t *testing.T) {
 		t.Parallel()
 		cfg, errs := applyOptionsForTest(WithColumnEncrypted("name", ColumnKey(key)))
 		require.Empty(t, errs)
-		entry := cfg.ColumnKeys[common.ReformPathStr("name")]
+		entry := cfg.ColumnKeys[common.PathToStr([]string{"name"})]
 		require.Equal(t, key, entry.Key)
 		require.Empty(t, entry.KeyMetadata)
 	})
@@ -69,7 +69,7 @@ func TestColumnKeyOption(t *testing.T) {
 		t.Parallel()
 		cfg, errs := applyOptionsForTest(WithColumnEncrypted("name", ColumnKey(key, kmd)))
 		require.Empty(t, errs)
-		entry := cfg.ColumnKeys[common.ReformPathStr("name")]
+		entry := cfg.ColumnKeys[common.PathToStr([]string{"name"})]
 		require.Equal(t, key, entry.Key)
 		require.Equal(t, kmd, entry.KeyMetadata)
 	})
@@ -100,7 +100,7 @@ func TestColumnKeyByMetadataOption(t *testing.T) {
 		t.Parallel()
 		cfg, errs := applyOptionsForTest(WithColumnEncrypted("name", ColumnKeyByMetadata(kmd)))
 		require.Empty(t, errs)
-		entry := cfg.ColumnKeys[common.ReformPathStr("name")]
+		entry := cfg.ColumnKeys[common.PathToStr([]string{"name"})]
 		require.Empty(t, entry.Key)
 		require.Equal(t, kmd, entry.KeyMetadata)
 	})
@@ -145,7 +145,7 @@ func TestWithColumnEncryptedLastCallWins(t *testing.T) {
 			WithColumnEncrypted("name", ColumnKey(key2)),
 		)
 		require.Empty(t, errs)
-		entry := cfg.ColumnKeys[common.ReformPathStr("name")]
+		entry := cfg.ColumnKeys[common.PathToStr([]string{"name"})]
 		require.Equal(t, key2, entry.Key)
 	})
 
@@ -156,7 +156,7 @@ func TestWithColumnEncryptedLastCallWins(t *testing.T) {
 			WithColumnEncrypted("name"),
 		)
 		require.Empty(t, errs)
-		entry := cfg.ColumnKeys[common.ReformPathStr("name")]
+		entry := cfg.ColumnKeys[common.PathToStr([]string{"name"})]
 		require.Equal(t, EncryptionColumnKey{}, entry)
 	})
 
@@ -167,7 +167,7 @@ func TestWithColumnEncryptedLastCallWins(t *testing.T) {
 			WithColumnEncrypted("name", ColumnKey(key2)),
 		)
 		require.Empty(t, errs)
-		entry := cfg.ColumnKeys[common.ReformPathStr("name")]
+		entry := cfg.ColumnKeys[common.PathToStr([]string{"name"})]
 		require.Equal(t, key2, entry.Key)
 	})
 }
@@ -180,13 +180,13 @@ func TestStructLiteralFooterKeySentinel(t *testing.T) {
 	cfg := EncryptionConfig{
 		FooterKey: []byte("0123456789abcdef"),
 		ColumnKeys: map[string]EncryptionColumnKey{
-			common.ReformPathStr("name"): {},
+			common.PathToStr([]string{"name"}): {},
 		},
 	}
 	state, err := newEncryptionState(cfg)
 	require.NoError(t, err)
-	require.Contains(t, state.columnKeys, common.ReformPathStr("name"))
-	require.Equal(t, EncryptionColumnKey{}, state.columnKeys[common.ReformPathStr("name")])
+	require.Contains(t, state.columnKeys, common.PathToStr([]string{"name"}))
+	require.Equal(t, EncryptionColumnKey{}, state.columnKeys[common.PathToStr([]string{"name"})])
 }
 
 func TestNewEncryptionStateAcceptsFooterKeySentinel(t *testing.T) {
@@ -195,12 +195,12 @@ func TestNewEncryptionStateAcceptsFooterKeySentinel(t *testing.T) {
 	cfg := EncryptionConfig{
 		FooterKey: []byte("0123456789abcdef"),
 		ColumnKeys: map[string]EncryptionColumnKey{
-			common.ReformPathStr("name"): {}, // footer-key sentinel
+			common.PathToStr([]string{"name"}): {}, // footer-key sentinel
 		},
 	}
 	state, err := newEncryptionState(cfg)
 	require.NoError(t, err)
-	require.Equal(t, EncryptionColumnKey{}, state.columnKeys[common.ReformPathStr("name")])
+	require.Equal(t, EncryptionColumnKey{}, state.columnKeys[common.PathToStr([]string{"name"})])
 }
 
 func TestNewEncryptionStateRejectsEmptyColumnRetrieverResult(t *testing.T) {
@@ -209,7 +209,7 @@ func TestNewEncryptionStateRejectsEmptyColumnRetrieverResult(t *testing.T) {
 	cfg := EncryptionConfig{
 		FooterKey: []byte("0123456789abcdef"),
 		ColumnKeys: map[string]EncryptionColumnKey{
-			common.ReformPathStr("name"): {KeyMetadata: []byte("name-key")},
+			common.PathToStr([]string{"name"}): {KeyMetadata: []byte("name-key")},
 		},
 		KeyRetriever: func([]byte) ([]byte, error) { return nil, nil },
 	}
@@ -225,7 +225,7 @@ func TestNewEncryptionStatePropagatesColumnRetrieverError(t *testing.T) {
 	cfg := EncryptionConfig{
 		FooterKey: []byte("0123456789abcdef"),
 		ColumnKeys: map[string]EncryptionColumnKey{
-			common.ReformPathStr("name"): {KeyMetadata: []byte("name-key")},
+			common.PathToStr([]string{"name"}): {KeyMetadata: []byte("name-key")},
 		},
 		KeyRetriever: func([]byte) ([]byte, error) { return nil, want },
 	}
@@ -240,7 +240,7 @@ func TestNewEncryptionStateRejectsByMetadataWithoutRetriever(t *testing.T) {
 	cfg := EncryptionConfig{
 		FooterKey: []byte("0123456789abcdef"),
 		ColumnKeys: map[string]EncryptionColumnKey{
-			common.ReformPathStr("name"): {KeyMetadata: []byte("name-key")},
+			common.PathToStr([]string{"name"}): {KeyMetadata: []byte("name-key")},
 		},
 		// No KeyRetriever.
 	}
@@ -256,7 +256,7 @@ func TestNewEncryptionStateAcceptsColumnRetrieverSuccess(t *testing.T) {
 	cfg := EncryptionConfig{
 		FooterKey: []byte("0123456789abcdef"),
 		ColumnKeys: map[string]EncryptionColumnKey{
-			common.ReformPathStr("name"): {KeyMetadata: []byte("name-key")},
+			common.PathToStr([]string{"name"}): {KeyMetadata: []byte("name-key")},
 		},
 		KeyRetriever: func(md []byte) ([]byte, error) {
 			require.Equal(t, []byte("name-key"), md)
@@ -265,7 +265,7 @@ func TestNewEncryptionStateAcceptsColumnRetrieverSuccess(t *testing.T) {
 	}
 	state, err := newEncryptionState(cfg)
 	require.NoError(t, err)
-	entry := state.columnKeys[common.ReformPathStr("name")]
+	entry := state.columnKeys[common.PathToStr([]string{"name"})]
 	require.Equal(t, resolved, entry.Key)
 	require.Equal(t, []byte("name-key"), entry.KeyMetadata)
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"strings"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -71,7 +72,7 @@ func newEncryptionState(config EncryptionConfig) (*encryptionState, error) {
 		if err != nil {
 			return nil, err
 		}
-		state.columnKeys[common.ReformPathStr(path)] = resolved
+		state.columnKeys[path] = resolved
 	}
 	return state, nil
 }
@@ -86,6 +87,9 @@ func newEncryptionState(config EncryptionConfig) (*encryptionState, error) {
 //
 // Other shapes are configuration errors.
 func resolveColumnEntry(path string, entry EncryptionColumnKey, retriever KeyRetriever) (EncryptionColumnKey, error) {
+	// Render the path for messages with "." between components, matching the
+	// sibling validators (validateColumnKeyPaths / validateEncryptionColumnKeys).
+	displayPath := strings.ReplaceAll(path, common.ParGoPathDelimiter, ".")
 	switch {
 	case len(entry.Key) == 0 && len(entry.KeyMetadata) == 0:
 		// Footer-key sentinel.
@@ -94,17 +98,17 @@ func resolveColumnEntry(path string, entry EncryptionColumnKey, retriever KeyRet
 	case len(entry.Key) == 0:
 		// Retrieve via KeyRetriever.
 		if retriever == nil {
-			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q has KeyMetadata but no KeyRetriever is configured", path)
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q has KeyMetadata but no KeyRetriever is configured", displayPath)
 		}
 		resolvedKey, err := retriever(entry.KeyMetadata)
 		if err != nil {
-			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: retrieve column key %q: %w", path, err)
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: retrieve column key %q: %w", displayPath, err)
 		}
 		if len(resolvedKey) == 0 {
-			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q resolved to empty key; KeyRetriever must return a valid AES key", path)
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q resolved to empty key; KeyRetriever must return a valid AES key", displayPath)
 		}
 		if !isValidAESKey(resolvedKey) {
-			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q resolved key has invalid AES size %d", path, len(resolvedKey))
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q resolved key has invalid AES size %d", displayPath, len(resolvedKey))
 		}
 		return EncryptionColumnKey{
 			Key:         append([]byte(nil), resolvedKey...),
@@ -114,7 +118,7 @@ func resolveColumnEntry(path string, entry EncryptionColumnKey, retriever KeyRet
 	default:
 		// Literal column key (with or without stored metadata).
 		if !isValidAESKey(entry.Key) {
-			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q has invalid AES key size %d", path, len(entry.Key))
+			return EncryptionColumnKey{}, fmt.Errorf("WithColumnEncrypted: column %q has invalid AES key size %d", displayPath, len(entry.Key))
 		}
 		return EncryptionColumnKey{
 			Key:         append([]byte(nil), entry.Key...),

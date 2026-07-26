@@ -577,7 +577,7 @@ func TestNextRowGroupDoesNotRequireUnreadEncryptedColumnKey(t *testing.T) {
 		PFile:         buffer.NewBufferReaderFromBytesNoAlloc(make([]byte, 64)),
 		Footer:        footer,
 		SchemaHandler: newSchemaHandlerWithPath("leaf"),
-		PathStr:       "root.leaf",
+		PathStr:       common.PathToStr([]string{"root", "leaf"}),
 		RowGroupIndex: 1,
 		Reader:        pr,
 	}
@@ -881,7 +881,7 @@ func TestNewColumnBufferConfiguresPageDecryptor(t *testing.T) {
 	}
 	applyReaderOptionsForTest(t, pr, WithColumnKey("leaf", key))
 
-	cb, err := pr.newColumnBuffer("root.leaf")
+	cb, err := pr.newColumnBuffer(common.PathToStr([]string{"root", "leaf"}))
 	require.NoError(t, err)
 	require.NotNil(t, cb.PageReadOptions.Decryptor)
 	require.Equal(t, key, cb.PageReadOptions.Decryptor.Key)

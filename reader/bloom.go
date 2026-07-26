@@ -51,8 +51,10 @@ func (pr *ParquetReader) detectBloomFilters() {
 
 // BloomFilterCheck checks if a value might exist in the given column of the given row group.
 // It returns true if the value might exist (or if there is no bloom filter), false if the value
-// is definitely not present. The columnPath uses dot-separated notation matching the parquet tag
-// name (e.g. "id" or "address.city").
+// is definitely not present. columnPath is rootless and matched against the parquet tag names;
+// its components must be separated by common.ParGoPathDelimiter (build it with common.PathToStr,
+// e.g. common.PathToStr([]string{"address", "city"})). "." is treated as an ordinary character,
+// so a column whose name itself contains a dot is a single path component.
 func (pr *ParquetReader) BloomFilterCheck(columnPath string, rowGroupIndex int, value any) (bool, error) {
 	if rowGroupIndex < 0 || rowGroupIndex >= len(pr.Footer.RowGroups) {
 		return false, fmt.Errorf("row group index %d out of range [0, %d)", rowGroupIndex, len(pr.Footer.RowGroups))
@@ -60,10 +62,11 @@ func (pr *ParquetReader) BloomFilterCheck(columnPath string, rowGroupIndex int, 
 
 	rg := pr.Footer.RowGroups[rowGroupIndex]
 
-	// Convert the external column path (tag name) to the internal path used in the footer.
-	exPath := common.ReformPathStr(pr.SchemaHandler.GetRootExName() + "." + columnPath)
-	inPath, ok := pr.SchemaHandler.ExPathToInPath[exPath]
-	if !ok {
+	// Prepend the schema root to the rootless external column path and resolve it
+	// to the internal path used in the footer.
+	rootPath := common.PathToStr([]string{pr.SchemaHandler.GetRootExName(), columnPath})
+	inPath, err := pr.SchemaHandler.ConvertToInPathStr(rootPath)
+	if err != nil {
 		return false, fmt.Errorf("column %q not found in row group %d", columnPath, rowGroupIndex)
 	}
 

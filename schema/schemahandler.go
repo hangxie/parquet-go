@@ -249,7 +249,13 @@ func (sh *SchemaHandler) CreateInExMap() {
 	}
 }
 
-// Convert a path to internal path
+// ConvertToInPathStr converts a column path to its internal (in-path) form.
+//
+// Path components must be separated by common.ParGoPathDelimiter; that is the
+// only accepted separator. A "." is treated as an ordinary character, so column
+// names that contain a dot (Parquet permits e.g. parquet:"name=a.b") are a
+// single path component and remain addressable. Use common.PathToStr to build a
+// path from its components.
 func (sh *SchemaHandler) ConvertToInPathStr(pathStr string) (string, error) {
 	if _, ok := sh.InPathToExPath[pathStr]; ok {
 		return pathStr, nil

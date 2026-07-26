@@ -83,7 +83,7 @@ func main() {
 
 	num = int(pr.GetNumRows())
 	// only read scores
-	res, err := pr.ReadPartialByNumber(num, common.ReformPathStr("parquet_go_root.scores"))
+	res, err := pr.ReadPartialByNumber(num, common.PathToStr([]string{"parquet_go_root", "scores"}))
 	if err != nil {
 		log.Println("Can't read", err)
 		return

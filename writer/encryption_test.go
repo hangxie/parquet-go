@@ -674,8 +674,8 @@ func TestEncryptionPathHelpersWithoutGeneratedSchema(t *testing.T) {
 			SchemaHandler: sh,
 		}
 		valid := pw.leafColumnFullInternalPaths()
-		fullInternal := common.ReformPathStr(common.ParGoRootInName + ".Name")
-		fullExternal := common.ReformPathStr(common.ParGoRootExName + ".name")
+		fullInternal := common.PathToStr([]string{common.ParGoRootInName, "Name"})
+		fullExternal := common.PathToStr([]string{common.ParGoRootExName, "name"})
 
 		require.Contains(t, valid, fullInternal)
 		require.Equal(t, fullInternal, pw.fullInternalColumnPath([]string{common.ParGoRootInName, "Name"}))
@@ -694,7 +694,7 @@ func TestEncryptionPathHelpersWithoutGeneratedSchema(t *testing.T) {
 		_, ok = pw.fullInternalOptionPath("missing", valid)
 		require.False(t, ok)
 		require.Equal(t, "missing", pw.fullInternalColumnPath([]string{"missing"}))
-		require.Equal(t, common.ReformPathStr(common.ParGoRootExName+".missing"), pw.fullExternalColumnPath([]string{"missing"}))
+		require.Equal(t, common.PathToStr([]string{common.ParGoRootExName, "missing"}), pw.fullExternalColumnPath([]string{"missing"}))
 		require.Equal(t, []string{"missing"}, pw.columnExternalPath([]string{"missing"}))
 
 		pw.encryptionState = &encryptionState{

@@ -61,15 +61,17 @@ func WithAADPrefix(prefix []byte) ReaderOption {
 	})
 }
 
-// WithColumnKey sets the key used to decrypt a column. The path is rootless,
-// dot-separated, and matched against external Parquet names in PathInSchema.
-// WithCaseInsensitive accepts case-only differences.
+// WithColumnKey sets the key used to decrypt a column. The path is rootless and
+// matched against external Parquet names in PathInSchema. Path components must be
+// separated by common.ParGoPathDelimiter (build it with common.PathToStr); "." is
+// treated as an ordinary character in a name. WithCaseInsensitive accepts
+// case-only differences.
 func WithColumnKey(path string, key []byte) ReaderOption {
 	return readerOptionFunc(func(pr *ParquetReader) {
 		if pr.columnKeys == nil {
 			pr.columnKeys = make(map[string][]byte)
 		}
-		pr.columnKeys[common.ReformPathStr(path)] = append([]byte(nil), key...)
+		pr.columnKeys[path] = append([]byte(nil), key...)
 	})
 }
 
