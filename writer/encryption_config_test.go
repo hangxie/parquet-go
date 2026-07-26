@@ -260,7 +260,7 @@ func TestWithColumnEncryptedValidatesPathAgainstSchema(t *testing.T) {
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnEncrypted(common.ParGoRootExName+".name", ColumnKey([]byte("abcdef0123456789"))),
+			WithColumnEncrypted(common.PathToStr([]string{common.ParGoRootExName, "name"}), ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.ErrorContains(t, err, "WithColumnEncrypted")
 		require.ErrorContains(t, err, common.ParGoRootExName+".name")
@@ -281,7 +281,7 @@ func TestWithColumnEncryptedValidatesPathAgainstSchema(t *testing.T) {
 		_, _, err := createTestParquetWriter(
 			new(encryptedWriterRootNamedRecord),
 			WithFooterKey([]byte("0123456789abcdef")),
-			WithColumnEncrypted(common.ParGoRootExName+".name", ColumnKey([]byte("abcdef0123456789"))),
+			WithColumnEncrypted(common.PathToStr([]string{common.ParGoRootExName, "name"}), ColumnKey([]byte("abcdef0123456789"))),
 		)
 		require.NoError(t, err)
 	})

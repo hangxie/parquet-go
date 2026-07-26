@@ -148,7 +148,7 @@ func newSchemaHandlerWithPath(path string) *schema.SchemaHandler {
 		InPathToExPath: make(map[string]string),
 		ExPathToInPath: make(map[string]string),
 	}
-	fq := "root." + path
+	fq := common.PathToStr([]string{"root", path})
 	sh.MapIndex[fq] = 1
 	sh.IndexMap[1] = fq
 	sh.InPathToExPath[fq] = fq
@@ -325,10 +325,10 @@ func TestNewColumnBuffer(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return newMockSchemaHandler()
 			},
-			pathStr:     "root.test_field",
+			pathStr:     common.PathToStr([]string{"root", "test_field"}),
 			expectError: false,
 			validateResult: func(t *testing.T, cb *ColumnBufferType) {
-				require.Equal(t, "root.test_field", cb.PathStr)
+				require.Equal(t, common.PathToStr([]string{"root", "test_field"}), cb.PathStr)
 				require.Equal(t, int64(1), cb.RowGroupIndex)
 				require.NotNil(t, cb.ChunkHeader)
 				require.Equal(t, int64(-1), cb.DataTableNumRows)
@@ -370,10 +370,10 @@ func TestNewColumnBuffer(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return newMockSchemaHandler()
 			},
-			pathStr:     "root.target_field",
+			pathStr:     common.PathToStr([]string{"root", "target_field"}),
 			expectError: false,
 			validateResult: func(t *testing.T, cb *ColumnBufferType) {
-				require.Equal(t, "root.target_field", cb.PathStr)
+				require.Equal(t, common.PathToStr([]string{"root", "target_field"}), cb.PathStr)
 				// Should find the third column (index 2)
 				require.NotNil(t, cb.ChunkHeader)
 				expectedPath := []string{"target_field"}
@@ -407,10 +407,10 @@ func TestNewColumnBuffer(t *testing.T) {
 			setupSchema: func() *schema.SchemaHandler {
 				return newMockSchemaHandler()
 			},
-			pathStr:     "root.dict_field",
+			pathStr:     common.PathToStr([]string{"root", "dict_field"}),
 			expectError: false,
 			validateResult: func(t *testing.T, cb *ColumnBufferType) {
-				require.Equal(t, "root.dict_field", cb.PathStr)
+				require.Equal(t, common.PathToStr([]string{"root", "dict_field"}), cb.PathStr)
 				require.NotNil(t, cb.ChunkHeader)
 				// The function should use dictionary page offset when available
 				require.NotNil(t, cb.ChunkHeader.MetaData.DictionaryPageOffset)
@@ -467,10 +467,10 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		}
 		schemaHandler := newMockSchemaHandler()
 
-		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.nested.deep.field", nil)
+		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, common.PathToStr([]string{"root", "nested", "deep", "field"}), nil)
 		require.NoError(t, err)
 		require.NotNil(t, result)
-		require.Equal(t, "root.nested.deep.field", result.PathStr)
+		require.Equal(t, common.PathToStr([]string{"root", "nested", "deep", "field"}), result.PathStr)
 	})
 
 	t.Run("file_path_specified", func(t *testing.T) {
@@ -493,7 +493,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		}
 		schemaHandler := newMockSchemaHandler()
 
-		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, "root.external_field", nil)
+		result, err := NewColumnBuffer(mockFile, footer, schemaHandler, common.PathToStr([]string{"root", "external_field"}), nil)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		// When FilePath is specified, the function should handle opening the external file
@@ -509,7 +509,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 			}},
 		}
 		sh := newSchemaHandlerWithPath("bogus") // MapIndex includes root.bogus
-		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: "root.bogus", DataTableNumRows: -1}
+		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: common.PathToStr([]string{"root", "bogus"}), DataTableNumRows: -1}
 
 		_, _, err := cb.ReadRows(1)
 		require.Error(t, err)
@@ -524,7 +524,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 			}},
 		}
 		sh := newSchemaHandlerWithPath("bogus")
-		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: "root.bogus", DataTableNumRows: -1}
+		cb := &ColumnBufferType{Footer: footer, SchemaHandler: sh, PathStr: common.PathToStr([]string{"root", "bogus"}), DataTableNumRows: -1}
 
 		_, err := cb.SkipRows(1)
 		require.Error(t, err)
@@ -536,10 +536,10 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 		footer := &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}}
 		sh := &schema.SchemaHandler{
 			SchemaElements: []*parquet.SchemaElement{{Name: "root"}, {Name: "badfield"}}, // No Type set
-			MapIndex:       map[string]int32{"root.badfield": 1},
+			MapIndex:       map[string]int32{common.PathToStr([]string{"root", "badfield"}): 1},
 		}
 
-		cb, err := NewColumnBuffer(mockFile, footer, sh, "root.badfield", nil)
+		cb, err := NewColumnBuffer(mockFile, footer, sh, common.PathToStr([]string{"root", "badfield"}), nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "path not found")
 		require.Nil(t, cb)
@@ -552,7 +552,7 @@ func TestNewColumnBuffer_EdgeCases(t *testing.T) {
 
 		cb := &ColumnBufferType{
 			PFile: mockFile, Footer: footer, SchemaHandler: sh,
-			PathStr: "root.leaf", DataTableNumRows: -1, RowGroupIndex: 0,
+			PathStr: common.PathToStr([]string{"root", "leaf"}), DataTableNumRows: -1, RowGroupIndex: 0,
 		}
 
 		err := cb.NextRowGroup()
@@ -678,7 +678,7 @@ func TestSkipRows(t *testing.T) {
 					DefinitionLevels: []int32{1, 1, 1},
 					RepetitionLevels: []int32{0, 0, 0},
 				}
-				return &ColumnBufferType{Footer: &parquet.FileMetaData{NumRows: 10}, SchemaHandler: sh, PathStr: "root.leaf", DataTable: dt, DataTableNumRows: 2}
+				return &ColumnBufferType{Footer: &parquet.FileMetaData{NumRows: 10}, SchemaHandler: sh, PathStr: common.PathToStr([]string{"root", "leaf"}), DataTable: dt, DataTableNumRows: 2}
 			},
 			numRows:      2,
 			expectedRows: 2,
@@ -708,7 +708,7 @@ func TestSkipRows(t *testing.T) {
 						},
 					},
 					SchemaHandler:    sh,
-					PathStr:          "root.leaf",
+					PathStr:          common.PathToStr([]string{"root", "leaf"}),
 					DataTable:        dt,
 					DataTableNumRows: 2,
 					RowGroupIndex:    0,
@@ -759,7 +759,7 @@ func TestNewColumnBuffer_FilePathOpenError(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf", nil)
+	cb, err := NewColumnBuffer(mockFile, footer, sh, common.PathToStr([]string{"root", "leaf"}), nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "mock open error")
 	require.Nil(t, cb)
@@ -780,7 +780,7 @@ func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(mockFile, footer, sh, "root.leaf", nil)
+	cb, err := NewColumnBuffer(mockFile, footer, sh, common.PathToStr([]string{"root", "leaf"}), nil)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 
@@ -800,7 +800,7 @@ func TestReadPage_ChunkHeaderConditions(t *testing.T) {
 				return &ColumnBufferType{
 					Footer:           &parquet.FileMetaData{NumRows: 0},
 					SchemaHandler:    newSchemaHandlerWithPath("leaf"),
-					PathStr:          "root.leaf",
+					PathStr:          common.PathToStr([]string{"root", "leaf"}),
 					ChunkHeader:      nil,
 					DataTableNumRows: -1,
 				}
@@ -813,7 +813,7 @@ func TestReadPage_ChunkHeaderConditions(t *testing.T) {
 				return &ColumnBufferType{
 					Footer:        &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}},
 					SchemaHandler: newSchemaHandlerWithPath("leaf"),
-					PathStr:       "root.leaf",
+					PathStr:       common.PathToStr([]string{"root", "leaf"}),
 					ChunkHeader: &parquet.ColumnChunk{
 						MetaData: &parquet.ColumnMetaData{
 							PathInSchema:   []string{"leaf"},
@@ -855,7 +855,7 @@ func TestReadPageForSkip_Conditions(t *testing.T) {
 				return &ColumnBufferType{
 					Footer:           &parquet.FileMetaData{NumRows: 0},
 					SchemaHandler:    newSchemaHandlerWithPath("leaf"),
-					PathStr:          "root.leaf",
+					PathStr:          common.PathToStr([]string{"root", "leaf"}),
 					ChunkHeader:      nil,
 					DataTableNumRows: -1,
 				}
@@ -868,7 +868,7 @@ func TestReadPageForSkip_Conditions(t *testing.T) {
 				return &ColumnBufferType{
 					Footer:        &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}},
 					SchemaHandler: newSchemaHandlerWithPath("leaf"),
-					PathStr:       "root.leaf",
+					PathStr:       common.PathToStr([]string{"root", "leaf"}),
 					ChunkHeader: &parquet.ColumnChunk{
 						MetaData: &parquet.ColumnMetaData{
 							PathInSchema:   []string{"leaf"},
@@ -934,7 +934,7 @@ func TestSkipRows_RowGroupSkipping(t *testing.T) {
 		PFile:            mockFile,
 		Footer:           footer,
 		SchemaHandler:    sh,
-		PathStr:          "root.leaf",
+		PathStr:          common.PathToStr([]string{"root", "leaf"}),
 		DataTableNumRows: -1,
 		RowGroupIndex:    0,
 	}
@@ -980,7 +980,7 @@ func TestReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
 	}
 	sh := newSchemaHandlerWithPath("leaf")
 
-	cb, err := NewColumnBuffer(pFile, footer, sh, "root.leaf", nil)
+	cb, err := NewColumnBuffer(pFile, footer, sh, common.PathToStr([]string{"root", "leaf"}), nil)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 
@@ -1012,7 +1012,7 @@ func TestReadPage_RecursiveCall(t *testing.T) {
 		PFile:         mockFile,
 		Footer:        footer,
 		SchemaHandler: sh,
-		PathStr:       "root.leaf",
+		PathStr:       common.PathToStr([]string{"root", "leaf"}),
 		ChunkHeader: &parquet.ColumnChunk{
 			MetaData: &parquet.ColumnMetaData{
 				PathInSchema:   []string{"leaf"},
@@ -1040,7 +1040,7 @@ func TestReadPageForSkip_RecursiveCall(t *testing.T) {
 		PFile:         mockFile,
 		Footer:        footer,
 		SchemaHandler: sh,
-		PathStr:       "root.leaf",
+		PathStr:       common.PathToStr([]string{"root", "leaf"}),
 		ChunkHeader: &parquet.ColumnChunk{
 			MetaData: &parquet.ColumnMetaData{
 				PathInSchema:   []string{"leaf"},

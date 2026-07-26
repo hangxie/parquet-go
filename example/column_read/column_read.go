@@ -75,15 +75,15 @@ func main() {
 	num = int64(pr.GetNumRows())
 
 	// skip the first five rows
-	_ = pr.SkipRowsByPath(common.ReformPathStr("parquet_go_root.name"), 5)
-	names, rls, dls, err = pr.ReadColumnByPath(common.ReformPathStr("parquet_go_root.name"), num)
+	_ = pr.SkipRowsByPath(common.PathToStr([]string{"parquet_go_root", "name"}), 5)
+	names, rls, dls, err = pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "name"}), num)
 	log.Println("name", names, rls, dls, err)
 
-	classes, rls, dls, err = pr.ReadColumnByPath(common.ReformPathStr("parquet_go_root.class.list.element"), num)
+	classes, rls, dls, err = pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "class", "list", "element"}), num)
 	log.Println("class", classes, rls, dls, err)
 
-	_, _, _, _ = pr.ReadColumnByPath(common.ReformPathStr("parquet_go_root.score.key_value.key"), num)
-	_, _, _, err = pr.ReadColumnByPath(common.ReformPathStr("parquet_go_root.score.key_value.value"), num)
+	_, _, _, _ = pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "score", "key_value", "key"}), num)
+	_, _, _, err = pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "score", "key_value", "value"}), num)
 	log.Println("parquet_go_root.scores_key", scores_key, err)
 	log.Println("parquet_go_root.scores_value", scores_value, err)
 

@@ -97,9 +97,11 @@ func main() {
 		return
 	}
 	cn := pr.GetNumRows()
-	v1, _, _, _ := pr.ReadColumnByPath("parquet_go_root\x01b.c", cn)
-	v2, _, _, _ := pr.ReadColumnByPath("parquet_go_root\x01b\x01c", cn)
-	v3, _, _, _ := pr.ReadColumnByPath("parquet_go_root\x01c", cn)
+	// "." is an ordinary character in a name, so "b.c" is a single component:
+	// this addresses the column literally named b.c, distinct from the nested b -> c.
+	v1, _, _, _ := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "b.c"}), cn)
+	v2, _, _, _ := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "b", "c"}), cn)
+	v3, _, _, _ := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "c"}), cn)
 	log.Println(v1, v2, v3)
 
 	_ = pr.ReadStop()

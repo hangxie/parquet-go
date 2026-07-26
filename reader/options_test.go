@@ -27,7 +27,7 @@ func TestApplyReaderDefaults_AppliesOptions(t *testing.T) {
 		WithCRCMode(common.CRCStrict),
 		WithFooterKey([]byte("footer-key")),
 		WithAADPrefix([]byte("aad")),
-		WithColumnKey("a.b", []byte("col-key")),
+		WithColumnKey(common.PathToStr([]string{"a", "b"}), []byte("col-key")),
 	}
 	require.NoError(t, applyReaderDefaults(pr, opts))
 
@@ -36,7 +36,7 @@ func TestApplyReaderDefaults_AppliesOptions(t *testing.T) {
 	require.Equal(t, common.CRCStrict, pr.crcMode)
 	require.Equal(t, []byte("footer-key"), pr.footerKey)
 	require.Equal(t, []byte("aad"), pr.aadPrefix)
-	require.Equal(t, []byte("col-key"), pr.columnKeys[common.ReformPathStr("a.b")])
+	require.Equal(t, []byte("col-key"), pr.columnKeys[common.PathToStr([]string{"a", "b"})])
 }
 
 func TestApplyReaderDefaults_InvalidNP(t *testing.T) {
@@ -93,13 +93,13 @@ func TestWithColumnKey_MultipleColumns(t *testing.T) {
 
 	pr := &ParquetReader{}
 	opts := []ReaderOption{
-		WithColumnKey("a.b", []byte("key1")),
-		WithColumnKey("c.d", []byte("key2")),
+		WithColumnKey(common.PathToStr([]string{"a", "b"}), []byte("key1")),
+		WithColumnKey(common.PathToStr([]string{"c", "d"}), []byte("key2")),
 	}
 	require.NoError(t, applyReaderDefaults(pr, opts))
 	require.Len(t, pr.columnKeys, 2)
-	require.Equal(t, []byte("key1"), pr.columnKeys[common.ReformPathStr("a.b")])
-	require.Equal(t, []byte("key2"), pr.columnKeys[common.ReformPathStr("c.d")])
+	require.Equal(t, []byte("key1"), pr.columnKeys[common.PathToStr([]string{"a", "b"})])
+	require.Equal(t, []byte("key2"), pr.columnKeys[common.PathToStr([]string{"c", "d"})])
 }
 
 func TestWithFooterKey_CopiesInput(t *testing.T) {

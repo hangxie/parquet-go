@@ -231,19 +231,19 @@ func TestMixedEncryptedFooterPartialRead(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = pr.ReadStop() }()
 
-	idValues, _, _, err := pr.ReadColumnByPath(common.ReformPathStr("parquet_go_root.id"), 3)
+	idValues, _, _, err := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "id"}), 3)
 	require.NoError(t, err)
 	require.Equal(t, []any{int64(1), int64(2), int64(3)}, idValues)
 
 	require.NoError(t, pr.Reset())
 
-	scoreValues, _, _, err := pr.ReadColumnByPath(common.ReformPathStr("parquet_go_root.score"), 3)
+	scoreValues, _, _, err := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "score"}), 3)
 	require.NoError(t, err)
 	require.Equal(t, []any{1.1, 2.2, 3.3}, scoreValues)
 
 	require.NoError(t, pr.Reset())
 
-	_, _, _, err = pr.ReadColumnByPath(common.ReformPathStr("parquet_go_root.name"), 3)
+	_, _, _, err = pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "name"}), 3)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "decryption key required for column")
 }
@@ -508,7 +508,7 @@ func TestMixedPlaintextPageRawVerification(t *testing.T) {
 	)
 	require.NoError(t, err)
 	defer func() { _ = prNoColumnKey.ReadStop() }()
-	values, _, _, err := prNoColumnKey.ReadColumnByPath(common.ReformPathStr("parquet_go_root.category"), 6)
+	values, _, _, err := prNoColumnKey.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "category"}), 6)
 	require.NoError(t, err)
 	require.Equal(t, []any{"red", "blue", "red", "green", "blue", "red"}, values)
 }
@@ -711,7 +711,7 @@ func TestMixedPlaintextFooterNoKeyOpens(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = pr.ReadStop() }()
 
-	idValues, _, _, err := pr.ReadColumnByPath(common.ReformPathStr("parquet_go_root.id"), 3)
+	idValues, _, _, err := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "id"}), 3)
 	require.NoError(t, err)
 	require.Equal(t, []any{int64(1), int64(2), int64(3)}, idValues)
 }

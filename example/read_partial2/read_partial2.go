@@ -84,7 +84,7 @@ func main() {
 	num = int(pr.GetNumRows())
 	// only read scores
 	scores := make([]map[string]int32, num)
-	_ = pr.ReadPartial(&scores, common.ReformPathStr("parquet_go_root.scores"))
+	_ = pr.ReadPartial(&scores, common.PathToStr([]string{"parquet_go_root", "scores"}))
 	log.Println(scores)
 
 	_ = pr.ReadStop()

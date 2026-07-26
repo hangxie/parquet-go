@@ -21,17 +21,18 @@ import (
 const fileURL = "https://raw.githubusercontent.com/apache/parquet-testing/master/data/encrypt_columns_plaintext_footer.parquet.encrypted"
 
 // plaintextColumns lists schema paths the reader will touch in the positive
-// demo. None of them are encrypted, so no encryption key is required.
-var plaintextColumns = []string{
-	"Schema.Boolean_field",
-	"Schema.Int32_field",
-	"Schema.Int64_field",
-	"Schema.Ba_field",
+// demo. None of them are encrypted, so no encryption key is required. Each path
+// is given as its components; join them with common.PathToStr for the API.
+var plaintextColumns = [][]string{
+	{"Schema", "Boolean_field"},
+	{"Schema", "Int32_field"},
+	{"Schema", "Int64_field"},
+	{"Schema", "Ba_field"},
 }
 
 // encryptedColumn is touched in the negative demo. Reading it without the
 // column key must fail.
-const encryptedColumn = "Schema.Float_field"
+var encryptedColumn = []string{"Schema", "Float_field"}
 
 func main() {
 	if err := readPlaintextColumnsNoKeys(); err != nil {
@@ -63,11 +64,11 @@ func readPlaintextColumnsNoKeys() error {
 	numRows := pr.GetNumRows()
 	log.Printf("opened %d-row file without any encryption key", numRows)
 	for _, path := range plaintextColumns {
-		values, _, _, err := pr.ReadColumnByPath(common.ReformPathStr(path), numRows)
+		values, _, _, err := pr.ReadColumnByPath(common.PathToStr(path), numRows)
 		if err != nil {
 			return err
 		}
-		log.Printf("  %s: %d values (e.g. %v)", path, len(values), preview(values))
+		log.Printf("  %v: %d values (e.g. %v)", path, len(values), preview(values))
 	}
 	return nil
 }
@@ -89,7 +90,7 @@ func confirmEncryptedColumnReadFails() error {
 	}
 	defer func() { _ = pr.ReadStop() }()
 
-	if _, _, _, err := pr.ReadColumnByPath(common.ReformPathStr(encryptedColumn), pr.GetNumRows()); err != nil {
+	if _, _, _, err := pr.ReadColumnByPath(common.PathToStr(encryptedColumn), pr.GetNumRows()); err != nil {
 		log.Printf("expected failure reading encrypted column without key: %v", err)
 		return nil
 	}

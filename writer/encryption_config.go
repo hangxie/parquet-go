@@ -43,7 +43,9 @@ type EncryptionConfig struct {
 	// KeyRetriever when FooterKey is empty.
 	FooterKeyMetadata []byte
 	// ColumnKeys maps rootless external column paths to per-column encryption
-	// settings. Columns absent from this map are written as plaintext.
+	// settings. Columns absent from this map are written as plaintext. Path
+	// components must be separated by common.ParGoPathDelimiter (build a key with
+	// common.PathToStr); "." is an ordinary character in a name, not a separator.
 	ColumnKeys map[string]EncryptionColumnKey
 	// AADPrefix is the file-identity prefix mixed into every module's AAD.
 	// Must be non-empty when SupplyAADPrefix is true.

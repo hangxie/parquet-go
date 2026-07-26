@@ -65,6 +65,9 @@ func (pr *ParquetReader) SkipRows(num int64) error {
 	return g.Wait()
 }
 
+// SkipRowsByPath skips num rows in the column identified by pathStr. pathStr
+// components must be separated by common.ParGoPathDelimiter (build it with
+// common.PathToStr); "." is an ordinary character in a name, not a separator.
 func (pr *ParquetReader) SkipRowsByPath(pathStr string, num int64) error {
 	errPathNotFound := fmt.Errorf("path %v not found", pathStr)
 
@@ -123,7 +126,9 @@ func (pr *ParquetReader) SkipRowsByIndex(index, num int64) error {
 	return nil
 }
 
-// ReadColumnByPath reads column by path in schema.
+// ReadColumnByPath reads column by path in schema. pathStr components must be
+// separated by common.ParGoPathDelimiter (build it with common.PathToStr); "." is
+// an ordinary character in a name, not a separator.
 func (pr *ParquetReader) ReadColumnByPath(pathStr string, num int64) (values []any, rls, dls []int32, err error) {
 	errPathNotFound := fmt.Errorf("path %v not found", pathStr)
 

@@ -289,6 +289,8 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
 }
 
 // ReadPartial reads rows and unmarshals only the subtree rooted at prefixPath.
+// prefixPath components must be separated by common.ParGoPathDelimiter (build it
+// with common.PathToStr, e.g. common.PathToStr([]string{"parquet_go_root", "name"})).
 func (pr *ParquetReader) ReadPartial(dstInterface any, prefixPath string) error {
 	prefixPath, err := pr.SchemaHandler.ConvertToInPathStr(prefixPath)
 	if err != nil {
@@ -301,6 +303,8 @@ func (pr *ParquetReader) ReadPartial(dstInterface any, prefixPath string) error 
 }
 
 // ReadPartialByNumber reads up to maxReadNumber partial objects rooted at prefixPath.
+// prefixPath components must be separated by common.ParGoPathDelimiter (build it
+// with common.PathToStr, e.g. common.PathToStr([]string{"parquet_go_root", "name"})).
 func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath string) ([]any, error) {
 	if maxReadNumber < 0 {
 		return nil, fmt.Errorf("negative maxReadNumber: %d", maxReadNumber)

@@ -60,24 +60,6 @@ func TestPathToStr(t *testing.T) {
 	}
 }
 
-func TestReformPathStr(t *testing.T) {
-	testCases := map[string]struct {
-		path     string
-		expected string
-	}{
-		"test-case-1": {"a.b.c", "a\x01b\x01c"},
-		"test-case-2": {"a..c", "a\x01\x01c"},
-		"test-case-3": {"", ""},
-		"test-case-4": {"abc", "abc"},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, ReformPathStr(tc.path))
-		})
-	}
-}
-
 func TestStrToPath(t *testing.T) {
 	testCases := map[string]struct {
 		str      string

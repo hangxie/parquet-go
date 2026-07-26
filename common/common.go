@@ -14,11 +14,6 @@ const (
 	MagicBytesEncrypted = "PARE"
 )
 
-// . -> \x01
-func ReformPathStr(pathStr string) string {
-	return strings.ReplaceAll(pathStr, ".", ParGoPathDelimiter)
-}
-
 // Convert path slice to string
 func PathToStr(path []string) string {
 	return strings.Join(path, ParGoPathDelimiter)

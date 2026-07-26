@@ -315,6 +315,31 @@ func TestBloomFilterCheck(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read bloom filter")
 	})
+
+	t.Run("dotted_column_name", func(t *testing.T) {
+		// A column name containing a dot is a single path component.
+		type BloomRecord struct {
+			Dotted int64 `parquet:"name=a.b, type=INT64, bloomfilter=true"`
+		}
+
+		var buf bytes.Buffer
+		fw := writerfile.NewWriterFile(&buf)
+		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
+		require.NoError(t, err)
+		for i := range 100 {
+			require.NoError(t, pw.Write(BloomRecord{Dotted: int64(i * 100)}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
+		require.NoError(t, err)
+		defer func() { _ = pr.ReadStop() }()
+
+		found, err := pr.BloomFilterCheck("a.b", 0, int64(0))
+		require.NoError(t, err)
+		require.True(t, found)
+	})
 }
 
 func TestDetectBloomFilters(t *testing.T) {

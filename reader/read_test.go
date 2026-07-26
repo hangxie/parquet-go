@@ -114,7 +114,7 @@ func TestParquetReader_ReadPartial_SiblingPrefix(t *testing.T) {
 		require.NoError(t, err)
 
 		out := make([]siblingInner, rows)
-		err = pr.ReadPartial(&out, common.ReformPathStr(common.ParGoRootExName+".name"))
+		err = pr.ReadPartial(&out, common.PathToStr([]string{common.ParGoRootExName, "name"}))
 		require.NoError(t, err)
 		_ = pr.ReadStop()
 

@@ -45,6 +45,9 @@ type ColumnBufferType struct {
 	chunkReadMetaData *parquet.ColumnMetaData
 }
 
+// NewColumnBuffer creates a column buffer for the column identified by pathStr.
+// pathStr components must be separated by common.ParGoPathDelimiter (build it with
+// common.PathToStr); "." is an ordinary character in a name, not a separator.
 func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions) (*ColumnBufferType, error) {
 	return newColumnBuffer(pFile, footer, schemaHandler, pathStr, opts, false)
 }
@@ -129,7 +132,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		}
 		path := columnPathToInPath(cbt.SchemaHandler, columnChunks[i].MetaData.GetPathInSchema(), cbt.caseInsensitive)
 
-		if common.ReformPathStr(cbt.PathStr) == path {
+		if cbt.PathStr == path {
 			break
 		}
 	}

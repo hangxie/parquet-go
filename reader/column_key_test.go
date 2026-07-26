@@ -2,6 +2,7 @@ package reader
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func TestResolveColumnKeyDoesNotStripRootNames(t *testing.T) {
 		t.Parallel()
 
 		pr := &ParquetReader{}
-		applyReaderOptionsForTest(t, pr, WithColumnKey(common.ParGoRootExName+".name", key))
+		applyReaderOptionsForTest(t, pr, WithColumnKey(common.PathToStr([]string{common.ParGoRootExName, "name"}), key))
 
 		_, err := pr.resolveColumnKey(columnKeyChunk([]string{"name"}))
 		require.ErrorIs(t, err, ErrColumnKeyRequired)
@@ -108,7 +109,7 @@ func TestNewParquetReaderRejectsUnknownColumnKeyPath(t *testing.T) {
 	}{
 		{name: "invalid leaf", path: "invalid_name"},
 		{name: "bare root", path: common.ParGoRootExName},
-		{name: "root-prefixed leaf", path: common.ParGoRootExName + ".name"},
+		{name: "root-prefixed leaf", path: common.PathToStr([]string{common.ParGoRootExName, "name"})},
 		{name: "go field name", path: "Name"},
 	}
 
@@ -123,7 +124,8 @@ func TestNewParquetReaderRejectsUnknownColumnKeyPath(t *testing.T) {
 			)
 			require.Error(t, err)
 			require.ErrorContains(t, err, "WithColumnKey")
-			require.ErrorContains(t, err, tt.path)
+			// Errors display path components joined by "." for readability.
+			require.ErrorContains(t, err, strings.ReplaceAll(tt.path, common.ParGoPathDelimiter, "."))
 		})
 	}
 }
@@ -238,7 +240,7 @@ func TestNewParquetReaderAcceptsColumnNamedLikeRoot(t *testing.T) {
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(columnKeyRootNamedTestRecord),
 		WithFooterKey(footerKey),
-		WithColumnKey(common.ParGoRootExName+".name", nameKey),
+		WithColumnKey(common.PathToStr([]string{common.ParGoRootExName, "name"}), nameKey),
 	)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pr.ReadStop()) }()
@@ -287,7 +289,7 @@ func writeRootNamedColumnKeyTestFile(t *testing.T, footerKey, nameKey []byte) []
 		writerfile.NewWriterFile(&buf),
 		new(columnKeyRootNamedTestRecord),
 		writer.WithFooterKey(footerKey),
-		writer.WithColumnEncrypted(common.ParGoRootExName+".name", writer.ColumnKey(nameKey)),
+		writer.WithColumnEncrypted(common.PathToStr([]string{common.ParGoRootExName, "name"}), writer.ColumnKey(nameKey)),
 		writer.WithAADFileUnique([]byte("root-named-column-key-test")),
 	)
 	require.NoError(t, err)
@@ -304,4 +306,98 @@ func columnKeyChunk(path []string) *parquet.ColumnChunk {
 			},
 		},
 	}
+}
+
+type dotAmbiguityGroup struct {
+	B int32 `parquet:"name=b, type=INT32"`
+}
+
+// dotAmbiguityRecord has both a column literally named "a.b" and a distinct
+// nested path a -> b.
+type dotAmbiguityRecord struct {
+	Dotted int32             `parquet:"name=a.b, type=INT32"`
+	Group  dotAmbiguityGroup `parquet:"name=a"`
+}
+
+// TestColumnEncryptionDistinguishesDottedNameFromNestedPath is a security
+// regression: WithColumnEncrypted / WithColumnKey must act on the literal "a.b"
+// column and the nested a -> b path independently, never confusing the two.
+func TestColumnEncryptionDistinguishesDottedNameFromNestedPath(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	colKey := []byte("abcdef0123456789")
+
+	literalRootless := common.PathToStr([]string{"a.b"})
+	nestedRootless := common.PathToStr([]string{"a", "b"})
+	literalFull := common.PathToStr([]string{common.ParGoRootExName, "a.b"})
+	nestedFull := common.PathToStr([]string{common.ParGoRootExName, "a", "b"})
+
+	const literalV0, literalV1 = int32(100), int32(101)
+	const nestedV0, nestedV1 = int32(200), int32(201)
+
+	// Encrypts exactly the column named by encRootless; a plaintext footer lets a
+	// keyless reader still open the file and touch the other, plaintext column.
+	writeFile := func(t *testing.T, encRootless string) []byte {
+		t.Helper()
+		var buf bytes.Buffer
+		pw, err := writer.NewParquetWriter(
+			writerfile.NewWriterFile(&buf),
+			new(dotAmbiguityRecord),
+			writer.WithNP(1),
+			writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+			writer.WithPlaintextFooter(true),
+			writer.WithFooterKey(footerKey),
+			writer.WithColumnEncrypted(encRootless, writer.ColumnKey(colKey)),
+			writer.WithAADFileUnique([]byte("dot-ambiguity")),
+		)
+		require.NoError(t, err)
+		require.NoError(t, pw.Write(dotAmbiguityRecord{Dotted: literalV0, Group: dotAmbiguityGroup{B: nestedV0}}))
+		require.NoError(t, pw.Write(dotAmbiguityRecord{Dotted: literalV1, Group: dotAmbiguityGroup{B: nestedV1}}))
+		require.NoError(t, pw.WriteStop())
+		return buf.Bytes()
+	}
+
+	probe := func(t *testing.T, data []byte, fullPath string) error {
+		t.Helper()
+		pr, err := NewParquetReader(buffer.NewBufferReaderFromBytesNoAlloc(data), new(dotAmbiguityRecord), WithNP(1))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pr.ReadStop()) }()
+		_, _, _, e := pr.ReadColumnByPath(fullPath, pr.GetNumRows())
+		return e
+	}
+
+	readWithKey := func(t *testing.T, data []byte, keyRootless, fullPath string) []any {
+		t.Helper()
+		pr, err := NewParquetReader(
+			buffer.NewBufferReaderFromBytesNoAlloc(data),
+			new(dotAmbiguityRecord),
+			WithNP(1),
+			WithFooterKey(footerKey),
+			WithColumnKey(keyRootless, colKey),
+		)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pr.ReadStop()) }()
+		values, _, _, e := pr.ReadColumnByPath(fullPath, pr.GetNumRows())
+		require.NoError(t, e)
+		return values
+	}
+
+	t.Run("encrypt literal a.b only", func(t *testing.T) {
+		t.Parallel()
+		data := writeFile(t, literalRootless)
+
+		require.NoError(t, probe(t, data, nestedFull))
+		require.ErrorContains(t, probe(t, data, literalFull), "decryption key required")
+		require.Equal(t, []any{literalV0, literalV1}, readWithKey(t, data, literalRootless, literalFull))
+	})
+
+	t.Run("encrypt nested a -> b only", func(t *testing.T) {
+		t.Parallel()
+		data := writeFile(t, nestedRootless)
+
+		require.NoError(t, probe(t, data, literalFull))
+		require.ErrorContains(t, probe(t, data, nestedFull), "decryption key required")
+		require.Equal(t, []any{nestedV0, nestedV1}, readWithKey(t, data, nestedRootless, nestedFull))
+	})
 }
