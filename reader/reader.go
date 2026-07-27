@@ -3,7 +3,6 @@ package reader
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -51,6 +50,8 @@ type ParquetReader struct {
 	keyCache           sync.Map
 	footerMu           sync.Mutex
 	footerLoaded       bool
+	defaultCtx         context.Context
+	ctx                context.Context
 
 	// encryptedPageOffsets is populated once from the immutable footer and then
 	// treated as read-only. It tracks every per-column offset that belongs to an
@@ -66,15 +67,28 @@ type ParquetReader struct {
 }
 
 // NewParquetReader creates a parquet reader. obj is an object with schema tags or a JSON schema string.
+//
+// Deprecated: use NewParquetReaderWithContext.
 func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOption) (*ParquetReader, error) {
+	return NewParquetReaderWithContext(context.Background(), pFile, obj, opts...)
+}
+
+// NewParquetReaderWithContext creates a parquet reader using ctx for footer,
+// schema, and column-buffer initialization.
+func NewParquetReaderWithContext(ctx context.Context, pFile source.ParquetFileReader, obj any, opts ...ReaderOption) (*ParquetReader, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context is nil")
+	}
 	var err error
 	res := new(ParquetReader)
 	res.PFile = pFile
+	res.defaultCtx = ctx
+	res.ctx = ctx
 
 	if err = applyReaderDefaults(res, opts); err != nil {
 		return nil, fmt.Errorf("apply reader options: %w", err)
 	}
-	if err = res.ReadFooter(); err != nil {
+	if err = res.ReadFooterWithContext(ctx); err != nil {
 		return nil, fmt.Errorf("read footer: %w", err)
 	}
 	res.ColumnBuffers = make(map[string]*ColumnBufferType)
@@ -146,7 +160,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 }
 
 func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, error) {
-	cb, err := newColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}, pr.caseInsensitive)
+	cb, err := newColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{Context: pr.context(), CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}, pr.caseInsensitive)
 	if err != nil {
 		return nil, fmt.Errorf("new column buffer for %s: %w", pathStr, err)
 	}
@@ -158,21 +172,27 @@ func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, err
 	return cb, nil
 }
 
-func (pr *ParquetReader) GetNumRows() int64 {
-	return pr.Footer.GetNumRows()
+// Get the footer size
+//
+// Deprecated: use GetFooterSizeWithContext.
+func (pr *ParquetReader) GetFooterSize() (uint32, error) {
+	return pr.GetFooterSizeWithContext(pr.defaultContext())
 }
 
-// Get the footer size
-func (pr *ParquetReader) GetFooterSize() (uint32, error) {
+// GetFooterSizeWithContext returns the footer size using ctx.
+func (pr *ParquetReader) GetFooterSizeWithContext(ctx context.Context) (uint32, error) {
+	if err := pr.setContext(ctx); err != nil {
+		return 0, err
+	}
 	if pr.PFile == nil {
 		return 0, fmt.Errorf("PFile is nil")
 	}
 
 	buf := make([]byte, 4)
-	if _, err := pr.PFile.Seek(-8, io.SeekEnd); err != nil {
+	if _, err := source.SeekWithContext(pr.context(), pr.PFile, -8, io.SeekEnd); err != nil {
 		return 0, fmt.Errorf("seek to footer size: %w", err)
 	}
-	if _, err := io.ReadFull(pr.PFile, buf); err != nil {
+	if _, err := source.ReadFullWithContext(pr.context(), pr.PFile, buf); err != nil {
 		return 0, fmt.Errorf("read footer size: %w", err)
 	}
 	return binary.LittleEndian.Uint32(buf), nil
@@ -184,10 +204,10 @@ func (pr *ParquetReader) getFooterTail() (uint32, string, error) {
 	}
 
 	buf := make([]byte, 8)
-	if _, err := pr.PFile.Seek(-8, io.SeekEnd); err != nil {
+	if _, err := source.SeekWithContext(pr.context(), pr.PFile, -8, io.SeekEnd); err != nil {
 		return 0, "", fmt.Errorf("seek to footer tail: %w", err)
 	}
-	if _, err := io.ReadFull(pr.PFile, buf); err != nil {
+	if _, err := source.ReadFullWithContext(pr.context(), pr.PFile, buf); err != nil {
 		return 0, "", fmt.Errorf("read footer tail: %w", err)
 	}
 	return binary.LittleEndian.Uint32(buf[:4]), string(buf[4:]), nil
@@ -197,7 +217,17 @@ func (pr *ParquetReader) getFooterTail() (uint32, string, error) {
 //
 // After a successful read, the reader treats Footer as immutable. Repeated calls
 // return without reloading so internal caches remain tied to the same footer.
+//
+// Deprecated: use ReadFooterWithContext.
 func (pr *ParquetReader) ReadFooter() error {
+	return pr.ReadFooterWithContext(pr.defaultContext())
+}
+
+// ReadFooterWithContext reads and publishes the file footer once using ctx.
+func (pr *ParquetReader) ReadFooterWithContext(ctx context.Context) error {
+	if err := pr.setContext(ctx); err != nil {
+		return err
+	}
 	pr.footerMu.Lock()
 	defer pr.footerMu.Unlock()
 
@@ -227,24 +257,24 @@ func (pr *ParquetReader) ReadFooter() error {
 }
 
 func (pr *ParquetReader) readPlainFooter(size uint32) error {
-	if _, err := pr.PFile.Seek(-int64(8+size), io.SeekEnd); err != nil {
+	if _, err := source.SeekWithContext(pr.context(), pr.PFile, -int64(8+size), io.SeekEnd); err != nil {
 		return fmt.Errorf("seek to footer: %w", err)
 	}
 	pr.Footer = parquet.NewFileMetaData()
 	pf := thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{})
-	thriftReader := thrift.NewStreamTransportR(pr.PFile)
+	thriftReader := thrift.NewStreamTransportR(source.ReaderWithContext{Ctx: pr.context(), Reader: pr.PFile})
 	bufferReader := thrift.NewTBufferedTransport(thriftReader, int(size))
 	protocol := pf.GetProtocol(bufferReader)
-	if err := pr.Footer.Read(context.TODO(), protocol); err != nil {
+	if err := pr.Footer.Read(pr.context(), protocol); err != nil {
 		return fmt.Errorf("read footer: %w", err)
 	}
 
 	if pr.Footer.IsSetEncryptionAlgorithm() {
-		if _, err := pr.PFile.Seek(-int64(8+size), io.SeekEnd); err != nil {
+		if _, err := source.SeekWithContext(pr.context(), pr.PFile, -int64(8+size), io.SeekEnd); err != nil {
 			return fmt.Errorf("seek to plaintext footer section: %w", err)
 		}
 		section := make([]byte, size)
-		if _, err := io.ReadFull(pr.PFile, section); err != nil {
+		if _, err := source.ReadFullWithContext(pr.context(), pr.PFile, section); err != nil {
 			return fmt.Errorf("read plaintext footer section: %w", err)
 		}
 		if err := pr.verifyPlaintextFooter(section); err != nil {
@@ -255,12 +285,32 @@ func (pr *ParquetReader) readPlainFooter(size uint32) error {
 }
 
 // Read reads rows of the parquet file and unmarshals them into dst.
+//
+// Deprecated: use ReadWithContext.
 func (pr *ParquetReader) Read(dstInterface any) error {
+	return pr.ReadWithContext(pr.defaultContext(), dstInterface)
+}
+
+// ReadWithContext reads rows of the parquet file using ctx.
+func (pr *ParquetReader) ReadWithContext(ctx context.Context, dstInterface any) error {
+	if err := pr.setContext(ctx); err != nil {
+		return err
+	}
 	return pr.read(dstInterface, "")
 }
 
 // ReadByNumber reads up to maxReadNumber objects.
+//
+// Deprecated: use ReadByNumberWithContext.
 func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
+	return pr.ReadByNumberWithContext(pr.defaultContext(), maxReadNumber)
+}
+
+// ReadByNumberWithContext reads up to maxReadNumber objects using ctx.
+func (pr *ParquetReader) ReadByNumberWithContext(ctx context.Context, maxReadNumber int) ([]any, error) {
+	if err := pr.setContext(ctx); err != nil {
+		return nil, err
+	}
 	if maxReadNumber < 0 {
 		return nil, fmt.Errorf("negative maxReadNumber: %d", maxReadNumber)
 	}
@@ -276,7 +326,7 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
 	res := reflect.New(vs.Type())
 	res.Elem().Set(vs)
 
-	if err = pr.Read(res.Interface()); err != nil {
+	if err = pr.ReadWithContext(ctx, res.Interface()); err != nil {
 		return nil, fmt.Errorf("read by number: %w", err)
 	}
 
@@ -291,7 +341,17 @@ func (pr *ParquetReader) ReadByNumber(maxReadNumber int) ([]any, error) {
 // ReadPartial reads rows and unmarshals only the subtree rooted at prefixPath.
 // prefixPath components must be separated by common.ParGoPathDelimiter (build it
 // with common.PathToStr, e.g. common.PathToStr([]string{"parquet_go_root", "name"})).
+//
+// Deprecated: use ReadPartialWithContext.
 func (pr *ParquetReader) ReadPartial(dstInterface any, prefixPath string) error {
+	return pr.ReadPartialWithContext(pr.defaultContext(), dstInterface, prefixPath)
+}
+
+// ReadPartialWithContext reads a subtree rooted at prefixPath using ctx.
+func (pr *ParquetReader) ReadPartialWithContext(ctx context.Context, dstInterface any, prefixPath string) error {
+	if err := pr.setContext(ctx); err != nil {
+		return err
+	}
 	prefixPath, err := pr.SchemaHandler.ConvertToInPathStr(prefixPath)
 	if err != nil {
 		return fmt.Errorf("convert path: %w", err)
@@ -305,7 +365,17 @@ func (pr *ParquetReader) ReadPartial(dstInterface any, prefixPath string) error 
 // ReadPartialByNumber reads up to maxReadNumber partial objects rooted at prefixPath.
 // prefixPath components must be separated by common.ParGoPathDelimiter (build it
 // with common.PathToStr, e.g. common.PathToStr([]string{"parquet_go_root", "name"})).
+//
+// Deprecated: use ReadPartialByNumberWithContext.
 func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath string) ([]any, error) {
+	return pr.ReadPartialByNumberWithContext(pr.defaultContext(), maxReadNumber, prefixPath)
+}
+
+// ReadPartialByNumberWithContext reads up to maxReadNumber partial objects using ctx.
+func (pr *ParquetReader) ReadPartialByNumberWithContext(ctx context.Context, maxReadNumber int, prefixPath string) ([]any, error) {
+	if err := pr.setContext(ctx); err != nil {
+		return nil, err
+	}
 	if maxReadNumber < 0 {
 		return nil, fmt.Errorf("negative maxReadNumber: %d", maxReadNumber)
 	}
@@ -321,7 +391,7 @@ func (pr *ParquetReader) ReadPartialByNumber(maxReadNumber int, prefixPath strin
 	res := reflect.New(vs.Type())
 	res.Elem().Set(vs)
 
-	if err = pr.ReadPartial(res.Interface(), prefixPath); err != nil {
+	if err = pr.ReadPartialWithContext(ctx, res.Interface(), prefixPath); err != nil {
 		return nil, fmt.Errorf("read partial by number: %w", err)
 	}
 
@@ -385,6 +455,14 @@ func (pr *ParquetReader) fetchColumnData(num int, prefixPath string, tmap map[st
 	}
 	for key := range pr.ColumnBuffers {
 		if prefixPath == "" || common.IsChildPath(prefixPath, key) {
+			if err := pr.context().Err(); err != nil {
+				errMu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				errMu.Unlock()
+				break
+			}
 			taskChan <- key
 		}
 	}
@@ -428,39 +506,4 @@ func (pr *ParquetReader) unmarshalToResult(num int, tmap map[string]*layout.Tabl
 		dstValue.Set(reflect.AppendSlice(dstValue, reflect.ValueOf(dst).Elem()))
 	}
 	return firstErr
-}
-
-// Reset closes and recreates all column buffers, allowing the file to be
-// re-read from the beginning without creating a new reader.
-func (pr *ParquetReader) Reset() error {
-	for _, cb := range pr.ColumnBuffers {
-		if cb == nil || cb.PFile == nil {
-			continue
-		}
-		if err := cb.PFile.Close(); err != nil {
-			return fmt.Errorf("close column buffer: %w", err)
-		}
-	}
-	for pathStr := range pr.ColumnBuffers {
-		newCB, err := pr.newColumnBuffer(pathStr)
-		if err != nil {
-			return fmt.Errorf("recreate column buffer for %s: %w", pathStr, err)
-		}
-		pr.ColumnBuffers[pathStr] = newCB
-	}
-	return nil
-}
-
-// ReadStop closes all column buffer file handles.
-func (pr *ParquetReader) ReadStop() error {
-	var errs []error
-	for pathStr, cb := range pr.ColumnBuffers {
-		if cb == nil || cb.PFile == nil {
-			continue
-		}
-		if err := cb.PFile.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close column buffer for path %s: %w", pathStr, err))
-		}
-	}
-	return errors.Join(errs...)
 }

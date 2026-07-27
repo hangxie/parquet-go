@@ -14,6 +14,7 @@ import (
 
 // ReadOptions configures encrypted bloom filter reads.
 type ReadOptions struct {
+	Context         context.Context
 	Key             []byte
 	AADPrefix       []byte
 	AADFileUnique   []byte
@@ -23,7 +24,14 @@ type ReadOptions struct {
 
 // ReadBloomFilter reads a bloom filter from the given ReadSeeker at the specified offset.
 // It reads the Thrift-encoded BloomFilterHeader followed by the raw bitset bytes.
+//
+// Deprecated: use ReadBloomFilterWithContext.
 func ReadBloomFilter(r io.ReadSeeker, offset int64) (*Filter, error) {
+	return ReadBloomFilterWithContext(context.Background(), r, offset)
+}
+
+// ReadBloomFilterWithContext reads a bloom filter using ctx.
+func ReadBloomFilterWithContext(ctx context.Context, r io.ReadSeeker, offset int64) (*Filter, error) {
 	if _, err := r.Seek(offset, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("seek to bloom filter offset %d: %w", offset, err)
 	}
@@ -34,7 +42,7 @@ func ReadBloomFilter(r io.ReadSeeker, offset int64) (*Filter, error) {
 	thriftReader := thrift.NewStreamTransportR(r)
 	bufferReader := thrift.NewTBufferedTransport(thriftReader, 1024)
 	protocol := tpf.GetProtocol(bufferReader)
-	if err := header.Read(context.TODO(), protocol); err != nil {
+	if err := header.Read(ctx, protocol); err != nil {
 		return nil, fmt.Errorf("read bloom filter header: %w", err)
 	}
 
@@ -46,7 +54,7 @@ func ReadBloomFilter(r io.ReadSeeker, offset int64) (*Filter, error) {
 	// then seek to the bitset position (offset + headerSize).
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	headerBuf, err := ts.Write(context.TODO(), header)
+	headerBuf, err := ts.Write(ctx, header)
 	if err != nil {
 		return nil, fmt.Errorf("serialize bloom filter header to determine size: %w", err)
 	}
@@ -67,6 +75,10 @@ func ReadBloomFilter(r io.ReadSeeker, offset int64) (*Filter, error) {
 // ReadEncryptedBloomFilter reads an encrypted bloom filter header and bitset
 // from the given ReadSeeker at the specified offset.
 func ReadEncryptedBloomFilter(r io.ReadSeeker, offset int64, opt ReadOptions) (*Filter, error) {
+	ctx := opt.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if _, err := r.Seek(offset, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("seek to bloom filter offset %d: %w", offset, err)
 	}
@@ -79,7 +91,7 @@ func ReadEncryptedBloomFilter(r io.ReadSeeker, offset int64, opt ReadOptions) (*
 	if err != nil {
 		return nil, fmt.Errorf("decrypt bloom filter header: %w", err)
 	}
-	header, err := readBloomFilterHeader(bytes.NewReader(headerBytes))
+	header, err := readBloomFilterHeader(ctx, bytes.NewReader(headerBytes))
 	if err != nil {
 		return nil, fmt.Errorf("decode decrypted bloom filter header: %w", err)
 	}
@@ -101,13 +113,13 @@ func ReadEncryptedBloomFilter(r io.ReadSeeker, offset int64, opt ReadOptions) (*
 	return FromBitset(bitset)
 }
 
-func readBloomFilterHeader(r io.Reader) (*parquet.BloomFilterHeader, error) {
+func readBloomFilterHeader(ctx context.Context, r io.Reader) (*parquet.BloomFilterHeader, error) {
 	header := parquet.NewBloomFilterHeader()
 	tpf := thrift.NewTCompactProtocolFactoryConf(nil)
 	thriftReader := thrift.NewStreamTransportR(r)
 	bufferReader := thrift.NewTBufferedTransport(thriftReader, 1024)
 	protocol := tpf.GetProtocol(bufferReader)
-	if err := header.Read(context.TODO(), protocol); err != nil {
+	if err := header.Read(ctx, protocol); err != nil {
 		return nil, fmt.Errorf("read bloom filter header: %w", err)
 	}
 	return header, nil

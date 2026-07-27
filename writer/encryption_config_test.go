@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 
@@ -43,18 +44,18 @@ func TestEncryptedWriterKeyRetriever(t *testing.T) {
 	require.NoError(t, pw.Write(encryptedWriterRecord{ID: 1, Name: "alpha"}))
 	require.NoError(t, pw.WriteStop())
 
-	pr, err := reader.NewParquetReader(
-		buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()),
+	pr, err := reader.NewParquetReaderWithContext(
+		context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()),
 		new(encryptedWriterRecord),
 		reader.WithKeyRetriever(keyRetriever),
 	)
 	require.NoError(t, err)
 	defer func() {
-		require.NoError(t, pr.ReadStop())
+		require.NoError(t, pr.ReadStopWithContext(context.Background()))
 	}()
 
 	rows := make([]encryptedWriterRecord, 1)
-	require.NoError(t, pr.Read(&rows))
+	require.NoError(t, pr.ReadWithContext(context.Background(), &rows))
 	require.Equal(t, []encryptedWriterRecord{{ID: 1, Name: "alpha"}}, rows)
 }
 
@@ -86,18 +87,18 @@ func TestEncryptedWriterFooterKeyPrecedence(t *testing.T) {
 	require.NoError(t, pw.WriteStop())
 
 	// WithFooterKey wins: file was encrypted with footerKey, not wrongFooterKey from retriever
-	pr, err := reader.NewParquetReader(
-		buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()),
+	pr, err := reader.NewParquetReaderWithContext(
+		context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()),
 		new(encryptedWriterRecord),
 		reader.WithFooterKey(footerKey),
 	)
 	require.NoError(t, err)
 	defer func() {
-		require.NoError(t, pr.ReadStop())
+		require.NoError(t, pr.ReadStopWithContext(context.Background()))
 	}()
 
 	rows := make([]encryptedWriterRecord, 1)
-	require.NoError(t, pr.Read(&rows))
+	require.NoError(t, pr.ReadWithContext(context.Background(), &rows))
 	require.Equal(t, []encryptedWriterRecord{{ID: 1, Name: "alpha"}}, rows)
 }
 
@@ -132,19 +133,19 @@ func TestEncryptedWriterColumnKeyPrecedence(t *testing.T) {
 	require.NoError(t, pw.Write(encryptedWriterRecord{ID: 1, Name: "alpha"}))
 	require.NoError(t, pw.WriteStop())
 
-	pr, err := reader.NewParquetReader(
-		buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()),
+	pr, err := reader.NewParquetReaderWithContext(
+		context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()),
 		new(encryptedWriterRecord),
 		reader.WithFooterKey(footerKey),
 		reader.WithColumnKey("name", nameKey),
 	)
 	require.NoError(t, err)
 	defer func() {
-		require.NoError(t, pr.ReadStop())
+		require.NoError(t, pr.ReadStopWithContext(context.Background()))
 	}()
 
 	rows := make([]encryptedWriterRecord, 1)
-	require.NoError(t, pr.Read(&rows))
+	require.NoError(t, pr.ReadWithContext(context.Background(), &rows))
 	require.Equal(t, []encryptedWriterRecord{{ID: 1, Name: "alpha"}}, rows)
 }
 

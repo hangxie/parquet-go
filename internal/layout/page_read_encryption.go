@@ -34,11 +34,18 @@ type PageDecryptor struct {
 // parsed page header. The decryptor must have its ordinal state set as if the
 // caller were reading pages sequentially: for data-page headers the data-page
 // AAD is tried first, and for dictionary headers a 0 page ordinal is used.
+//
+// Deprecated: use DecryptPageHeaderWithContext.
 func DecryptPageHeader(module []byte, decryptor *PageDecryptor) (*parquet.PageHeader, error) {
-	return decryptPageHeader(module, decryptor)
+	return decryptPageHeader(context.Background(), module, decryptor)
 }
 
-func decryptPageHeader(module []byte, decryptor *PageDecryptor) (*parquet.PageHeader, error) {
+// DecryptPageHeaderWithContext decrypts and parses a page header using ctx.
+func DecryptPageHeaderWithContext(ctx context.Context, module []byte, decryptor *PageDecryptor) (*parquet.PageHeader, error) {
+	return decryptPageHeader(ctx, module, decryptor)
+}
+
+func decryptPageHeader(ctx context.Context, module []byte, decryptor *PageDecryptor) (*parquet.PageHeader, error) {
 	tries := []encryption.ModuleType{encryption.ModuleDataPageHeader, encryption.ModuleDictionaryPageHeader}
 	var lastErr error
 	for _, moduleType := range tries {
@@ -48,7 +55,7 @@ func decryptPageHeader(module []byte, decryptor *PageDecryptor) (*parquet.PageHe
 			lastErr = err
 			continue
 		}
-		pageHeader, err := readPageHeaderFromBytes(plain)
+		pageHeader, err := readPageHeaderFromBytes(ctx, plain)
 		if err != nil {
 			return nil, fmt.Errorf("decode decrypted page header: %w", err)
 		}
@@ -63,10 +70,10 @@ func decryptPageHeader(module []byte, decryptor *PageDecryptor) (*parquet.PageHe
 	return nil, fmt.Errorf("decrypt page header: %w", lastErr)
 }
 
-func readPageHeaderFromBytes(buf []byte) (*parquet.PageHeader, error) {
+func readPageHeaderFromBytes(ctx context.Context, buf []byte) (*parquet.PageHeader, error) {
 	protocol := thrift.NewTCompactProtocolConf(thrift.NewStreamTransportR(bytes.NewReader(buf)), &thrift.TConfiguration{})
 	pageHeader := parquet.NewPageHeader()
-	if err := pageHeader.Read(context.TODO(), protocol); err != nil {
+	if err := pageHeader.Read(ctx, protocol); err != nil {
 		return nil, fmt.Errorf("decode page header: %w", err)
 	}
 	return pageHeader, nil

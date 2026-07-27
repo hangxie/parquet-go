@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -17,15 +18,29 @@ type CSVWriter struct {
 }
 
 // NewCSVWriterFromWriter creates a CSVWriter from an io.Writer.
+//
+// Deprecated: use NewCSVWriterFromWriterWithContext.
 func NewCSVWriterFromWriter(md []string, w io.Writer, opts ...WriterOption) (*CSVWriter, error) {
+	return NewCSVWriterFromWriterWithContext(context.Background(), md, w, opts...)
+}
+
+// NewCSVWriterFromWriterWithContext creates a CSVWriter using ctx.
+func NewCSVWriterFromWriterWithContext(ctx context.Context, md []string, w io.Writer, opts ...WriterOption) (*CSVWriter, error) {
 	wf := writerfile.NewWriterFile(w)
-	return NewCSVWriter(md, wf, opts...)
+	return NewCSVWriterWithContext(ctx, md, wf, opts...)
 }
 
 // NewCSVWriter creates a CSVWriter from a schema metadata list and a ParquetFileWriter.
+//
+// Deprecated: use NewCSVWriterWithContext.
 func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOption) (*CSVWriter, error) {
+	return NewCSVWriterWithContext(context.Background(), md, pfile, opts...)
+}
+
+// NewCSVWriterWithContext creates a CSVWriter using ctx.
+func NewCSVWriterWithContext(ctx context.Context, md []string, pfile source.ParquetFileWriter, opts ...WriterOption) (*CSVWriter, error) {
 	res := new(CSVWriter)
-	if err := res.initBase(pfile, opts...); err != nil {
+	if err := res.initBase(ctx, pfile, opts...); err != nil {
 		return nil, fmt.Errorf("init CSV writer base: %w", err)
 	}
 
@@ -48,7 +63,17 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOpt
 }
 
 // WriteString writes string values to parquet file.
+//
+// Deprecated: use WriteStringWithContext.
 func (w *CSVWriter) WriteString(recsi any) error {
+	return w.WriteStringWithContext(w.defaultContext(), recsi)
+}
+
+// WriteStringWithContext writes string values using ctx.
+func (w *CSVWriter) WriteStringWithContext(ctx context.Context, recsi any) error {
+	if err := w.setContext(ctx); err != nil {
+		return err
+	}
 	var err error
 	recs, ok := recsi.([]*string)
 	if !ok {
@@ -73,7 +98,7 @@ func (w *CSVWriter) WriteString(recsi any) error {
 		}
 	}
 
-	if err := w.Write(rec); err != nil {
+	if err := w.WriteWithContext(ctx, rec); err != nil {
 		return fmt.Errorf("write row: %w", err)
 	}
 	return nil

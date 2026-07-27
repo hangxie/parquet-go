@@ -15,6 +15,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // ErrColumnKeyRequired reports an encrypted column without a direct,
@@ -23,14 +24,14 @@ var ErrColumnKeyRequired = errors.New("decryption key required")
 
 func (pr *ParquetReader) readEncryptedFooter(size uint32) error {
 	section := make([]byte, size)
-	if _, err := pr.PFile.Seek(-int64(8+size), io.SeekEnd); err != nil {
+	if _, err := source.SeekWithContext(pr.context(), pr.PFile, -int64(8+size), io.SeekEnd); err != nil {
 		return fmt.Errorf("seek to encrypted footer section: %w", err)
 	}
-	if _, err := io.ReadFull(pr.PFile, section); err != nil {
+	if _, err := source.ReadFullWithContext(pr.context(), pr.PFile, section); err != nil {
 		return fmt.Errorf("read encrypted footer section: %w", err)
 	}
 
-	fileCrypto, consumed, err := readFileCryptoMetaData(section)
+	fileCrypto, consumed, err := readFileCryptoMetaData(pr.context(), section)
 	if err != nil {
 		return fmt.Errorf("read file crypto metadata: %w", err)
 	}
@@ -56,7 +57,7 @@ func (pr *ParquetReader) readEncryptedFooter(size uint32) error {
 		return fmt.Errorf("decrypt footer: %w", err)
 	}
 
-	footer, err := readFileMetaDataFromBytes(footerBytes)
+	footer, err := readFileMetaDataFromBytes(pr.context(), footerBytes)
 	if err != nil {
 		return fmt.Errorf("read decrypted footer: %w", err)
 	}
@@ -65,24 +66,24 @@ func (pr *ParquetReader) readEncryptedFooter(size uint32) error {
 	return nil
 }
 
-func readFileCryptoMetaData(buf []byte) (*parquet.FileCryptoMetaData, int, error) {
+func readFileCryptoMetaData(ctx context.Context, buf []byte) (*parquet.FileCryptoMetaData, int, error) {
 	mem := thrift.NewTMemoryBufferLen(len(buf))
 	if _, err := mem.Write(buf); err != nil {
 		return nil, 0, fmt.Errorf("buffer file crypto metadata: %w", err)
 	}
 	protocol := thrift.NewTCompactProtocolConf(mem, &thrift.TConfiguration{})
 	meta := parquet.NewFileCryptoMetaData()
-	if err := meta.Read(context.TODO(), protocol); err != nil {
+	if err := meta.Read(ctx, protocol); err != nil {
 		return nil, 0, fmt.Errorf("decode file crypto metadata: %w", err)
 	}
 	remaining := int(mem.RemainingBytes())
 	return meta, len(buf) - remaining, nil
 }
 
-func readFileMetaDataFromBytes(buf []byte) (*parquet.FileMetaData, error) {
+func readFileMetaDataFromBytes(ctx context.Context, buf []byte) (*parquet.FileMetaData, error) {
 	footer := parquet.NewFileMetaData()
 	protocol := thrift.NewTCompactProtocolConf(thrift.NewTBufferedTransport(thrift.NewStreamTransportR(bytes.NewReader(buf)), len(buf)), &thrift.TConfiguration{})
-	if err := footer.Read(context.TODO(), protocol); err != nil {
+	if err := footer.Read(ctx, protocol); err != nil {
 		return nil, fmt.Errorf("decode file metadata: %w", err)
 	}
 	return footer, nil
@@ -94,7 +95,7 @@ func (pr *ParquetReader) verifyPlaintextFooter(section []byte) error {
 	}
 	footerBytes := section[:len(section)-28]
 	signature := section[len(section)-28:]
-	footer, err := readFileMetaDataFromBytes(footerBytes)
+	footer, err := readFileMetaDataFromBytes(pr.context(), footerBytes)
 	if err != nil {
 		return fmt.Errorf("read signed plaintext footer: %w", err)
 	}
@@ -123,10 +124,10 @@ func (pr *ParquetReader) verifyPlaintextFooter(section []byte) error {
 	return nil
 }
 
-func readColumnMetaDataFromBytes(buf []byte) (*parquet.ColumnMetaData, error) {
+func readColumnMetaDataFromBytes(ctx context.Context, buf []byte) (*parquet.ColumnMetaData, error) {
 	meta := parquet.NewColumnMetaData()
 	protocol := thrift.NewTCompactProtocolConf(thrift.NewStreamTransportR(bytes.NewReader(buf)), &thrift.TConfiguration{})
-	if err := meta.Read(context.TODO(), protocol); err != nil {
+	if err := meta.Read(ctx, protocol); err != nil {
 		return nil, fmt.Errorf("decode column metadata: %w", err)
 	}
 	return meta, nil
@@ -289,7 +290,7 @@ func (pr *ParquetReader) decryptEncryptedColumnMetadataChunk(chunk *parquet.Colu
 	if err != nil {
 		return fmt.Errorf("row group %d column %d: decrypt: %w", rowGroupIndex, columnOrdinal, err)
 	}
-	meta, err := readColumnMetaDataFromBytes(plain)
+	meta, err := readColumnMetaDataFromBytes(pr.context(), plain)
 	if err != nil {
 		return fmt.Errorf("row group %d column %d: read metadata: %w", rowGroupIndex, columnOrdinal, err)
 	}

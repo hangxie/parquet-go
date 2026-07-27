@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -16,15 +17,29 @@ type JSONWriter struct {
 }
 
 // NewJSONWriterFromWriter creates a JSONWriter from an io.Writer.
+//
+// Deprecated: use NewJSONWriterFromWriterWithContext.
 func NewJSONWriterFromWriter(jsonSchema string, w io.Writer, opts ...WriterOption) (*JSONWriter, error) {
+	return NewJSONWriterFromWriterWithContext(context.Background(), jsonSchema, w, opts...)
+}
+
+// NewJSONWriterFromWriterWithContext creates a JSONWriter using ctx.
+func NewJSONWriterFromWriterWithContext(ctx context.Context, jsonSchema string, w io.Writer, opts ...WriterOption) (*JSONWriter, error) {
 	wf := writerfile.NewWriterFile(w)
-	return NewJSONWriter(jsonSchema, wf, opts...)
+	return NewJSONWriterWithContext(ctx, jsonSchema, wf, opts...)
 }
 
 // NewJSONWriter creates a JSONWriter from a JSON schema string and a ParquetFileWriter.
+//
+// Deprecated: use NewJSONWriterWithContext.
 func NewJSONWriter(jsonSchema string, pfile source.ParquetFileWriter, opts ...WriterOption) (*JSONWriter, error) {
+	return NewJSONWriterWithContext(context.Background(), jsonSchema, pfile, opts...)
+}
+
+// NewJSONWriterWithContext creates a JSONWriter using ctx.
+func NewJSONWriterWithContext(ctx context.Context, jsonSchema string, pfile source.ParquetFileWriter, opts ...WriterOption) (*JSONWriter, error) {
 	res := new(JSONWriter)
-	if err := res.initBase(pfile, opts...); err != nil {
+	if err := res.initBase(ctx, pfile, opts...); err != nil {
 		return nil, fmt.Errorf("init JSON writer base: %w", err)
 	}
 

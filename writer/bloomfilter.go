@@ -1,7 +1,6 @@
 package writer
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
@@ -25,7 +24,7 @@ func (pw *ParquetWriter) writeBloomFilters() error {
 			if data == nil {
 				continue
 			}
-			if _, err := pw.PFile.Write(data); err != nil {
+			if _, err := pw.write(data); err != nil {
 				return fmt.Errorf("write bloom filter: %w", err)
 			}
 			pos := pw.offset
@@ -76,7 +75,7 @@ func (pw *ParquetWriter) serializeBloomFilters() error {
 			pw.bloomFilterData = append(pw.bloomFilterData, nil)
 			continue
 		}
-		headerBuf, err := ts.Write(context.TODO(), bf.Header())
+		headerBuf, err := ts.Write(pw.context(), bf.Header())
 		if err != nil {
 			return fmt.Errorf("serialize bloom filter header for column %s: %w", path, err)
 		}

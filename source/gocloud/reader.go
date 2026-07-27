@@ -50,7 +50,11 @@ func (b *blobReader) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (b *blobReader) Read(p []byte) (n int, err error) {
-	r, err := b.bucket.NewRangeReader(b.ctx, b.key, b.offset, int64(len(p)), nil)
+	return b.ReadContext(b.ctx, p)
+}
+
+func (b *blobReader) ReadContext(ctx context.Context, p []byte) (n int, err error) {
+	r, err := b.bucket.NewRangeReader(ctx, b.key, b.offset, int64(len(p)), nil)
 	if err != nil {
 		return 0, fmt.Errorf("open reader key=%s offset=%d len=%d: %w", b.key, b.offset, len(p), err)
 	}
@@ -69,9 +73,13 @@ func (b *blobReader) Close() error {
 }
 
 func (b *blobReader) Open(name string) (source.ParquetFileReader, error) {
+	return b.OpenContext(b.ctx, name)
+}
+
+func (b *blobReader) OpenContext(ctx context.Context, name string) (source.ParquetFileReader, error) {
 	bf := &blobReader{
 		blobFile: blobFile{
-			ctx:    b.ctx,
+			ctx:    ctx,
 			bucket: b.bucket,
 		},
 	}
@@ -91,11 +99,18 @@ func (b *blobReader) Open(name string) (source.ParquetFileReader, error) {
 }
 
 func (b blobReader) Clone() (source.ParquetFileReader, error) {
+	return b.CloneContext(b.ctx)
+}
+
+func (b blobReader) CloneContext(ctx context.Context) (source.ParquetFileReader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Create a new instance without making network calls
 	// Reuse already-known metadata
 	return &blobReader{
 		blobFile: blobFile{
-			ctx:    b.ctx,
+			ctx:    ctx,
 			bucket: b.bucket,
 			key:    b.key,
 			size:   b.size,

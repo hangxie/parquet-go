@@ -48,11 +48,11 @@ func cloneFileMetaData(footer *parquet.FileMetaData) (*parquet.FileMetaData, err
 	}
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	buf, err := ts.Write(context.TODO(), footer)
+	buf, err := ts.Write(context.Background(), footer)
 	if err != nil {
 		return nil, fmt.Errorf("encode file metadata: %w", err)
 	}
-	return readFileMetaDataFromBytes(buf)
+	return readFileMetaDataFromBytes(context.Background(), buf)
 }
 
 func renameFooterSchema(sh *schema.SchemaHandler, footer *parquet.FileMetaData, caseInsensitive bool) {

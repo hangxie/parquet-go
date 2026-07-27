@@ -328,12 +328,14 @@ func TestJSONWriter(t *testing.T) {
 				// Verify row count if specified
 				if tt.expectRows != nil {
 					pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+					//nolint:staticcheck
 					pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 					require.NoError(t, err)
 
 					numRows := pr.GetNumRows()
 					require.Equal(t, *tt.expectRows, numRows)
 
+					//nolint:staticcheck
 					_ = pr.ReadStop()
 					_ = pf.Close()
 				}

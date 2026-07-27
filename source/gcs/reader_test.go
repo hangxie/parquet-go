@@ -220,6 +220,17 @@ func TestGcsReader_Seek(t *testing.T) {
 	offset, err := reader.Seek(10, io.SeekStart)
 	require.NoError(t, err)
 	require.Equal(t, int64(10), offset)
+
+	offset, err = reader.Seek(5, io.SeekCurrent)
+	require.NoError(t, err)
+	require.Equal(t, int64(15), offset)
+
+	offset, err = reader.Seek(-1, io.SeekEnd)
+	require.NoError(t, err)
+	require.Equal(t, reader.size-1, offset)
+
+	_, err = reader.Seek(0, -1)
+	require.ErrorContains(t, err, "illegal whence")
 }
 
 func TestGcsReader_Read(t *testing.T) {
@@ -236,6 +247,16 @@ func TestGcsReader_Read(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 4, bytesRead)
 	require.Equal(t, common.MagicBytes, string(buf))
+
+	readCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bytesRead, err = reader.ReadContext(readCtx, buf)
+	require.NoError(t, err)
+	require.Equal(t, 4, bytesRead)
+
+	cancel()
+	_, err = reader.ReadContext(readCtx, buf)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestNewGcsFileReaderWithClient(t *testing.T) {

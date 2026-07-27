@@ -20,6 +20,8 @@ type ParquetFileWriter interface {
 
 `ParquetFileReader.Open` returns a reader with an independent file handle for the requested file. The new reader may reuse the source's underlying storage client, but closing it must not invalidate the original reader.
 
+Context-aware parquet operations use optional capability interfaces named `ContextReader`, `ContextWriter`, `ContextSeeker`, `ContextOpener`, `ContextCloner`, `ContextCreator`, and `ContextCloser`. Existing source implementations remain compatible without implementing them: the library checks cancellation before falling back to the original method, except that close always runs and reports cancellation afterward. Remote sources should implement the relevant optional interfaces so deadlines can cancel in-flight backend requests.
+
 Supported sources:
 * Local
 * HDFS

@@ -253,7 +253,7 @@ func TestInsertBloomValues(t *testing.T) {
 func readBloomFilter(pf source.ParquetFileReader, offset int64) (*parquet.BloomFilterHeader, []byte, error) {
 	header := parquet.NewBloomFilterHeader()
 	tpf := thrift.NewTCompactProtocolFactoryConf(nil)
-	triftReader, err := source.ConvertToThriftReader(pf, offset)
+	triftReader, err := source.ConvertToThriftReaderWithContext(context.Background(), pf, offset)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -300,7 +300,7 @@ func TestBloomFilter(t *testing.T) {
 
 		// Read footer and verify bloom filter metadata
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
+		pr, err := reader.NewParquetReaderWithContext(context.Background(), pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		require.Len(t, pr.Footer.RowGroups, 1)
@@ -317,7 +317,7 @@ func TestBloomFilter(t *testing.T) {
 		nameCol := rg.Columns[1]
 		require.False(t, nameCol.MetaData.IsSetBloomFilterOffset())
 
-		_ = pr.ReadStop()
+		_ = pr.ReadStopWithContext(context.Background())
 	})
 
 	t.Run("bloom_filter_content_check", func(t *testing.T) {
@@ -335,7 +335,7 @@ func TestBloomFilter(t *testing.T) {
 
 		// Read the bloom filter data and verify it works
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
+		pr, err := reader.NewParquetReaderWithContext(context.Background(), pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		rg := pr.Footer.RowGroups[0]
@@ -357,7 +357,7 @@ func TestBloomFilter(t *testing.T) {
 			require.True(t, f.Check(h))
 		}
 
-		_ = pr.ReadStop()
+		_ = pr.ReadStopWithContext(context.Background())
 	})
 
 	t.Run("bloom_filter_with_dict_encoding", func(t *testing.T) {
@@ -376,7 +376,7 @@ func TestBloomFilter(t *testing.T) {
 
 		// Read and verify bloom filter works for dict-encoded column
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
+		pr, err := reader.NewParquetReaderWithContext(context.Background(), pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
 		rg := pr.Footer.RowGroups[0]
@@ -396,7 +396,7 @@ func TestBloomFilter(t *testing.T) {
 			require.True(t, f.Check(h))
 		}
 
-		_ = pr.ReadStop()
+		_ = pr.ReadStopWithContext(context.Background())
 	})
 
 	t.Run("bloom_filter_custom_size", func(t *testing.T) {
@@ -411,6 +411,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
@@ -421,6 +422,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int32(2048), header.NumBytes)
 
+		//nolint:staticcheck
 		_ = pr.ReadStop()
 	})
 
@@ -440,6 +442,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
@@ -462,6 +465,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, f.Check(h2))
 
+		//nolint:staticcheck
 		_ = pr.ReadStop()
 	})
 
@@ -484,6 +488,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, new(BloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
@@ -495,6 +500,7 @@ func TestBloomFilter(t *testing.T) {
 			require.True(t, col.MetaData.IsSetBloomFilterOffset())
 		}
 
+		//nolint:staticcheck
 		_ = pr.ReadStop()
 	})
 
@@ -511,6 +517,7 @@ func TestBloomFilter(t *testing.T) {
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, new(NoBloomRecord), reader.WithNP(1))
 		require.NoError(t, err)
 
@@ -518,6 +525,7 @@ func TestBloomFilter(t *testing.T) {
 			require.False(t, col.MetaData.IsSetBloomFilterOffset())
 		}
 
+		//nolint:staticcheck
 		_ = pr.ReadStop()
 	})
 }

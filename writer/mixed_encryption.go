@@ -239,7 +239,7 @@ func (pw *ParquetWriter) encryptColumnMetadata(rowGroupOrdinal, columnOrdinal in
 	if !plaintextFooter && footerKey {
 		return nil
 	}
-	plain, err := serializeCompact(column.MetaData)
+	plain, err := serializeCompact(pw.context(), column.MetaData)
 	if err != nil {
 		return fmt.Errorf("serialize column metadata: %w", err)
 	}

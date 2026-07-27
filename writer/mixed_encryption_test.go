@@ -145,6 +145,7 @@ func TestMixedEncryptedFooterRoundTrip(t *testing.T) {
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
@@ -152,9 +153,11 @@ func TestMixedEncryptedFooterRoundTrip(t *testing.T) {
 		reader.WithColumnKey("name", nameKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	rows := make([]mixedRecord, 3)
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&rows))
 	require.Equal(t, []mixedRecord{
 		{ID: 1, Name: "alpha", Score: 1.1},
@@ -178,6 +181,7 @@ func TestMixedEncryptedFooterMetadata(t *testing.T) {
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
@@ -185,6 +189,7 @@ func TestMixedEncryptedFooterMetadata(t *testing.T) {
 		reader.WithColumnKey("name", nameKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	require.NotEmpty(t, pr.Footer.RowGroups)
@@ -223,26 +228,33 @@ func TestMixedEncryptedFooterPartialRead(t *testing.T) {
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
 		reader.WithFooterKey(footerKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { _ = pr.ReadStop() }()
 
+	//nolint:staticcheck
 	idValues, _, _, err := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "id"}), 3)
 	require.NoError(t, err)
 	require.Equal(t, []any{int64(1), int64(2), int64(3)}, idValues)
 
+	//nolint:staticcheck
 	require.NoError(t, pr.Reset())
 
+	//nolint:staticcheck
 	scoreValues, _, _, err := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "score"}), 3)
 	require.NoError(t, err)
 	require.Equal(t, []any{1.1, 2.2, 3.3}, scoreValues)
 
+	//nolint:staticcheck
 	require.NoError(t, pr.Reset())
 
+	//nolint:staticcheck
 	_, _, _, err = pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "name"}), 3)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "decryption key required for column")
@@ -261,15 +273,18 @@ func TestMixedAllColumnsPlaintextWithEncryptedFooter(t *testing.T) {
 		WithFooterKey(footerKey),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
 		reader.WithFooterKey(footerKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	rows := make([]mixedRecord, 3)
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&rows))
 	require.Equal(t, []mixedRecord{
 		{ID: 1, Name: "alpha", Score: 1.1},
@@ -282,6 +297,7 @@ func TestMixedAllColumnsPlaintextWithEncryptedFooter(t *testing.T) {
 		require.Nilf(t, c.CryptoMetadata, "column %v should be plaintext", c.MetaData.PathInSchema)
 	}
 
+	//nolint:staticcheck
 	_, err = reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
@@ -305,15 +321,18 @@ func TestMixedFooterKeyColumn(t *testing.T) {
 		WithColumnEncrypted("name", ColumnFooterKey()),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
 		reader.WithFooterKey(footerKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	rows := make([]mixedRecord, 3)
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&rows))
 	require.Equal(t, []mixedRecord{
 		{ID: 1, Name: "alpha", Score: 1.1},
@@ -347,6 +366,7 @@ func TestMixedPlaintextFooterRoundTrip(t *testing.T) {
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
@@ -354,9 +374,11 @@ func TestMixedPlaintextFooterRoundTrip(t *testing.T) {
 		reader.WithColumnKey("name", nameKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	rows := make([]mixedRecord, 3)
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&rows))
 	require.Equal(t, []mixedRecord{
 		{ID: 1, Name: "alpha", Score: 1.1},
@@ -381,6 +403,7 @@ func TestMixedPlaintextFooterMetadataStripping(t *testing.T) {
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
@@ -388,6 +411,7 @@ func TestMixedPlaintextFooterMetadataStripping(t *testing.T) {
 		reader.WithColumnKey("name", nameKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	rg := pr.Footer.RowGroups[0]
@@ -404,12 +428,14 @@ func TestMixedPlaintextFooterMetadataStripping(t *testing.T) {
 	// the plaintext copy. The reader rehydrates them from
 	// EncryptedColumnMetadata when the column key is available, so we
 	// inspect the raw footer instead (parse a fresh copy).
+	//nolint:staticcheck
 	prRaw, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
 		reader.WithFooterKey(footerKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { _ = prRaw.ReadStop() }()
 	rgRaw := prRaw.Footer.RowGroups[0]
 	for _, c := range rgRaw.Columns {
@@ -459,6 +485,7 @@ func TestMixedPlaintextPageRawVerification(t *testing.T) {
 		WithColumnEncrypted("secret", ColumnKey(secretKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(plaintextDictionaryRecord),
@@ -466,6 +493,7 @@ func TestMixedPlaintextPageRawVerification(t *testing.T) {
 		reader.WithColumnKey("secret", secretKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { _ = pr.ReadStop() }()
 
 	rg := pr.Footer.RowGroups[0]
@@ -501,13 +529,16 @@ func TestMixedPlaintextPageRawVerification(t *testing.T) {
 	_, err = readCompactStructFrom(data, secretCol.MetaData.DataPageOffset, encryptedHeader)
 	require.Error(t, err, "encrypted page bytes must not parse as a plaintext page header")
 
+	//nolint:staticcheck
 	prNoColumnKey, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(plaintextDictionaryRecord),
 		reader.WithFooterKey(footerKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { _ = prNoColumnKey.ReadStop() }()
+	//nolint:staticcheck
 	values, _, _, err := prNoColumnKey.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "category"}), 6)
 	require.NoError(t, err)
 	require.Equal(t, []any{"red", "blue", "red", "green", "blue", "red"}, values)
@@ -576,6 +607,7 @@ func TestThreeWayMixRoundTrip(t *testing.T) {
 		WithColumnEncrypted("secret_name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(threeWayRecord),
@@ -583,9 +615,11 @@ func TestThreeWayMixRoundTrip(t *testing.T) {
 		reader.WithColumnKey("secret_name", nameKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	rows := make([]threeWayRecord, 5)
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&rows))
 	require.Equal(t, []threeWayRecord{
 		{PlainID: 1, FooterTag: "red", SecretName: "alpha", PlainScore: 1.1},
@@ -624,6 +658,7 @@ func TestThreeWayBloomFilterAccess(t *testing.T) {
 		WithColumnEncrypted("secret_name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(threeWayRecord),
@@ -631,20 +666,24 @@ func TestThreeWayBloomFilterAccess(t *testing.T) {
 		reader.WithColumnKey("secret_name", nameKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	// Plaintext column bloom filter - accessible with no special key,
 	// but the reader still needs the footer key to open the file.
+	//nolint:staticcheck
 	found, err := pr.BloomFilterCheck("plain_score", 0, 1.1)
 	require.NoError(t, err)
 	require.True(t, found)
 
 	// Footer-key column bloom filter - decrypts with the footer key.
+	//nolint:staticcheck
 	found, err = pr.BloomFilterCheck("footer_tag", 0, "red")
 	require.NoError(t, err)
 	require.True(t, found)
 
 	// Column-key column bloom filter - decrypts with the column key.
+	//nolint:staticcheck
 	found, err = pr.BloomFilterCheck("secret_name", 0, "alpha")
 	require.NoError(t, err)
 	require.True(t, found)
@@ -666,6 +705,7 @@ func TestThreeWayColumnIndexAccess(t *testing.T) {
 		WithColumnEncrypted("secret_name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(threeWayRecord),
@@ -673,14 +713,17 @@ func TestThreeWayColumnIndexAccess(t *testing.T) {
 		reader.WithColumnKey("secret_name", nameKey),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 
 	rg := pr.Footer.RowGroups[0]
 	require.Len(t, rg.Columns, 4)
 	for i := range rg.Columns {
+		//nolint:staticcheck
 		idx, err := pr.ReadColumnIndex(0, i)
 		require.NoErrorf(t, err, "column %d ColumnIndex must decode under configured keys", i)
 		require.NotNil(t, idx)
+		//nolint:staticcheck
 		off, err := pr.ReadOffsetIndex(0, i)
 		require.NoErrorf(t, err, "column %d OffsetIndex must decode under configured keys", i)
 		require.NotNil(t, off)
@@ -703,14 +746,17 @@ func TestMixedPlaintextFooterNoKeyOpens(t *testing.T) {
 		WithColumnEncrypted("name", ColumnKey(nameKey)),
 	)
 
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(
 		buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(mixedRecord),
 		// no keys at all
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	defer func() { _ = pr.ReadStop() }()
 
+	//nolint:staticcheck
 	idValues, _, _, err := pr.ReadColumnByPath(common.PathToStr([]string{"parquet_go_root", "id"}), 3)
 	require.NoError(t, err)
 	require.Equal(t, []any{int64(1), int64(2), int64(3)}, idValues)

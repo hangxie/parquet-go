@@ -2,6 +2,7 @@ package reader
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -278,8 +279,8 @@ func TestReadPageData_V2(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	pw, err := writer.NewParquetWriterFromWriter(
-		&buf, new(Record),
+	pw, err := writer.NewParquetWriterFromWriterWithContext(
+		context.Background(), &buf, new(Record),
 		writer.WithNP(1),
 		writer.WithDataPageVersion(2),
 		writer.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
@@ -288,9 +289,9 @@ func TestReadPageData_V2(t *testing.T) {
 
 	for i := range 100 {
 		s := fmt.Sprintf("name_%d", i)
-		require.NoError(t, pw.Write(Record{Name: &s}))
+		require.NoError(t, pw.WriteWithContext(context.Background(), Record{Name: &s}))
 	}
-	require.NoError(t, pw.WriteStop())
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
 
 	// Read back and verify ReadPageData handles V2 pages with level data
 	data := buf.Bytes()
@@ -1342,7 +1343,7 @@ func TestReadAllPageHeaders_NilMetadata(t *testing.T) {
 		MetaData: nil,
 	}
 
-	_, err := readAllPageHeaders(buf, cc, nil)
+	_, err := readAllPageHeaders(context.Background(), buf, cc, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "metadata is nil")
 }

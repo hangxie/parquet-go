@@ -3,6 +3,7 @@ package writer
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -13,14 +14,34 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// WriteStop finalizes the parquet file.
+//
+// Deprecated: use WriteStopWithContext.
 func (pw *ParquetWriter) WriteStop() error {
+	return pw.WriteStopWithContext(pw.defaultContext())
+}
+
+// WriteStopWithContext flushes pending rows and writes the footer. Context
+// values are propagated, but cancellation does not interrupt finalization; a
+// cancellation error is returned after the file has been made valid.
+func (pw *ParquetWriter) WriteStopWithContext(ctx context.Context) (retErr error) {
 	if pw.stopped {
 		return nil
+	}
+	if ctx == nil {
+		return fmt.Errorf("context is nil")
+	}
+	defer func() {
+		retErr = errors.Join(ctx.Err(), retErr)
+	}()
+	finalizeCtx := context.WithoutCancel(ctx)
+	if err := pw.setContext(finalizeCtx); err != nil {
+		return err
 	}
 	pw.stopped = true
 
 	var err error
-	if err = pw.Flush(true); err != nil {
+	if err = pw.FlushWithContext(finalizeCtx, true); err != nil {
 		return fmt.Errorf("flush before stop: %w", err)
 	}
 	ts := thrift.NewTSerializer()
@@ -69,7 +90,7 @@ func (pw *ParquetWriter) WriteStop() error {
 		}
 	}
 
-	footerBuf, err := ts.Write(context.TODO(), pw.Footer)
+	footerBuf, err := ts.Write(finalizeCtx, pw.Footer)
 	if err != nil {
 		return fmt.Errorf("serialize footer: %w", err)
 	}
@@ -78,16 +99,16 @@ func (pw *ParquetWriter) WriteStop() error {
 		return fmt.Errorf("encrypt footer: %w", err)
 	}
 
-	if _, err = pw.PFile.Write(footerBuf); err != nil {
+	if _, err = pw.write(footerBuf); err != nil {
 		return fmt.Errorf("write footer: %w", err)
 	}
 	footerSizeBuf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(footerSizeBuf, uint32(len(footerBuf)))
 
-	if _, err = pw.PFile.Write(footerSizeBuf); err != nil {
+	if _, err = pw.write(footerSizeBuf); err != nil {
 		return fmt.Errorf("write footer size: %w", err)
 	}
-	if _, err = pw.PFile.Write([]byte(tailMagic)); err != nil {
+	if _, err = pw.write([]byte(tailMagic)); err != nil {
 		return fmt.Errorf("write magic tail: %w", err)
 	}
 
@@ -95,7 +116,17 @@ func (pw *ParquetWriter) WriteStop() error {
 }
 
 // Write writes one object to the parquet file.
+//
+// Deprecated: use WriteWithContext.
 func (pw *ParquetWriter) Write(src any) error {
+	return pw.WriteWithContext(pw.defaultContext(), src)
+}
+
+// WriteWithContext writes one object using ctx.
+func (pw *ParquetWriter) WriteWithContext(ctx context.Context, src any) error {
+	if err := pw.setContext(ctx); err != nil {
+		return err
+	}
 	if pw.stopped {
 		return fmt.Errorf("writer stopped")
 	}
@@ -129,7 +160,7 @@ func (pw *ParquetWriter) Write(src any) error {
 	criSize := pw.np * pw.pageSize * pw.SchemaHandler.GetColumnNum()
 
 	if pw.objsSize >= criSize {
-		err = pw.Flush(false)
+		err = pw.FlushWithContext(ctx, false)
 	} else {
 		dln := (criSize - pw.objsSize + pw.objSize - 1) / pw.objSize / 2
 		pw.checkSizeCritical = dln + ln
@@ -157,6 +188,7 @@ func (pw *ParquetWriter) buildChunkMap() (map[string]*layout.Chunk, error) {
 			}
 			dictRec := v.(*layout.DictRecType)
 			dictPage, _, err := layout.DictRecToDictPageWithOption(dictRec, layout.PageWriteOption{
+				Context:      pw.context(),
 				PageSize:     int32(pw.pageSize),
 				CompressType: compressionType,
 				WriteCRC:     pw.writeCRC,
@@ -205,7 +237,17 @@ func (pw *ParquetWriter) buildRowGroup(chunkMap map[string]*layout.Chunk) *layou
 }
 
 // Flush the write buffer to parquet file
+//
+// Deprecated: use FlushWithContext.
 func (pw *ParquetWriter) Flush(flag bool) error {
+	return pw.FlushWithContext(pw.defaultContext(), flag)
+}
+
+// FlushWithContext flushes buffered rows using ctx.
+func (pw *ParquetWriter) FlushWithContext(ctx context.Context, flag bool) error {
+	if err := pw.setContext(ctx); err != nil {
+		return err
+	}
 	if err := pw.flushObjs(); err != nil {
 		return fmt.Errorf("flush objects during flush: %w", err)
 	}

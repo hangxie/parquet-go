@@ -92,20 +92,24 @@ func parquetReader() (*ParquetReader, error) {
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
 		var pw *writer.ParquetWriter
+		//nolint:staticcheck
 		pw, err = writer.NewParquetWriter(fw, new(Record), writer.WithNP(1), writer.WithRowGroupSize(1*1024*1024), writer.WithPageSize(4*1024))
 		if err != nil {
 			return
 		}
 		for i := range numRecord {
 			strVal := strconv.FormatInt(i, 10)
+			//nolint:staticcheck
 			err = pw.Write(Record{strVal, strVal, strVal, strVal, i, i, i, i})
 			if err != nil {
 				return
 			}
 		}
+		//nolint:staticcheck
 		if err = pw.WriteStop(); err != nil {
 			return
 		}
+		//nolint:staticcheck
 		err = pw.WriteStop()
 		parquetBuf = buf.Bytes()
 	})
@@ -141,6 +145,7 @@ type NestedRecord struct {
 func createNestedParquetData() ([]byte, error) {
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(NestedRecord), writer.WithNP(1))
 	if err != nil {
 		return nil, err
@@ -165,11 +170,13 @@ func createNestedParquetData() ([]byte, error) {
 	}
 
 	for _, record := range records {
+		//nolint:staticcheck
 		if err := pw.Write(record); err != nil {
 			return nil, err
 		}
 	}
 
+	//nolint:staticcheck
 	if err := pw.WriteStop(); err != nil {
 		return nil, err
 	}
@@ -698,16 +705,19 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	// Create a simple parquet file buffer using the existing pattern
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(Record), writer.WithNP(1))
 	require.NoError(t, err)
 
 	// Write a few records
 	for i := int64(0); i < 5; i++ {
 		strVal := strconv.FormatInt(i, 10)
+		//nolint:staticcheck
 		err = pw.Write(Record{strVal, strVal, strVal, strVal, i, i, i, i})
 		require.NoError(t, err)
 	}
 
+	//nolint:staticcheck
 	err = pw.WriteStop()
 	require.NoError(t, err)
 

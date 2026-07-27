@@ -94,16 +94,19 @@ func TestParquetReader_ReadPartial_SiblingPrefix(t *testing.T) {
 
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(siblingRecord), writer.WithNP(1))
 	require.NoError(t, err)
 
 	const rows = 3
 	for i := range int64(rows) {
+		//nolint:staticcheck
 		require.NoError(t, pw.Write(siblingRecord{
 			Name:  &siblingInner{Value: i},
 			Name2: &siblingInner{Value: i + 100},
 		}))
 	}
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 
 	// Run multiple times: before the fix, map iteration order made the sibling
@@ -340,11 +343,14 @@ func roundTripComplexRows(t *testing.T, dataPageVersion int32) []rtComplexRow {
 	if dataPageVersion == 2 {
 		opts = append(opts, writer.WithDataPageVersion(2))
 	}
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(rtComplexRow), opts...)
 	require.NoError(t, err)
 	for _, r := range in {
+		//nolint:staticcheck
 		require.NoError(t, pw.Write(r))
 	}
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 
 	fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
@@ -392,10 +398,14 @@ func TestReadUnknownLogicalType(t *testing.T) {
 
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(Row), writer.WithNP(1))
 	require.NoError(t, err)
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(Row{Name: "foo", NullCol: nil}))
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(Row{Name: "bar", NullCol: nil}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 
 	fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
@@ -423,10 +433,13 @@ func TestReadUnknownLogicalType_LooseRead(t *testing.T) {
 
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(WriterRow), writer.WithNP(1))
 	require.NoError(t, err)
 	val := int32(42)
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(WriterRow{Name: "foo", NullCol: &val}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 
 	// Patch the footer: mark null_col as UNKNOWN logical type.
@@ -616,13 +629,16 @@ func TestNestedListWithEmptyStrings(t *testing.T) {
 			// Write to buffer
 			var buf bytes.Buffer
 			fw := writerfile.NewWriterFile(&buf)
+			//nolint:staticcheck
 			pw, err := writer.NewParquetWriter(fw, jsonSchema, writer.WithNP(1), writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED))
 			require.NoError(t, err)
 
 			for _, rec := range tc.records {
+				//nolint:staticcheck
 				err = pw.Write(rec)
 				require.NoError(t, err)
 			}
+			//nolint:staticcheck
 			err = pw.WriteStop()
 			require.NoError(t, err)
 
@@ -661,9 +677,12 @@ func TestGeospatialConfigRoundTrip(t *testing.T) {
 	// Write
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(GeoRow), writer.WithNP(1))
 	require.NoError(t, err)
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(GeoRow{Geom: wkbPoint}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 	require.NoError(t, fw.Close())
 

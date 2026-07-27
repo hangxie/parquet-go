@@ -2,12 +2,180 @@ package source
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+type contextFile struct {
+	*mockParquetFileReader
+	gotContext context.Context
+}
+
+func (f *contextFile) ReadContext(ctx context.Context, p []byte) (int, error) {
+	f.gotContext = ctx
+	return f.Read(p)
+}
+
+func (f *contextFile) SeekContext(ctx context.Context, offset int64, whence int) (int64, error) {
+	f.gotContext = ctx
+	return f.Seek(offset, whence)
+}
+
+func (f *contextFile) OpenContext(ctx context.Context, _ string) (ParquetFileReader, error) {
+	f.gotContext = ctx
+	return f, nil
+}
+
+func (f *contextFile) CloneContext(ctx context.Context) (ParquetFileReader, error) {
+	f.gotContext = ctx
+	return f, nil
+}
+
+func (f *contextFile) CloseContext(ctx context.Context) error {
+	f.gotContext = ctx
+	return nil
+}
+
+type contextWriter struct {
+	bytes.Buffer
+	gotContext context.Context
+}
+
+type legacyWriter struct {
+	bytes.Buffer
+}
+
+func (w *legacyWriter) Close() error { return nil }
+
+func (w *legacyWriter) Create(string) (ParquetFileWriter, error) { return w, nil }
+
+func (w *contextWriter) Close() error { return nil }
+
+func (w *contextWriter) Create(string) (ParquetFileWriter, error) { return w, nil }
+
+func (w *contextWriter) WriteContext(ctx context.Context, p []byte) (int, error) {
+	w.gotContext = ctx
+	return w.Write(p)
+}
+
+func (w *contextWriter) CreateContext(ctx context.Context, _ string) (ParquetFileWriter, error) {
+	w.gotContext = ctx
+	return w, nil
+}
+
+func (w *contextWriter) CloseContext(ctx context.Context) error {
+	w.gotContext = ctx
+	return nil
+}
+
+type closeTrackingReader struct {
+	*mockParquetFileReader
+	closed bool
+}
+
+func (r *closeTrackingReader) Close() error {
+	r.closed = true
+	return nil
+}
+
+func TestContextOperations(t *testing.T) {
+	type contextKey struct{}
+	key := contextKey{}
+	ctx := context.WithValue(context.Background(), key, "value")
+	reader := &contextFile{mockParquetFileReader: newMockParquetFileReader([]byte("data"))}
+	writer := new(contextWriter)
+
+	_, err := ReadWithContext(ctx, reader, make([]byte, 1))
+	require.NoError(t, err)
+	require.Same(t, ctx, reader.gotContext)
+	_, err = SeekWithContext(ctx, reader, 0, io.SeekStart)
+	require.NoError(t, err)
+	require.Same(t, ctx, reader.gotContext)
+	_, err = OpenWithContext(ctx, reader, "file")
+	require.NoError(t, err)
+	require.Same(t, ctx, reader.gotContext)
+	_, err = CloneWithContext(ctx, reader)
+	require.NoError(t, err)
+	require.Same(t, ctx, reader.gotContext)
+	require.NoError(t, CloseWithContext(ctx, reader))
+	require.Equal(t, ctx.Value(key), reader.gotContext.Value(key))
+
+	_, err = WriteWithContext(ctx, writer, []byte("data"))
+	require.NoError(t, err)
+	require.Same(t, ctx, writer.gotContext)
+	_, err = CreateWithContext(ctx, writer, "file")
+	require.NoError(t, err)
+	require.Same(t, ctx, writer.gotContext)
+	require.NoError(t, CloseWithContext(ctx, writer))
+	require.Equal(t, ctx.Value(key), writer.gotContext.Value(key))
+}
+
+func TestContextOperationsFallback(t *testing.T) {
+	nilCtx := map[string]context.Context{}["missing"]
+	require.ErrorContains(t, CloseWithContext(nilCtx, newMockParquetFileReader(nil)), "context is nil")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reader := newMockParquetFileReader([]byte("data"))
+
+	_, err := ReadWithContext(ctx, reader, make([]byte, 1))
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, reader.position)
+	_, err = SeekWithContext(ctx, reader, 0, io.SeekStart)
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = OpenWithContext(ctx, reader, "file")
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = CloneWithContext(ctx, reader)
+	require.ErrorIs(t, err, context.Canceled)
+	closeTracking := &closeTrackingReader{mockParquetFileReader: reader}
+	require.ErrorIs(t, CloseWithContext(ctx, closeTracking), context.Canceled)
+	require.True(t, closeTracking.closed)
+	contextCloseTracking := &contextFile{mockParquetFileReader: newMockParquetFileReader(nil)}
+	require.ErrorIs(t, CloseWithContext(ctx, contextCloseTracking), context.Canceled)
+	require.NoError(t, contextCloseTracking.gotContext.Err())
+
+	canceledWriter := new(legacyWriter)
+	_, err = WriteWithContext(ctx, canceledWriter, []byte("data"))
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = CreateWithContext(ctx, canceledWriter, "file")
+	require.ErrorIs(t, err, context.Canceled)
+
+	ctx = context.Background()
+	n, err := ReadWithContext(ctx, reader, make([]byte, 1))
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+
+	full := make([]byte, 3)
+	n, err = ReadFullWithContext(ctx, reader, full)
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
+
+	_, err = SeekWithContext(ctx, reader, 0, io.SeekStart)
+	require.NoError(t, err)
+	opened, err := OpenWithContext(ctx, reader, "file")
+	require.NoError(t, err)
+	require.NotNil(t, opened)
+	cloned, err := CloneWithContext(ctx, reader)
+	require.NoError(t, err)
+	require.NotNil(t, cloned)
+	require.NoError(t, CloseWithContext(ctx, reader))
+
+	writer := new(legacyWriter)
+	n, err = WriteWithContext(ctx, writer, []byte("data"))
+	require.NoError(t, err)
+	require.Equal(t, 4, n)
+	created, err := CreateWithContext(ctx, writer, "file")
+	require.NoError(t, err)
+	require.Same(t, writer, created)
+	require.NoError(t, CloseWithContext(ctx, writer))
+
+	_, err = ReadWithContext(nilCtx, reader, make([]byte, 1))
+	require.ErrorContains(t, err, "context is nil")
+}
 
 // Mock implementation of ParquetFileReader for testing
 type mockParquetFileReader struct {

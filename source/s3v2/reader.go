@@ -106,6 +106,10 @@ func (s *s3Reader) Seek(offset int64, whence int) (int64, error) {
 
 // Read up to len(p) bytes into p and return the number of bytes read
 func (s *s3Reader) Read(p []byte) (n int, err error) {
+	return s.ReadContext(s.ctx, p)
+}
+
+func (s *s3Reader) ReadContext(ctx context.Context, p []byte) (n int, err error) {
 	if s.fileSize > 0 && s.offset >= s.fileSize {
 		return 0, io.EOF
 	}
@@ -117,7 +121,7 @@ func (s *s3Reader) Read(p []byte) (n int, err error) {
 	}()
 
 	if s.socket == nil {
-		err = s.openSocket(int64(len(p)))
+		err = s.openSocket(ctx, int64(len(p)))
 		if err != nil {
 			return 0, err
 		}
@@ -138,7 +142,7 @@ func (s *s3Reader) Read(p []byte) (n int, err error) {
 
 // openSocket issues a new GetObject request to retrieve the next chunk of data from the
 // object.
-func (s *s3Reader) openSocket(numBytes int64) error {
+func (s *s3Reader) openSocket(ctx context.Context, numBytes int64) error {
 	if numBytes < s.minRequestSize {
 		numBytes = s.minRequestSize
 	}
@@ -152,7 +156,7 @@ func (s *s3Reader) openSocket(numBytes int64) error {
 		getObj.Range = aws.String(getObjRange)
 	}
 
-	out, err := s.client.GetObject(s.ctx, getObj)
+	out, err := s.client.GetObject(ctx, getObj)
 	if err != nil {
 		return fmt.Errorf("get S3 object: %w", err)
 	}
@@ -176,11 +180,15 @@ func (s *s3Reader) Close() error {
 
 // Open creates a new S3 File instance to perform concurrent reads
 func (s *s3Reader) Open(name string) (source.ParquetFileReader, error) {
+	return s.OpenContext(s.ctx, name)
+}
+
+func (s *s3Reader) OpenContext(ctx context.Context, name string) (source.ParquetFileReader, error) {
 	s.lock.RLock()
 	readOpened := s.readOpened
 	s.lock.RUnlock()
 	if !readOpened {
-		if err := s.openRead(); err != nil {
+		if err := s.openRead(ctx); err != nil {
 			return nil, fmt.Errorf("open s3 object: %w", err)
 		}
 	}
@@ -193,7 +201,7 @@ func (s *s3Reader) Open(name string) (source.ParquetFileReader, error) {
 	// create a new instance
 	pf := &s3Reader{
 		s3File: s3File{
-			ctx:        s.ctx,
+			ctx:        ctx,
 			bucketName: s.bucketName,
 			key:        name,
 		},
@@ -208,11 +216,18 @@ func (s *s3Reader) Open(name string) (source.ParquetFileReader, error) {
 }
 
 func (s *s3Reader) Clone() (source.ParquetFileReader, error) {
+	return s.CloneContext(s.ctx)
+}
+
+func (s *s3Reader) CloneContext(ctx context.Context) (source.ParquetFileReader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Create a new instance without making network calls
 	// Reuse already-known metadata
 	return &s3Reader{
 		s3File: s3File{
-			ctx:        s.ctx,
+			ctx:        ctx,
 			bucketName: s.bucketName,
 			key:        s.key,
 		},
@@ -228,14 +243,14 @@ func (s *s3Reader) Clone() (source.ParquetFileReader, error) {
 
 // openRead verifies the requested file is accessible and
 // tracks the file size
-func (s *s3Reader) openRead() error {
+func (s *s3Reader) openRead(ctx context.Context) error {
 	hoi := &s3.HeadObjectInput{
 		Bucket:    aws.String(s.bucketName),
 		Key:       aws.String(s.key),
 		VersionId: s.version,
 	}
 
-	hoo, err := s.client.HeadObject(s.ctx, hoi)
+	hoo, err := s.client.HeadObject(ctx, hoi)
 	if err != nil {
 		return fmt.Errorf("head object: %w", err)
 	}

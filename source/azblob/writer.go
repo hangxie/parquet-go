@@ -101,6 +101,10 @@ func (s *azBlobWriter) Close() error {
 
 // Create a new blob url to perform writes
 func (s *azBlobWriter) Create(URL string) (source.ParquetFileWriter, error) {
+	return s.CreateContext(s.ctx, URL)
+}
+
+func (s *azBlobWriter) CreateContext(ctx context.Context, URL string) (source.ParquetFileWriter, error) {
 	var u *url.URL
 	if len(URL) == 0 && s.url != nil {
 		// ColumnBuffer passes in an empty string for name
@@ -114,7 +118,7 @@ func (s *azBlobWriter) Create(URL string) (source.ParquetFileWriter, error) {
 
 	pf := &azBlobWriter{
 		azBlockBlob: azBlockBlob{
-			ctx:             s.ctx,
+			ctx:             ctx,
 			url:             u,
 			blockBlobClient: s.blockBlobClient,
 		},

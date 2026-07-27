@@ -94,6 +94,14 @@ func TestReadPageRawDataEncryptedDictionaryHeader(t *testing.T) {
 
 	headerModule := encryptPageGCMModule(t, key, pageTestAAD(aadPrefix, fileUnique, encryption.ModuleDictionaryPageHeader), serializePageHeader(t, header))
 	bodyModule := encryptPageGCMModule(t, key, pageTestAAD(aadPrefix, fileUnique, encryption.ModuleDictionaryPage), body)
+	decryptedHeader, err := DecryptPageHeaderWithContext(context.Background(), headerModule[4:], &PageDecryptor{
+		Algorithm:     PageEncryptionAESGCM,
+		Key:           key,
+		AADPrefix:     aadPrefix,
+		AADFileUnique: fileUnique,
+	})
+	require.NoError(t, err)
+	require.Equal(t, parquet.PageType_DICTIONARY_PAGE, decryptedHeader.GetType())
 	page, err := ReadPageRawData(encryptedPageReader(headerModule, bodyModule), testSchemaHandler(), testColumnMetaData(), &PageReadOptions{
 		MaxPageSize: 100,
 		Decryptor: &PageDecryptor{
@@ -142,7 +150,7 @@ func TestEncryptedPageErrors(t *testing.T) {
 	headerModule := encryptPageGCMModule(t, key, pageTestAAD(aadPrefix, fileUnique, encryption.ModuleDataPageHeader), serializePageHeader(t, dataHeader))
 	badDecryptor := *decryptor
 	badDecryptor.AADPrefix = []byte("wrong")
-	_, err = decryptPageHeader(headerModule[4:], &badDecryptor)
+	_, err = decryptPageHeader(context.Background(), headerModule[4:], &badDecryptor)
 	require.ErrorContains(t, err, "decrypt page header")
 
 	indexHeader := &parquet.PageHeader{
@@ -151,7 +159,7 @@ func TestEncryptedPageErrors(t *testing.T) {
 		UncompressedPageSize: 0,
 	}
 	indexHeaderModule := encryptPageGCMModule(t, key, pageTestAAD(aadPrefix, fileUnique, encryption.ModuleDataPageHeader), serializePageHeader(t, indexHeader))
-	_, err = decryptPageHeader(indexHeaderModule[4:], decryptor)
+	_, err = decryptPageHeader(context.Background(), indexHeaderModule[4:], decryptor)
 	require.ErrorContains(t, err, "unsupported encrypted page type")
 
 	_, err = readEncryptedPageBody(encryptedPageReader([]byte{1, 2}), dataHeader, PageReadOptions{

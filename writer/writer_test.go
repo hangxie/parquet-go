@@ -19,10 +19,164 @@ import (
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
+func TestParquetWriterContextCancellation(t *testing.T) {
+	type row struct {
+		Value int64 `parquet:"name=value, type=INT64"`
+	}
+
+	tests := []struct {
+		name string
+		run  func(context.Context, source.ParquetFileWriter) error
+	}{
+		{
+			name: "constructor",
+			run: func(ctx context.Context, file source.ParquetFileWriter) error {
+				_, err := NewParquetWriterWithContext(ctx, file, new(row), WithNP(1))
+				return err
+			},
+		},
+		{
+			name: "write",
+			run: func(ctx context.Context, file source.ParquetFileWriter) error {
+				pw, err := NewParquetWriter(file, new(row), WithNP(1))
+				require.NoError(t, err)
+				return pw.WriteWithContext(ctx, row{Value: 1})
+			},
+		},
+		{
+			name: "flush",
+			run: func(ctx context.Context, file source.ParquetFileWriter) error {
+				pw, err := NewParquetWriter(file, new(row), WithNP(1))
+				require.NoError(t, err)
+				return pw.FlushWithContext(ctx, true)
+			},
+		},
+		{
+			name: "stop",
+			run: func(ctx context.Context, file source.ParquetFileWriter) error {
+				pw, err := NewParquetWriter(file, new(row), WithNP(1))
+				require.NoError(t, err)
+				return pw.WriteStopWithContext(ctx)
+			},
+		},
+		{
+			name: "CSV constructor",
+			run: func(ctx context.Context, file source.ParquetFileWriter) error {
+				_, err := NewCSVWriterWithContext(ctx, nil, file)
+				return err
+			},
+		},
+		{
+			name: "JSON constructor",
+			run: func(ctx context.Context, file source.ParquetFileWriter) error {
+				_, err := NewJSONWriterWithContext(ctx, "", file)
+				return err
+			},
+		},
+		{
+			name: "Arrow constructor",
+			run: func(ctx context.Context, file source.ParquetFileWriter) error {
+				_, err := NewArrowWriterWithContext(ctx, nil, file)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			err := tt.run(ctx, writerfile.NewWriterFile(new(bytes.Buffer)))
+			require.ErrorIs(t, err, context.Canceled)
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := NewParquetWriterFromWriterWithContext(ctx, new(bytes.Buffer), new(row))
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = NewCSVWriterFromWriterWithContext(ctx, nil, new(bytes.Buffer))
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = NewJSONWriterFromWriterWithContext(ctx, "", new(bytes.Buffer))
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = NewArrowWriterFromWriterWithContext(ctx, nil, new(bytes.Buffer))
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, new(CSVWriter).WriteStringWithContext(ctx, nil), context.Canceled)
+	require.ErrorIs(t, new(ArrowWriter).WriteArrowWithContext(ctx, nil), context.Canceled)
+	nilCtx := map[string]context.Context{}["missing"]
+	_, err = NewParquetWriterWithContext(nilCtx, writerfile.NewWriterFile(new(bytes.Buffer)), new(row))
+	require.ErrorContains(t, err, "context is nil")
+}
+
+func TestWriteStopWithContextCanceledFinalizesFile(t *testing.T) {
+	type row struct {
+		Value int64 `parquet:"name=value, type=INT64"`
+	}
+
+	file := buffer.NewBufferWriter()
+	pw, err := NewParquetWriter(file, new(row), WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.Write(row{Value: 42}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, pw.WriteStopWithContext(ctx), context.Canceled)
+
+	//nolint:staticcheck
+	pr, err := reader.NewParquetReader(buffer.NewBufferReaderFromBytes(file.Bytes()), new(row), reader.WithNP(1))
+	require.NoError(t, err)
+	//nolint:staticcheck
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+	rows := make([]row, 1)
+	//nolint:staticcheck
+	require.NoError(t, pr.Read(&rows))
+	require.Equal(t, int64(42), rows[0].Value)
+}
+
+type contextTrackingWriter struct {
+	bytes.Buffer
+	contexts []context.Context
+}
+
+func (w *contextTrackingWriter) WriteContext(ctx context.Context, p []byte) (int, error) {
+	w.contexts = append(w.contexts, ctx)
+	return w.Write(p)
+}
+
+func (w *contextTrackingWriter) Close() error { return nil }
+
+func (w *contextTrackingWriter) Create(string) (source.ParquetFileWriter, error) { return w, nil }
+
+func TestParquetWriterWithContext(t *testing.T) {
+	type row struct {
+		Value int64 `parquet:"name=value, type=INT64"`
+	}
+	type contextKey struct{}
+
+	file := new(contextTrackingWriter)
+	constructorCtx := context.WithValue(context.Background(), contextKey{}, "constructor")
+	pw, err := NewParquetWriterWithContext(constructorCtx, file, new(row), WithNP(1))
+	require.NoError(t, err)
+	require.NotEmpty(t, file.contexts)
+	require.Equal(t, "constructor", file.contexts[0].Value(contextKey{}))
+
+	file.contexts = nil
+	require.NoError(t, pw.Write(row{Value: 1}))
+	require.Equal(t, "constructor", pw.context().Value(contextKey{}))
+
+	file.contexts = nil
+	stopCtx := context.WithValue(context.Background(), contextKey{}, "stop")
+	require.NoError(t, pw.WriteStopWithContext(stopCtx))
+	require.NotEmpty(t, file.contexts)
+	for _, got := range file.contexts {
+		require.Equal(t, "stop", got.Value(contextKey{}))
+	}
+}
+
 func readColumnIndex(pf source.ParquetFileReader, offset int64) (*parquet.ColumnIndex, error) {
 	colIdx := parquet.NewColumnIndex()
 	tpf := thrift.NewTCompactProtocolFactoryConf(nil)
-	triftReader, err := source.ConvertToThriftReader(pf, offset)
+	triftReader, err := source.ConvertToThriftReaderWithContext(context.Background(), pf, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -45,6 +199,7 @@ func createTestParquetWriter(schema any, opts ...WriterOption) (*ParquetWriter, 
 // Helper function to create a parquet reader from buffer
 func createTestParquetReader(buf []byte, schema any, opts ...reader.ReaderOption) (*reader.ParquetReader, source.ParquetFileReader, error) {
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf)
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(pf, schema, opts...)
 	return pr, pf, err
 }
@@ -114,9 +269,11 @@ func TestParquetWriter(t *testing.T) {
 		require.Equal(t, len(testData), numRows)
 
 		actualRows := make([]test, numRows)
+		//nolint:staticcheck
 		err = pr.Read(&actualRows)
 		require.NoError(t, err)
 
+		//nolint:staticcheck
 		_ = pr.ReadStop()
 	})
 
@@ -459,6 +616,7 @@ func TestWriterCompressionLevel(t *testing.T) {
 	}()
 
 	got := make([]Entry, len(want))
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&got))
 	require.Equal(t, want, got)
 	require.Equal(t, parquet.CompressionCodec_GZIP, pr.Footer.RowGroups[0].Columns[0].MetaData.GetCodec())
@@ -505,6 +663,7 @@ func TestParquetWriter_PerColumnCompressionLevel(t *testing.T) {
 
 	// Round-trip validation
 	got := make([]Row, len(want))
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&got))
 	require.Equal(t, want, got)
 }
@@ -554,6 +713,7 @@ func TestParquetWriter_UnknownLogicalType(t *testing.T) {
 
 	// Round-trip: read rows back and confirm all values are nil.
 	rows := make([]Row, int(pr.GetNumRows()))
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&rows))
 	for _, row := range rows {
 		require.Nil(t, row.NullCol)

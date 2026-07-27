@@ -63,14 +63,18 @@ func NewGcsFileWriterWithClient(ctx context.Context, client *storage.Client, pro
 // passed named. If name is left empty the same object as currently opened
 // will be re-opened.
 func (g *gcsFileWriter) Create(name string) (source.ParquetFileWriter, error) {
+	return g.CreateContext(g.ctx, name)
+}
+
+func (g *gcsFileWriter) CreateContext(ctx context.Context, name string) (source.ParquetFileWriter, error) {
 	if g.gcsClient == nil {
-		w, err := NewGcsFileWriter(g.ctx, g.projectID, g.bucketName, name)
+		w, err := NewGcsFileWriter(ctx, g.projectID, g.bucketName, name)
 		if err != nil {
 			return nil, fmt.Errorf("open gcs writer: %w", err)
 		}
 		return w, nil
 	}
-	w, err := NewGcsFileWriterWithClient(g.ctx, g.gcsClient, g.projectID, g.bucketName, name)
+	w, err := NewGcsFileWriterWithClient(ctx, g.gcsClient, g.projectID, g.bucketName, name)
 	if err != nil {
 		return nil, fmt.Errorf("open gcs writer with client: %w", err)
 	}

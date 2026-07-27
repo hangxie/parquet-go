@@ -15,7 +15,17 @@ import (
 
 // ReadColumnIndex reads the column index for a row-group column. It returns nil
 // when the column chunk does not have a column index.
+//
+// Deprecated: use ReadColumnIndexWithContext.
 func (pr *ParquetReader) ReadColumnIndex(rowGroupIndex, columnIndex int) (*parquet.ColumnIndex, error) {
+	return pr.ReadColumnIndexWithContext(pr.defaultContext(), rowGroupIndex, columnIndex)
+}
+
+// ReadColumnIndexWithContext reads a column index using ctx.
+func (pr *ParquetReader) ReadColumnIndexWithContext(ctx context.Context, rowGroupIndex, columnIndex int) (*parquet.ColumnIndex, error) {
+	if err := pr.setContext(ctx); err != nil {
+		return nil, err
+	}
 	column, rowGroupOrdinal, columnOrdinal, err := pr.indexColumn(rowGroupIndex, columnIndex)
 	if err != nil {
 		return nil, fmt.Errorf("locate column for column index: %w", err)
@@ -29,7 +39,7 @@ func (pr *ParquetReader) ReadColumnIndex(rowGroupIndex, columnIndex int) (*parqu
 		return nil, fmt.Errorf("read column index module: %w", err)
 	}
 	index := parquet.NewColumnIndex()
-	if err := readCompactThrift(buf, index); err != nil {
+	if err := readCompactThrift(ctx, buf, index); err != nil {
 		return nil, fmt.Errorf("read column index: %w", err)
 	}
 	return index, nil
@@ -37,7 +47,17 @@ func (pr *ParquetReader) ReadColumnIndex(rowGroupIndex, columnIndex int) (*parqu
 
 // ReadOffsetIndex reads the offset index for a row-group column. It returns nil
 // when the column chunk does not have an offset index.
+//
+// Deprecated: use ReadOffsetIndexWithContext.
 func (pr *ParquetReader) ReadOffsetIndex(rowGroupIndex, columnIndex int) (*parquet.OffsetIndex, error) {
+	return pr.ReadOffsetIndexWithContext(pr.defaultContext(), rowGroupIndex, columnIndex)
+}
+
+// ReadOffsetIndexWithContext reads an offset index using ctx.
+func (pr *ParquetReader) ReadOffsetIndexWithContext(ctx context.Context, rowGroupIndex, columnIndex int) (*parquet.OffsetIndex, error) {
+	if err := pr.setContext(ctx); err != nil {
+		return nil, err
+	}
 	column, rowGroupOrdinal, columnOrdinal, err := pr.indexColumn(rowGroupIndex, columnIndex)
 	if err != nil {
 		return nil, fmt.Errorf("locate column for offset index: %w", err)
@@ -51,7 +71,7 @@ func (pr *ParquetReader) ReadOffsetIndex(rowGroupIndex, columnIndex int) (*parqu
 		return nil, fmt.Errorf("read offset index module: %w", err)
 	}
 	index := parquet.NewOffsetIndex()
-	if err := readCompactThrift(buf, index); err != nil {
+	if err := readCompactThrift(ctx, buf, index); err != nil {
 		return nil, fmt.Errorf("read offset index: %w", err)
 	}
 	return index, nil
@@ -83,14 +103,15 @@ func (pr *ParquetReader) readIndexModule(column *parquet.ColumnChunk, rowGroupOr
 	if pr.PFile == nil {
 		return nil, fmt.Errorf("file reader is nil")
 	}
-	pf, err := pr.PFile.Clone()
+	pf, err := source.CloneWithContext(pr.context(), pr.PFile)
 	if err != nil {
 		return nil, fmt.Errorf("clone file reader: %w", err)
 	}
-	defer func() { _ = pf.Close() }()
+	defer func() { _ = source.CloseWithContext(pr.context(), pf) }()
+	contextFile := source.ReadSeekerWithContext{Ctx: pr.context(), ReadSeeker: pf}
 
 	if column.GetCryptoMetadata() == nil {
-		return readPlainIndexModule(pf, offset, length)
+		return readPlainIndexModule(contextFile, offset, length)
 	}
 
 	algorithm := pr.encryptionAlgorithm()
@@ -105,10 +126,10 @@ func (pr *ParquetReader) readIndexModule(column *parquet.ColumnChunk, rowGroupOr
 	if err != nil {
 		return nil, fmt.Errorf("resolve column key: %w", err)
 	}
-	if _, err := pf.Seek(offset, io.SeekStart); err != nil {
+	if _, err := contextFile.Seek(offset, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("seek to index offset %d: %w", offset, err)
 	}
-	module, err := encryption.ReadModule(pf, int64(length))
+	module, err := encryption.ReadModule(contextFile, int64(length))
 	if err != nil {
 		return nil, fmt.Errorf("read encrypted index module: %w", err)
 	}
@@ -120,7 +141,7 @@ func (pr *ParquetReader) readIndexModule(column *parquet.ColumnChunk, rowGroupOr
 	return plain, nil
 }
 
-func readPlainIndexModule(pf source.ParquetFileReader, offset int64, length int32) ([]byte, error) {
+func readPlainIndexModule(pf io.ReadSeeker, offset int64, length int32) ([]byte, error) {
 	if length < 0 {
 		return nil, fmt.Errorf("negative index length: %d", length)
 	}
@@ -138,7 +159,7 @@ type thriftReadable interface {
 	Read(context.Context, thrift.TProtocol) error
 }
 
-func readCompactThrift(buf []byte, v thriftReadable) error {
+func readCompactThrift(ctx context.Context, buf []byte, v thriftReadable) error {
 	protocol := thrift.NewTCompactProtocolConf(thrift.NewStreamTransportR(bytes.NewReader(buf)), &thrift.TConfiguration{})
-	return v.Read(context.Background(), protocol)
+	return v.Read(ctx, protocol)
 }

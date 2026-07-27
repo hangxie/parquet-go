@@ -1,6 +1,7 @@
 package reader
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -72,13 +73,17 @@ func newColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 			}
 		}
 	}
-	newPFile, err := pFile.Clone()
+	ctx := context.Background()
+	if opts != nil && opts.Context != nil {
+		ctx = opts.Context
+	}
+	newPFile, err := source.CloneWithContext(ctx, pFile)
 	if err != nil {
 		return nil, fmt.Errorf("clone file reader: %w", err)
 	}
 	// Capture the file size as a ceiling for metadata-declared counts. NextRowGroup
 	// re-seeks to the column offset before reading, so seeking to the end here is safe.
-	fileSize, err := newPFile.Seek(0, io.SeekEnd)
+	fileSize, err := source.SeekWithContext(ctx, newPFile, 0, io.SeekEnd)
 	if err != nil {
 		return nil, fmt.Errorf("determine file size: %w", err)
 	}
@@ -158,11 +163,11 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		// returns a nil interface, which would otherwise clobber cbt.PFile and
 		// panic when ReadStop later calls Close on it. The previous handle is
 		// released only after the new one is opened.
-		pFile, err := cbt.PFile.Open(*columnChunks[i].FilePath)
+		pFile, err := source.OpenWithContext(cbt.context(), cbt.PFile, *columnChunks[i].FilePath)
 		if err != nil {
 			return fmt.Errorf("open file %s: %w", *columnChunks[i].FilePath, err)
 		}
-		_ = cbt.PFile.Close()
+		_ = source.CloseWithContext(cbt.context(), cbt.PFile)
 		cbt.PFile = pFile
 	}
 
@@ -176,14 +181,30 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		_ = cbt.ThriftReader.Close()
 	}
 
-	thriftReader, thriftErr := source.ConvertToThriftReader(cbt.PFile, offset)
-	if thriftErr != nil {
-		return fmt.Errorf("convert to thrift reader at offset %d: %w", offset, thriftErr)
+	if _, err := source.SeekWithContext(cbt.context(), cbt.PFile, offset, io.SeekStart); err != nil {
+		return fmt.Errorf("seek to thrift reader offset %d: %w", offset, err)
 	}
+	thriftTransport := thrift.NewStreamTransportR(columnBufferReader{buffer: cbt})
+	thriftReader := thrift.NewTBufferedTransport(thriftTransport, 4096)
 	cbt.ThriftReader = thriftReader
 	cbt.ChunkReadValues = 0
 	cbt.DictPage = nil
 	return nil
+}
+
+func (cbt *ColumnBufferType) context() context.Context {
+	if cbt.PageReadOptions.Context == nil {
+		return context.Background()
+	}
+	return cbt.PageReadOptions.Context
+}
+
+type columnBufferReader struct {
+	buffer *ColumnBufferType
+}
+
+func (r columnBufferReader) Read(p []byte) (int, error) {
+	return source.ReadWithContext(r.buffer.context(), r.buffer.PFile, p)
 }
 
 func (cbt *ColumnBufferType) readMetaData() *parquet.ColumnMetaData {

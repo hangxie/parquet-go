@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,11 +10,49 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/source"
 )
+
+func TestHttpReader_ReadContextCancellation(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests <= 2 {
+			w.Header().Set("Content-Range", "bytes 0-0/2")
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write([]byte("x"))
+			return
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	reader, err := NewHttpReader(server.URL, false, false, nil)
+	require.NoError(t, err)
+	contextReader, ok := reader.(source.ContextReader)
+	require.True(t, ok)
+	contextOpener, ok := reader.(source.ContextOpener)
+	require.True(t, ok)
+	opened, err := contextOpener.OpenContext(context.Background(), "")
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+	contextCloner, ok := reader.(source.ContextCloner)
+	require.True(t, ok)
+	cloned, err := contextCloner.CloneContext(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, cloned.Close())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err = contextReader.ReadContext(ctx, make([]byte, 1))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	_, err = contextCloner.CloneContext(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
 
 // Mock data for testing
 var testData = []byte("Hello, this is test data for HTTP reader testing with parquet file content simulation")
