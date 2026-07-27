@@ -45,13 +45,24 @@ func (f *hdfsReader) Open(name string) (source.ParquetFileReader, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("client is nil")
 	}
-	var err error
-	f.fileReader, err = f.client.Open(name)
+	// Open into a local variable and swap in the new handle only on success, so
+	// a failed Open preserves the existing fileReader instead of losing it. The
+	// displaced reader is closed explicitly to avoid leaking it.
+	fileReader, err := f.client.Open(name)
 	if err != nil {
 		return nil, fmt.Errorf("open hdfs file: %w", err)
 	}
+	if f.fileReader != nil {
+		_ = f.fileReader.Close()
+	}
+	f.fileReader = fileReader
 	return f, nil
 }
+
+// ReopensInPlace declares the source.InPlaceReopener capability: Open reopens
+// the internal file handle and returns the same receiver, so callers must not
+// close the previous handle after Open.
+func (f *hdfsReader) ReopensInPlace() bool { return true }
 
 func (f hdfsReader) Clone() (source.ParquetFileReader, error) {
 	// Create a new reader without creating a new HDFS client

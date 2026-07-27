@@ -17,6 +17,7 @@ type mockFileReader struct {
 	readErr  error
 	seekErr  error
 	closeErr error
+	closed   bool
 }
 
 func (m *mockFileReader) Read(b []byte) (int, error) {
@@ -39,7 +40,10 @@ func (m *mockFileReader) Seek(offset int64, _ int) (int64, error) {
 	return m.seekPos, nil
 }
 
-func (m *mockFileReader) Close() error { return m.closeErr }
+func (m *mockFileReader) Close() error {
+	m.closed = true
+	return m.closeErr
+}
 
 // mockFileWriter implements hdfsFileWriterIface for testing.
 type mockFileWriter struct {
@@ -80,6 +84,10 @@ func (m *mockHdfsClient) Close() error { return m.closeErr }
 func TestHdfsFileInterfaceCompliance(t *testing.T) {
 	var _ source.ParquetFileReader = (*hdfsReader)(nil)
 	var _ source.ParquetFileWriter = (*hdfsWriter)(nil)
+	// hdfsReader reopens its internal handle in place, so it must declare the
+	// InPlaceReopener capability for callers to keep it open across Open.
+	var r source.ParquetFileReader = &hdfsReader{}
+	require.True(t, source.ReopensInPlace(r))
 }
 
 func TestHdfsFileStructure(t *testing.T) {
@@ -239,6 +247,40 @@ func TestHdfsReader_OpenWithMockClient(t *testing.T) {
 		_, err := reader.Open("test.parquet")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "connection refused")
+	})
+
+	t.Run("failure_preserves_existing_reader", func(t *testing.T) {
+		existing := &mockFileReader{}
+		reader := &hdfsReader{
+			hdfsFile: hdfsFile{
+				client: &mockHdfsClient{openErr: errors.New("connection refused")},
+			},
+			fileReader: existing,
+		}
+
+		_, err := reader.Open("test.parquet")
+		require.Error(t, err)
+		// The existing handle must be preserved, not overwritten or closed.
+		require.Same(t, existing, reader.fileReader)
+		require.False(t, existing.closed)
+	})
+
+	t.Run("success_closes_displaced_reader", func(t *testing.T) {
+		old := &mockFileReader{}
+		fresh := &mockFileReader{}
+		reader := &hdfsReader{
+			hdfsFile: hdfsFile{
+				client: &mockHdfsClient{openResult: fresh},
+			},
+			fileReader: old,
+		}
+
+		result, err := reader.Open("test.parquet")
+		require.NoError(t, err)
+		require.Same(t, reader, result)
+		require.Same(t, fresh, reader.fileReader)
+		// The displaced reader must be closed so it is not leaked.
+		require.True(t, old.closed)
 	})
 }
 
