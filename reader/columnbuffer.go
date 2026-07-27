@@ -156,13 +156,17 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	if columnChunks[i].FilePath != nil {
 		// Open into a local variable and assign only on success; a failed Open
 		// returns a nil interface, which would otherwise clobber cbt.PFile and
-		// panic when ReadStop later calls Close on it. The previous handle is
-		// released only after the new one is opened.
+		// panic when ReadStop later calls Close on it. Some backends (e.g. HDFS)
+		// reopen an internal handle and return themselves from Open; such readers
+		// declare source.InPlaceReopener, and closing the previous handle would
+		// close the very reader Open just returned, so skip the Close for them.
 		pFile, err := cbt.PFile.Open(*columnChunks[i].FilePath)
 		if err != nil {
 			return fmt.Errorf("open file %s: %w", *columnChunks[i].FilePath, err)
 		}
-		_ = cbt.PFile.Close()
+		if !source.ReopensInPlace(cbt.PFile) {
+			_ = cbt.PFile.Close()
+		}
 		cbt.PFile = pFile
 	}
 

@@ -25,6 +25,9 @@ type mockColumnBufferFileReader struct {
 	shouldFail bool
 	cloneFails bool
 	openFails  bool
+	// openReturnsSelf mimics backends such as HDFS whose Open mutates the
+	// receiver in place and returns it, rather than a distinct reader.
+	openReturnsSelf bool
 	// clones records readers handed out by Clone, letting tests assert the
 	// cloned handle is closed on cleanup paths.
 	clones []*mockColumnBufferFileReader
@@ -92,8 +95,17 @@ func (m *mockColumnBufferFileReader) Open(name string) (source.ParquetFileReader
 	if m.shouldFail || m.openFails {
 		return nil, fmt.Errorf("mock open error")
 	}
+	if m.openReturnsSelf {
+		// Mutate in place and return the same receiver, as HDFS does.
+		m.offset = 0
+		return m, nil
+	}
 	return newMockColumnBufferFileReader(m.data), nil
 }
+
+// ReopensInPlace declares the source.InPlaceReopener capability when the mock is
+// configured to return itself from Open, matching real in-place backends.
+func (m *mockColumnBufferFileReader) ReopensInPlace() bool { return m.openReturnsSelf }
 
 func (m *mockColumnBufferFileReader) Clone() (source.ParquetFileReader, error) {
 	if m.cloneFails {
@@ -109,6 +121,7 @@ func (m *mockColumnBufferFileReader) Clone() (source.ParquetFileReader, error) {
 	newReader.shouldFail = m.shouldFail
 	newReader.cloneFails = m.cloneFails
 	newReader.openFails = m.openFails
+	newReader.openReturnsSelf = m.openReturnsSelf
 	m.clones = append(m.clones, newReader)
 	return newReader, nil
 }
@@ -809,6 +822,113 @@ func TestNextRowGroup_OpenFailurePreservesPFile(t *testing.T) {
 	require.NotNil(t, cbt.PFile)
 	require.Same(t, mockFile, cbt.PFile)
 	require.NotPanics(t, func() { _ = cbt.PFile.Close() })
+}
+
+// When a backend's Open mutates and returns the same receiver (as HDFS does)
+// and declares the source.InPlaceReopener capability, NextRowGroup must not
+// close the reader it just opened; doing so would hand a closed reader to
+// ConvertToThriftReader.
+func TestNextRowGroup_MutatingOpenKeepsReaderOpen(t *testing.T) {
+	mockFile := newMockColumnBufferFileReader([]byte{})
+	mockFile.openReturnsSelf = true
+
+	filePath := "external.parquet"
+	cbt := &ColumnBufferType{
+		PFile: mockFile,
+		Footer: &parquet.FileMetaData{
+			RowGroups: []*parquet.RowGroup{
+				{Columns: []*parquet.ColumnChunk{{
+					MetaData: &parquet.ColumnMetaData{
+						PathInSchema:   []string{"leaf"},
+						DataPageOffset: 0,
+						NumValues:      1,
+						Type:           parquet.Type_INT64,
+						Codec:          parquet.CompressionCodec_UNCOMPRESSED,
+					},
+					FilePath: &filePath,
+				}}},
+			},
+		},
+		SchemaHandler: newSchemaHandlerWithPath("leaf"),
+		PathStr:       common.PathToStr([]string{"root", "leaf"}),
+		RowGroupIndex: 0,
+	}
+
+	_ = cbt.NextRowGroup()
+	// The reader returned by Open is the same object as before; it must remain
+	// open and installed on the column buffer.
+	require.Same(t, mockFile, cbt.PFile)
+	require.False(t, mockFile.closed, "the newly opened reader must not be closed")
+}
+
+// readerState is backing state shared between copies of a valueStructReader.
+type readerState struct {
+	closed bool
+	reopen bool
+}
+
+// valueStructReader is a value-type ParquetFileReader that holds a pointer to
+// shared state and returns itself from Open — a class of reader whose ownership
+// cannot be inferred by identity. It opts into the explicit
+// source.InPlaceReopener contract via ReopensInPlace so callers know not to
+// close it across Open.
+type valueStructReader struct {
+	state *readerState
+}
+
+func (valueStructReader) Read([]byte) (int, error)                        { return 0, io.EOF }
+func (valueStructReader) Seek(int64, int) (int64, error)                  { return 0, nil }
+func (r valueStructReader) Close() error                                  { r.state.closed = true; return nil }
+func (r valueStructReader) Open(string) (source.ParquetFileReader, error) { return r, nil }
+func (r valueStructReader) Clone() (source.ParquetFileReader, error)      { return r, nil }
+func (r valueStructReader) ReopensInPlace() bool                          { return r.state.reopen }
+
+// A value-struct reader that shares state and returns itself from Open must be
+// kept open by NextRowGroup when it declares the InPlaceReopener capability —
+// the case reflection-based identity could not handle.
+func TestNextRowGroup_InPlaceReopenerKeptOpen(t *testing.T) {
+	state := &readerState{reopen: true}
+	cbt := newExternalChunkColumnBuffer(valueStructReader{state})
+
+	_ = cbt.NextRowGroup()
+	require.False(t, state.closed, "a reader declaring InPlaceReopener must not be closed")
+}
+
+// The capability is opt-in: a reader that returns itself from Open but does not
+// declare InPlaceReopener is treated as a distinct handle and closed, so backends
+// that share state across Open must declare it explicitly.
+func TestNextRowGroup_SelfReturningWithoutCapabilityClosed(t *testing.T) {
+	state := &readerState{reopen: false}
+	cbt := newExternalChunkColumnBuffer(valueStructReader{state})
+
+	_ = cbt.NextRowGroup()
+	require.True(t, state.closed, "a self-returning reader without the capability is closed")
+}
+
+// newExternalChunkColumnBuffer builds a column buffer positioned to open a
+// single external-FilePath column chunk on the next NextRowGroup call.
+func newExternalChunkColumnBuffer(pFile source.ParquetFileReader) *ColumnBufferType {
+	filePath := "external.parquet"
+	return &ColumnBufferType{
+		PFile: pFile,
+		Footer: &parquet.FileMetaData{
+			RowGroups: []*parquet.RowGroup{
+				{Columns: []*parquet.ColumnChunk{{
+					MetaData: &parquet.ColumnMetaData{
+						PathInSchema:   []string{"leaf"},
+						DataPageOffset: 0,
+						NumValues:      1,
+						Type:           parquet.Type_INT64,
+						Codec:          parquet.CompressionCodec_UNCOMPRESSED,
+					},
+					FilePath: &filePath,
+				}}},
+			},
+		},
+		SchemaHandler: newSchemaHandlerWithPath("leaf"),
+		PathStr:       common.PathToStr([]string{"root", "leaf"}),
+		RowGroupIndex: 0,
+	}
 }
 
 func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
