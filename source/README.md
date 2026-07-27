@@ -18,6 +18,8 @@ type ParquetFileWriter interface {
 }
 ```
 
+`ParquetFileReader.Open` returns a reader with an independent file handle for the requested file. The new reader may reuse the source's underlying storage client, but closing it must not invalidate the original reader.
+
 Supported sources:
 * Local
 * HDFS
