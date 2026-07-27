@@ -455,7 +455,7 @@ func (pr *ParquetReader) Reset() error {
 func (pr *ParquetReader) ReadStop() error {
 	var errs []error
 	for pathStr, cb := range pr.ColumnBuffers {
-		if cb == nil {
+		if cb == nil || cb.PFile == nil {
 			continue
 		}
 		if err := cb.PFile.Close(); err != nil {

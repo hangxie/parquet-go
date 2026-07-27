@@ -25,6 +25,9 @@ type mockColumnBufferFileReader struct {
 	shouldFail bool
 	cloneFails bool
 	openFails  bool
+	// clones records readers handed out by Clone, letting tests assert the
+	// cloned handle is closed on cleanup paths.
+	clones []*mockColumnBufferFileReader
 }
 
 func newMockColumnBufferFileReader(data []byte) *mockColumnBufferFileReader {
@@ -106,6 +109,7 @@ func (m *mockColumnBufferFileReader) Clone() (source.ParquetFileReader, error) {
 	newReader.shouldFail = m.shouldFail
 	newReader.cloneFails = m.cloneFails
 	newReader.openFails = m.openFails
+	m.clones = append(m.clones, newReader)
 	return newReader, nil
 }
 
@@ -763,6 +767,48 @@ func TestNewColumnBuffer_FilePathOpenError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "mock open error")
 	require.Nil(t, cb)
+	// The constructor discards the buffer on failure, so the cloned reader it
+	// created must be closed rather than leaked.
+	require.Len(t, mockFile.clones, 1)
+	require.True(t, mockFile.clones[0].closed, "cloned reader must be closed on constructor failure")
+}
+
+// A failed Open on an external column-chunk file must leave cbt.PFile intact
+// rather than clobbering it with the nil interface Open returns on error;
+// otherwise a subsequent ReadStop would call Close on a nil interface and panic.
+func TestNextRowGroup_OpenFailurePreservesPFile(t *testing.T) {
+	mockFile := newMockColumnBufferFileReader([]byte{})
+	mockFile.SetOpenFails(true)
+
+	filePath := "external.parquet"
+	cbt := &ColumnBufferType{
+		PFile: mockFile,
+		Footer: &parquet.FileMetaData{
+			RowGroups: []*parquet.RowGroup{
+				{Columns: []*parquet.ColumnChunk{{
+					MetaData: &parquet.ColumnMetaData{
+						PathInSchema:   []string{"leaf"},
+						DataPageOffset: 0,
+						NumValues:      1,
+						Type:           parquet.Type_INT64,
+						Codec:          parquet.CompressionCodec_UNCOMPRESSED,
+					},
+					FilePath: &filePath,
+				}}},
+			},
+		},
+		SchemaHandler: newSchemaHandlerWithPath("leaf"),
+		PathStr:       common.PathToStr([]string{"root", "leaf"}),
+		RowGroupIndex: 0,
+	}
+
+	err := cbt.NextRowGroup()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "mock open error")
+	// PFile must still point at the original reader, not a nil interface.
+	require.NotNil(t, cbt.PFile)
+	require.Same(t, mockFile, cbt.PFile)
+	require.NotPanics(t, func() { _ = cbt.PFile.Close() })
 }
 
 func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
