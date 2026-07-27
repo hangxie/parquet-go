@@ -17,6 +17,7 @@ type mockFileReader struct {
 	readErr  error
 	seekErr  error
 	closeErr error
+	closed   int
 }
 
 func (m *mockFileReader) Read(b []byte) (int, error) {
@@ -39,7 +40,10 @@ func (m *mockFileReader) Seek(offset int64, _ int) (int64, error) {
 	return m.seekPos, nil
 }
 
-func (m *mockFileReader) Close() error { return m.closeErr }
+func (m *mockFileReader) Close() error {
+	m.closed++
+	return m.closeErr
+}
 
 // mockFileWriter implements hdfsFileWriterIface for testing.
 type mockFileWriter struct {
@@ -65,6 +69,7 @@ type mockHdfsClient struct {
 	createResult hdfsFileWriterIface
 	createErr    error
 	closeErr     error
+	closed       int
 }
 
 func (m *mockHdfsClient) Open(_ string) (hdfsFileReaderIface, error) {
@@ -75,7 +80,10 @@ func (m *mockHdfsClient) Create(_ string) (hdfsFileWriterIface, error) {
 	return m.createResult, m.createErr
 }
 
-func (m *mockHdfsClient) Close() error { return m.closeErr }
+func (m *mockHdfsClient) Close() error {
+	m.closed++
+	return m.closeErr
+}
 
 func TestHdfsFileInterfaceCompliance(t *testing.T) {
 	var _ source.ParquetFileReader = (*hdfsReader)(nil)
@@ -218,45 +226,74 @@ func TestHdfsReader_Clone(t *testing.T) {
 
 func TestHdfsReader_OpenWithMockClient(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
+		originalFile := &mockFileReader{}
+		openedFile := &mockFileReader{}
+		client := &mockHdfsClient{openResult: openedFile}
 		reader := &hdfsReader{
 			hdfsFile: hdfsFile{
-				client: &mockHdfsClient{openResult: &mockFileReader{}},
+				filePath: "main.parquet",
+				client:   client,
 			},
+			fileReader: originalFile,
 		}
 
 		result, err := reader.Open("test.parquet")
 		require.NoError(t, err)
-		require.NotNil(t, result)
+		opened, ok := result.(*hdfsReader)
+		require.True(t, ok)
+		require.NotSame(t, reader, opened)
+		require.Same(t, originalFile, reader.fileReader)
+		require.Same(t, openedFile, opened.fileReader)
+		require.Equal(t, "main.parquet", reader.filePath)
+		require.Equal(t, "test.parquet", opened.filePath)
+
+		require.NoError(t, opened.Close())
+		require.Equal(t, 1, openedFile.closed)
+		require.Zero(t, client.closed)
 	})
 
 	t.Run("open_error", func(t *testing.T) {
+		originalFile := &mockFileReader{}
 		reader := &hdfsReader{
 			hdfsFile: hdfsFile{
 				client: &mockHdfsClient{openErr: errors.New("connection refused")},
 			},
+			fileReader: originalFile,
 		}
 
 		_, err := reader.Open("test.parquet")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "connection refused")
+		require.Same(t, originalFile, reader.fileReader)
 	})
 }
 
 func TestHdfsReader_CloneWithMockClient(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
+		originalFile := &mockFileReader{}
+		clonedFile := &mockFileReader{}
+		client := &mockHdfsClient{openResult: clonedFile}
 		reader := &hdfsReader{
 			hdfsFile: hdfsFile{
 				hosts:    []string{"localhost:9000"},
 				user:     "test-user",
 				filePath: "test.parquet",
-				client:   &mockHdfsClient{openResult: &mockFileReader{}},
+				client:   client,
 			},
-			fileReader: &mockFileReader{},
+			fileReader: originalFile,
 		}
 
 		clone, err := reader.Clone()
 		require.NoError(t, err)
-		require.NotNil(t, clone)
+		cloned, ok := clone.(*hdfsReader)
+		require.True(t, ok)
+		require.NotSame(t, reader, cloned)
+		require.Same(t, originalFile, reader.fileReader)
+		require.Same(t, clonedFile, cloned.fileReader)
+
+		require.NoError(t, cloned.Close())
+		require.Equal(t, 1, clonedFile.closed)
+		require.Zero(t, client.closed)
 	})
 
 	t.Run("open_error", func(t *testing.T) {
