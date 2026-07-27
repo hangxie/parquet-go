@@ -734,6 +734,20 @@ func TestNewParquetReader_WithOptions(t *testing.T) {
 	_ = pr3.ReadStop()
 }
 
+// ReadStop must tolerate a column buffer whose PFile is nil — the state left
+// behind when NextRowGroup fails to open an external column-chunk file — rather
+// than panicking on Close of a nil interface.
+func TestParquetReader_ReadStop_NilPFile(t *testing.T) {
+	pr := &ParquetReader{
+		ColumnBuffers: map[string]*ColumnBufferType{
+			"root\x01leaf": {PFile: nil},
+		},
+	}
+	require.NotPanics(t, func() {
+		require.NoError(t, pr.ReadStop())
+	})
+}
+
 func TestNewParquetReader_DefaultNP(t *testing.T) {
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(parquetBuf)
 	pr, err := NewParquetReader(pf, new(Record))
