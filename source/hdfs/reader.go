@@ -14,6 +14,9 @@ var _ source.ParquetFileReader = (*hdfsReader)(nil)
 type hdfsReader struct {
 	hdfsFile
 	fileReader hdfsFileReaderIface
+	// sharedClient is true for readers opened from another hdfsReader. The
+	// original reader owns the client; derived readers own only their fileReader.
+	sharedClient bool
 }
 
 func NewHdfsFileReader(hosts []string, user, name string) (source.ParquetFileReader, error) {
@@ -34,46 +37,37 @@ func NewHdfsFileReader(hosts []string, user, name string) (source.ParquetFileRea
 	}
 	res.client = &realHdfsClient{rawClient}
 
-	r, err := res.Open(name)
+	fileReader, err := res.client.Open(name)
 	if err != nil {
+		_ = res.client.Close()
 		return nil, fmt.Errorf("open hdfs file: %w", err)
 	}
-	return r, nil
+	res.fileReader = fileReader
+	return res, nil
 }
 
 func (f *hdfsReader) Open(name string) (source.ParquetFileReader, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("client is nil")
 	}
-	var err error
-	f.fileReader, err = f.client.Open(name)
+	fileReader, err := f.client.Open(name)
 	if err != nil {
 		return nil, fmt.Errorf("open hdfs file: %w", err)
 	}
-	return f, nil
-}
-
-func (f hdfsReader) Clone() (source.ParquetFileReader, error) {
-	// Create a new reader without creating a new HDFS client
-	// Reuse the existing client connection
-	if f.client == nil {
-		return nil, fmt.Errorf("client is nil")
-	}
-
-	fileReader, err := f.client.Open(f.filePath)
-	if err != nil {
-		return nil, fmt.Errorf("open hdfs file: %w", err)
-	}
-
 	return &hdfsReader{
 		hdfsFile: hdfsFile{
 			hosts:    f.hosts,
 			user:     f.user,
-			filePath: f.filePath,
+			filePath: name,
 			client:   f.client,
 		},
-		fileReader: fileReader,
+		fileReader:   fileReader,
+		sharedClient: true,
 	}, nil
+}
+
+func (f hdfsReader) Clone() (source.ParquetFileReader, error) {
+	return f.Open(f.filePath)
 }
 
 func (f *hdfsReader) Seek(offset int64, pos int) (int64, error) {
@@ -106,7 +100,7 @@ func (f *hdfsReader) Close() error {
 			return fmt.Errorf("close HDFS file reader: %w", err)
 		}
 	}
-	if f.client != nil {
+	if !f.sharedClient && f.client != nil {
 		if err := f.client.Close(); err != nil {
 			return fmt.Errorf("close HDFS client: %w", err)
 		}

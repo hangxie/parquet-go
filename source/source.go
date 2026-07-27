@@ -11,6 +11,9 @@ type ParquetFileReader interface {
 	io.Seeker
 	io.Reader
 	io.Closer
+	// Open returns a reader with an independent file handle for name. The new
+	// reader may share an underlying client, but closing it must not invalidate
+	// the receiver.
 	Open(name string) (ParquetFileReader, error)
 	Clone() (ParquetFileReader, error)
 }
