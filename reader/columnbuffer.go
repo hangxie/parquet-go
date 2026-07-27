@@ -98,6 +98,11 @@ func newColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	}
 
 	if err := res.NextRowGroup(); err != nil && err != io.EOF {
+		// res is discarded, so close its file handle to avoid leaking the clone
+		// (or an external reader NextRowGroup opened before failing).
+		if res.PFile != nil {
+			_ = res.PFile.Close()
+		}
 		return nil, fmt.Errorf("advance to first row group: %w", err)
 	}
 	return res, nil
@@ -108,7 +113,6 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		return io.EOF
 	}
 
-	var err error
 	rowGroups := cbt.Footer.GetRowGroups()
 	ln := int64(len(rowGroups))
 	if cbt.RowGroupIndex >= ln {
@@ -150,10 +154,16 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		}
 	}
 	if columnChunks[i].FilePath != nil {
-		_ = cbt.PFile.Close()
-		if cbt.PFile, err = cbt.PFile.Open(*columnChunks[i].FilePath); err != nil {
+		// Open into a local variable and assign only on success; a failed Open
+		// returns a nil interface, which would otherwise clobber cbt.PFile and
+		// panic when ReadStop later calls Close on it. The previous handle is
+		// released only after the new one is opened.
+		pFile, err := cbt.PFile.Open(*columnChunks[i].FilePath)
+		if err != nil {
 			return fmt.Errorf("open file %s: %w", *columnChunks[i].FilePath, err)
 		}
+		_ = cbt.PFile.Close()
+		cbt.PFile = pFile
 	}
 
 	// offset := columnChunks[i].FileOffset
