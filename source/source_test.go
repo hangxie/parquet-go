@@ -85,6 +85,23 @@ func (m *mockParquetFileReader) Clone() (ParquetFileReader, error) {
 	return clone, nil
 }
 
+// inPlaceReader declares the InPlaceReopener capability with a configurable result.
+type inPlaceReader struct {
+	*mockParquetFileReader
+	reopen bool
+}
+
+func (r inPlaceReader) ReopensInPlace() bool { return r.reopen }
+
+func TestReopensInPlace(t *testing.T) {
+	// A reader without the capability is not treated as reopening in place.
+	require.False(t, ReopensInPlace(newMockParquetFileReader([]byte{})))
+
+	// A reader declaring the capability is honored by its reported value.
+	require.True(t, ReopensInPlace(inPlaceReader{newMockParquetFileReader([]byte{}), true}))
+	require.False(t, ReopensInPlace(inPlaceReader{newMockParquetFileReader([]byte{}), false}))
+}
+
 // Test the buffer size constant
 
 func TestBufferSizeConstant(t *testing.T) {

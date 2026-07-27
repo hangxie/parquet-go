@@ -15,6 +15,29 @@ type ParquetFileReader interface {
 	Clone() (ParquetFileReader, error)
 }
 
+// InPlaceReopener is an optional capability a ParquetFileReader may implement to
+// declare that its Open method returns a reader sharing the receiver's
+// underlying handle (for example, it reopens an internal handle and returns
+// itself) rather than a fully independent reader. When a caller swaps in the
+// reader returned by Open, it must not Close the previous handle if that handle
+// reports ReopensInPlace() == true, because the previous and new readers are the
+// same object; closing it would close the reader Open just returned.
+//
+// Readers whose Open yields an independent reader — the common case — should not
+// implement this interface (or should return false); the caller owns the old
+// handle and is responsible for closing it.
+type InPlaceReopener interface {
+	ReopensInPlace() bool
+}
+
+// ReopensInPlace reports whether r declares, via the InPlaceReopener capability,
+// that Open returns a reader sharing its underlying handle. It is the safe way
+// for callers to decide whether the previous handle must be closed after Open.
+func ReopensInPlace(r ParquetFileReader) bool {
+	o, ok := r.(InPlaceReopener)
+	return ok && o.ReopensInPlace()
+}
+
 type ParquetFileWriter interface {
 	io.Writer
 	io.Closer
