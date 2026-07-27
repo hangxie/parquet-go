@@ -3,6 +3,7 @@ package gcs
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"cloud.google.com/go/storage"
 	"github.com/bobg/gcsobj"
@@ -16,6 +17,8 @@ var _ source.ParquetFileReader = (*gcsReader)(nil)
 type gcsReader struct {
 	gcsFile
 	generation int64
+	size       int64
+	offset     int64
 	gcsReader  *gcsobj.Reader
 }
 
@@ -41,10 +44,11 @@ func NewGcsFileReader(ctx context.Context, projectID, bucketName, name string, g
 func NewGcsFileReaderWithClient(ctx context.Context, client *storage.Client, projectID, bucketName, name string, generation int64) (*gcsReader, error) {
 	obj := client.Bucket(bucketName).Object(name).Generation(generation)
 
-	reader, err := gcsobj.NewReader(ctx, obj)
+	attrs, err := obj.Attrs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create new reader: %w", err)
 	}
+	reader := gcsobj.NewReaderWithSize(ctx, obj, attrs.Size)
 
 	return &gcsReader{
 		gcsFile: gcsFile{
@@ -58,6 +62,7 @@ func NewGcsFileReaderWithClient(ctx context.Context, client *storage.Client, pro
 		},
 		gcsReader:  reader,
 		generation: generation,
+		size:       attrs.Size,
 	}, nil
 }
 
@@ -65,14 +70,18 @@ func NewGcsFileReaderWithClient(ctx context.Context, client *storage.Client, pro
 // passed named. If name is left empty the same object as currently opened
 // will be re-opened.
 func (g *gcsReader) Open(name string) (source.ParquetFileReader, error) {
+	return g.OpenContext(g.ctx, name)
+}
+
+func (g *gcsReader) OpenContext(ctx context.Context, name string) (source.ParquetFileReader, error) {
 	if g.gcsClient == nil {
-		r, err := NewGcsFileReader(g.ctx, g.projectID, g.bucketName, name, -1)
+		r, err := NewGcsFileReader(ctx, g.projectID, g.bucketName, name, -1)
 		if err != nil {
 			return nil, fmt.Errorf("open gcs reader: %w", err)
 		}
 		return r, nil
 	}
-	r, err := NewGcsFileReaderWithClient(g.ctx, g.gcsClient, g.projectID, g.bucketName, name, -1)
+	r, err := NewGcsFileReaderWithClient(ctx, g.gcsClient, g.projectID, g.bucketName, name, -1)
 	if err != nil {
 		return nil, fmt.Errorf("open gcs reader with client: %w", err)
 	}
@@ -81,12 +90,14 @@ func (g *gcsReader) Open(name string) (source.ParquetFileReader, error) {
 
 // Clone will make a copy of reader
 func (g gcsReader) Clone() (source.ParquetFileReader, error) {
-	// Create a new reader without making network calls
-	// The underlying gcsobj.Reader manages its own offset internally
-	reader, err := gcsobj.NewReader(g.ctx, g.object)
-	if err != nil {
+	return g.CloneContext(g.ctx)
+}
+
+func (g gcsReader) CloneContext(ctx context.Context) (source.ParquetFileReader, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("create new reader: %w", err)
 	}
+	reader := gcsobj.NewReaderWithSize(ctx, g.object, g.size)
 
 	return &gcsReader{
 		gcsFile: gcsFile{
@@ -95,22 +106,56 @@ func (g gcsReader) Clone() (source.ParquetFileReader, error) {
 			filePath:       g.filePath,
 			gcsClient:      g.gcsClient,
 			object:         g.object,
-			ctx:            g.ctx,
+			ctx:            ctx,
 			externalClient: g.externalClient,
 		},
 		gcsReader:  reader,
 		generation: g.generation,
+		size:       g.size,
 	}, nil
 }
 
 // Seek implements io.Seeker.
 func (g *gcsReader) Seek(offset int64, whence int) (int64, error) {
-	return g.gcsReader.Seek(offset, whence)
+	var position int64
+	switch whence {
+	case io.SeekStart:
+		position = offset
+	case io.SeekCurrent:
+		position = g.offset + offset
+	case io.SeekEnd:
+		position = g.size + offset
+	default:
+		return 0, fmt.Errorf("illegal whence value %d", whence)
+	}
+	position, err := g.gcsReader.Seek(position, io.SeekStart)
+	if err == nil {
+		g.offset = position
+	}
+	return position, err
 }
 
 // Read implements io.Reader.
 func (g *gcsReader) Read(b []byte) (int, error) {
-	return g.gcsReader.Read(b)
+	n, err := g.gcsReader.Read(b)
+	g.offset += int64(n)
+	return n, err
+}
+
+func (g *gcsReader) ReadContext(ctx context.Context, b []byte) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if ctx != g.ctx {
+		reader := gcsobj.NewReaderWithSize(ctx, g.object, g.size)
+		if _, err := reader.Seek(g.offset, io.SeekStart); err != nil {
+			return 0, fmt.Errorf("restore reader offset: %w", err)
+		}
+		_ = g.gcsReader.Close()
+		g.gcsReader = reader
+		g.ctx = ctx
+	}
+	return g.Read(b)
 }
 
 // Close implements io.Closer.

@@ -268,6 +268,7 @@ func writeColumnKeyTestFile(t *testing.T, footerKey, nameKey []byte) []byte {
 	t.Helper()
 
 	var buf bytes.Buffer
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(
 		writerfile.NewWriterFile(&buf),
 		new(columnKeyTestRecord),
@@ -276,7 +277,9 @@ func writeColumnKeyTestFile(t *testing.T, footerKey, nameKey []byte) []byte {
 		writer.WithAADFileUnique([]byte("column-key-test")),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(columnKeyTestRecord{ID: 1, Name: "alpha"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 	return buf.Bytes()
 }
@@ -285,6 +288,7 @@ func writeRootNamedColumnKeyTestFile(t *testing.T, footerKey, nameKey []byte) []
 	t.Helper()
 
 	var buf bytes.Buffer
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(
 		writerfile.NewWriterFile(&buf),
 		new(columnKeyRootNamedTestRecord),
@@ -293,7 +297,9 @@ func writeRootNamedColumnKeyTestFile(t *testing.T, footerKey, nameKey []byte) []
 		writer.WithAADFileUnique([]byte("root-named-column-key-test")),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(columnKeyRootNamedTestRecord{ID: 1, Root: columnKeyRootNamedGroup{Name: "alpha"}}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 	return buf.Bytes()
 }
@@ -341,6 +347,7 @@ func TestColumnEncryptionDistinguishesDottedNameFromNestedPath(t *testing.T) {
 	writeFile := func(t *testing.T, encRootless string) []byte {
 		t.Helper()
 		var buf bytes.Buffer
+		//nolint:staticcheck
 		pw, err := writer.NewParquetWriter(
 			writerfile.NewWriterFile(&buf),
 			new(dotAmbiguityRecord),
@@ -352,8 +359,11 @@ func TestColumnEncryptionDistinguishesDottedNameFromNestedPath(t *testing.T) {
 			writer.WithAADFileUnique([]byte("dot-ambiguity")),
 		)
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pw.Write(dotAmbiguityRecord{Dotted: literalV0, Group: dotAmbiguityGroup{B: nestedV0}}))
+		//nolint:staticcheck
 		require.NoError(t, pw.Write(dotAmbiguityRecord{Dotted: literalV1, Group: dotAmbiguityGroup{B: nestedV1}}))
+		//nolint:staticcheck
 		require.NoError(t, pw.WriteStop())
 		return buf.Bytes()
 	}

@@ -1,6 +1,7 @@
 package reader
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -35,7 +36,7 @@ func (pr *ParquetReader) detectBloomFilters() {
 			if pr.PFile == nil {
 				continue
 			}
-			pf, err := pr.PFile.Clone()
+			pf, err := source.CloneWithContext(pr.context(), pr.PFile)
 			if err != nil {
 				continue
 			}
@@ -44,7 +45,7 @@ func (pr *ParquetReader) detectBloomFilters() {
 			if err == nil {
 				pr.SchemaHandler.Infos[index].BloomFilterSize = filter.NumBytes()
 			}
-			_ = pf.Close()
+			_ = source.CloseWithContext(pr.context(), pf)
 		}
 	}
 }
@@ -55,7 +56,17 @@ func (pr *ParquetReader) detectBloomFilters() {
 // its components must be separated by common.ParGoPathDelimiter (build it with common.PathToStr,
 // e.g. common.PathToStr([]string{"address", "city"})). "." is treated as an ordinary character,
 // so a column whose name itself contains a dot is a single path component.
+//
+// Deprecated: use BloomFilterCheckWithContext.
 func (pr *ParquetReader) BloomFilterCheck(columnPath string, rowGroupIndex int, value any) (bool, error) {
+	return pr.BloomFilterCheckWithContext(pr.defaultContext(), columnPath, rowGroupIndex, value)
+}
+
+// BloomFilterCheckWithContext checks a bloom filter using ctx.
+func (pr *ParquetReader) BloomFilterCheckWithContext(ctx context.Context, columnPath string, rowGroupIndex int, value any) (bool, error) {
+	if err := pr.setContext(ctx); err != nil {
+		return false, err
+	}
 	if rowGroupIndex < 0 || rowGroupIndex >= len(pr.Footer.RowGroups) {
 		return false, fmt.Errorf("row group index %d out of range [0, %d)", rowGroupIndex, len(pr.Footer.RowGroups))
 	}
@@ -95,11 +106,11 @@ func (pr *ParquetReader) BloomFilterCheck(columnPath string, rowGroupIndex int, 
 		return true, nil
 	}
 
-	pf, err := pr.PFile.Clone()
+	pf, err := source.CloneWithContext(ctx, pr.PFile)
 	if err != nil {
 		return false, fmt.Errorf("clone file reader: %w", err)
 	}
-	defer func() { _ = pf.Close() }()
+	defer func() { _ = source.CloseWithContext(ctx, pf) }()
 
 	filter, err := pr.readBloomFilterForColumn(pf, rowGroupIndex, columnOrdinal, rg, columnChunk)
 	if err != nil {
@@ -120,7 +131,7 @@ func (pr *ParquetReader) readBloomFilterForColumn(pf source.ParquetFileReader, r
 	}
 	offset := columnChunk.MetaData.GetBloomFilterOffset()
 	if columnChunk.GetCryptoMetadata() == nil {
-		return bloomfilter.ReadBloomFilter(pf, offset)
+		return bloomfilter.ReadBloomFilterWithContext(pr.context(), source.ReadSeekerWithContext{Ctx: pr.context(), ReadSeeker: pf}, offset)
 	}
 
 	algorithm := pr.encryptionAlgorithm()
@@ -139,7 +150,8 @@ func (pr *ParquetReader) readBloomFilterForColumn(pf source.ParquetFileReader, r
 	if rowGroup != nil && rowGroup.IsSetOrdinal() {
 		rowGroupOrdinal = rowGroup.GetOrdinal()
 	}
-	return bloomfilter.ReadEncryptedBloomFilter(pf, offset, bloomfilter.ReadOptions{
+	return bloomfilter.ReadEncryptedBloomFilter(source.ReadSeekerWithContext{Ctx: pr.context(), ReadSeeker: pf}, offset, bloomfilter.ReadOptions{
+		Context:         pr.context(),
 		Key:             key,
 		AADPrefix:       aadPrefix,
 		AADFileUnique:   aadFileUnique,

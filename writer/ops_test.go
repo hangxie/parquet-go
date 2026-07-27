@@ -112,6 +112,7 @@ func TestColumnOrders(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
 
@@ -140,6 +141,7 @@ func TestColumnOrders(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
 

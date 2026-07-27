@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -30,11 +31,17 @@ const (
 
 // NewHttpReaderWithClient creates an HTTP-based ParquetFileReader using the provided client.
 func NewHttpReaderWithClient(uri string, client *http.Client, extraHeaders map[string]string) (source.ParquetFileReader, error) {
+	return NewHttpReaderWithClientAndContext(context.Background(), uri, client, extraHeaders)
+}
+
+// NewHttpReaderWithClientAndContext creates an HTTP reader and uses ctx for
+// the initial range request.
+func NewHttpReaderWithClientAndContext(ctx context.Context, uri string, client *http.Client, extraHeaders map[string]string) (source.ParquetFileReader, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client must not be nil")
 	}
 
-	req, err := http.NewRequest(http.MethodGet, uri, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +83,15 @@ func NewHttpReaderWithClient(uri string, client *http.Client, extraHeaders map[s
 }
 
 // NewHttpReader creates an HTTP-based ParquetFileReader.
+//
+// Deprecated: use NewHttpReaderWithContext.
 func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHeaders map[string]string) (source.ParquetFileReader, error) {
+	return NewHttpReaderWithContext(context.Background(), uri, dedicatedTransport, ignoreTLSError, extraHeaders)
+}
+
+// NewHttpReaderWithContext creates an HTTP reader and uses ctx for the initial
+// range request.
+func NewHttpReaderWithContext(ctx context.Context, uri string, dedicatedTransport, ignoreTLSError bool, extraHeaders map[string]string) (source.ParquetFileReader, error) {
 	var transport *http.Transport
 	if dedicatedTransport {
 		transport = &http.Transport{}
@@ -88,11 +103,15 @@ func NewHttpReader(uri string, dedicatedTransport, ignoreTLSError bool, extraHea
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: ignoreTLSError}
 	client := &http.Client{Transport: transport}
 
-	return NewHttpReaderWithClient(uri, client, extraHeaders)
+	return NewHttpReaderWithClientAndContext(ctx, uri, client, extraHeaders)
 }
 
 func (r *httpReader) Open(_ string) (source.ParquetFileReader, error) {
 	return NewHttpReaderWithClient(r.url, r.httpClient, r.extraHeaders)
+}
+
+func (r *httpReader) OpenContext(ctx context.Context, _ string) (source.ParquetFileReader, error) {
+	return NewHttpReaderWithClientAndContext(ctx, r.url, r.httpClient, r.extraHeaders)
 }
 
 func (r httpReader) Clone() (source.ParquetFileReader, error) {
@@ -105,6 +124,13 @@ func (r httpReader) Clone() (source.ParquetFileReader, error) {
 		httpClient:   r.httpClient,
 		extraHeaders: r.extraHeaders,
 	}, nil
+}
+
+func (r httpReader) CloneContext(ctx context.Context) (source.ParquetFileReader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return r.Clone()
 }
 
 func (r *httpReader) Seek(offset int64, pos int) (int64, error) {
@@ -129,7 +155,11 @@ func (r *httpReader) Seek(offset int64, pos int) (int64, error) {
 }
 
 func (r *httpReader) Read(b []byte) (int, error) {
-	req, err := http.NewRequest(http.MethodGet, r.url, nil)
+	return r.ReadContext(context.Background(), b)
+}
+
+func (r *httpReader) ReadContext(ctx context.Context, b []byte) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.url, nil)
 	if err != nil {
 		return 0, err
 	}

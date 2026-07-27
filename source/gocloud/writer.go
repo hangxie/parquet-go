@@ -31,11 +31,15 @@ func NewBlobWriter(ctx context.Context, b *blob.Bucket, name string) (source.Par
 // Note that for blob storage, calling write on an existing blob overwrites that blob as opposed to appending to it.
 // Additionally Write is not guaranteed to have succeeded unless Close() also succeeds
 func (b *blobWriter) Write(p []byte) (n int, err error) {
+	return b.WriteContext(b.ctx, p)
+}
+
+func (b *blobWriter) WriteContext(ctx context.Context, p []byte) (n int, err error) {
 	if b.writer == nil && b.key == "" {
 		return 0, fmt.Errorf("writer not created or opened")
 	}
 	if b.writer == nil {
-		if w, err := b.bucket.NewWriter(b.ctx, b.key, nil); err != nil {
+		if w, err := b.bucket.NewWriter(ctx, b.key, nil); err != nil {
 			return 0, fmt.Errorf("create blob writer key=%s: %w", b.key, err)
 		} else {
 			b.writer = w
@@ -57,13 +61,17 @@ func (b *blobWriter) Close() error {
 }
 
 func (b *blobWriter) Create(name string) (source.ParquetFileWriter, error) {
+	return b.CreateContext(b.ctx, name)
+}
+
+func (b *blobWriter) CreateContext(ctx context.Context, name string) (source.ParquetFileWriter, error) {
 	if name == "" {
 		return nil, fmt.Errorf("file name empty")
 	}
 
 	bf := &blobWriter{
 		blobFile: blobFile{
-			ctx:    b.ctx,
+			ctx:    ctx,
 			bucket: b.bucket,
 		},
 	}

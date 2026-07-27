@@ -93,6 +93,10 @@ func (s *azBlobReader) Seek(offset int64, whence int) (int64, error) {
 
 // Read up to len(p) bytes into p and return the number of bytes read
 func (s *azBlobReader) Read(p []byte) (n int, err error) {
+	return s.ReadContext(s.ctx, p)
+}
+
+func (s *azBlobReader) ReadContext(ctx context.Context, p []byte) (n int, err error) {
 	if s.blockBlobClient == nil {
 		return 0, errReadNotOpened
 	}
@@ -102,7 +106,7 @@ func (s *azBlobReader) Read(p []byte) (n int, err error) {
 	}
 
 	count := int64(len(p))
-	resp, err := s.blockBlobClient.DownloadStream(s.ctx, &blob.DownloadStreamOptions{
+	resp, err := s.blockBlobClient.DownloadStream(ctx, &blob.DownloadStreamOptions{
 		Range: blob.HTTPRange{
 			Offset: s.offset,
 			Count:  count,
@@ -138,6 +142,10 @@ func (s *azBlobReader) Close() error {
 
 // Open creates a new block blob to perform reads
 func (s *azBlobReader) Open(URL string) (source.ParquetFileReader, error) {
+	return s.OpenContext(s.ctx, URL)
+}
+
+func (s *azBlobReader) OpenContext(ctx context.Context, URL string) (source.ParquetFileReader, error) {
 	var u *url.URL
 	if len(URL) == 0 && s.url != nil {
 		// ColumnBuffer passes in an empty string for name
@@ -148,7 +156,7 @@ func (s *azBlobReader) Open(URL string) (source.ParquetFileReader, error) {
 			return s, err
 		}
 	}
-	props, err := s.blockBlobClient.GetProperties(s.ctx, nil)
+	props, err := s.blockBlobClient.GetProperties(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +164,7 @@ func (s *azBlobReader) Open(URL string) (source.ParquetFileReader, error) {
 
 	pf := &azBlobReader{
 		azBlockBlob: azBlockBlob{
-			ctx:             s.ctx,
+			ctx:             ctx,
 			url:             u,
 			blockBlobClient: s.blockBlobClient,
 		},
@@ -167,11 +175,18 @@ func (s *azBlobReader) Open(URL string) (source.ParquetFileReader, error) {
 }
 
 func (s azBlobReader) Clone() (source.ParquetFileReader, error) {
+	return s.CloneContext(s.ctx)
+}
+
+func (s azBlobReader) CloneContext(ctx context.Context) (source.ParquetFileReader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Create a new instance without making network calls
 	// Reuse already-known metadata
 	return &azBlobReader{
 		azBlockBlob: azBlockBlob{
-			ctx:             s.ctx,
+			ctx:             ctx,
 			url:             s.url,
 			blockBlobClient: s.blockBlobClient,
 		},

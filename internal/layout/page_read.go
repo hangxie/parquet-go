@@ -18,6 +18,7 @@ import (
 
 // PageReadOptions controls optional behavior when reading pages.
 type PageReadOptions struct {
+	Context     context.Context
 	CRCMode     common.CRCMode
 	Compressor  *compress.Compressor
 	MaxPageSize int64
@@ -217,10 +218,17 @@ func (p *Page) processDataPage(schemaHandler *schema.SchemaHandler, encodingType
 }
 
 // Read page header
+//
+// Deprecated: use ReadPageHeaderWithContext.
 func ReadPageHeader(thriftReader *thrift.TBufferedTransport) (*parquet.PageHeader, error) {
+	return ReadPageHeaderWithContext(context.Background(), thriftReader)
+}
+
+// ReadPageHeaderWithContext reads a page header using ctx.
+func ReadPageHeaderWithContext(ctx context.Context, thriftReader *thrift.TBufferedTransport) (*parquet.PageHeader, error) {
 	protocol := thrift.NewTCompactProtocolConf(thriftReader, &thrift.TConfiguration{})
 	pageHeader := parquet.NewPageHeader()
-	if err := pageHeader.Read(context.TODO(), protocol); err != nil {
+	if err := pageHeader.Read(ctx, protocol); err != nil {
 		return pageHeader, fmt.Errorf("decode page header: %w", err)
 	}
 	return pageHeader, nil
@@ -228,17 +236,24 @@ func ReadPageHeader(thriftReader *thrift.TBufferedTransport) (*parquet.PageHeade
 
 func readPageHeader(thriftReader *thrift.TBufferedTransport, opt PageReadOptions) (*parquet.PageHeader, error) {
 	if opt.Decryptor == nil {
-		return ReadPageHeader(thriftReader)
+		return ReadPageHeaderWithContext(pageContext(opt), thriftReader)
 	}
 	module, err := encryption.ReadModule(thriftReader, opt.MaxPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("read encrypted page header module: %w", err)
 	}
-	pageHeader, err := decryptPageHeader(module, opt.Decryptor)
+	pageHeader, err := decryptPageHeader(pageContext(opt), module, opt.Decryptor)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt page header: %w", err)
 	}
 	return pageHeader, nil
+}
+
+func pageContext(opt PageReadOptions) context.Context {
+	if opt.Context == nil {
+		return context.Background()
+	}
+	return opt.Context
 }
 
 // Read page from parquet file

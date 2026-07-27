@@ -127,6 +127,13 @@ func TestBlobReader_Clone(t *testing.T) {
 	require.Equal(t, testData, all)
 }
 
+func TestBlobReaderCloneContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := new(blobReader).CloneContext(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestBlobReader_OpenNonexistent(t *testing.T) {
 	b := memblob.OpenBucket(nil)
 	defer func() {

@@ -1205,7 +1205,7 @@ func TestReadPageHeaderEncryptedErrors(t *testing.T) {
 
 	t.Run("read module length fails", func(t *testing.T) {
 		t.Parallel()
-		_, _, err := readPageHeader(bytes.NewReader(nil), 0, decryptor)
+		_, _, err := readPageHeader(context.Background(), bytes.NewReader(nil), 0, decryptor)
 		require.ErrorContains(t, err, "read encrypted page header module")
 	})
 
@@ -1225,7 +1225,7 @@ func TestReadPageHeaderEncryptedErrors(t *testing.T) {
 		encoded, err := encryption.EncodeModule(mod)
 		require.NoError(t, err)
 
-		_, _, err = readPageHeader(bytes.NewReader(encoded), 0, decryptor)
+		_, _, err = readPageHeader(context.Background(), bytes.NewReader(encoded), 0, decryptor)
 		require.ErrorContains(t, err, "decrypt page header")
 	})
 }
@@ -1267,6 +1267,7 @@ func buildEncryptedInspectionFile(t *testing.T, footerKey, nameKey []byte, algoO
 	t.Helper()
 
 	var out bytes.Buffer
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(
 		writerfile.NewWriterFile(&out),
 		new(encryptedReaderRecord),
@@ -1283,12 +1284,19 @@ func buildEncryptedInspectionFile(t *testing.T, footerKey, nameKey []byte, algoO
 	require.NoError(t, err)
 	// Small page size + multiple unique names ensures the dictionary is written
 	// and we get more than one data page after it.
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 1, Name: "alpha"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 2, Name: "beta"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 3, Name: "gamma"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 4, Name: "alpha"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 5, Name: "beta"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 6, Name: "gamma"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 	return out.Bytes()
 }
@@ -1933,6 +1941,7 @@ func buildPlaintextFooterEncryptedColumnData(t *testing.T, footerKey, nameKey []
 	t.Helper()
 
 	var out bytes.Buffer
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(
 		writerfile.NewWriterFile(&out),
 		new(encryptedReaderRecord),
@@ -1947,8 +1956,11 @@ func buildPlaintextFooterEncryptedColumnData(t *testing.T, footerKey, nameKey []
 		writer.WithAADFileUnique([]byte("reader-test-001")),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 1, Name: "alpha"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 2, Name: "beta"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 	return out.Bytes()
 }
@@ -1957,6 +1969,7 @@ func buildMixedPlaintextFooterSuppliedAADData(t *testing.T, footerKey, nameKey, 
 	t.Helper()
 
 	var out bytes.Buffer
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(
 		writerfile.NewWriterFile(&out),
 		new(encryptedReaderRecord),
@@ -1972,8 +1985,11 @@ func buildMixedPlaintextFooterSuppliedAADData(t *testing.T, footerKey, nameKey, 
 		writer.WithAADFileUnique([]byte("reader-test-002")),
 	)
 	require.NoError(t, err)
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 1, Name: "alpha"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(encryptedReaderRecord{ID: 2, Name: "beta"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 	return out.Bytes()
 }

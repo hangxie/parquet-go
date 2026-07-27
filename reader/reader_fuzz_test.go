@@ -23,6 +23,7 @@ func validReaderSeed(tb testing.TB) []byte {
 	tb.Helper()
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(fuzzReaderRow), writer.WithNP(1))
 	if err != nil {
 		tb.Fatalf("new writer: %v", err)
@@ -33,10 +34,12 @@ func validReaderSeed(tb testing.TB) []byte {
 		{ID: 2, Name: "bob", Val: nil, Tags: []string{}},
 	}
 	for _, r := range rows {
+		//nolint:staticcheck
 		if err := pw.Write(r); err != nil {
 			tb.Fatalf("write: %v", err)
 		}
 	}
+	//nolint:staticcheck
 	if err := pw.WriteStop(); err != nil {
 		tb.Fatalf("write stop: %v", err)
 	}

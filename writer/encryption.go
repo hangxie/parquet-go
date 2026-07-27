@@ -167,7 +167,7 @@ func (pw *ParquetWriter) encryptPage(page *layout.Page, key []byte, rowGroupOrdi
 		return nil
 	}
 	// Serialize the original header to locate the body within RawData.
-	originalHeaderBuf, err := serializeCompact(page.Header)
+	originalHeaderBuf, err := serializeCompact(pw.context(), page.Header)
 	if err != nil {
 		return fmt.Errorf("serialize page header: %w", err)
 	}
@@ -207,7 +207,7 @@ func (pw *ParquetWriter) encryptPage(page *layout.Page, key []byte, rowGroupOrdi
 	page.Header.CompressedPageSize = int32(len(encodedBody))
 
 	// Re-serialize the header with the updated CompressedPageSize.
-	headerBuf, err := serializeCompact(page.Header)
+	headerBuf, err := serializeCompact(pw.context(), page.Header)
 	if err != nil {
 		return fmt.Errorf("re-serialize page header: %w", err)
 	}
@@ -237,10 +237,10 @@ func (pw *ParquetWriter) moduleAAD(moduleType encryption.ModuleType, rowGroupOrd
 	)
 }
 
-func serializeCompact(v thrift.TStruct) ([]byte, error) {
+func serializeCompact(ctx context.Context, v thrift.TStruct) ([]byte, error) {
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	return ts.Write(context.TODO(), v)
+	return ts.Write(ctx, v)
 }
 
 func (pw *ParquetWriter) encryptThriftModule(key []byte, moduleType encryption.ModuleType, rowGroupOrdinal, columnOrdinal int16, plain []byte) ([]byte, error) {
@@ -271,7 +271,7 @@ func (pw *ParquetWriter) encryptFooter(footerBuf []byte) ([]byte, string, error)
 	fileCrypto := parquet.NewFileCryptoMetaData()
 	fileCrypto.EncryptionAlgorithm = pw.encryptionState.parquetAlgorithm()
 	fileCrypto.KeyMetadata = append([]byte(nil), pw.encryptionState.footerKeyMetadata...)
-	fileCryptoBuf, err := serializeCompact(fileCrypto)
+	fileCryptoBuf, err := serializeCompact(pw.context(), fileCrypto)
 	if err != nil {
 		return nil, "", fmt.Errorf("serialize file crypto metadata: %w", err)
 	}

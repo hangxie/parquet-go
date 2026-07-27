@@ -228,9 +228,12 @@ func writeFooterRenamedColumnParquet(t *testing.T) []byte {
 
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
+	//nolint:staticcheck
 	pw, err := writer.NewParquetWriter(fw, new(footerRenamedColumnRecord), writer.WithNP(1))
 	require.NoError(t, err)
+	//nolint:staticcheck
 	require.NoError(t, pw.Write(footerRenamedColumnRecord{ColL1: "value"}))
+	//nolint:staticcheck
 	require.NoError(t, pw.WriteStop())
 
 	return buf.Bytes()

@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
@@ -285,10 +286,10 @@ func TestWriteArrow_EmptyRecord(t *testing.T) {
 
 	// Verify the file is valid with 0 rows
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+	pr, err := reader.NewParquetReaderWithContext(context.Background(), pf, nil, reader.WithNP(1))
 	require.NoError(t, err)
 	require.Equal(t, int64(0), pr.GetNumRows())
-	_ = pr.ReadStop()
+	_ = pr.ReadStopWithContext(context.Background())
 	require.NoError(t, pf.Close())
 }
 
@@ -322,12 +323,12 @@ func TestArrowWriterFloat16RoundTrip(t *testing.T) {
 
 	rawPF := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 	rawReader := &reader.ParquetReader{PFile: rawPF}
-	require.NoError(t, rawReader.ReadFooter())
+	require.NoError(t, rawReader.ReadFooterWithContext(context.Background()))
 	require.Equal(t, "float16_field", rawReader.Footer.Schema[1].GetName())
 	require.NoError(t, rawPF.Close())
 
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+	pr, err := reader.NewParquetReaderWithContext(context.Background(), pf, nil, reader.WithNP(1))
 	require.NoError(t, err)
 
 	expectedMin := float16FromFloat32(-2.5)
@@ -348,13 +349,13 @@ func TestArrowWriterFloat16RoundTrip(t *testing.T) {
 	require.NotNil(t, stats.NullCount)
 	require.Equal(t, int64(1), *stats.NullCount)
 
-	columnIndex, err := pr.ReadColumnIndex(0, 0)
+	columnIndex, err := pr.ReadColumnIndexWithContext(context.Background(), 0, 0)
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{expectedMin}, columnIndex.MinValues)
 	require.Equal(t, [][]byte{expectedMax}, columnIndex.MaxValues)
 	require.Equal(t, []int64{1}, columnIndex.NullCounts)
 
-	rows, err := pr.ReadByNumber(int(pr.GetNumRows()))
+	rows, err := pr.ReadByNumberWithContext(context.Background(), int(pr.GetNumRows()))
 	require.NoError(t, err)
 	actual := make([][]any, 0, len(rows))
 	for _, row := range rows {
@@ -367,7 +368,7 @@ func TestArrowWriterFloat16RoundTrip(t *testing.T) {
 	}, actual)
 
 	require.NoError(t, fw.Close())
-	require.NoError(t, pr.ReadStop())
+	require.NoError(t, pr.ReadStopWithContext(context.Background()))
 	require.NoError(t, pf.Close())
 }
 
@@ -407,7 +408,7 @@ func TestArrowWriterFloat16TotalOrderStats(t *testing.T) {
 	require.NoError(t, aw.WriteStop())
 
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+	pr, err := reader.NewParquetReaderWithContext(context.Background(), pf, nil, reader.WithNP(1))
 	require.NoError(t, err)
 
 	expectedMin := float16LE(0xFE00)
@@ -417,13 +418,13 @@ func TestArrowWriterFloat16TotalOrderStats(t *testing.T) {
 	require.Equal(t, expectedMin, stats.MinValue)
 	require.Equal(t, expectedMax, stats.MaxValue)
 
-	columnIndex, err := pr.ReadColumnIndex(0, 0)
+	columnIndex, err := pr.ReadColumnIndexWithContext(context.Background(), 0, 0)
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{expectedMin}, columnIndex.MinValues)
 	require.Equal(t, [][]byte{expectedMax}, columnIndex.MaxValues)
 
 	require.NoError(t, fw.Close())
-	require.NoError(t, pr.ReadStop())
+	require.NoError(t, pr.ReadStopWithContext(context.Background()))
 	require.NoError(t, pf.Close())
 }
 
@@ -473,15 +474,15 @@ func TestArrowWriterFloat16MixedSchema(t *testing.T) {
 
 	rawPF := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 	rawReader := &reader.ParquetReader{PFile: rawPF}
-	require.NoError(t, rawReader.ReadFooter())
+	require.NoError(t, rawReader.ReadFooterWithContext(context.Background()))
 	require.Equal(t, "fp16", rawReader.Footer.Schema[2].GetName())
 	require.NoError(t, rawPF.Close())
 
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-	pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+	pr, err := reader.NewParquetReaderWithContext(context.Background(), pf, nil, reader.WithNP(1))
 	require.NoError(t, err)
 
-	rows, err := pr.ReadByNumber(int(pr.GetNumRows()))
+	rows, err := pr.ReadByNumberWithContext(context.Background(), int(pr.GetNumRows()))
 	require.NoError(t, err)
 	actual := make([][]any, 0, len(rows))
 	for _, row := range rows {
@@ -499,7 +500,7 @@ func TestArrowWriterFloat16MixedSchema(t *testing.T) {
 	require.NotNil(t, fp16Element.LogicalType.FLOAT16)
 
 	require.NoError(t, fw.Close())
-	require.NoError(t, pr.ReadStop())
+	require.NoError(t, pr.ReadStopWithContext(context.Background()))
 	require.NoError(t, pf.Close())
 }
 
@@ -922,11 +923,11 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
+		pr, err := reader.NewParquetReaderWithContext(context.Background(), parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())
-		res, err := pr.ReadByNumber(num)
+		res, err := pr.ReadByNumberWithContext(context.Background(), num)
 		require.Nil(t, err)
 
 		actualTable := ""
@@ -937,7 +938,7 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStop()
+		err = pr.ReadStopWithContext(context.Background())
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)
@@ -965,11 +966,11 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
+		pr, err := reader.NewParquetReaderWithContext(context.Background(), parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())
-		res, err := pr.ReadByNumber(num)
+		res, err := pr.ReadByNumberWithContext(context.Background(), num)
 		require.Nil(t, err)
 
 		actualTable := [][]any{}
@@ -1008,7 +1009,7 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStop()
+		err = pr.ReadStopWithContext(context.Background())
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)
@@ -1036,11 +1037,11 @@ func TestArrowWriter(t *testing.T) {
 
 		parquetFile := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 
-		pr, err := reader.NewParquetReader(parquetFile, nil, reader.WithNP(1))
+		pr, err := reader.NewParquetReaderWithContext(context.Background(), parquetFile, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
 		num := int(pr.GetNumRows())
-		res, err := pr.ReadByNumber(num)
+		res, err := pr.ReadByNumberWithContext(context.Background(), num)
 		require.Nil(t, err)
 
 		actualTable := ""
@@ -1051,7 +1052,7 @@ func TestArrowWriter(t *testing.T) {
 
 		err = fw.Close()
 		require.Nil(t, err)
-		err = pr.ReadStop()
+		err = pr.ReadStopWithContext(context.Background())
 		require.Nil(t, err)
 		err = parquetFile.Close()
 		require.Nil(t, err)

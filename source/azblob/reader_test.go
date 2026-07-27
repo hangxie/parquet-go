@@ -256,3 +256,10 @@ func TestAzBlobReader_Clone(t *testing.T) {
 		require.Equal(t, buf3, buf4)
 	})
 }
+
+func TestAzBlobReaderCloneContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := new(azBlobReader).CloneContext(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+}

@@ -2,6 +2,7 @@ package reader
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 
@@ -27,16 +28,16 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
+		pw, err := writer.NewParquetWriterWithContext(context.Background(), fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 
 		for i := range 100 {
-			require.NoError(t, pw.Write(BloomRecord{
+			require.NoError(t, pw.WriteWithContext(context.Background(), BloomRecord{
 				ID:   int64(i * 100),
 				Name: fmt.Sprintf("name-%d", i),
 			}))
 		}
-		require.NoError(t, pw.WriteStop())
+		require.NoError(t, pw.WriteStopWithContext(context.Background()))
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
@@ -64,14 +65,14 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
+		pw, err := writer.NewParquetWriterWithContext(context.Background(), fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 
 		// Write specific values
 		for i := range 10 {
-			require.NoError(t, pw.Write(BloomRecord{ID: int64(i * 1000)}))
+			require.NoError(t, pw.WriteWithContext(context.Background(), BloomRecord{ID: int64(i * 1000)}))
 		}
-		require.NoError(t, pw.WriteStop())
+		require.NoError(t, pw.WriteStopWithContext(context.Background()))
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
@@ -100,10 +101,10 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
+		pw, err := writer.NewParquetWriterWithContext(context.Background(), fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
-		require.NoError(t, pw.Write(BloomRecord{ID: 42, Name: "test"}))
-		require.NoError(t, pw.WriteStop())
+		require.NoError(t, pw.WriteWithContext(context.Background(), BloomRecord{ID: 42, Name: "test"}))
+		require.NoError(t, pw.WriteStopWithContext(context.Background()))
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
@@ -123,10 +124,10 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
+		pw, err := writer.NewParquetWriterWithContext(context.Background(), fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
-		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
-		require.NoError(t, pw.WriteStop())
+		require.NoError(t, pw.WriteWithContext(context.Background(), BloomRecord{ID: 42}))
+		require.NoError(t, pw.WriteStopWithContext(context.Background()))
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
@@ -149,10 +150,10 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
+		pw, err := writer.NewParquetWriterWithContext(context.Background(), fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
-		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
-		require.NoError(t, pw.WriteStop())
+		require.NoError(t, pw.WriteWithContext(context.Background(), BloomRecord{ID: 42}))
+		require.NoError(t, pw.WriteStopWithContext(context.Background()))
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
@@ -172,16 +173,16 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
-		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
+		pw, err := writer.NewParquetWriterWithContext(context.Background(), fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 
 		for i := range 50 {
-			require.NoError(t, pw.Write(BloomRecord{
+			require.NoError(t, pw.WriteWithContext(context.Background(), BloomRecord{
 				ID:   int64(i),
 				Name: fmt.Sprintf("user-%d", i),
 			}))
 		}
-		require.NoError(t, pw.WriteStop())
+		require.NoError(t, pw.WriteStopWithContext(context.Background()))
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		pr, err := NewParquetReader(pf, new(BloomRecord), WithNP(1))
@@ -208,15 +209,18 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
+		//nolint:staticcheck
 		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1), writer.WithRowGroupSize(256), writer.WithPageSize(64))
 		require.NoError(t, err)
 
 		for i := range 1000 {
+			//nolint:staticcheck
 			require.NoError(t, pw.Write(BloomRecord{
 				ID:   int64(i),
 				Name: fmt.Sprintf("a-long-name-to-force-multiple-row-groups-%d", i),
 			}))
 		}
+		//nolint:staticcheck
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
@@ -247,9 +251,12 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
+		//nolint:staticcheck
 		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
+		//nolint:staticcheck
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
@@ -270,9 +277,12 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
+		//nolint:staticcheck
 		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
+		//nolint:staticcheck
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
@@ -294,9 +304,12 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
+		//nolint:staticcheck
 		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pw.Write(BloomRecord{ID: 42}))
+		//nolint:staticcheck
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
@@ -324,11 +337,14 @@ func TestBloomFilterCheck(t *testing.T) {
 
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
+		//nolint:staticcheck
 		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
 		for i := range 100 {
+			//nolint:staticcheck
 			require.NoError(t, pw.Write(BloomRecord{Dotted: int64(i * 100)}))
 		}
+		//nolint:staticcheck
 		require.NoError(t, pw.WriteStop())
 
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
@@ -458,9 +474,12 @@ func TestDetectBloomFilters(t *testing.T) {
 		}
 		var buf bytes.Buffer
 		fw := writerfile.NewWriterFile(&buf)
+		//nolint:staticcheck
 		pw, err := writer.NewParquetWriter(fw, new(BloomRecord), writer.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pw.Write(BloomRecord{Name: "test"}))
+		//nolint:staticcheck
 		require.NoError(t, pw.WriteStop())
 		_ = fw.Close()
 
@@ -493,7 +512,7 @@ func (f *failCloneReader) Clone() (source.ParquetFileReader, error) {
 func TestBloomFilterInterop(t *testing.T) {
 	t.Run("read_bloom_from_parquet_mr", func(t *testing.T) {
 		bloomURL := "https://github.com/apache/parquet-testing/raw/refs/heads/master/data/data_index_bloom_encoding_stats.parquet"
-		httpReader, err := phttp.NewHttpReader(bloomURL, false, false, map[string]string{})
+		httpReader, err := phttp.NewHttpReaderWithContext(context.Background(), bloomURL, false, false, map[string]string{})
 		require.NoError(t, err)
 		defer func() { _ = httpReader.Close() }()
 
@@ -516,7 +535,7 @@ func TestBloomFilterInterop(t *testing.T) {
 			pf, cloneErr := httpReader.Clone()
 			require.NoError(t, cloneErr)
 
-			filter, readErr := bloomfilter.ReadBloomFilter(pf, offset)
+			filter, readErr := bloomfilter.ReadBloomFilterWithContext(context.Background(), pf, offset)
 			_ = pf.Close()
 			require.NoError(t, readErr)
 			require.Greater(t, filter.NumBytes(), int32(0))
@@ -526,7 +545,7 @@ func TestBloomFilterInterop(t *testing.T) {
 
 	t.Run("bloom_filter_length_populated", func(t *testing.T) {
 		bloomWithLengthURL := "https://github.com/apache/parquet-testing/raw/refs/heads/master/data/data_index_bloom_encoding_with_length.parquet"
-		httpReader, err := phttp.NewHttpReader(bloomWithLengthURL, false, false, map[string]string{})
+		httpReader, err := phttp.NewHttpReaderWithContext(context.Background(), bloomWithLengthURL, false, false, map[string]string{})
 		require.NoError(t, err)
 		defer func() { _ = httpReader.Close() }()
 
@@ -550,7 +569,7 @@ func TestBloomFilterInterop(t *testing.T) {
 			pf, cloneErr := httpReader.Clone()
 			require.NoError(t, cloneErr)
 
-			filter, readErr := bloomfilter.ReadBloomFilter(pf, cc.MetaData.GetBloomFilterOffset())
+			filter, readErr := bloomfilter.ReadBloomFilterWithContext(context.Background(), pf, cc.MetaData.GetBloomFilterOffset())
 			_ = pf.Close()
 			require.NoError(t, readErr)
 			require.Greater(t, filter.NumBytes(), int32(0))

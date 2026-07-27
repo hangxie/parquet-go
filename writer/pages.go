@@ -28,6 +28,7 @@ func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, comp
 
 	convMu.Lock()
 	pages, _, err := layout.TableToDictDataPagesWithOption(dictRec, table, 32, layout.PageWriteOption{
+		Context:      pw.context(),
 		PageSize:     int32(pw.pageSize),
 		CompressType: compressionType,
 		WriteCRC:     pw.writeCRC,
@@ -42,6 +43,7 @@ func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, comp
 
 func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType parquet.CompressionCodec, compressor *compress.Compressor) ([]*layout.Page, error) {
 	pages, _, err := layout.TableToDataPagesWithOption(table, layout.PageWriteOption{
+		Context:         pw.context(),
 		PageSize:        int32(pw.pageSize),
 		CompressType:    compressionType,
 		DataPageVersion: pw.dataPageVersion,
@@ -309,7 +311,7 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 			}
 			dataPageIdx++
 		}
-		if _, err := pw.PFile.Write(page.RawData); err != nil {
+		if _, err := pw.write(page.RawData); err != nil {
 			return fmt.Errorf("write page data: %w", err)
 		}
 		pw.offset += int64(len(page.RawData))

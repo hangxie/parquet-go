@@ -636,6 +636,14 @@ func NewCSVWriter(md []string, pfile source.ParquetFileWriter, opts ...WriterOpt
 func NewArrowWriter(arrowSchema *arrow.Schema, pfile source.ParquetFileWriter, opts ...WriterOption) (*ArrowWriter, error)
 ```
 
+### Cancellation
+
+Context-aware constructors and operations are additive, and all existing APIs retain their signatures for backward compatibility. Context-free entry points that have a direct `WithContext` replacement are deprecated. Legacy constructors use `context.Background()`; plain methods use the context supplied to their constructor, so their behavior is unchanged when constructed through a legacy API. Use `reader.NewParquetReaderWithContext`, `ReadWithContext`, `writer.NewParquetWriterWithContext`, `WriteWithContext`, `FlushWithContext`, and `WriteStopWithContext` when reads or writes need cancellation or deadlines. Column reads, index and bloom-filter inspection, dictionary-page inspection, and the CSV, JSON, and Arrow writer constructors also provide `WithContext` variants. Cleanup and finalization still release resources and produce a valid footer after cancellation, then report the cancellation error.
+
+> **Note:** `CloseWithContext`, `ReadStopWithContext`, `ResetWithContext`, and `WriteStopWithContext` always detach cancellation from the underlying close operations. This ensures resources are released and the file is never left in a corrupt or partially-written state, but it also means an application-level timeout or deadline that expires during cleanup will not abort it. If your backend I/O can hang indefinitely on close, consider adding a separate transport-level timeout on the file source rather than relying on the context given to these methods.
+
+Source compatibility is unchanged. A source may implement the optional context capabilities in the `source` package to cancel in-flight operations; otherwise parquet-go checks the context before calling the legacy method.
+
 ## Examples
 
 Build examples with the `example` build tag.

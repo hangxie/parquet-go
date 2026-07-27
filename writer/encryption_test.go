@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -116,21 +117,21 @@ func TestEncryptedWriterRoundTrip(t *testing.T) {
 			data := buf.Bytes()
 			require.Equal(t, tt.wantTailMagic, string(data[len(data)-4:]))
 
-			pr, err := reader.NewParquetReader(buffer.NewBufferReaderFromBytesNoAlloc(data), new(encryptedWriterRecord), tt.readerOptions...)
+			pr, err := reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), new(encryptedWriterRecord), tt.readerOptions...)
 			require.NoError(t, err)
 			defer func() {
-				require.NoError(t, pr.ReadStop())
+				require.NoError(t, pr.ReadStopWithContext(context.Background()))
 			}()
 
 			rows := make([]encryptedWriterRecord, 2)
-			require.NoError(t, pr.Read(&rows))
+			require.NoError(t, pr.ReadWithContext(context.Background(), &rows))
 			require.Equal(t, []encryptedWriterRecord{{ID: 1, Name: "alpha"}, {ID: 2, Name: "beta"}}, rows)
 
-			columnIndex, err := pr.ReadColumnIndex(0, 1)
+			columnIndex, err := pr.ReadColumnIndexWithContext(context.Background(), 0, 1)
 			require.NoError(t, err)
 			require.NotNil(t, columnIndex)
 
-			found, err := pr.BloomFilterCheck("name", 0, "alpha")
+			found, err := pr.BloomFilterCheckWithContext(context.Background(), "name", 0, "alpha")
 			require.NoError(t, err)
 			require.True(t, found)
 		})
@@ -160,17 +161,17 @@ func TestEncryptedWriterAuthFailure(t *testing.T) {
 	}
 
 	tryRead := func(data []byte, opts ...reader.ReaderOption) error {
-		pr, err := reader.NewParquetReader(
-			buffer.NewBufferReaderFromBytesNoAlloc(data),
+		pr, err := reader.NewParquetReaderWithContext(
+			context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data),
 			new(encryptedWriterRecord),
 			opts...,
 		)
 		if err != nil {
 			return err
 		}
-		defer pr.ReadStop() //nolint:errcheck
+		defer pr.ReadStopWithContext(context.Background()) //nolint:errcheck
 		rows := make([]encryptedWriterRecord, 1)
-		return pr.Read(&rows)
+		return pr.ReadWithContext(context.Background(), &rows)
 	}
 
 	t.Run("wrong footer key", func(t *testing.T) {
@@ -248,46 +249,46 @@ func TestEncryptedWriterColumnKeyProtectsBloomAndIndex(t *testing.T) {
 
 	// With correct keys: column index works for every column, bloom filter
 	// works for the name column (encrypted with its own key).
-	pr, err := reader.NewParquetReader(
-		buffer.NewBufferReaderFromBytesNoAlloc(data),
+	pr, err := reader.NewParquetReaderWithContext(
+		context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(encryptedWriterRecord),
 		reader.WithFooterKey(footerKey),
 		reader.WithColumnKey("name", nameKey),
 	)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, pr.ReadStop()) }()
+	defer func() { require.NoError(t, pr.ReadStopWithContext(context.Background())) }()
 
 	for rg, rowGroup := range pr.Footer.RowGroups {
 		for col := range rowGroup.GetColumns() {
-			idx, idxErr := pr.ReadColumnIndex(rg, col)
+			idx, idxErr := pr.ReadColumnIndexWithContext(context.Background(), rg, col)
 			require.NoError(t, idxErr)
 			require.NotNil(t, idx)
 		}
 	}
 
-	found, err := pr.BloomFilterCheck("name", 0, "alpha")
+	found, err := pr.BloomFilterCheckWithContext(context.Background(), "name", 0, "alpha")
 	require.NoError(t, err)
 	require.True(t, found)
 
-	notFound, err := pr.BloomFilterCheck("name", 0, "nosuchvalue")
+	notFound, err := pr.BloomFilterCheckWithContext(context.Background(), "name", 0, "nosuchvalue")
 	require.NoError(t, err)
 	require.False(t, notFound)
 
 	// Without the name column key: the reader can open the file because
 	// the encrypted footer contains plaintext column metadata, but reading
 	// encrypted name-column modules still requires the name key.
-	prMissingNameKey, err := reader.NewParquetReader(
-		buffer.NewBufferReaderFromBytesNoAlloc(data),
+	prMissingNameKey, err := reader.NewParquetReaderWithContext(
+		context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(encryptedWriterRecord),
 		reader.WithFooterKey(footerKey),
 	)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, prMissingNameKey.ReadStop()) }()
+	defer func() { require.NoError(t, prMissingNameKey.ReadStopWithContext(context.Background())) }()
 
-	_, err = prMissingNameKey.ReadColumnIndex(0, 1)
+	_, err = prMissingNameKey.ReadColumnIndexWithContext(context.Background(), 0, 1)
 	require.ErrorContains(t, err, "decryption key required for column "+common.ParGoRootExName+".name")
 
-	_, err = prMissingNameKey.BloomFilterCheck("name", 0, "alpha")
+	_, err = prMissingNameKey.BloomFilterCheckWithContext(context.Background(), "name", 0, "alpha")
 	require.ErrorContains(t, err, "decryption key required for column "+common.ParGoRootExName+".name")
 }
 
@@ -443,20 +444,20 @@ func TestEncryptedWriterPlaintextFooterSignatureVerification(t *testing.T) {
 	data := buf.Bytes()
 
 	// Correct key: footer signature verifies and rows are readable.
-	pr, err := reader.NewParquetReader(
-		buffer.NewBufferReaderFromBytesNoAlloc(data),
+	pr, err := reader.NewParquetReaderWithContext(
+		context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(encryptedWriterRecord),
 		reader.WithFooterKey(footerKey),
 	)
 	require.NoError(t, err)
 	rows := make([]encryptedWriterRecord, 1)
-	require.NoError(t, pr.Read(&rows))
+	require.NoError(t, pr.ReadWithContext(context.Background(), &rows))
 	require.Equal(t, int32(1), rows[0].ID)
-	require.NoError(t, pr.ReadStop())
+	require.NoError(t, pr.ReadStopWithContext(context.Background()))
 
 	// Wrong key: footer signature verification must fail.
-	_, err = reader.NewParquetReader(
-		buffer.NewBufferReaderFromBytesNoAlloc(data),
+	_, err = reader.NewParquetReaderWithContext(
+		context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data),
 		new(encryptedWriterRecord),
 		reader.WithFooterKey([]byte("abcdef0123456789")),
 	)
@@ -527,7 +528,7 @@ func TestEncryptPageUpdatesCompressedPageSize(t *testing.T) {
 			header.UncompressedPageSize = int32(tt.bodyLen)
 			header.CompressedPageSize = int32(tt.bodyLen)
 
-			headerBuf, err := serializeCompact(header)
+			headerBuf, err := serializeCompact(context.Background(), header)
 			require.NoError(t, err)
 
 			rawData := make([]byte, len(headerBuf)+tt.bodyLen)
@@ -571,7 +572,7 @@ func TestEncryptPageErrors(t *testing.T) {
 
 	t.Run("header re-serialization mismatch", func(t *testing.T) {
 		t.Parallel()
-		headerBuf, serErr := serializeCompact(header)
+		headerBuf, serErr := serializeCompact(context.Background(), header)
 		require.NoError(t, serErr)
 		rawData := bytes.Repeat([]byte{0xFF}, len(headerBuf)+10)
 		page := &layout.Page{

@@ -1,7 +1,6 @@
 package writer
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -24,7 +23,7 @@ func (pw *ParquetWriter) writeColumnIndexes(ts *thrift.TSerializer) error {
 			if columnIndex == nil {
 				continue
 			}
-			columnIndexBuf, err := ts.Write(context.TODO(), columnIndex)
+			columnIndexBuf, err := ts.Write(pw.context(), columnIndex)
 			if err != nil {
 				return fmt.Errorf("serialize column index: %w", err)
 			}
@@ -43,7 +42,7 @@ func (pw *ParquetWriter) writeColumnIndexes(ts *thrift.TSerializer) error {
 				}
 				columnIndexBuf = module
 			}
-			if _, err = pw.PFile.Write(columnIndexBuf); err != nil {
+			if _, err = pw.write(columnIndexBuf); err != nil {
 				return fmt.Errorf("write column index: %w", err)
 			}
 
@@ -65,7 +64,7 @@ func (pw *ParquetWriter) writeOffsetIndexes(ts *thrift.TSerializer) error {
 	idx := 0
 	for rowGroupIndex, rowGroup := range pw.Footer.RowGroups {
 		for columnOrdinal, columnChunk := range rowGroup.Columns {
-			offsetIndexBuf, err := ts.Write(context.TODO(), pw.offsetIndexes[idx])
+			offsetIndexBuf, err := ts.Write(pw.context(), pw.offsetIndexes[idx])
 			if err != nil {
 				return fmt.Errorf("serialize offset index: %w", err)
 			}
@@ -84,7 +83,7 @@ func (pw *ParquetWriter) writeOffsetIndexes(ts *thrift.TSerializer) error {
 				}
 				offsetIndexBuf = module
 			}
-			if _, err = pw.PFile.Write(offsetIndexBuf); err != nil {
+			if _, err = pw.write(offsetIndexBuf); err != nil {
 				return fmt.Errorf("write offset index: %w", err)
 			}
 

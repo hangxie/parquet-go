@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -124,12 +125,22 @@ type ParquetWriter struct {
 
 	stopped            bool
 	encodingsValidated bool // tracks if encoding/version validation has been done
+	defaultCtx         context.Context
+	ctx                context.Context
 }
 
 // NewParquetWriterFromWriter creates a ParquetWriter from an io.Writer.
+//
+// Deprecated: use NewParquetWriterFromWriterWithContext.
 func NewParquetWriterFromWriter(w io.Writer, obj any, opts ...WriterOption) (*ParquetWriter, error) {
+	return NewParquetWriterFromWriterWithContext(context.Background(), w, obj, opts...)
+}
+
+// NewParquetWriterFromWriterWithContext creates a ParquetWriter from an
+// io.Writer and uses ctx for initialization.
+func NewParquetWriterFromWriterWithContext(ctx context.Context, w io.Writer, obj any, opts ...WriterOption) (*ParquetWriter, error) {
 	wf := writerfile.NewWriterFile(w)
-	return NewParquetWriter(wf, obj, opts...)
+	return NewParquetWriterWithContext(ctx, wf, obj, opts...)
 }
 
 // initBase sets up the ParquetWriter with defaults, applies and validates
@@ -139,7 +150,11 @@ func NewParquetWriterFromWriter(w io.Writer, obj any, opts ...WriterOption) (*Pa
 //
 // Callers must still set SchemaHandler, marshalFunc, call initBloomFilters,
 // and set stopped = false after successful schema init.
-func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...WriterOption) error {
+func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileWriter, opts ...WriterOption) error {
+	pw.defaultCtx = ctx
+	if err := pw.setContext(ctx); err != nil {
+		return err
+	}
 	pw.np = 4                                    // default parallel number
 	pw.pageSize = common.DefaultPageSize         // 8K
 	pw.rowGroupSize = common.DefaultRowGroupSize // 128M
@@ -214,7 +229,7 @@ func (pw *ParquetWriter) initBase(pFile source.ParquetFileWriter, opts ...Writer
 	if pw.encryptionState != nil && !pw.encryptionState.plaintextFooter {
 		magic = common.MagicBytesEncrypted
 	}
-	if _, err := pw.PFile.Write([]byte(magic)); err != nil {
+	if _, err := pw.write([]byte(magic)); err != nil {
 		return fmt.Errorf("write magic header: %w", err)
 	}
 	return nil
@@ -272,9 +287,17 @@ func formatOptionErrors(errs []error) string {
 }
 
 // NewParquetWriter creates a parquet writer. Obj is an object with tags or a JSON schema string.
+//
+// Deprecated: use NewParquetWriterWithContext.
 func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error) {
+	return NewParquetWriterWithContext(context.Background(), pFile, obj, opts...)
+}
+
+// NewParquetWriterWithContext creates a parquet writer and uses ctx for
+// initialization, including writing the magic header.
+func NewParquetWriterWithContext(ctx context.Context, pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error) {
 	res := new(ParquetWriter)
-	if err := res.initBase(pFile, opts...); err != nil {
+	if err := res.initBase(ctx, pFile, opts...); err != nil {
 		return nil, fmt.Errorf("init writer base: %w", err)
 	}
 	res.marshalFunc = marshal.Marshal
@@ -314,6 +337,35 @@ func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOpt
 	res.stopped = false
 
 	return res, nil
+}
+
+func (pw *ParquetWriter) context() context.Context {
+	if pw.ctx == nil {
+		return context.Background()
+	}
+	return pw.ctx
+}
+
+func (pw *ParquetWriter) defaultContext() context.Context {
+	if pw.defaultCtx == nil {
+		return context.Background()
+	}
+	return pw.defaultCtx
+}
+
+func (pw *ParquetWriter) setContext(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	pw.ctx = ctx
+	return nil
+}
+
+func (pw *ParquetWriter) write(p []byte) (int, error) {
+	return source.WriteWithContext(pw.context(), pw.PFile, p)
 }
 
 func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {

@@ -15,6 +15,7 @@ import (
 // PageWriteOption consolidates page-level write parameters.
 // This struct is extensible for future features (e.g., encryption).
 type PageWriteOption struct {
+	Context         context.Context
 	PageSize        int32
 	CompressType    parquet.CompressionCodec
 	DataPageVersion int32
@@ -33,7 +34,11 @@ func serializePage(page *Page, opt PageWriteOption, compressedData ...[]byte) er
 
 	ts := thrift.NewTSerializer()
 	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	pageHeaderBuf, err := ts.Write(context.TODO(), page.Header)
+	ctx := opt.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	pageHeaderBuf, err := ts.Write(ctx, page.Header)
 	if err != nil {
 		return fmt.Errorf("serialize page header: %w", err)
 	}

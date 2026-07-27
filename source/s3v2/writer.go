@@ -73,7 +73,7 @@ func (s *s3Writer) Write(p []byte) (n int, err error) {
 	writeOpened := s.writeOpened
 	s.lock.RUnlock()
 	if !writeOpened {
-		s.openWrite()
+		s.openWrite(s.ctx)
 	}
 
 	s.lock.RLock()
@@ -119,9 +119,13 @@ func (s *s3Writer) Close() error {
 
 // Create creates a new S3 File instance to perform writes
 func (s *s3Writer) Create(key string) (source.ParquetFileWriter, error) {
+	return s.CreateContext(s.ctx, key)
+}
+
+func (s *s3Writer) CreateContext(ctx context.Context, key string) (source.ParquetFileWriter, error) {
 	pf := &s3Writer{
 		s3File: s3File{
-			ctx:        s.ctx,
+			ctx:        ctx,
 			bucketName: s.bucketName,
 			key:        key,
 		},
@@ -130,13 +134,13 @@ func (s *s3Writer) Create(key string) (source.ParquetFileWriter, error) {
 		uploadInputOptions: s.uploadInputOptions,
 		writeDone:          make(chan error),
 	}
-	pf.openWrite()
+	pf.openWrite(ctx)
 	return pf, nil
 }
 
 // openWrite creates an S3 transfer manager that consumes the Reader end of an io.Pipe.
 // Calling Close signals write completion.
-func (s *s3Writer) openWrite() {
+func (s *s3Writer) openWrite(ctx context.Context) {
 	pr, pw := io.Pipe()
 	tm := transfermanager.New(s.client, s.tmOptions...)
 	s.lock.Lock()
@@ -159,7 +163,7 @@ func (s *s3Writer) openWrite() {
 		defer close(done)
 
 		// upload data and signal done when complete
-		_, err := tm.UploadObject(s.ctx, params)
+		_, err := tm.UploadObject(ctx, params)
 		if err != nil {
 			s.lock.Lock()
 			s.err = err

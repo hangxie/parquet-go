@@ -103,6 +103,7 @@ func TestOffsetIndexFirstRowIndex(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(ListStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(numRows), pr.GetNumRows())
@@ -111,6 +112,7 @@ func TestOffsetIndexFirstRowIndex(t *testing.T) {
 		// every page location advertises a row-based first_row_index.
 		var checkedMultiPage bool
 		for col := range pr.Footer.RowGroups[0].Columns {
+			//nolint:staticcheck
 			oi, err := pr.ReadOffsetIndex(0, col)
 			require.NoError(t, err)
 			if oi == nil {
@@ -172,9 +174,11 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
+		//nolint:staticcheck
 		require.Nil(t, pr.ReadFooter())
 
 		require.Equal(t, 1, len(pr.Footer.RowGroups))
@@ -223,8 +227,10 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pr.ReadFooter())
 
 		columns := pr.Footer.RowGroups[0].GetColumns()
@@ -273,9 +279,11 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.Nil(t, err)
 
+		//nolint:staticcheck
 		require.Nil(t, pr.ReadFooter())
 
 		require.Equal(t, 1, len(pr.Footer.RowGroups))
@@ -333,8 +341,10 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pr.ReadFooter())
 
 		require.Equal(t, 1, len(pr.Footer.RowGroups))
@@ -376,8 +386,10 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pr.ReadFooter())
 
 		columns := pr.Footer.RowGroups[0].GetColumns()
@@ -409,15 +421,17 @@ func TestColumnIndex(t *testing.T) {
 		defer func() {
 			require.NoError(t, pf.Close())
 		}()
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		require.NoError(t, pr.ReadFooter())
 
 		columns := pr.Footer.RowGroups[0].GetColumns()
 		colIdx, err := readColumnIndex(pr.PFile, *columns[0].ColumnIndexOffset)
 		require.NoError(t, err)
 
-		// Both maxDefLevel and maxRepLevel are 0 → no histograms
+		// Required field: maxDefLevel=0 → histogram would be trivial [0, values], so none
 		require.False(t, colIdx.IsSetDefinitionLevelHistograms())
 		require.False(t, colIdx.IsSetRepetitionLevelHistograms())
 	})
@@ -617,11 +631,13 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(4), pr.GetNumRows())
 
 		results := make([]TestStruct, 4)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&results))
 
 		for i := range testData {
@@ -664,11 +680,13 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(6), pr.GetNumRows())
 
 		results := make([]DictStruct, 6)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&results))
 
 		for i := range testData {
@@ -700,6 +718,7 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(SimpleStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(2), pr.GetNumRows())
@@ -731,11 +750,13 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(ValueStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(3), pr.GetNumRows())
 
 		results := make([]ValueStruct, 3)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&results))
 
 		for i := range testData {
@@ -759,13 +780,16 @@ func TestDataPageVersion(t *testing.T) {
 		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
 		defer func() { _ = pf.Close() }()
 
+		//nolint:staticcheck
 		pr, err := reader.NewParquetReader(pf, new(ValueStruct), reader.WithNP(1))
 		require.NoError(t, err)
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(100), pr.GetNumRows())
 
 		results := make([]ValueStruct, 100)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&results))
 
 		for i := range results {
@@ -800,9 +824,11 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		res := make([]MyStruct, len(records))
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&res))
 
 		for i, rec := range res {
@@ -854,9 +880,11 @@ func TestDataPageVersion(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(MyStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		res := make([]MyStruct, 2)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&res))
 
 		require.NotNil(t, res[0].Val)
@@ -954,11 +982,13 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(3), pr.GetNumRows())
 
 		results := make([]TestStruct, 3)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&results))
 
 		for i := range testData {
@@ -1005,11 +1035,13 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(DictStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		require.Equal(t, int64(4), pr.GetNumRows())
 
 		results := make([]DictStruct, 4)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&results))
 
 		for i := range testData {
@@ -1045,6 +1077,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		columns := pr.Footer.RowGroups[0].GetColumns()
@@ -1076,6 +1109,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		// All columns should use file-level compression (GZIP)
@@ -1087,6 +1121,7 @@ func TestPerColumnCompression(t *testing.T) {
 
 		// Verify data integrity
 		results := make([]TestStruct, 2)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&results))
 		for i := range testData {
 			require.Equal(t, testData[i], results[i])
@@ -1115,6 +1150,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		// Verify compression codecs - map has key and value columns
@@ -1148,6 +1184,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		// Verify compression codec - list has one element column
@@ -1181,6 +1218,7 @@ func TestPerColumnCompression(t *testing.T) {
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(TestStruct), reader.WithNP(1))
 		require.NoError(t, err)
 		defer func() { _ = pf.Close() }()
+		//nolint:staticcheck
 		defer func() { _ = pr.ReadStop() }()
 
 		columns := pr.Footer.RowGroups[0].GetColumns()
@@ -1191,6 +1229,7 @@ func TestPerColumnCompression(t *testing.T) {
 
 		// Verify data is read correctly
 		results := make([]TestStruct, 2)
+		//nolint:staticcheck
 		require.NoError(t, pr.Read(&results))
 		for i := range testData {
 			require.Equal(t, testData[i], results[i])
@@ -1242,12 +1281,15 @@ func TestWriteCRC_RoundTrip(t *testing.T) {
 
 			// Read
 			pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+			//nolint:staticcheck
 			pr, err := reader.NewParquetReader(pf, new(testRecord),
 				reader.WithNP(1), reader.WithCRCMode(tc.crcMode))
 			require.NoError(t, err)
 
 			results := make([]testRecord, 10)
+			//nolint:staticcheck
 			require.NoError(t, pr.Read(&results))
+			//nolint:staticcheck
 			require.NoError(t, pr.ReadStop())
 			_ = pf.Close()
 
@@ -1278,12 +1320,15 @@ func TestWriteCRC_DictEncoding_RoundTrip(t *testing.T) {
 
 	// Read with strict CRC
 	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(pf, new(testRecord),
 		reader.WithNP(1), reader.WithCRCMode(common.CRCStrict))
 	require.NoError(t, err)
 
 	results := make([]testRecord, 20)
+	//nolint:staticcheck
 	require.NoError(t, pr.Read(&results))
+	//nolint:staticcheck
 	require.NoError(t, pr.ReadStop())
 	_ = pf.Close()
 

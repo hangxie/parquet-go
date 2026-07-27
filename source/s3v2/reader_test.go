@@ -371,6 +371,13 @@ func TestS3Reader_Clone(t *testing.T) {
 	})
 }
 
+func TestS3ReaderCloneContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := new(s3Reader).CloneContext(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestS3Reader_Close(t *testing.T) {
 	ctx := context.Background()
 	client := newMockS3ReadClient()
