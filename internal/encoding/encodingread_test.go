@@ -398,7 +398,7 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 			maxVal := uint64(data[len(data)-1].(int64))
 			buf, err := WriteRLEBitPackedHybrid(data, int32(bits.Len64(maxVal)), parquet.Type_INT64)
 			require.NoError(t, err)
-			res, err := ReadRLEBitPackedHybrid(bytes.NewReader(buf), uint64(bits.Len64(maxVal)), 0, 0)
+			res, err := ReadRLEBitPackedHybrid(bytes.NewReader(buf), uint64(bits.Len64(maxVal)), 0, uint64(len(data)))
 			require.NoError(t, err)
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res))
 		}

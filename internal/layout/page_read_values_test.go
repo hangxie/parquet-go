@@ -415,15 +415,10 @@ func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 			cnt:            21, // Request 21 values
 			bitWidth:       4,
 			setupData: func() []byte {
-				// Create RLE data that only contains 1 value (repeated once)
-				// Bit width byte
-				data := []byte{4} // bitWidth = 4
-				// Write RLE/bit-packed hybrid data for just 1 value
-				rleBuf, _ := encoding.WriteRLEBitPackedHybrid([]any{int64(0)}, 4, parquet.Type_INT64)
-				data = append(data, rleBuf...)
-				return data
+				// Dictionary data has no length prefix: bit width 4, then one RLE value.
+				return []byte{4, 2, 0}
 			},
-			expectedError: "expected 21 values but got 2 from RLE/bit-packed hybrid decoder",
+			expectedError: "expected 21 values but got 1 from RLE/bit-packed hybrid decoder",
 		},
 		{
 			name:           "rle_fewer_values_than_expected",
@@ -432,9 +427,8 @@ func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 			cnt:            21, // Request 21 values
 			bitWidth:       4,
 			setupData: func() []byte {
-				// Create RLE data that only contains 1 value
-				rleBuf, _ := encoding.WriteRLEBitPackedHybrid([]any{int64(0)}, 4, parquet.Type_INT64)
-				return rleBuf
+				// Length-prefixed RLE data containing one value.
+				return []byte{2, 0, 0, 0, 2, 0}
 			},
 			expectedError: "expected 21 values but got 1 from RLE/bit-packed hybrid decoder",
 		},
@@ -445,19 +439,10 @@ func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 			cnt:            10,
 			bitWidth:       3,
 			setupData: func() []byte {
-				// Create dictionary-encoded data with fewer values than requested
-				data := []byte{3} // bitWidth = 3
-				// RLE data with only 3 values - create minimal data
-				// We manually construct this to have fewer values than cnt
-				rleBuf, _ := encoding.WriteRLEBitPackedHybrid(
-					[]any{int64(0), int64(1), int64(0)},
-					3,
-					parquet.Type_INT64,
-				)
-				data = append(data, rleBuf...)
-				return data
+				// Dictionary data has no length prefix: bit width 3, then three RLE values.
+				return []byte{3, 6, 0}
 			},
-			expectedError: "expected 10 values but got",
+			expectedError: "expected 10 values but got 3",
 		},
 	}
 

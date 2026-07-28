@@ -11,31 +11,34 @@ import (
 )
 
 func WriteRLE(vals []any, bitWidth int32, pt parquet.Type) ([]byte, error) {
-	ln := len(vals)
-	i := 0
-	res := make([]byte, 0)
-	for i < ln {
-		j := i + 1
-		for j < ln && vals[j] == vals[i] {
-			j++
+	intVals := make([]int64, len(vals))
+	for i, val := range vals {
+		switch pt {
+		case parquet.Type_BOOLEAN:
+			boolVal, ok := val.(bool)
+			if !ok {
+				return nil, fmt.Errorf("WriteRLE: value %d has type %T, expected bool", i, val)
+			}
+			if boolVal {
+				intVals[i] = 1
+			}
+		case parquet.Type_INT32:
+			intVal, ok := val.(int32)
+			if !ok {
+				return nil, fmt.Errorf("WriteRLE: value %d has type %T, expected int32", i, val)
+			}
+			intVals[i] = int64(intVal)
+		case parquet.Type_INT64:
+			intVal, ok := val.(int64)
+			if !ok {
+				return nil, fmt.Errorf("WriteRLE: value %d has type %T, expected int64", i, val)
+			}
+			intVals[i] = intVal
+		default:
+			return nil, fmt.Errorf("WriteRLE: unsupported parquet type %v", pt)
 		}
-		num := j - i
-		header := num << 1
-		byteNum := (bitWidth + 7) / 8
-		headerBuf := WriteUnsignedVarInt(uint64(header))
-
-		valBuf, err := WritePlain([]any{vals[i]}, pt)
-		if err != nil {
-			return nil, err
-		}
-
-		rleBuf := make([]byte, int64(len(headerBuf))+int64(byteNum))
-		copy(rleBuf[0:], headerBuf)
-		copy(rleBuf[len(headerBuf):], valBuf[0:byteNum])
-		res = append(res, rleBuf...)
-		i = j
 	}
-	return res, nil
+	return writeRLEInt64(intVals, bitWidth), nil
 }
 
 func WriteRLEBitPackedHybrid(vals []any, bitWidths int32, pt parquet.Type) ([]byte, error) {
@@ -54,27 +57,11 @@ func WriteRLEBitPackedHybrid(vals []any, bitWidths int32, pt parquet.Type) ([]by
 }
 
 func WriteRLEInt32(vals []int32, bitWidth int32) []byte {
-	ln := len(vals)
-	i := 0
-	res := make([]byte, 0)
-	for i < ln {
-		j := i + 1
-		for j < ln && vals[j] == vals[i] {
-			j++
-		}
-		num := j - i
-		header := num << 1
-		byteNum := (bitWidth + 7) / 8
-		headerBuf := WriteUnsignedVarInt(uint64(header))
-
-		var valBuf [4]byte
-		binary.LittleEndian.PutUint32(valBuf[:], uint32(vals[i]))
-
-		res = append(res, headerBuf...)
-		res = append(res, valBuf[:byteNum]...)
-		i = j
+	intVals := make([]int64, len(vals))
+	for i := range vals {
+		intVals[i] = int64(vals[i])
 	}
-	return res
+	return writeRLEInt64(intVals, bitWidth)
 }
 
 func WriteRLEBitPackedHybridInt32(vals []int32, bitWidths int32) ([]byte, error) {
@@ -94,55 +81,91 @@ func WriteBitPacked(vals []any, bitWidth int64, ifHeader bool) []byte {
 	if ln <= 0 {
 		return nil
 	}
-	valsInt := ToInt64(vals)
+	return writeBitPackedInt64(ToInt64(vals), bitWidth, ifHeader)
+}
 
-	header := ((ln/8)<<1 | 1)
-	headerBuf := WriteUnsignedVarInt(uint64(header))
+const (
+	rleRunThreshold = 8
+	bitPackedGroup  = 8
+)
 
-	valBuf := make([]byte, 0)
+func writeRLEInt64(vals []int64, bitWidth int32) []byte {
+	res := make([]byte, 0)
+	literalStart := 0
 
-	i := 0
-	var resCur int64 = 0
-	var resCurNeedBits int64 = 8
-	var used int64 = 0
-	left := bitWidth - used
-	val := int64(valsInt[i])
-	for i < ln {
-		if left >= resCurNeedBits {
-			resCur |= ((val >> uint64(used)) & ((1 << uint64(resCurNeedBits)) - 1)) << uint64(8-resCurNeedBits)
-			valBuf = append(valBuf, byte(resCur))
-			left -= resCurNeedBits
-			used += resCurNeedBits
+	for i := 0; i < len(vals); {
+		runEnd := i + 1
+		for runEnd < len(vals) && vals[runEnd] == vals[i] {
+			runEnd++
+		}
 
-			resCurNeedBits = 8
-			resCur = 0
-
-			if left <= 0 && (i+1) < ln {
-				i += 1
-				val = int64(valsInt[i])
-				left = bitWidth
-				used = 0
+		runStart := i
+		runLength := runEnd - runStart
+		if runLength >= rleRunThreshold {
+			literalLength := runStart - literalStart
+			alignment := (bitPackedGroup - literalLength%bitPackedGroup) % bitPackedGroup
+			if runLength-alignment >= rleRunThreshold {
+				if alignment > 0 {
+					runStart += alignment
+					runLength -= alignment
+				}
+				res = appendBitPackedRun(res, vals[literalStart:runStart], bitWidth)
+				res = appendRLERun(res, vals[runStart], runLength, bitWidth)
+				literalStart = runEnd
 			}
-		} else {
-			resCur |= (val >> uint64(used)) << uint64(8-resCurNeedBits)
-			i += 1
+		}
+		i = runEnd
+	}
 
-			if i < ln {
-				val = int64(valsInt[i])
-			}
-			resCurNeedBits -= left
+	return appendBitPackedRun(res, vals[literalStart:], bitWidth)
+}
 
-			left = bitWidth
-			used = 0
+func appendBitPackedRun(dst []byte, vals []int64, bitWidth int32) []byte {
+	if len(vals) == 0 {
+		return dst
+	}
+
+	paddedLength := (len(vals) + bitPackedGroup - 1) / bitPackedGroup * bitPackedGroup
+	padded := make([]int64, paddedLength)
+	copy(padded, vals)
+	return append(dst, writeBitPackedInt64(padded, int64(bitWidth), true)...)
+}
+
+func appendRLERun(dst []byte, val int64, runLength int, bitWidth int32) []byte {
+	dst = append(dst, WriteUnsignedVarInt(uint64(runLength<<1))...)
+
+	var valBuf [8]byte
+	binary.LittleEndian.PutUint64(valBuf[:], uint64(val))
+	byteCount := (bitWidth + 7) / 8
+	return append(dst, valBuf[:byteCount]...)
+}
+
+func writeBitPackedInt64(vals []int64, bitWidth int64, withHeader bool) []byte {
+	res := make([]byte, 0, (len(vals)*int(bitWidth)+7)/8+1)
+	if withHeader {
+		header := (len(vals)/bitPackedGroup)<<1 | 1
+		res = append(res, WriteUnsignedVarInt(uint64(header))...)
+	}
+	if bitWidth == 0 {
+		return res
+	}
+
+	packed := make([]byte, (len(vals)*int(bitWidth)+7)/8)
+	for i, val := range vals {
+		value := uint64(val)
+		bitOffset := i * int(bitWidth)
+		for valueBits := int(bitWidth); valueBits > 0; {
+			byteOffset := bitOffset / 8
+			offsetInByte := bitOffset % 8
+			bitsToWrite := min(8-offsetInByte, valueBits)
+			mask := uint64(1<<bitsToWrite) - 1
+			valueOffset := int(bitWidth) - valueBits
+			packed[byteOffset] |= byte((value>>valueOffset)&mask) << offsetInByte
+			bitOffset += bitsToWrite
+			valueBits -= bitsToWrite
 		}
 	}
-
-	res := make([]byte, 0)
-	if ifHeader {
-		res = append(res, headerBuf...)
-	}
-	res = append(res, valBuf...)
-	return res
+	return append(res, packed...)
 }
 
 func WriteDelta(nums []any) ([]byte, error) {

@@ -207,7 +207,11 @@ func ReadRLEBitPackedHybrid(bytesReader *bytes.Reader, bitWidth, length, maxCoun
 			return res, err
 		}
 		if header&1 == 0 {
-			buf, err := ReadRLE(newReader, header, bitWidth, maxCount)
+			remainingCount := maxCount
+			if maxCount > 0 {
+				remainingCount -= uint64(len(res))
+			}
+			buf, err := ReadRLE(newReader, header, bitWidth, remainingCount)
 			if err != nil {
 				return res, err
 			}
@@ -219,6 +223,9 @@ func ReadRLEBitPackedHybrid(bytesReader *bytes.Reader, bitWidth, length, maxCoun
 				return res, err
 			}
 			res = append(res, buf...)
+		}
+		if maxCount > 0 && uint64(len(res)) >= maxCount {
+			return res[:maxCount], nil
 		}
 	}
 	return res, nil
