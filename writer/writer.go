@@ -124,6 +124,7 @@ type ParquetWriter struct {
 	marshalFunc func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error)
 
 	stopped            bool
+	stopErr            error
 	encodingsValidated bool // tracks if encoding/version validation has been done
 	defaultCtx         context.Context
 	ctx                context.Context

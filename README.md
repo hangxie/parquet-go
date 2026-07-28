@@ -98,6 +98,8 @@ func main() {
 }
 ```
 
+`WriteStop` is idempotent after successful finalization. If finalization fails, the writer remains stopped and later `WriteStop` calls return an error stating that the file is incomplete instead of retrying non-idempotent footer writes.
+
 ### Read a File
 
 ```go

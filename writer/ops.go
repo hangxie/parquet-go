@@ -23,16 +23,17 @@ func (pw *ParquetWriter) WriteStop() error {
 
 // WriteStopWithContext flushes pending rows and writes the footer. Context
 // values are propagated, but cancellation does not interrupt finalization; a
-// cancellation error is returned after the file has been made valid.
+// cancellation error is returned after the file has been made valid. Calls
+// after a finalization failure return an error indicating the file is incomplete.
 func (pw *ParquetWriter) WriteStopWithContext(ctx context.Context) (retErr error) {
 	if pw.stopped {
-		return nil
+		return pw.stopErr
 	}
 	if ctx == nil {
 		return fmt.Errorf("context is nil")
 	}
 	defer func() {
-		retErr = errors.Join(ctx.Err(), retErr)
+		retErr = pw.finishWriteStop(ctx, retErr)
 	}()
 	finalizeCtx := context.WithoutCancel(ctx)
 	if err := pw.setContext(finalizeCtx); err != nil {
@@ -113,6 +114,13 @@ func (pw *ParquetWriter) WriteStopWithContext(ctx context.Context) (retErr error
 	}
 
 	return nil
+}
+
+func (pw *ParquetWriter) finishWriteStop(ctx context.Context, err error) error {
+	if pw.stopped && err != nil {
+		pw.stopErr = fmt.Errorf("previous WriteStop failed; file is incomplete: %w", err)
+	}
+	return errors.Join(ctx.Err(), err)
 }
 
 // Write writes one object to the parquet file.

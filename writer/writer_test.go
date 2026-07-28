@@ -121,6 +121,7 @@ func TestWriteStopWithContextCanceledFinalizesFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	require.ErrorIs(t, pw.WriteStopWithContext(ctx), context.Canceled)
+	require.NoError(t, pw.WriteStop())
 
 	//nolint:staticcheck
 	pr, err := reader.NewParquetReader(buffer.NewBufferReaderFromBytes(file.Bytes()), new(row), reader.WithNP(1))
@@ -373,6 +374,10 @@ func TestParquetWriter(t *testing.T) {
 		stopErr := pw.WriteStop()
 		require.Error(t, stopErr)
 		require.Contains(t, stopErr.Error(), "nil value encountered for REQUIRED field")
+
+		stopErr = pw.WriteStop()
+		require.Error(t, stopErr)
+		require.Contains(t, stopErr.Error(), "previous WriteStop failed; file is incomplete")
 	})
 
 	t.Run("zero_rows", func(t *testing.T) {
