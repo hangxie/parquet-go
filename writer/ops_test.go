@@ -405,3 +405,49 @@ func TestWriteStopTailWriteErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteStopAfterFailure(t *testing.T) {
+	tests := []struct {
+		name        string
+		failOnWrite int
+		want        string
+	}{
+		{
+			name:        "footer",
+			failOnWrite: 2,
+			want:        "write footer",
+		},
+		{
+			name:        "footer_size",
+			failOnWrite: 3,
+			want:        "write footer size",
+		},
+		{
+			name:        "magic_tail",
+			failOnWrite: 4,
+			want:        "write magic tail",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			type Entry struct {
+				ID int32 `parquet:"name=id, type=INT32"`
+			}
+
+			fw := &failOnWriteN{failOn: tt.failOnWrite}
+			pw, err := NewParquetWriter(fw, new(Entry), WithNP(1))
+			require.NoError(t, err)
+
+			err = pw.WriteStop()
+			require.ErrorIs(t, err, errWrite)
+			require.Contains(t, err.Error(), tt.want)
+			writeCount := fw.count
+
+			err = pw.WriteStop()
+			require.ErrorIs(t, err, errWrite)
+			require.Contains(t, err.Error(), "previous WriteStop failed; file is incomplete")
+			require.Equal(t, writeCount, fw.count)
+		})
+	}
+}
