@@ -87,7 +87,12 @@ func WithWriteCRC(enabled bool) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) { pw.writeCRC = enabled })
 }
 
-// ParquetWriter is a writer  parquet file
+// ParquetWriter writes parquet files.
+//
+// A ParquetWriter must not be used by multiple goroutines concurrently.
+// Callers must serialize all operations on an instance, including Write,
+// Flush, WriteStop, and their context-aware variants. WithNP controls internal
+// parallelism and does not make concurrent method calls safe.
 type ParquetWriter struct {
 	SchemaHandler *schema.SchemaHandler
 	Footer        *parquet.FileMetaData
