@@ -18,6 +18,9 @@ import (
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
+// DefaultMaxDictionarySize is the default encoded dictionary value-byte limit.
+const DefaultMaxDictionarySize = 1024 * 1024
+
 // columnCompressorKey uniquely identifies a (codec, level) combination for sharing compressor instances.
 type columnCompressorKey struct {
 	codec parquet.CompressionCodec
@@ -50,6 +53,11 @@ func WithPageSize(size int64) WriterOption {
 // WithRowGroupSize sets the row group size in bytes. Default is 128MB.
 func WithRowGroupSize(size int64) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) { pw.rowGroupSize = size })
+}
+
+// WithMaxDictionarySize limits encoded dictionary value bytes per column and row group.
+func WithMaxDictionarySize(size int64) WriterOption {
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.maxDictionarySize = size })
 }
 
 // WithCompressionCodec sets the compression codec. Default is SNAPPY.
@@ -88,6 +96,7 @@ type ParquetWriter struct {
 	np                int64 // parallel number
 	pageSize          int64
 	rowGroupSize      int64
+	maxDictionarySize int64
 	compressionType   parquet.CompressionCodec
 	compressionLevels map[parquet.CompressionCodec]int
 	compressor        *compress.Compressor
@@ -159,6 +168,7 @@ func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileW
 	pw.np = 4                                    // default parallel number
 	pw.pageSize = common.DefaultPageSize         // 8K
 	pw.rowGroupSize = common.DefaultRowGroupSize // 128M
+	pw.maxDictionarySize = DefaultMaxDictionarySize
 	pw.compressionType = parquet.CompressionCodec_SNAPPY
 	pw.compressionLevels = nil
 	pw.compressor = nil
@@ -203,6 +213,9 @@ func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileW
 	}
 	if pw.rowGroupSize <= 0 {
 		return fmt.Errorf("WithRowGroupSize: value must be positive, got %d", pw.rowGroupSize)
+	}
+	if pw.maxDictionarySize <= 0 {
+		return fmt.Errorf("WithMaxDictionarySize: value must be positive, got %d", pw.maxDictionarySize)
 	}
 	if pw.dataPageVersion != 1 && pw.dataPageVersion != 2 {
 		return fmt.Errorf("WithDataPageVersion: value must be 1 or 2, got %d", pw.dataPageVersion)

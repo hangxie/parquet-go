@@ -14,12 +14,22 @@ type DictRecType struct {
 	DictMap   map[any]int32
 	DictSlice []any
 	Type      parquet.Type
+	size      int64
+	maxSize   int64
+	full      bool
 }
 
 func NewDictRec(pT parquet.Type) *DictRecType {
 	res := new(DictRecType)
 	res.DictMap = make(map[any]int32)
 	res.Type = pT
+	return res
+}
+
+// NewDictRecWithLimit creates a size-limited dictionary recorder.
+func NewDictRecWithLimit(pT parquet.Type, maxSize int64) *DictRecType {
+	res := NewDictRec(pT)
+	res.maxSize = maxSize
 	return res
 }
 
@@ -74,13 +84,14 @@ func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT par
 
 // dictPageValueResult holds the results from scanning one page's worth of values for dictionary encoding.
 type dictPageValueResult struct {
-	endIdx    int
-	numValues int32
-	size      int32
-	minVal    any
-	maxVal    any
-	nullCount int64
-	values    []int32
+	endIdx         int
+	numValues      int32
+	size           int32
+	minVal         any
+	maxVal         any
+	nullCount      int64
+	values         []int32
+	dictionaryFull bool
 }
 
 // scanDictPageValues scans table values from startIdx to build one page, collecting dictionary indices and stats.
@@ -121,7 +132,15 @@ func scanDictPageValues(table *Table, dictRec *DictRecType, startIdx int, pageSi
 				r.minVal, r.maxVal, elSize = funcTable.MinMaxSize(r.minVal, r.maxVal, table.Values[r.endIdx])
 			}
 			r.size += elSize
-			r.values = append(r.values, dictRec.lookupOrInsert(table.Values[r.endIdx]))
+			index, ok, err := dictRec.tryLookupOrInsert(table.Values[r.endIdx])
+			if err != nil {
+				return r, fmt.Errorf("measure dictionary value: %w", err)
+			}
+			if !ok {
+				r.dictionaryFull = true
+				return r, nil
+			}
+			r.values = append(r.values, index)
 		}
 		r.endIdx++
 	}
@@ -139,6 +158,42 @@ func (d *DictRecType) lookupOrInsert(val any) int32 {
 	return idx
 }
 
+func (d *DictRecType) tryLookupOrInsert(val any) (int32, bool, error) {
+	if idx, ok := d.DictMap[val]; ok {
+		return idx, true, nil
+	}
+	encoded, err := encoding.WritePlain([]any{val}, d.Type)
+	if err != nil {
+		return 0, false, err
+	}
+	if d.maxSize > 0 && d.size+int64(len(encoded)) > d.maxSize {
+		d.full = true
+		return 0, false, nil
+	}
+	idx := d.lookupOrInsert(val)
+	d.size += int64(len(encoded))
+	return idx, true, nil
+}
+
+func (d *DictRecType) rollback(length int, size int64) {
+	for _, value := range d.DictSlice[length:] {
+		delete(d.DictMap, value)
+	}
+	d.DictSlice = d.DictSlice[:length]
+	d.size = size
+}
+
+func tableToPlainFallback(table *Table, start int, opt PageWriteOption) ([]*Page, int64, error) {
+	plainTable := *table
+	plainTable.Values = table.Values[start:]
+	plainTable.DefinitionLevels = table.DefinitionLevels[start:]
+	plainTable.RepetitionLevels = table.RepetitionLevels[start:]
+	plainInfo := *table.Info
+	plainInfo.Encoding = parquet.Encoding_PLAIN
+	plainTable.Info = &plainInfo
+	return TableToDataPagesWithOption(&plainTable, opt)
+}
+
 // checkRequiredNil returns an error if a nil value appears at a position where a REQUIRED field should have a value.
 func checkRequiredNil(table *Table, idx int) error {
 	if table.Schema.GetRepetitionType() == parquet.FieldRepetitionType_REQUIRED &&
@@ -149,11 +204,18 @@ func checkRequiredNil(table *Table, idx int) error {
 }
 
 // TableToDictDataPagesWithOption converts a table to dictionary-encoded data pages using the provided options.
-func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth int32, opt PageWriteOption) ([]*Page, int64, error) {
+func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, opt PageWriteOption) ([]*Page, int64, error) {
 	var totSize int64 = 0
 	totalLn := len(table.Values)
 	if totalLn == 0 {
 		return []*Page{}, 0, nil
+	}
+	if dictRec.full {
+		pages, size, err := tableToPlainFallback(table, 0, opt)
+		if err != nil {
+			return nil, 0, fmt.Errorf("build plain fallback pages: %w", err)
+		}
+		return pages, size, nil
 	}
 	res := make([]*Page, 0)
 	i := 0
@@ -166,9 +228,20 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 			return nil, 0, fmt.Errorf("find func table for given types [%v, %v, %v]: %w", pT, cT, logT, err)
 		}
 
+		dictLength, dictSize := len(dictRec.DictSlice), dictRec.size
 		scan, err := scanDictPageValues(table, dictRec, i, opt.PageSize, omitStats, funcTable)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan dict page values at %d: %w", i, err)
+		}
+		if scan.dictionaryFull {
+			dictRec.rollback(dictLength, dictSize)
+			plainPages, plainSize, plainErr := tableToPlainFallback(table, i, opt)
+			if plainErr != nil {
+				return nil, 0, fmt.Errorf("build plain fallback pages at %d: %w", i, plainErr)
+			}
+			res = append(res, plainPages...)
+			totSize += plainSize
+			break
 		}
 
 		page := NewDataPage()
@@ -199,6 +272,10 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 
 		page.computeLevelHistograms()
 
+		bitWidth := int32(0)
+		if len(dictRec.DictSlice) > 1 {
+			bitWidth = int32(bits.Len(uint(len(dictRec.DictSlice) - 1)))
+		}
 		compressedData, compressErr := page.dictDataPageCompress(opt.CompressType, bitWidth, scan.values, opt.Compressor)
 		if compressErr != nil {
 			return nil, 0, fmt.Errorf("compress dict data page: %w", compressErr)
@@ -206,12 +283,32 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, bitWidth
 		if err = serializePage(page, opt, compressedData); err != nil {
 			return nil, 0, fmt.Errorf("serialize dict data page: %w", err)
 		}
+		page.dictionaryIndices = append([]int32{}, scan.values...)
 
 		totSize += int64(len(page.RawData))
 		res = append(res, page)
 		i = scan.endIdx
 	}
 	return res, totSize, nil
+}
+
+// FinalizeDictDataPagesWithOption rewrites buffered pages with bitWidth.
+func FinalizeDictDataPagesWithOption(pages []*Page, bitWidth int32, opt PageWriteOption) error {
+	for i, page := range pages {
+		if page == nil || page.dictionaryIndices == nil {
+			continue
+		}
+		compressedData, err := page.dictDataPageCompress(opt.CompressType, bitWidth, page.dictionaryIndices, opt.Compressor)
+		if err != nil {
+			return fmt.Errorf("compress dict data page %d: %w", i, err)
+		}
+		if err := serializePage(page, opt, compressedData); err != nil {
+			return fmt.Errorf("serialize dict data page %d: %w", i, err)
+		}
+		page.dictionaryIndices = nil
+		page.DataTable = nil
+	}
+	return nil
 }
 
 func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bitWidth int32, values []int32, c *compress.Compressor) ([]byte, error) {

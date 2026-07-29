@@ -66,6 +66,9 @@ type Page struct {
 	// Only set for BYTE_ARRAY physical type columns; nil otherwise.
 	UnencodedByteArrayDataBytes *int64
 
+	// dictionaryIndices are retained until row-group finalization.
+	dictionaryIndices []int32
+
 	// compressor is set during page reading so that subsequent operations
 	// (GetRLDLFromRawData, GetValueFromRawData) can decompress using
 	// the same per-instance compressor. Nil means use DefaultCompressor.

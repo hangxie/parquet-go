@@ -189,27 +189,11 @@ func (pw *ParquetWriter) buildChunkMap() (map[string]*layout.Chunk, error) {
 			}
 		}
 
-		if len(pages) > 0 && (pages[0].Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY || pages[0].Info.Encoding == parquet.Encoding_RLE_DICTIONARY) {
-			v, ok := pw.DictRecs.Load(name)
-			if !ok {
-				return nil, fmt.Errorf("missing dictionary recorder for column %s", name)
-			}
-			dictRec := v.(*layout.DictRecType)
-			dictPage, _, err := layout.DictRecToDictPageWithOption(dictRec, layout.PageWriteOption{
-				Context:      pw.context(),
-				PageSize:     int32(pw.pageSize),
-				CompressType: compressionType,
-				WriteCRC:     pw.writeCRC,
-				Compressor:   pw.compressorForColumn(name),
-			})
+		if hasDictionaryDataPage(pages) {
+			var err error
+			chunkMap[name], err = pw.buildDictionaryChunk(name, pages, compressionType)
 			if err != nil {
-				return nil, fmt.Errorf("convert dict rec to dict page for column %s: %w", name, err)
-			}
-			tmp := append([]*layout.Page{dictPage}, pages...)
-			var chunkErr error
-			chunkMap[name], chunkErr = layout.PagesToDictChunk(tmp)
-			if chunkErr != nil {
-				return nil, fmt.Errorf("convert pages to dict chunk for column %s: %w", name, chunkErr)
+				return nil, err
 			}
 		} else {
 			var err error

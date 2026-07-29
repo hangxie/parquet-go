@@ -609,7 +609,7 @@ func TestTableToDataPagesRowAligned(t *testing.T) {
 			Info:               &common.Tag{},
 		}
 
-		pages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, 32, PageWriteOption{
+		pages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, PageWriteOption{
 			PageSize:     6,
 			CompressType: parquet.CompressionCodec_UNCOMPRESSED,
 		})
