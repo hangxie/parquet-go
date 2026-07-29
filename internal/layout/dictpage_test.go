@@ -99,7 +99,7 @@ func TestTableToDictDataPagesWithOption(t *testing.T) {
 				WriteCRC:     tc.writeCRC,
 			}
 
-			pages, totalSize, err := TableToDictDataPagesWithOption(dictRec, table, 2, opt)
+			pages, totalSize, err := TableToDictDataPagesWithOption(dictRec, table, opt)
 			require.NoError(t, err)
 			require.NotEmpty(t, pages)
 			require.Positive(t, totalSize)
@@ -152,6 +152,17 @@ func TestDictRecToDictPageWithOption(t *testing.T) {
 	}
 }
 
+func TestDictRecToDictPageWithOption_EncodeError(t *testing.T) {
+	dictRec := NewDictRec(parquet.Type_INT32)
+	dictRec.DictSlice = []any{"wrong type"}
+
+	_, _, err := DictRecToDictPageWithOption(dictRec, PageWriteOption{
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "compress dictionary page")
+}
+
 func TestScanDictPageValues_RequiredNil(t *testing.T) {
 	table := &Table{
 		Schema: &parquet.SchemaElement{
@@ -175,6 +186,15 @@ func TestLookupOrInsert_ExistingValue(t *testing.T) {
 	idx2 := dictRec.lookupOrInsert(int32(42)) // already present
 	require.Equal(t, idx1, idx2)
 	require.Len(t, dictRec.DictSlice, 1)
+
+	idx3, ok, err := dictRec.tryLookupOrInsert(int32(42))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, idx1, idx3)
+
+	_, ok, err = NewDictRec(parquet.Type_INT32).tryLookupOrInsert("wrong type")
+	require.Error(t, err)
+	require.False(t, ok)
 }
 
 func TestScanDictPageValues_OptionalNull(t *testing.T) {
@@ -202,7 +222,7 @@ func TestTableToDictDataPagesWithOption_EmptyTable(t *testing.T) {
 		Schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
 		Values: []any{},
 	}
-	pages, totalSize, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, 2, PageWriteOption{PageSize: 1024})
+	pages, totalSize, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, PageWriteOption{PageSize: 1024})
 	require.NoError(t, err)
 	require.Empty(t, pages)
 	require.Zero(t, totalSize)
@@ -219,12 +239,162 @@ func TestTableToDictDataPagesWithOption_ScanError(t *testing.T) {
 		MaxDefinitionLevel: 0,
 		Info:               &common.Tag{},
 	}
-	_, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, 2, PageWriteOption{
+	_, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, PageWriteOption{
 		PageSize:     1024,
 		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "scan dict page values")
+}
+
+func TestTableToDictDataPagesWithOption_PlainFallback(t *testing.T) {
+	dictTag, err := common.StringToTag("name=value, type=BYTE_ARRAY, encoding=PLAIN_DICTIONARY")
+	require.NoError(t, err)
+	newTable := func() *Table {
+		return &Table{
+			Schema: &parquet.SchemaElement{
+				Type:           common.ToPtr(parquet.Type_BYTE_ARRAY),
+				RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+			},
+			Values:             []any{"alpha", "bravo", "charlie"},
+			DefinitionLevels:   []int32{0, 0, 0},
+			RepetitionLevels:   []int32{0, 0, 0},
+			MaxDefinitionLevel: 0,
+			Info:               dictTag,
+		}
+	}
+
+	tests := []struct {
+		name          string
+		pageSize      int32
+		wantDictSize  int
+		wantEncodings []parquet.Encoding
+	}{
+		{
+			name:          "fallback_at_page_boundary",
+			pageSize:      5,
+			wantDictSize:  1,
+			wantEncodings: []parquet.Encoding{parquet.Encoding_RLE_DICTIONARY, parquet.Encoding_PLAIN, parquet.Encoding_PLAIN},
+		},
+		{
+			name:          "rollback_partial_dictionary_page",
+			pageSize:      1024,
+			wantDictSize:  0,
+			wantEncodings: []parquet.Encoding{parquet.Encoding_PLAIN},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dictRec := NewDictRecWithLimit(parquet.Type_BYTE_ARRAY, 10)
+			pages, totalSize, err := TableToDictDataPagesWithOption(dictRec, newTable(), PageWriteOption{
+				PageSize:     tt.pageSize,
+				CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+			})
+			require.NoError(t, err)
+			require.Positive(t, totalSize)
+			require.Len(t, dictRec.DictSlice, tt.wantDictSize)
+			require.Len(t, pages, len(tt.wantEncodings))
+			for i, encoding := range tt.wantEncodings {
+				require.Equal(t, encoding, pages[i].Header.DataPageHeader.Encoding)
+			}
+
+			morePages, _, err := TableToDictDataPagesWithOption(dictRec, newTable(), PageWriteOption{
+				PageSize:     tt.pageSize,
+				CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+			})
+			require.NoError(t, err)
+			for _, page := range morePages {
+				require.Equal(t, parquet.Encoding_PLAIN, page.Header.DataPageHeader.Encoding)
+			}
+
+			_, _, err = TableToDictDataPagesWithOption(dictRec, newTable(), PageWriteOption{
+				PageSize:     tt.pageSize,
+				CompressType: parquet.CompressionCodec(9999),
+			})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "build plain fallback pages")
+		})
+	}
+}
+
+func TestFinalizeDictDataPagesWithOption(t *testing.T) {
+	dictTag, err := common.StringToTag("name=value, type=INT32, encoding=PLAIN_DICTIONARY")
+	require.NoError(t, err)
+	tests := []struct {
+		name   string
+		values []any
+		defs   []int32
+		maxDef int32
+		width  int32
+	}{
+		{
+			name:   "values",
+			values: []any{int32(1), int32(2)},
+			defs:   []int32{0, 0},
+			width:  1,
+		},
+		{
+			name:   "all_null",
+			values: []any{nil},
+			defs:   []int32{0},
+			maxDef: 1,
+			width:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			table := &Table{
+				Schema: &parquet.SchemaElement{
+					Type:           common.ToPtr(parquet.Type_INT32),
+					RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+				},
+				Values:             tt.values,
+				DefinitionLevels:   tt.defs,
+				RepetitionLevels:   make([]int32, len(tt.values)),
+				MaxDefinitionLevel: tt.maxDef,
+				Info:               dictTag,
+			}
+			pages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, PageWriteOption{
+				PageSize:     1024,
+				CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, pages[0].DataTable)
+
+			err = FinalizeDictDataPagesWithOption(
+				append([]*Page{nil}, pages...),
+				tt.width,
+				PageWriteOption{CompressType: parquet.CompressionCodec_UNCOMPRESSED},
+			)
+			require.NoError(t, err)
+			require.Nil(t, pages[0].DataTable)
+			require.Nil(t, pages[0].dictionaryIndices)
+		})
+	}
+}
+
+func TestFinalizeDictDataPagesWithOption_CompressError(t *testing.T) {
+	table := &Table{
+		Schema:             &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
+		Values:             []any{int32(1)},
+		DefinitionLevels:   []int32{0},
+		RepetitionLevels:   []int32{0},
+		MaxDefinitionLevel: 0,
+		MaxRepetitionLevel: 0,
+		Info:               &common.Tag{},
+		RepetitionType:     parquet.FieldRepetitionType_REQUIRED,
+	}
+	pages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, PageWriteOption{
+		PageSize:     1024,
+		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+	})
+	require.NoError(t, err)
+
+	err = FinalizeDictDataPagesWithOption(pages, 1, PageWriteOption{CompressType: parquet.CompressionCodec(9999)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "compress dict data page")
 }
 
 func TestDictDataPageCompress_RepetitionLevels(t *testing.T) {

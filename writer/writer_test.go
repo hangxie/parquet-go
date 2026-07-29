@@ -465,6 +465,11 @@ func TestOptionValidation(t *testing.T) {
 		"page_size_zero":       {[]WriterOption{WithPageSize(0)}, "WithPageSize: value must be positive"},
 		"page_size_negative":   {[]WriterOption{WithPageSize(-100)}, "WithPageSize: value must be positive"},
 		"row_group_size_zero":  {[]WriterOption{WithRowGroupSize(0)}, "WithRowGroupSize: value must be positive"},
+		"dictionary_size_zero": {[]WriterOption{WithMaxDictionarySize(0)}, "WithMaxDictionarySize: value must be positive"},
+		"dictionary_size_negative": {
+			[]WriterOption{WithMaxDictionarySize(-1)},
+			"WithMaxDictionarySize: value must be positive",
+		},
 		"data_page_version_0":  {[]WriterOption{WithDataPageVersion(0)}, "WithDataPageVersion: value must be 1 or 2"},
 		"data_page_version_3":  {[]WriterOption{WithDataPageVersion(3)}, "WithDataPageVersion: value must be 1 or 2"},
 		"data_page_version_-1": {[]WriterOption{WithDataPageVersion(-1)}, "WithDataPageVersion: value must be 1 or 2"},
@@ -475,7 +480,10 @@ func TestOptionValidation(t *testing.T) {
 			WithCompressionLevel(parquet.CompressionCodec_GZIP, 100),
 		}, "WithCompressionLevel: set compression level for GZIP"},
 		"valid_defaults": {nil, ""},
-		"valid_custom":   {[]WriterOption{WithNP(2), WithPageSize(4096), WithRowGroupSize(1024), WithDataPageVersion(2)}, ""},
+		"valid_custom": {
+			[]WriterOption{WithNP(2), WithPageSize(4096), WithRowGroupSize(1024), WithMaxDictionarySize(512), WithDataPageVersion(2)},
+			"",
+		},
 		"valid_compression_level": {[]WriterOption{
 			WithCompressionCodec(parquet.CompressionCodec_GZIP),
 			WithCompressionLevel(parquet.CompressionCodec_GZIP, 1),

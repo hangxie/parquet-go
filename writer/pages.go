@@ -16,31 +16,6 @@ func (pw *ParquetWriter) tableCompressionCodec(table *layout.Table) parquet.Comp
 	return pw.compressionType
 }
 
-func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, compressionType parquet.CompressionCodec, compressor *compress.Compressor, convMu *sync.Mutex) ([]*layout.Page, error) {
-	var dictRec *layout.DictRecType
-	if v, ok := pw.DictRecs.Load(name); ok {
-		dictRec = v.(*layout.DictRecType)
-	} else {
-		newRec := layout.NewDictRec(*table.Schema.Type)
-		actual, _ := pw.DictRecs.LoadOrStore(name, newRec)
-		dictRec = actual.(*layout.DictRecType)
-	}
-
-	convMu.Lock()
-	pages, _, err := layout.TableToDictDataPagesWithOption(dictRec, table, 32, layout.PageWriteOption{
-		Context:      pw.context(),
-		PageSize:     int32(pw.pageSize),
-		CompressType: compressionType,
-		WriteCRC:     pw.writeCRC,
-		Compressor:   compressor,
-	})
-	convMu.Unlock()
-	if err != nil {
-		return nil, fmt.Errorf("build dict pages: %w", err)
-	}
-	return pages, nil
-}
-
 func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType parquet.CompressionCodec, compressor *compress.Compressor) ([]*layout.Page, error) {
 	pages, _, err := layout.TableToDataPagesWithOption(table, layout.PageWriteOption{
 		Context:         pw.context(),
@@ -56,12 +31,11 @@ func (pw *ParquetWriter) tableToPlainPages(table *layout.Table, compressionType 
 	return pages, nil
 }
 
-func (pw *ParquetWriter) convertTableToPages(name string, table *layout.Table, convMu *sync.Mutex) ([]*layout.Page, error) {
+func (pw *ParquetWriter) convertTableToPages(name string, table *layout.Table) ([]*layout.Page, error) {
 	compressionType := pw.tableCompressionCodec(table)
 	compressor := pw.compressorForColumn(name)
-	if table.Info.Encoding == parquet.Encoding_PLAIN_DICTIONARY ||
-		table.Info.Encoding == parquet.Encoding_RLE_DICTIONARY {
-		return pw.tableToDictPages(name, table, compressionType, compressor, convMu)
+	if usesDictionaryEncoding(table) {
+		return pw.tableToDictPages(name, table, compressionType, compressor)
 	}
 	return pw.tableToPlainPages(table, compressionType, compressor)
 }
@@ -76,10 +50,60 @@ func (pw *ParquetWriter) mergePageResults(pagesMapList []map[string][]*layout.Pa
 			}
 			for _, page := range pages {
 				pw.size += int64(len(page.RawData))
-				page.DataTable = nil // release memory
+				if page.Header.DataPageHeader == nil ||
+					page.Header.DataPageHeader.Encoding != parquet.Encoding_RLE_DICTIONARY {
+					page.DataTable = nil // release memory
+				}
 			}
 		}
 	}
+}
+
+func (pw *ParquetWriter) marshalAndConvertPlain(b, e int, pagesMap map[string][]*layout.Page, bloomMu *sync.Mutex) (map[string]*layout.Table, error) {
+	if e <= b {
+		return nil, nil
+	}
+	tableMap, err := pw.marshalFunc(pw.objs[b:e], pw.SchemaHandler)
+	if err != nil {
+		return nil, err
+	}
+	for name, table := range *tableMap {
+		pw.insertBloomValues(name, table, bloomMu)
+		if usesDictionaryEncoding(table) {
+			continue
+		}
+		pages, err := pw.convertTableToPages(name, table)
+		if err != nil {
+			return nil, err
+		}
+		pagesMap[name] = pages
+	}
+	return *tableMap, nil
+}
+
+func firstPageConversionError(errs []error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (pw *ParquetWriter) convertDictionaryTables(tableMaps []map[string]*layout.Table, pagesMaps []map[string][]*layout.Page) error {
+	for index, tableMap := range tableMaps {
+		for name, table := range tableMap {
+			if !usesDictionaryEncoding(table) {
+				continue
+			}
+			pages, err := pw.convertTableToPages(name, table)
+			if err != nil {
+				return err
+			}
+			pagesMaps[index][name] = pages
+		}
+	}
+	return nil
 }
 
 func (pw *ParquetWriter) flushObjs() error {
@@ -88,12 +112,12 @@ func (pw *ParquetWriter) flushObjs() error {
 		return nil
 	}
 	pagesMapList := make([]map[string][]*layout.Page, pw.np)
+	tableMapList := make([]map[string]*layout.Table, pw.np)
 	for i := range pw.np {
 		pagesMapList[i] = make(map[string][]*layout.Page)
 	}
 
 	delta := (l + pw.np - 1) / pw.np
-	var convMu sync.Mutex
 	var bloomMu sync.Mutex
 	var wg sync.WaitGroup
 	errs := make([]error, pw.np)
@@ -111,37 +135,15 @@ func (pw *ParquetWriter) flushObjs() error {
 		wg.Add(1)
 		go func(b, e int, index int64) {
 			defer wg.Done()
-
-			if e <= b {
-				return
-			}
-
-			tableMap, err2 := pw.marshalFunc(pw.objs[b:e], pw.SchemaHandler)
-			if err2 != nil {
-				errs[index] = err2
-				return
-			}
-
-			for name, table := range *tableMap {
-				pw.insertBloomValues(name, table, &bloomMu)
-				pages, localErr := pw.convertTableToPages(name, table, &convMu)
-				if localErr != nil {
-					errs[index] = localErr
-					return
-				}
-				pagesMapList[index][name] = pages
-			}
+			tableMapList[index], errs[index] = pw.marshalAndConvertPlain(b, e, pagesMapList[index], &bloomMu)
 		}(int(bgn), int(end), c)
 	}
 
 	wg.Wait()
 
-	var err error
-	for _, err2 := range errs {
-		if err2 != nil {
-			err = err2
-			break
-		}
+	err := firstPageConversionError(errs)
+	if err == nil {
+		err = pw.convertDictionaryTables(tableMapList, pagesMapList)
 	}
 
 	pw.mergePageResults(pagesMapList)

@@ -153,6 +153,7 @@ Common writer options:
 - `writer.WithNP`
 - `writer.WithPageSize`
 - `writer.WithRowGroupSize`
+- `writer.WithMaxDictionarySize`
 - `writer.WithCompressionCodec`
 - `writer.WithCompressionLevel`
 - `writer.WithDataPageVersion`
@@ -300,7 +301,7 @@ LIST and REPEATED are different in the Parquet format. Prefer LIST for list data
 Encoding notes:
 
 - For maximum compatibility, use `PLAIN` and `PLAIN_DICTIONARY`.
-- Avoid dictionary encoding for high-cardinality fields because dictionaries can consume significant memory.
+- Dictionary indices use the minimum bit width required by the completed row-group dictionary. Encoded dictionary value bytes are capped at 1 MiB by default, after which the writer uses `PLAIN` encoding for subsequent pages; tune the cap with `writer.WithMaxDictionarySize`.
 - Use `omitstats=true` in a field tag to skip statistics for large array fields.
 - Whenever min/max statistics are available, the current `min_value`/`max_value` fields are written. The deprecated `min`/`max` fields (PARQUET-251) are limited to signed sort orders; for unsigned-ordered columns (e.g. `BYTE_ARRAY`/UTF8 and unsigned integer logical types) they are omitted so legacy readers do not misinterpret them.
 
