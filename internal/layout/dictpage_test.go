@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -62,19 +63,33 @@ func TestNewDictRec(t *testing.T) {
 
 func TestTableToDictDataPagesWithOption(t *testing.T) {
 	testCases := []struct {
-		name      string
-		writeCRC  bool
-		expectCRC bool
+		name            string
+		dataPageVersion int32
+		writeCRC        bool
+		expectCRC       bool
+		expectedType    parquet.PageType
 	}{
 		{
-			name:      "without_crc",
-			writeCRC:  false,
-			expectCRC: false,
+			name:         "v1_without_crc",
+			expectedType: parquet.PageType_DATA_PAGE,
 		},
 		{
-			name:      "with_crc",
-			writeCRC:  true,
-			expectCRC: true,
+			name:         "v1_with_crc",
+			writeCRC:     true,
+			expectCRC:    true,
+			expectedType: parquet.PageType_DATA_PAGE,
+		},
+		{
+			name:            "v2_without_crc",
+			dataPageVersion: 2,
+			expectedType:    parquet.PageType_DATA_PAGE_V2,
+		},
+		{
+			name:            "v2_with_crc",
+			dataPageVersion: 2,
+			writeCRC:        true,
+			expectCRC:       true,
+			expectedType:    parquet.PageType_DATA_PAGE_V2,
 		},
 	}
 
@@ -94,9 +109,10 @@ func TestTableToDictDataPagesWithOption(t *testing.T) {
 			dictRec := NewDictRec(parquet.Type_INT32)
 
 			opt := PageWriteOption{
-				PageSize:     1024,
-				CompressType: parquet.CompressionCodec_UNCOMPRESSED,
-				WriteCRC:     tc.writeCRC,
+				PageSize:        1024,
+				CompressType:    parquet.CompressionCodec_UNCOMPRESSED,
+				DataPageVersion: tc.dataPageVersion,
+				WriteCRC:        tc.writeCRC,
 			}
 
 			pages, totalSize, err := TableToDictDataPagesWithOption(dictRec, table, opt)
@@ -106,6 +122,16 @@ func TestTableToDictDataPagesWithOption(t *testing.T) {
 
 			for _, page := range pages {
 				require.NotEmpty(t, page.RawData)
+				require.Equal(t, tc.expectedType, page.Header.Type)
+				if tc.dataPageVersion == 2 {
+					require.Equal(t, parquet.Encoding_RLE_DICTIONARY, page.Header.DataPageHeaderV2.Encoding)
+					require.Equal(t, int32(3), page.Header.DataPageHeaderV2.NumValues)
+					require.Zero(t, page.Header.DataPageHeaderV2.NumNulls)
+					require.Equal(t, int32(3), page.Header.DataPageHeaderV2.NumRows)
+					require.Positive(t, page.Header.DataPageHeaderV2.DefinitionLevelsByteLength)
+				} else {
+					require.Equal(t, parquet.Encoding_RLE_DICTIONARY, page.Header.DataPageHeader.Encoding)
+				}
 				if tc.expectCRC {
 					require.True(t, page.Header.IsSetCrc(), "expected CRC to be set")
 				} else {
@@ -376,25 +402,33 @@ func TestFinalizeDictDataPagesWithOption(t *testing.T) {
 }
 
 func TestFinalizeDictDataPagesWithOption_CompressError(t *testing.T) {
-	table := &Table{
-		Schema:             &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
-		Values:             []any{int32(1)},
-		DefinitionLevels:   []int32{0},
-		RepetitionLevels:   []int32{0},
-		MaxDefinitionLevel: 0,
-		MaxRepetitionLevel: 0,
-		Info:               &common.Tag{},
-		RepetitionType:     parquet.FieldRepetitionType_REQUIRED,
-	}
-	pages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, PageWriteOption{
-		PageSize:     1024,
-		CompressType: parquet.CompressionCodec_UNCOMPRESSED,
-	})
-	require.NoError(t, err)
+	for _, version := range []int32{1, 2} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			table := &Table{
+				Schema:             &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
+				Values:             []any{int32(1)},
+				DefinitionLevels:   []int32{0},
+				RepetitionLevels:   []int32{0},
+				MaxDefinitionLevel: 0,
+				MaxRepetitionLevel: 0,
+				Info:               &common.Tag{},
+				RepetitionType:     parquet.FieldRepetitionType_REQUIRED,
+			}
+			pages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_INT32), table, PageWriteOption{
+				PageSize:        1024,
+				CompressType:    parquet.CompressionCodec_UNCOMPRESSED,
+				DataPageVersion: version,
+			})
+			require.NoError(t, err)
 
-	err = FinalizeDictDataPagesWithOption(pages, 1, PageWriteOption{CompressType: parquet.CompressionCodec(9999)})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "compress dict data page")
+			err = FinalizeDictDataPagesWithOption(pages, 1, PageWriteOption{
+				CompressType:    parquet.CompressionCodec(9999),
+				DataPageVersion: version,
+			})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "compress dict data page")
+		})
+	}
 }
 
 func TestDictDataPageCompress_RepetitionLevels(t *testing.T) {

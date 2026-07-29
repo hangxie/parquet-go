@@ -276,12 +276,8 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, opt Page
 		if len(dictRec.DictSlice) > 1 {
 			bitWidth = int32(bits.Len(uint(len(dictRec.DictSlice) - 1)))
 		}
-		compressedData, compressErr := page.dictDataPageCompress(opt.CompressType, bitWidth, scan.values, opt.Compressor)
-		if compressErr != nil {
-			return nil, 0, fmt.Errorf("compress dict data page: %w", compressErr)
-		}
-		if err = serializePage(page, opt, compressedData); err != nil {
-			return nil, 0, fmt.Errorf("serialize dict data page: %w", err)
+		if err = compressAndSerializeDictDataPage(page, bitWidth, scan.values, opt); err != nil {
+			return nil, 0, fmt.Errorf("compress and serialize dict data page: %w", err)
 		}
 		page.dictionaryIndices = append([]int32{}, scan.values...)
 
@@ -298,17 +294,28 @@ func FinalizeDictDataPagesWithOption(pages []*Page, bitWidth int32, opt PageWrit
 		if page == nil || page.dictionaryIndices == nil {
 			continue
 		}
-		compressedData, err := page.dictDataPageCompress(opt.CompressType, bitWidth, page.dictionaryIndices, opt.Compressor)
-		if err != nil {
-			return fmt.Errorf("compress dict data page %d: %w", i, err)
-		}
-		if err := serializePage(page, opt, compressedData); err != nil {
-			return fmt.Errorf("serialize dict data page %d: %w", i, err)
+		if err := compressAndSerializeDictDataPage(page, bitWidth, page.dictionaryIndices, opt); err != nil {
+			return fmt.Errorf("finalize dict data page %d: %w", i, err)
 		}
 		page.dictionaryIndices = nil
 		page.DataTable = nil
 	}
 	return nil
+}
+
+func compressAndSerializeDictDataPage(page *Page, bitWidth int32, values []int32, opt PageWriteOption) error {
+	if opt.DataPageVersion == 2 {
+		repLevels, defLevels, compressedValues, err := page.dictDataPageV2Compress(opt.CompressType, bitWidth, values, opt.Compressor)
+		if err != nil {
+			return fmt.Errorf("compress dict data page v2: %w", err)
+		}
+		return serializePage(page, opt, repLevels, defLevels, compressedValues)
+	}
+	compressedData, err := page.dictDataPageCompress(opt.CompressType, bitWidth, values, opt.Compressor)
+	if err != nil {
+		return fmt.Errorf("compress dict data page: %w", err)
+	}
+	return serializePage(page, opt, compressedData)
 }
 
 func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bitWidth int32, values []int32, c *compress.Compressor) ([]byte, error) {
@@ -365,4 +372,60 @@ func (page *Page) dictDataPageCompress(compressType parquet.CompressionCodec, bi
 	}
 
 	return dataEncodeBuf, nil
+}
+
+func (page *Page) dictDataPageV2Compress(compressType parquet.CompressionCodec, bitWidth int32, values []int32, c *compress.Compressor) ([]byte, []byte, []byte, error) {
+	valuesRawBuf := append([]byte{byte(bitWidth)}, encoding.WriteRLEInt32(values, bitWidth)...)
+
+	var definitionLevelBuf []byte
+	if page.DataTable.MaxDefinitionLevel > 0 {
+		definitionLevelBuf = encoding.WriteRLEInt32(
+			page.DataTable.DefinitionLevels,
+			int32(bits.Len32(uint32(page.DataTable.MaxDefinitionLevel))),
+		)
+	}
+
+	var repetitionLevelBuf []byte
+	var numRows int32
+	if page.DataTable.MaxRepetitionLevel > 0 {
+		repetitionLevelBuf = encoding.WriteRLEInt32(
+			page.DataTable.RepetitionLevels,
+			int32(bits.Len32(uint32(page.DataTable.MaxRepetitionLevel))),
+		)
+		for _, level := range page.DataTable.RepetitionLevels {
+			if level == 0 {
+				numRows++
+			}
+		}
+	} else {
+		numRows = int32(len(page.DataTable.DefinitionLevels))
+	}
+
+	compressedValues, err := resolveCompressor(c).Compress(valuesRawBuf, compressType)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("compress dict data: %w", err)
+	}
+	isCompressed := len(compressedValues) < len(valuesRawBuf)
+	if !isCompressed {
+		compressedValues = valuesRawBuf
+	}
+
+	page.Header = parquet.NewPageHeader()
+	page.Header.Type = parquet.PageType_DATA_PAGE_V2
+	page.Header.CompressedPageSize = int32(len(repetitionLevelBuf) + len(definitionLevelBuf) + len(compressedValues))
+	page.Header.UncompressedPageSize = int32(len(repetitionLevelBuf) + len(definitionLevelBuf) + len(valuesRawBuf))
+	page.Header.DataPageHeaderV2 = parquet.NewDataPageHeaderV2()
+	page.Header.DataPageHeaderV2.NumValues = int32(len(page.DataTable.DefinitionLevels))
+	page.Header.DataPageHeaderV2.NumNulls = page.Header.DataPageHeaderV2.NumValues - int32(len(values))
+	page.Header.DataPageHeaderV2.NumRows = numRows
+	page.Header.DataPageHeaderV2.Encoding = parquet.Encoding_RLE_DICTIONARY
+	page.Header.DataPageHeaderV2.DefinitionLevelsByteLength = int32(len(definitionLevelBuf))
+	page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = int32(len(repetitionLevelBuf))
+	page.Header.DataPageHeaderV2.IsCompressed = isCompressed
+	page.Header.DataPageHeaderV2.Statistics = parquet.NewStatistics()
+	if err := page.setPageStatistics(page.Header.DataPageHeaderV2.Statistics); err != nil {
+		return nil, nil, nil, fmt.Errorf("set dict page statistics: %w", err)
+	}
+
+	return repetitionLevelBuf, definitionLevelBuf, compressedValues, nil
 }
