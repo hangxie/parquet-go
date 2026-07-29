@@ -6,7 +6,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -15,6 +14,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
+	"github.com/hangxie/parquet-go/v3/writer"
 )
 
 // Mock ParquetFileReader for testing NewColumnBuffer
@@ -633,115 +633,6 @@ func TestReadRows(t *testing.T) {
 	}
 }
 
-func TestSkipRows(t *testing.T) {
-	tests := []struct {
-		name         string
-		setup        func() *ColumnBufferType
-		numRows      int64
-		expectedRows int64
-		expectError  bool
-	}{
-		{
-			name: "zero_rows",
-			setup: func() *ColumnBufferType {
-				return &ColumnBufferType{Footer: &parquet.FileMetaData{NumRows: 10}, DataTableNumRows: -1}
-			},
-			numRows:      0,
-			expectedRows: 0,
-			expectError:  false,
-		},
-		{
-			name: "negative_rows",
-			setup: func() *ColumnBufferType {
-				return &ColumnBufferType{Footer: &parquet.FileMetaData{NumRows: 10}, DataTableNumRows: -1}
-			},
-			numRows:      -5,
-			expectedRows: 0,
-			expectError:  false,
-		},
-		{
-			name: "partial_buffer",
-			setup: func() *ColumnBufferType {
-				dt := &layout.Table{
-					Values:           []any{int64(1), int64(2), int64(3), int64(4), int64(5)},
-					DefinitionLevels: []int32{1, 1, 1, 1, 1},
-					RepetitionLevels: []int32{0, 0, 0, 0, 0},
-				}
-				return &ColumnBufferType{Footer: &parquet.FileMetaData{NumRows: 10}, DataTable: dt, DataTableNumRows: 4}
-			},
-			numRows:      3,
-			expectedRows: 3,
-			expectError:  false,
-		},
-		{
-			name: "exact_buffer",
-			setup: func() *ColumnBufferType {
-				sh := newSchemaHandlerWithPath("leaf")
-				dt := &layout.Table{
-					Values:           []any{int64(1), int64(2), int64(3)},
-					DefinitionLevels: []int32{1, 1, 1},
-					RepetitionLevels: []int32{0, 0, 0},
-				}
-				return &ColumnBufferType{Footer: &parquet.FileMetaData{NumRows: 10}, SchemaHandler: sh, PathStr: common.PathToStr([]string{"root", "leaf"}), DataTable: dt, DataTableNumRows: 2}
-			},
-			numRows:      2,
-			expectedRows: 2,
-			expectError:  false,
-		},
-		{
-			name: "skip_more_than_buffer_with_schema",
-			setup: func() *ColumnBufferType {
-				sh := newSchemaHandlerWithPath("leaf")
-				dt := &layout.Table{
-					Values:           []any{int64(1), int64(2), int64(3)},
-					DefinitionLevels: []int32{1, 1, 1},
-					RepetitionLevels: []int32{0, 0, 0},
-				}
-				mockFile := newMockColumnBufferFileReader([]byte{})
-				return &ColumnBufferType{
-					PFile: mockFile,
-					Footer: &parquet.FileMetaData{
-						NumRows: 100,
-						RowGroups: []*parquet.RowGroup{
-							{NumRows: 50, Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
-								PathInSchema: []string{"leaf"}, DataPageOffset: 0, NumValues: 50,
-							}}}},
-							{NumRows: 50, Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
-								PathInSchema: []string{"leaf"}, DataPageOffset: 1000, NumValues: 50,
-							}}}},
-						},
-					},
-					SchemaHandler:    sh,
-					PathStr:          common.PathToStr([]string{"root", "leaf"}),
-					DataTable:        dt,
-					DataTableNumRows: 2,
-					RowGroupIndex:    0,
-				}
-			},
-			numRows:      10,
-			expectedRows: 3,
-			expectError:  true, // Will error when trying to read pages from mock data, but covers the skip path
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cb := tt.setup()
-			n, err := cb.SkipRows(tt.numRows)
-
-			if tt.expectError {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "EOF")
-				// When we expect errors, we may have skipped some rows before the error
-				require.True(t, n >= 0)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tt.expectedRows, n)
-			}
-		})
-	}
-}
-
 func TestNewColumnBuffer_FilePathOpenError(t *testing.T) {
 	mockFile := newMockColumnBufferFileReader([]byte{})
 	mockFile.SetOpenFails(true)
@@ -811,27 +702,351 @@ func TestNextRowGroup_OpenFailurePreservesPFile(t *testing.T) {
 	require.NotPanics(t, func() { _ = cbt.PFile.Close() })
 }
 
-func TestSkipRows_ReadPageForSkipErrorReturnsZero(t *testing.T) {
-	mockFile := newMockColumnBufferFileReader([]byte{})
+// TestAppendNullChunk_FooterOnlyColumnErrors guards against a nil-pointer panic:
+// newColumnBuffer tolerates a column whose PathStr is absent from the schema map
+// (footer-only access). An empty chunk for such a column cannot synthesize typed
+// nulls, so appendNullChunk must return an error instead of appending through a
+// nil DataTable.
+func TestAppendNullChunk_FooterOnlyColumnErrors(t *testing.T) {
+	data := make([]byte, 64)
 	footer := &parquet.FileMetaData{
+		NumRows: 3,
 		RowGroups: []*parquet.RowGroup{
-			{Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
-				PathInSchema:   []string{"leaf"},
-				DataPageOffset: 0,
+			{NumRows: 3, Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+				PathInSchema:   []string{"absent"},
+				DataPageOffset: int64(len(data)),
 				NumValues:      3,
 				Type:           parquet.Type_INT64,
 				Codec:          parquet.CompressionCodec_UNCOMPRESSED,
 			}}}},
 		},
 	}
-	sh := newSchemaHandlerWithPath("leaf")
-
-	cb, err := NewColumnBuffer(mockFile, footer, sh, common.PathToStr([]string{"root", "leaf"}), nil)
+	// The schema handler only knows "leaf"; the absent path is footer-only.
+	cb, err := NewColumnBuffer(newMockColumnBufferFileReader(data), footer, newSchemaHandlerWithPath("leaf"), common.PathToStr([]string{"root", "absent"}), nil)
 	require.NoError(t, err)
-	require.NotNil(t, cb)
 
-	n, _ := cb.SkipRows(1)
+	require.NotPanics(t, func() {
+		n, serr := cb.SkipRows(1)
+		require.Error(t, serr)
+		require.Contains(t, serr.Error(), "no schema element")
+		require.Equal(t, int64(0), n)
+	})
+}
+
+// skipCountRecord is a single-column row used to build real multi-page fixtures.
+type skipCountRecord struct {
+	V int64 `parquet:"name=v, type=INT64"`
+}
+
+type dictionaryRecord struct {
+	V string `parquet:"name=v, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+}
+
+// newDictionaryOnlyChunkBuffer builds a chunk containing a valid dictionary page
+// followed immediately by EOF, with metadata that still declares data values.
+func newDictionaryOnlyChunkBuffer(t *testing.T) *ColumnBufferType {
+	t.Helper()
+
+	ctx := context.Background()
+	fw := buffer.NewBufferWriter()
+	pw, err := writer.NewParquetWriterWithContext(ctx, fw, new(dictionaryRecord))
+	require.NoError(t, err)
+	for _, value := range []string{"a", "b", "a"} {
+		require.NoError(t, pw.WriteWithContext(ctx, dictionaryRecord{V: value}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(ctx))
+
+	src, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(fw.Bytes()), new(dictionaryRecord))
+	require.NoError(t, err)
+	md := src.Footer.RowGroups[0].Columns[0].MetaData
+	require.NotNil(t, md.DictionaryPageOffset)
+
+	dictionaryBytes := fw.Bytes()[*md.DictionaryPageOffset:md.DataPageOffset]
+	dictionaryOffset := int64(0)
+	footer := &parquet.FileMetaData{
+		NumRows: 3,
+		Schema:  src.Footer.Schema,
+		RowGroups: []*parquet.RowGroup{{
+			NumRows: 3,
+			Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+				Type:                 md.Type,
+				Encodings:            md.Encodings,
+				PathInSchema:         md.PathInSchema,
+				Codec:                md.Codec,
+				NumValues:            md.NumValues,
+				TotalCompressedSize:  int64(len(dictionaryBytes)),
+				DataPageOffset:       int64(len(dictionaryBytes)),
+				DictionaryPageOffset: &dictionaryOffset,
+			}}},
+		}},
+	}
+	cb, err := NewColumnBuffer(buffer.NewBufferReaderFromBytes(dictionaryBytes), footer, src.SchemaHandler, src.SchemaHandler.ValueColumns[0], nil)
+	require.NoError(t, err)
+	return cb
+}
+
+func TestReadRows_DictionaryOnlyChunkIsTruncated(t *testing.T) {
+	table, n, err := newDictionaryOnlyChunkBuffer(t).ReadRows(3)
+
+	require.ErrorIs(t, err, io.EOF)
 	require.Equal(t, int64(0), n)
+	require.Empty(t, table.Values)
+}
+
+// buildThreeRowPage writes a single uncompressed data page holding rows 0,1,2 and
+// returns just that page's bytes plus the source reader (for its schema/metadata), so
+// tests can splice the page into synthetic footers.
+func buildThreeRowPage(t *testing.T) ([]byte, *parquet.ColumnMetaData, *ParquetReader) {
+	t.Helper()
+	fw := buffer.NewBufferWriter()
+	pw, err := writer.NewParquetWriterWithContext(context.Background(), fw, new(skipCountRecord),
+		writer.WithPageSize(1<<20), writer.WithRowGroupSize(1<<30),
+		writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED))
+	require.NoError(t, err)
+	for i := range int64(3) {
+		require.NoError(t, pw.WriteWithContext(context.Background(), skipCountRecord{V: i}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	src, err := NewParquetReader(buffer.NewBufferReaderFromBytes(fw.Bytes()), new(skipCountRecord))
+	require.NoError(t, err)
+	md := src.Footer.RowGroups[0].Columns[0].MetaData
+	require.Nil(t, md.DictionaryPageOffset, "fixture assumes a single data page with no dictionary")
+	return fw.Bytes()[md.DataPageOffset : md.DataPageOffset+md.TotalCompressedSize], md, src
+}
+
+func chunkFor(md *parquet.ColumnMetaData, offset, numValues, totalCompressedSize int64) *parquet.ColumnChunk {
+	return &parquet.ColumnChunk{MetaData: &parquet.ColumnMetaData{
+		PathInSchema:        md.PathInSchema,
+		Type:                md.Type,
+		Codec:               md.Codec,
+		Encodings:           md.Encodings,
+		DataPageOffset:      offset,
+		NumValues:           numValues,
+		TotalCompressedSize: totalCompressedSize,
+	}}
+}
+
+// newTruncatedChunkBuffer builds a column buffer over a chunk that declares 5 values
+// but is backed by a single real 3-row data page followed immediately by EOF.
+func newTruncatedChunkBuffer(t *testing.T) *ColumnBufferType {
+	t.Helper()
+	pageBytes, md, src := buildThreeRowPage(t)
+	footer := &parquet.FileMetaData{
+		NumRows: 5,
+		Schema:  src.Footer.Schema,
+		RowGroups: []*parquet.RowGroup{
+			{NumRows: 5, Columns: []*parquet.ColumnChunk{chunkFor(md, 0, 5, int64(len(pageBytes)))}},
+		},
+	}
+	cb, err := NewColumnBuffer(buffer.NewBufferReaderFromBytes(pageBytes), footer, src.SchemaHandler, src.SchemaHandler.ValueColumns[0], nil)
+	require.NoError(t, err)
+	return cb
+}
+
+// TestReadRows_TruncatedChunkSurfacesErrorWithBufferedRows covers a chunk that declares
+// more values than its pages hold: after the real page is read, the next read reaches a
+// clean EOF before the declared count is met. That is a truncation and must surface as
+// an error, but every already-decoded row is still exposed (the one-below-actual count
+// is normalized so the final decoded row is not hidden).
+func TestReadRows_TruncatedChunkSurfacesErrorWithBufferedRows(t *testing.T) {
+	cb := newTruncatedChunkBuffer(t)
+
+	tbl, n, err := cb.ReadRows(5)
+	require.ErrorIs(t, err, io.EOF)
+	require.NotErrorIs(t, err, errColumnExhausted)
+	require.Equal(t, int64(3), n, "all buffered rows must be exposed, not one fewer")
+	require.Equal(t, []any{int64(0), int64(1), int64(2)}, tbl.Values[:n])
+}
+
+// TestReadRows_RepeatedReadAfterTruncation guards that a truncated chunk keeps surfacing
+// the error on subsequent reads without fabricating phantom rows: the terminal
+// normalization runs at most once, so later reads report zero rows (not a phantom that
+// could panic callers slicing values by the returned count).
+func TestReadRows_RepeatedReadAfterTruncation(t *testing.T) {
+	cb := newTruncatedChunkBuffer(t)
+
+	_, n, err := cb.ReadRows(5)
+	require.ErrorIs(t, err, io.EOF)
+	require.Equal(t, int64(3), n)
+
+	for range 3 {
+		tbl, n, err := cb.ReadRows(1)
+		require.ErrorIs(t, err, io.EOF)
+		require.Equal(t, int64(0), n, "no rows remain in a truncated chunk")
+		require.Empty(t, tbl.Values[:n])
+	}
+}
+
+// TestReadRows_EmptyChunkUsesRowGroupNumRows guards that an empty chunk synthesizes one
+// null per top-level row, using the row group's NumRows rather than ColumnMetaData's
+// NumValues. For a repeated column NumValues counts leaf values and can exceed the row
+// count, so using it would create phantom rows and desynchronize columns.
+func TestReadRows_EmptyChunkUsesRowGroupNumRows(t *testing.T) {
+	data := make([]byte, 64)
+	footer := &parquet.FileMetaData{
+		NumRows: 2,
+		RowGroups: []*parquet.RowGroup{
+			// Two rows, but the chunk declares five leaf values (a repeated column).
+			{NumRows: 2, Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+				PathInSchema:   []string{"leaf"},
+				DataPageOffset: int64(len(data)),
+				NumValues:      5,
+				Type:           parquet.Type_INT64,
+				Codec:          parquet.CompressionCodec_UNCOMPRESSED,
+			}}}},
+		},
+	}
+	cb, err := NewColumnBuffer(newMockColumnBufferFileReader(data), footer, newSchemaHandlerWithPath("leaf"), common.PathToStr([]string{"root", "leaf"}), nil)
+	require.NoError(t, err)
+
+	tbl, n, err := cb.ReadRows(10)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), n, "one null row per row-group row, not one per declared value")
+	require.Equal(t, []any{nil, nil}, tbl.Values[:n])
+	require.Equal(t, int64(5), cb.ChunkReadValues, "the declared value count is still accounted")
+}
+
+// TestReadRows_RepeatedReadAfterExhaustion is the plain-file counterpart: a fully-read
+// column must also report zero rows on every subsequent over-read, i.e. the terminal
+// EOF normalization is not repeated per call.
+func TestReadRows_RepeatedReadAfterExhaustion(t *testing.T) {
+	fw := buffer.NewBufferWriter()
+	pw, err := writer.NewParquetWriterWithContext(context.Background(), fw, new(skipCountRecord), writer.WithRowGroupSize(1<<30))
+	require.NoError(t, err)
+	for i := range int64(3) {
+		require.NoError(t, pw.WriteWithContext(context.Background(), skipCountRecord{V: i}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+	pr, err := NewParquetReader(buffer.NewBufferReaderFromBytes(fw.Bytes()), new(skipCountRecord))
+	require.NoError(t, err)
+	cb, err := pr.newColumnBuffer(pr.SchemaHandler.ValueColumns[0])
+	require.NoError(t, err)
+
+	tbl, n, err := cb.ReadRows(3)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), n)
+	require.Equal(t, []any{int64(0), int64(1), int64(2)}, tbl.Values[:n])
+
+	for range 3 {
+		tbl, n, err := cb.ReadRows(1)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), n, "over-read past the end must report zero rows")
+		require.Empty(t, tbl.Values[:n])
+	}
+}
+
+// TestReadRows_LaterEmptyRowGroup covers reviewer concern #2: a chunk with no page
+// bytes that follows a populated row group must still contribute its declared rows as
+// nulls. Detecting the empty chunk via DataTable == nil would skip it (DataTable is
+// already non-nil from the first row group) and silently drop those rows.
+func TestReadRows_LaterEmptyRowGroup(t *testing.T) {
+	pageBytes, md, src := buildThreeRowPage(t)
+	footer := &parquet.FileMetaData{
+		NumRows: 5,
+		Schema:  src.Footer.Schema,
+		RowGroups: []*parquet.RowGroup{
+			// Row group 1: the real 3-row page at offset 0.
+			{NumRows: 3, Columns: []*parquet.ColumnChunk{chunkFor(md, 0, 3, int64(len(pageBytes)))}},
+			// Row group 2: an empty chunk (offset at EOF) declaring 2 values, no page data.
+			{NumRows: 2, Columns: []*parquet.ColumnChunk{chunkFor(md, int64(len(pageBytes)), 2, 0)}},
+		},
+	}
+	cb, err := NewColumnBuffer(buffer.NewBufferReaderFromBytes(pageBytes), footer, src.SchemaHandler, src.SchemaHandler.ValueColumns[0], nil)
+	require.NoError(t, err)
+
+	tbl, n, err := cb.ReadRows(5)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), n, "row group 2's declared null rows must not be dropped")
+	require.Equal(t, []any{int64(0), int64(1), int64(2), nil, nil}, tbl.Values[:n])
+}
+
+func TestReadRows_EmptyChunkBeforeLaterBytes(t *testing.T) {
+	pageBytes, md, src := buildThreeRowPage(t)
+	footer := &parquet.FileMetaData{
+		NumRows: 5,
+		Schema:  src.Footer.Schema,
+		RowGroups: []*parquet.RowGroup{
+			// The empty chunk starts where later page bytes exist in the backing file.
+			{NumRows: 2, Columns: []*parquet.ColumnChunk{chunkFor(md, 0, 2, 0)}},
+			{NumRows: 3, Columns: []*parquet.ColumnChunk{chunkFor(md, 0, 3, int64(len(pageBytes)))}},
+		},
+	}
+	cb, err := NewColumnBuffer(buffer.NewBufferReaderFromBytes(pageBytes), footer, src.SchemaHandler, src.SchemaHandler.ValueColumns[0], nil)
+	require.NoError(t, err)
+
+	table, n, err := cb.ReadRows(5)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), n)
+	require.Equal(t, []any{nil, nil, int64(0), int64(1), int64(2)}, table.Values[:n])
+}
+
+func TestReadRows_EmptyChunkRowsCanExceedFileBytes(t *testing.T) {
+	const numRows int64 = 10_000
+	data := make([]byte, 64)
+	footer := &parquet.FileMetaData{
+		NumRows: numRows,
+		RowGroups: []*parquet.RowGroup{{
+			NumRows: numRows,
+			Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+				PathInSchema:        []string{"leaf"},
+				DataPageOffset:      int64(len(data)),
+				NumValues:           numRows,
+				TotalCompressedSize: 0,
+				Type:                parquet.Type_INT64,
+				Codec:               parquet.CompressionCodec_UNCOMPRESSED,
+			}}},
+		}},
+	}
+	cb, err := NewColumnBuffer(newMockColumnBufferFileReader(data), footer, newSchemaHandlerWithPath("leaf"), common.PathToStr([]string{"root", "leaf"}), nil)
+	require.NoError(t, err)
+
+	table, n, err := cb.ReadRows(numRows)
+	require.NoError(t, err)
+	require.Equal(t, numRows, n)
+	require.Len(t, table.Values, int(numRows))
+}
+
+func TestReadRows_EmptyChunkHonorsSyntheticAllocationLimit(t *testing.T) {
+	const numRows int64 = 2
+	data := make([]byte, 64)
+	footer := &parquet.FileMetaData{
+		NumRows: numRows,
+		RowGroups: []*parquet.RowGroup{{
+			NumRows: numRows,
+			Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+				PathInSchema:        []string{"leaf"},
+				DataPageOffset:      int64(len(data)),
+				NumValues:           numRows,
+				TotalCompressedSize: 0,
+				Type:                parquet.Type_INT64,
+				Codec:               parquet.CompressionCodec_UNCOMPRESSED,
+			}}},
+		}},
+	}
+	opts := &layout.PageReadOptions{MaxPageSize: 24}
+	cb, err := NewColumnBuffer(newMockColumnBufferFileReader(data), footer, newSchemaHandlerWithPath("leaf"), common.PathToStr([]string{"root", "leaf"}), opts)
+	require.NoError(t, err)
+
+	_, n, err := cb.ReadRows(numRows)
+	require.ErrorContains(t, err, "synthetic null row count 2 exceeds allocation limit 24")
+	require.Equal(t, int64(0), n)
+}
+
+func TestEmptyChunkAtCursor_NilReader(t *testing.T) {
+	cb := &ColumnBufferType{}
+	require.False(t, cb.emptyChunkAtCursor(), "a nil ThriftReader is not an empty chunk")
+}
+
+func TestAppendNullChunk_NilSchemaHandler(t *testing.T) {
+	cb := &ColumnBufferType{
+		ChunkHeader: &parquet.ColumnChunk{MetaData: &parquet.ColumnMetaData{
+			PathInSchema: []string{"leaf"}, NumValues: 1,
+		}},
+	}
+	err := cb.appendNullChunk()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "schema handler is nil")
 }
 
 func TestReadPage_ChunkHeaderConditions(t *testing.T) {
@@ -880,8 +1095,8 @@ func TestReadPage_ChunkHeaderConditions(t *testing.T) {
 			cb := tt.setup()
 			err := cb.ReadPage()
 			if tt.expectError {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "move to next row group")
+				// No row group can be advanced to: normal completion, not a hard error.
+				require.ErrorIs(t, err, errColumnExhausted)
 			} else {
 				require.NoError(t, err)
 			}
@@ -889,135 +1104,20 @@ func TestReadPage_ChunkHeaderConditions(t *testing.T) {
 	}
 }
 
-func TestReadPageForSkip_Conditions(t *testing.T) {
-	tests := []struct {
-		name        string
-		setup       func() *ColumnBufferType
-		expectError bool
-	}{
-		{
-			name: "chunk_header_nil",
-			setup: func() *ColumnBufferType {
-				return &ColumnBufferType{
-					Footer:           &parquet.FileMetaData{NumRows: 0},
-					SchemaHandler:    newSchemaHandlerWithPath("leaf"),
-					PathStr:          common.PathToStr([]string{"root", "leaf"}),
-					ChunkHeader:      nil,
-					DataTableNumRows: -1,
-				}
-			},
-			expectError: true,
-		},
-		{
-			name: "all_values_read",
-			setup: func() *ColumnBufferType {
-				return &ColumnBufferType{
-					Footer:        &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}},
-					SchemaHandler: newSchemaHandlerWithPath("leaf"),
-					PathStr:       common.PathToStr([]string{"root", "leaf"}),
-					ChunkHeader: &parquet.ColumnChunk{
-						MetaData: &parquet.ColumnMetaData{
-							PathInSchema:   []string{"leaf"},
-							DataPageOffset: 0,
-							NumValues:      5,
-						},
-					},
-					ChunkReadValues:  5,
-					DataTableNumRows: -1,
-				}
-			},
-			expectError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cb := tt.setup()
-			page, err := cb.ReadPageForSkip()
-			if tt.expectError {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "EOF")
-				require.Nil(t, page)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestSkipByReadingPages_ReturnsCountPopped documents that skipByReadingPages returns
-// the count of rows actually popped (not the remaining-to-skip count). This is important
-// because SkipRows must account for this when computing the total-skipped return value.
-func TestSkipByReadingPages_ReturnsCountPopped(t *testing.T) {
-	dt := &layout.Table{
-		Values:           []any{int64(1), int64(2), int64(3), int64(4), int64(5)},
-		DefinitionLevels: []int32{1, 1, 1, 1, 1},
-		RepetitionLevels: []int32{0, 0, 0, 0, 0},
-	}
-	cb := &ColumnBufferType{DataTable: dt, DataTableNumRows: 4} // 4 >= 3, loop won't read new pages
-	n, err := cb.skipByReadingPages(3)
-	require.NoError(t, err)
-	require.Equal(t, int64(3), n) // must return the count popped
-	require.Equal(t, int64(1), cb.DataTableNumRows)
-}
-
-func TestSkipRows_RowGroupSkipping(t *testing.T) {
-	// Test skipping entire row groups
-	mockFile := newMockColumnBufferFileReader([]byte{})
-	footer := &parquet.FileMetaData{
-		RowGroups: []*parquet.RowGroup{
-			{NumRows: 100, Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
-				PathInSchema: []string{"leaf"}, DataPageOffset: 0, NumValues: 100,
-			}}}},
-			{NumRows: 100, Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
-				PathInSchema: []string{"leaf"}, DataPageOffset: 1000, NumValues: 100,
-			}}}},
-		},
-	}
-	sh := newSchemaHandlerWithPath("leaf")
-
-	cb := &ColumnBufferType{
-		PFile:            mockFile,
-		Footer:           footer,
-		SchemaHandler:    sh,
-		PathStr:          common.PathToStr([]string{"root", "leaf"}),
-		DataTableNumRows: -1,
-		RowGroupIndex:    0,
-	}
-
-	// Skip across row groups
-	n, err := cb.SkipRows(150)
-	// This will fail because we can't actually read pages, but it exercises the row group skipping logic
-	if err == nil || n > 0 {
-		// Some rows were skipped
-		require.True(t, cb.RowGroupIndex > 0 || n > 0)
-	}
-}
-
-func TestReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
-	ph := parquet.NewPageHeader()
-	ph.Type = parquet.PageType_DATA_PAGE
-	ph.CompressedPageSize = 10
-	ph.UncompressedPageSize = 10
-	ph.DataPageHeader = parquet.NewDataPageHeader()
-	ph.DataPageHeader.NumValues = 2
-	ph.DataPageHeader.DefinitionLevelEncoding = parquet.Encoding_RLE
-	ph.DataPageHeader.RepetitionLevelEncoding = parquet.Encoding_RLE
-	ph.DataPageHeader.Encoding = parquet.Encoding_PLAIN
-
-	ts := thrift.NewTSerializer()
-	ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
-	headerBytes, err := ts.Write(context.TODO(), ph)
-	require.NoError(t, err)
-
-	pFile := newMockColumnBufferFileReader(headerBytes)
+func TestReadPage_EOF_FallbackCreatesEmptyTable(t *testing.T) {
+	// A file whose bytes are only padding, with the chunk's page offset at EOF, so the
+	// first page read finds no bytes at all. The padding gives the file enough size to
+	// satisfy appendNullChunk's file-size ceiling.
+	data := make([]byte, 64)
+	pFile := newMockColumnBufferFileReader(data)
 
 	const metaNumValues int64 = 3
 	footer := &parquet.FileMetaData{
+		NumRows: metaNumValues,
 		RowGroups: []*parquet.RowGroup{
-			{Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+			{NumRows: metaNumValues, Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
 				PathInSchema:   []string{"leaf"},
-				DataPageOffset: 0,
+				DataPageOffset: int64(len(data)),
 				NumValues:      metaNumValues,
 				Type:           parquet.Type_INT64,
 				Codec:          parquet.CompressionCodec_UNCOMPRESSED,
@@ -1030,22 +1130,25 @@ func TestReadPage_EOF_FallbackCreatesEmptyTable_HeaderOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 
-	rerr := cb.ReadPage()
-	require.Error(t, rerr)
-
-	if rerr == io.EOF {
-		require.NotNil(t, cb.DataTable)
-		require.Equal(t, metaNumValues, cb.DataTableNumRows)
-		require.Len(t, cb.DataTable.Values, int(metaNumValues))
-		for i := 0; i < int(metaNumValues); i++ {
-			require.Nil(t, cb.DataTable.Values[i])
-			require.Equal(t, int32(0), cb.DataTable.DefinitionLevels[i])
-			require.Equal(t, int32(0), cb.DataTable.RepetitionLevels[i])
-		}
-		require.Equal(t, metaNumValues, cb.ChunkReadValues)
-	} else {
-		require.Contains(t, rerr.Error(), "EOF")
+	// The first read synthesizes the declared rows as nulls and marks the chunk
+	// consumed, returning no error.
+	require.NoError(t, cb.ReadPage())
+	require.NotNil(t, cb.DataTable)
+	require.Len(t, cb.DataTable.Values, int(metaNumValues))
+	for i := range int(metaNumValues) {
+		require.Nil(t, cb.DataTable.Values[i])
+		require.Equal(t, int32(0), cb.DataTable.DefinitionLevels[i])
+		require.Equal(t, int32(0), cb.DataTable.RepetitionLevels[i])
 	}
+	require.Equal(t, metaNumValues, cb.ChunkReadValues)
+
+	// The next read advances past the now-exhausted row group and reports completion,
+	// normalizing the "one less than actual" count. Completion stays io.EOF-compatible
+	// for external callers of the exported method.
+	rerr := cb.ReadPage()
+	require.ErrorIs(t, rerr, errColumnExhausted)
+	require.ErrorIs(t, rerr, io.EOF)
+	require.Equal(t, metaNumValues, cb.DataTableNumRows)
 }
 
 func TestReadPage_RecursiveCall(t *testing.T) {
@@ -1071,38 +1174,8 @@ func TestReadPage_RecursiveCall(t *testing.T) {
 	}
 
 	err := cb.ReadPage()
-	// Should error because NextRowGroup will fail (no more row groups)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "move to next row group")
-}
-
-func TestReadPageForSkip_RecursiveCall(t *testing.T) {
-	// Test the else branch that calls NextRowGroup and recursively calls ReadPageForSkip
-	footer := &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}}
-	sh := newSchemaHandlerWithPath("leaf")
-	mockFile := newMockColumnBufferFileReader([]byte{})
-
-	cb := &ColumnBufferType{
-		PFile:         mockFile,
-		Footer:        footer,
-		SchemaHandler: sh,
-		PathStr:       common.PathToStr([]string{"root", "leaf"}),
-		ChunkHeader: &parquet.ColumnChunk{
-			MetaData: &parquet.ColumnMetaData{
-				PathInSchema:   []string{"leaf"},
-				DataPageOffset: 0,
-				NumValues:      5,
-			},
-		},
-		ChunkReadValues:  5, // All values read, will trigger NextRowGroup
-		DataTableNumRows: -1,
-	}
-
-	page, err := cb.ReadPageForSkip()
-	// Should error because NextRowGroup will fail (no more row groups)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "EOF")
-	require.Nil(t, page)
+	// No more row groups to advance to: normal completion via the exhausted sentinel.
+	require.ErrorIs(t, err, errColumnExhausted)
 }
 
 // TestNextRowGroup_NilColumnMetaData guards the nil-pointer panic fuzzing found:
