@@ -141,9 +141,12 @@ func (cbt *ColumnBufferType) skipEntireRowGroups(num int64) (int64, error) {
 	if cbt.Footer == nil || cbt.Footer.RowGroups == nil {
 		return num, nil
 	}
-	for num > 0 && cbt.RowGroupIndex < int64(len(cbt.Footer.RowGroups)) {
-		// Get the number of rows in the current row group (not yet processed)
-		currentRG := cbt.Footer.RowGroups[cbt.RowGroupIndex]
+	rowGroups := cbt.Footer.RowGroups
+	// A partially consumed chunk cannot use the row group's full row count.
+	for num > 0 && cbt.ChunkReadValues == 0 &&
+		cbt.RowGroupIndex > 0 && cbt.RowGroupIndex < int64(len(rowGroups)) {
+		// RowGroupIndex points one past the currently loaded row group.
+		currentRG := rowGroups[cbt.RowGroupIndex-1]
 		if currentRG == nil {
 			break
 		}

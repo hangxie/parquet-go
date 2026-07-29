@@ -635,6 +635,53 @@ func TestSkipRows_RowGroupSkipping(t *testing.T) {
 	}
 }
 
+func TestSkipRows_UnevenRowGroupsUsesCurrentSize(t *testing.T) {
+	ctx := context.Background()
+	fw := buffer.NewBufferWriter()
+	pw, err := writer.NewParquetWriterWithContext(ctx, fw, new(skipCountRecord), writer.WithRowGroupSize(1<<30))
+	require.NoError(t, err)
+	for i := range int64(200) {
+		require.NoError(t, pw.WriteWithContext(ctx, skipCountRecord{V: i}))
+	}
+	require.NoError(t, pw.FlushWithContext(ctx, true))
+	for i := int64(200); i < 300; i++ {
+		require.NoError(t, pw.WriteWithContext(ctx, skipCountRecord{V: i}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(ctx))
+
+	pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(fw.Bytes()), new(skipCountRecord))
+	require.NoError(t, err)
+	require.Len(t, pr.Footer.RowGroups, 2)
+	require.Equal(t, int64(200), pr.Footer.RowGroups[0].NumRows)
+	require.Equal(t, int64(100), pr.Footer.RowGroups[1].NumRows)
+	cb, err := pr.newColumnBuffer(pr.SchemaHandler.ValueColumns[0])
+	require.NoError(t, err)
+
+	skipped, err := cb.SkipRows(150)
+	require.NoError(t, err)
+	require.Equal(t, int64(150), skipped)
+
+	table, n, err := cb.ReadRows(1)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+	require.Equal(t, []any{int64(150)}, table.Values[:n])
+
+	// Once a page from the current group has been read, the whole-group fast path
+	// must not subtract that group's original size again.
+	cb, err = pr.newColumnBuffer(pr.SchemaHandler.ValueColumns[0])
+	require.NoError(t, err)
+	table, n, err = cb.ReadRows(1)
+	require.NoError(t, err)
+	require.Equal(t, []any{int64(0)}, table.Values[:n])
+
+	skipped, err = cb.SkipRows(200)
+	require.NoError(t, err)
+	require.Equal(t, int64(200), skipped)
+	table, n, err = cb.ReadRows(1)
+	require.NoError(t, err)
+	require.Equal(t, []any{int64(201)}, table.Values[:n])
+}
+
 func TestReadPageForSkip_RecursiveCall(t *testing.T) {
 	// Test the else branch that calls NextRowGroup and recursively calls ReadPageForSkip
 	footer := &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}}
