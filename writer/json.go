@@ -11,7 +11,11 @@ import (
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
-// JSONWriter is a writer for JSON-schema-defined data to parquet files.
+// JSONWriter writes JSON-schema-defined data to parquet files.
+//
+// A JSONWriter must not be used by multiple goroutines concurrently. Callers
+// must serialize all operations on an instance. WithNP controls internal
+// parallelism and does not make concurrent method calls safe.
 type JSONWriter struct {
 	ParquetWriter
 }

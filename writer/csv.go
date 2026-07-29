@@ -12,7 +12,11 @@ import (
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
-// CSVWriter is a writer for CSV-style data to parquet files.
+// CSVWriter writes CSV-style data to parquet files.
+//
+// A CSVWriter must not be used by multiple goroutines concurrently. Callers
+// must serialize all operations on an instance. WithNP controls internal
+// parallelism and does not make concurrent method calls safe.
 type CSVWriter struct {
 	ParquetWriter
 }

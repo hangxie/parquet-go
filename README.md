@@ -632,6 +632,42 @@ Other WKB types fall back to raw WKB. If WKB parsing fails, the converter also f
 
 Use `WithNP(n)` to set the number of parallel goroutines. The default is 4.
 
+`WithNP` controls parallel work performed inside a single operation. It does not make concurrent method calls on one reader or writer safe. Callers must serialize all operations on each `ParquetReader`, `ParquetWriter`, `CSVWriter`, `JSONWriter`, or `ArrowWriter` instance. In particular, writes must not overlap other writes, flushes, or finalization, and reads must not overlap other reads, skips, inspection operations, resets, or closing.
+
+Separate reader or writer instances do not share mutable library state and may be used concurrently when each has an independent file handle. A `ParquetFileReader` implementation must provide independent cursors from `Clone` and `Open`, as required by the source interface; any shared backend client must support the concurrency performed by those independent handles.
+
+`Clone` creates another low-level reader with an independent cursor. `NewParquetReader` also clones its supplied file reader internally for column-level work controlled by `WithNP`, but those internal handles belong to one high-level reader and do not make concurrent calls on that `ParquetReader` safe. To read the same file concurrently, clone the file reader and construct a separate `ParquetReader` for each goroutine:
+
+```go
+file1, err := source.CloneWithContext(ctx, file)
+if err != nil {
+    return err
+}
+file2, err := source.CloneWithContext(ctx, file)
+if err != nil {
+    _ = file1.Close()
+    return err
+}
+
+reader1, err := reader.NewParquetReaderWithContext(ctx, file1, new(Row))
+if err != nil {
+    _ = file1.Close()
+    _ = file2.Close()
+    return err
+}
+reader2, err := reader.NewParquetReaderWithContext(ctx, file2, new(Row))
+if err != nil {
+    _ = reader1.ReadStopWithContext(context.WithoutCancel(ctx))
+    _ = file1.Close()
+    _ = file2.Close()
+    return err
+}
+
+// reader1 and reader2 may now be used by separate goroutines.
+```
+
+Each `ParquetReader` has its own logical position; reads through one do not advance the other. `ReadStop` closes the reader's internal column handles, while the cloned file handles passed to the constructors remain the caller's responsibility to close.
+
 ```go
 func NewParquetReader(pFile source.ParquetFileReader, obj any, opts ...ReaderOption) (*ParquetReader, error)
 func NewParquetWriter(pFile source.ParquetFileWriter, obj any, opts ...WriterOption) (*ParquetWriter, error)

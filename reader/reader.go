@@ -18,7 +18,13 @@ import (
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
-// ParquetReader is a reader for parquet files.
+// ParquetReader reads parquet files.
+//
+// A ParquetReader must not be used by multiple goroutines concurrently.
+// Callers must serialize all operations on an instance, including row reads,
+// column reads, skips, inspection methods, Reset, ReadStop, and their
+// context-aware variants. WithNP controls internal parallelism and does not
+// make concurrent method calls safe.
 type ParquetReader struct {
 	SchemaHandler *schema.SchemaHandler
 	// Footer is loaded once by ReadFooter and then treated as immutable for the
