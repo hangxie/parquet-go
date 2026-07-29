@@ -50,8 +50,7 @@ func (pw *ParquetWriter) mergePageResults(pagesMapList []map[string][]*layout.Pa
 			}
 			for _, page := range pages {
 				pw.size += int64(len(page.RawData))
-				if page.Header.DataPageHeader == nil ||
-					page.Header.DataPageHeader.Encoding != parquet.Encoding_RLE_DICTIONARY {
+				if !isDictionaryDataPage(page) {
 					page.DataTable = nil // release memory
 				}
 			}

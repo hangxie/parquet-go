@@ -13,7 +13,7 @@ import (
 
 func TestDictionaryEncodingBitWidthAndFallback(t *testing.T) {
 	type Entry struct {
-		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=RLE_DICTIONARY"`
 	}
 
 	t.Run("uses_completed_dictionary_width", func(t *testing.T) {
@@ -43,6 +43,7 @@ func TestDictionaryEncodingBitWidthAndFallback(t *testing.T) {
 			WithNP(4),
 			WithPageSize(5),
 			WithMaxDictionarySize(10),
+			WithDataPageVersion(2),
 			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
 		)
 		require.NoError(t, err)
@@ -59,6 +60,14 @@ func TestDictionaryEncodingBitWidthAndFallback(t *testing.T) {
 
 		dictHeader, _ := rawPageHeaderAt(t, buf.Bytes(), *column.MetaData.DictionaryPageOffset)
 		require.Equal(t, int32(1), dictHeader.DictionaryPageHeader.NumValues)
+
+		offset := column.MetaData.DataPageOffset
+		chunkEnd := *column.MetaData.DictionaryPageOffset + column.MetaData.TotalCompressedSize
+		for offset < chunkEnd {
+			header, headerLen := rawPageHeaderAt(t, buf.Bytes(), offset)
+			require.Equal(t, parquet.PageType_DATA_PAGE_V2, header.Type)
+			offset += int64(headerLen) + int64(header.CompressedPageSize)
+		}
 
 		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
 		require.NoError(t, err)

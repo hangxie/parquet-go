@@ -14,6 +14,19 @@ func usesDictionaryEncoding(table *layout.Table) bool {
 		table.Info.Encoding == parquet.Encoding_RLE_DICTIONARY
 }
 
+func isDictionaryDataPage(page *layout.Page) bool {
+	if page == nil || page.Header == nil {
+		return false
+	}
+	if page.Header.DataPageHeader != nil {
+		return page.Header.DataPageHeader.Encoding == parquet.Encoding_RLE_DICTIONARY
+	}
+	if page.Header.DataPageHeaderV2 != nil {
+		return page.Header.DataPageHeaderV2.Encoding == parquet.Encoding_RLE_DICTIONARY
+	}
+	return false
+}
+
 func (pw *ParquetWriter) tableToDictPages(name string, table *layout.Table, compressionType parquet.CompressionCodec, compressor *compress.Compressor) ([]*layout.Page, error) {
 	var dictRec *layout.DictRecType
 	if v, ok := pw.DictRecs.Load(name); ok {
@@ -43,8 +56,7 @@ func hasDictionaryDataPage(pages []*layout.Page) bool {
 		if page == nil {
 			continue
 		}
-		if page.Header != nil && page.Header.DataPageHeader != nil &&
-			page.Header.DataPageHeader.Encoding == parquet.Encoding_RLE_DICTIONARY {
+		if isDictionaryDataPage(page) {
 			return true
 		}
 		if page.Header == nil && page.Info != nil &&
@@ -67,10 +79,11 @@ func (pw *ParquetWriter) buildDictionaryChunk(name string, pages []*layout.Page,
 		bitWidth = int32(bits.Len(uint(len(dictRec.DictSlice) - 1)))
 	}
 	if err := layout.FinalizeDictDataPagesWithOption(pages, bitWidth, layout.PageWriteOption{
-		Context:      pw.context(),
-		CompressType: compressionType,
-		WriteCRC:     pw.writeCRC,
-		Compressor:   pw.compressorForColumn(name),
+		Context:         pw.context(),
+		CompressType:    compressionType,
+		DataPageVersion: pw.dataPageVersion,
+		WriteCRC:        pw.writeCRC,
+		Compressor:      pw.compressorForColumn(name),
 	}); err != nil {
 		return nil, fmt.Errorf("finalize dict data pages for column %s: %w", name, err)
 	}
