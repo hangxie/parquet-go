@@ -2,9 +2,7 @@ package reader
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 
 	"golang.org/x/sync/errgroup"
 
@@ -83,9 +81,10 @@ launch:
 		}
 		g.Go(func() error {
 			defer func() { <-sem }()
-			if _, err := pr.ColumnBuffers[pathStr].SkipRows(int64(num)); err != nil && errors.Is(err, io.EOF) {
-				return nil
-			} else if err != nil {
+			// SkipRows returns nil on normal completion (including skipping past the end
+			// of the column), so any error here is real — e.g. a truncated page — and
+			// must surface rather than be swallowed.
+			if _, err := pr.ColumnBuffers[pathStr].SkipRows(int64(num)); err != nil {
 				return fmt.Errorf("skip rows for column %s: %w", pathStr, err)
 			}
 			return nil
