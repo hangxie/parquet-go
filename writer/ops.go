@@ -202,6 +202,10 @@ func (pw *ParquetWriter) buildChunkMap() (map[string]*layout.Chunk, error) {
 				return nil, fmt.Errorf("convert pages to chunk for column %s: %w", name, err)
 			}
 		}
+		chunk := chunkMap[name]
+		if chunk != nil && len(chunk.Pages) > 0 {
+			layout.TruncateBinaryStatistics(chunk.ChunkHeader.MetaData.Statistics, chunk.Pages[len(chunk.Pages)-1].Schema, pw.binaryMinMaxTruncateLength)
+		}
 	}
 	return chunkMap, nil
 }

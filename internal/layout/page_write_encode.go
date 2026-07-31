@@ -135,6 +135,7 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 			tmpBuf = tmpBuf[4:]
 		}
 		stats.MaxValue = tmpBuf
+		stats.IsMaxValueExact = common.ToPtr(true)
 		if signed {
 			stats.Max = tmpBuf
 		}
@@ -148,6 +149,7 @@ func (page *Page) setPageStatistics(stats *parquet.Statistics) error {
 			tmpBuf = tmpBuf[4:]
 		}
 		stats.MinValue = tmpBuf
+		stats.IsMinValueExact = common.ToPtr(true)
 		if signed {
 			stats.Min = tmpBuf
 		}

@@ -18,8 +18,13 @@ import (
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
-// DefaultMaxDictionarySize is the default encoded dictionary value-byte limit.
-const DefaultMaxDictionarySize = 1024 * 1024
+const (
+	// DefaultMaxDictionarySize is the default encoded dictionary value-byte limit.
+	DefaultMaxDictionarySize = 1024 * 1024
+	// DefaultBinaryMinMaxTruncateLength is the default byte-length target for binary
+	// footer statistics and column-index bounds.
+	DefaultBinaryMinMaxTruncateLength = 64
+)
 
 // columnCompressorKey uniquely identifies a (codec, level) combination for sharing compressor instances.
 type columnCompressorKey struct {
@@ -60,6 +65,15 @@ func WithMaxDictionarySize(size int64) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) { pw.maxDictionarySize = size })
 }
 
+// WithBinaryMinMaxTruncateLength sets the target byte limit for unannotated
+// BYTE_ARRAY/FIXED_LEN_BYTE_ARRAY and STRING/UTF8 statistics and column-index
+// bounds. Default is 64. STRING/UTF8 bounds may exceed the target when they
+// cannot be shortened to a valid UTF-8 bound. Other annotated types remain
+// untruncated.
+func WithBinaryMinMaxTruncateLength(length int) WriterOption {
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.binaryMinMaxTruncateLength = length })
+}
+
 // WithCompressionCodec sets the compression codec. Default is SNAPPY.
 func WithCompressionCodec(ct parquet.CompressionCodec) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) { pw.compressionType = ct })
@@ -98,20 +112,21 @@ type ParquetWriter struct {
 	Footer        *parquet.FileMetaData
 	PFile         source.ParquetFileWriter
 
-	np                int64 // parallel number
-	pageSize          int64
-	rowGroupSize      int64
-	maxDictionarySize int64
-	compressionType   parquet.CompressionCodec
-	compressionLevels map[parquet.CompressionCodec]int
-	compressor        *compress.Compressor
-	columnCompressors map[string]*compress.Compressor
-	dataPageVersion   int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
-	writeCRC          bool  // compute and write CRC32 checksums on pages (default false)
-	encryptionConfig  *EncryptionConfig
-	encryptionState   *encryptionState
-	optionErrors      []error
-	offset            int64
+	np                         int64 // parallel number
+	pageSize                   int64
+	rowGroupSize               int64
+	maxDictionarySize          int64
+	binaryMinMaxTruncateLength int
+	compressionType            parquet.CompressionCodec
+	compressionLevels          map[parquet.CompressionCodec]int
+	compressor                 *compress.Compressor
+	columnCompressors          map[string]*compress.Compressor
+	dataPageVersion            int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
+	writeCRC                   bool  // compute and write CRC32 checksums on pages (default false)
+	encryptionConfig           *EncryptionConfig
+	encryptionState            *encryptionState
+	optionErrors               []error
+	offset                     int64
 
 	objs              []any
 	objsSize          int64
@@ -174,6 +189,7 @@ func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileW
 	pw.pageSize = common.DefaultPageSize         // 8K
 	pw.rowGroupSize = common.DefaultRowGroupSize // 128M
 	pw.maxDictionarySize = DefaultMaxDictionarySize
+	pw.binaryMinMaxTruncateLength = DefaultBinaryMinMaxTruncateLength
 	pw.compressionType = parquet.CompressionCodec_SNAPPY
 	pw.compressionLevels = nil
 	pw.compressor = nil
@@ -221,6 +237,9 @@ func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileW
 	}
 	if pw.maxDictionarySize <= 0 {
 		return fmt.Errorf("WithMaxDictionarySize: value must be positive, got %d", pw.maxDictionarySize)
+	}
+	if pw.binaryMinMaxTruncateLength <= 0 {
+		return fmt.Errorf("WithBinaryMinMaxTruncateLength: value must be positive, got %d", pw.binaryMinMaxTruncateLength)
 	}
 	if pw.dataPageVersion != 1 && pw.dataPageVersion != 2 {
 		return fmt.Errorf("WithDataPageVersion: value must be 1 or 2, got %d", pw.dataPageVersion)
