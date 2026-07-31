@@ -10,18 +10,20 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // ReadColumnIndex reads the column index for a row-group column. It returns nil
-// when the column chunk does not have a column index.
+// when the column chunk does not have a valid column index.
 //
 // Deprecated: use ReadColumnIndexWithContext.
 func (pr *ParquetReader) ReadColumnIndex(rowGroupIndex, columnIndex int) (*parquet.ColumnIndex, error) {
 	return pr.ReadColumnIndexWithContext(pr.defaultContext(), rowGroupIndex, columnIndex)
 }
 
-// ReadColumnIndexWithContext reads a column index using ctx.
+// ReadColumnIndexWithContext reads a column index using ctx. It returns nil when
+// the column chunk does not have an index or any non-null page has invalid bounds.
 func (pr *ParquetReader) ReadColumnIndexWithContext(ctx context.Context, rowGroupIndex, columnIndex int) (*parquet.ColumnIndex, error) {
 	if err := pr.setContext(ctx); err != nil {
 		return nil, err
@@ -42,7 +44,41 @@ func (pr *ParquetReader) ReadColumnIndexWithContext(ctx context.Context, rowGrou
 	if err := readCompactThrift(ctx, buf, index); err != nil {
 		return nil, fmt.Errorf("read column index: %w", err)
 	}
+	if schemaElement := pr.indexSchemaElement(column); schemaElement != nil && !validColumnIndexBounds(schemaElement, index) {
+		return nil, nil
+	}
 	return index, nil
+}
+
+func (pr *ParquetReader) indexSchemaElement(column *parquet.ColumnChunk) *parquet.SchemaElement {
+	if pr.SchemaHandler == nil || column == nil || column.MetaData == nil {
+		return nil
+	}
+	path := columnPathToInPath(pr.SchemaHandler, column.MetaData.GetPathInSchema(), pr.caseInsensitive)
+	index, ok := pr.SchemaHandler.MapIndex[path]
+	if !ok || index < 0 || int(index) >= len(pr.SchemaHandler.SchemaElements) {
+		return nil
+	}
+	return pr.SchemaHandler.SchemaElements[index]
+}
+
+func validColumnIndexBounds(schemaElement *parquet.SchemaElement, index *parquet.ColumnIndex) bool {
+	if index == nil || len(index.NullPages) != len(index.MinValues) || len(index.NullPages) != len(index.MaxValues) {
+		return false
+	}
+	stats := parquet.Statistics{}
+	for i, nullPage := range index.NullPages {
+		if nullPage {
+			continue
+		}
+		stats.MinValue = index.MinValues[i]
+		stats.MaxValue = index.MaxValues[i]
+		min, max, err := schema.DecodeStatisticsMinMax(schemaElement, &stats)
+		if err != nil || min == nil || max == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // ReadOffsetIndex reads the offset index for a row-group column. It returns nil
