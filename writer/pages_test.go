@@ -3,6 +3,7 @@ package writer
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -146,6 +147,183 @@ func TestOffsetIndexFirstRowIndex(t *testing.T) {
 }
 
 func TestColumnIndex(t *testing.T) {
+	t.Run("raw_fixed_length_bounds", func(t *testing.T) {
+		type Entry struct {
+			Value string `parquet:"name=value, type=FIXED_LEN_BYTE_ARRAY, length=6"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1), WithBinaryMinMaxTruncateLength(3))
+		require.NoError(t, err)
+		for _, value := range []string{"aaaaaa", "zzzzzz"} {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() { require.NoError(t, pf.Close()) }()
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1)) //nolint:staticcheck
+		require.NoError(t, err)
+		require.NoError(t, pr.ReadFooter()) //nolint:staticcheck
+
+		chunk := pr.Footer.RowGroups[0].Columns[0]
+		require.Equal(t, []byte("aaa"), chunk.MetaData.Statistics.MinValue)
+		require.Equal(t, []byte("zz{"), chunk.MetaData.Statistics.MaxValue)
+		require.False(t, chunk.MetaData.Statistics.GetIsMinValueExact())
+		require.False(t, chunk.MetaData.Statistics.GetIsMaxValueExact())
+		index, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
+		require.NoError(t, err)
+		require.Equal(t, [][]byte{[]byte("aaa")}, index.MinValues)
+		require.Equal(t, [][]byte{[]byte("zz{")}, index.MaxValues)
+	})
+
+	t.Run("annotated_documents_are_not_truncated", func(t *testing.T) {
+		type Entry struct {
+			Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=JSON"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1), WithBinaryMinMaxTruncateLength(3))
+		require.NoError(t, err)
+		for _, value := range []string{`{"a":1}`, `{"z":9}`} {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() { require.NoError(t, pf.Close()) }()
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1)) //nolint:staticcheck
+		require.NoError(t, err)
+		require.NoError(t, pr.ReadFooter()) //nolint:staticcheck
+
+		chunk := pr.Footer.RowGroups[0].Columns[0]
+		require.Equal(t, []byte(`{"a":1}`), chunk.MetaData.Statistics.MinValue)
+		require.Equal(t, []byte(`{"z":9}`), chunk.MetaData.Statistics.MaxValue)
+		require.True(t, chunk.MetaData.Statistics.GetIsMinValueExact())
+		require.True(t, chunk.MetaData.Statistics.GetIsMaxValueExact())
+		index, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
+		require.NoError(t, err)
+		require.Equal(t, [][]byte{[]byte(`{"a":1}`)}, index.MinValues)
+		require.Equal(t, [][]byte{[]byte(`{"z":9}`)}, index.MaxValues)
+	})
+
+	t.Run("default_binary_bound_length", func(t *testing.T) {
+		type Entry struct {
+			Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
+		require.NoError(t, err)
+		require.NoError(t, pw.Write(Entry{Value: strings.Repeat("a", DefaultBinaryMinMaxTruncateLength+6)}))
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() { require.NoError(t, pf.Close()) }()
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1)) //nolint:staticcheck
+		require.NoError(t, err)
+		require.NoError(t, pr.ReadFooter()) //nolint:staticcheck
+
+		chunk := pr.Footer.RowGroups[0].Columns[0]
+		require.Len(t, chunk.MetaData.Statistics.MinValue, DefaultBinaryMinMaxTruncateLength)
+		require.Len(t, chunk.MetaData.Statistics.MaxValue, DefaultBinaryMinMaxTruncateLength)
+		index, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
+		require.NoError(t, err)
+		require.Len(t, index.MinValues[0], DefaultBinaryMinMaxTruncateLength)
+		require.Len(t, index.MaxValues[0], DefaultBinaryMinMaxTruncateLength)
+	})
+
+	t.Run("truncated_binary_bounds", func(t *testing.T) {
+		tests := []struct {
+			name string
+			obj  any
+			rows []any
+		}{
+			{
+				name: "plain",
+				obj: new(struct {
+					Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
+				}),
+				rows: []any{
+					struct {
+						Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
+					}{Value: "aaaaaa"},
+					struct {
+						Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
+					}{Value: "zzzzzz"},
+				},
+			},
+			{
+				name: "dictionary",
+				obj: new(struct {
+					Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+				}),
+				rows: []any{
+					struct {
+						Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+					}{Value: "aaaaaa"},
+					struct {
+						Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+					}{Value: "zzzzzz"},
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				pw, buf, err := createTestParquetWriter(tt.obj, WithNP(1), WithBinaryMinMaxTruncateLength(3))
+				require.NoError(t, err)
+				for _, row := range tt.rows {
+					require.NoError(t, pw.Write(row))
+				}
+				require.NoError(t, pw.WriteStop())
+
+				pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+				defer func() { require.NoError(t, pf.Close()) }()
+				pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1)) //nolint:staticcheck
+				require.NoError(t, err)
+				require.NoError(t, pr.ReadFooter()) //nolint:staticcheck
+
+				chunk := pr.Footer.RowGroups[0].Columns[0]
+				stats := chunk.MetaData.Statistics
+				require.Equal(t, []byte("aaa"), stats.MinValue)
+				require.Equal(t, []byte("zz{"), stats.MaxValue)
+				require.False(t, stats.GetIsMinValueExact())
+				require.False(t, stats.GetIsMaxValueExact())
+
+				index, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
+				require.NoError(t, err)
+				require.Equal(t, [][]byte{[]byte("aaa")}, index.MinValues)
+				require.Equal(t, [][]byte{[]byte("zz{")}, index.MaxValues)
+			})
+		}
+	})
+
+	t.Run("raw_overflow_preserves_exact_max_and_index", func(t *testing.T) {
+		type Entry struct {
+			Value string `parquet:"name=value, type=BYTE_ARRAY"`
+		}
+
+		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1), WithBinaryMinMaxTruncateLength(2))
+		require.NoError(t, err)
+		require.NoError(t, pw.Write(Entry{Value: string([]byte{0xff, 0xff, 0x01})}))
+		require.NoError(t, pw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		defer func() { require.NoError(t, pf.Close()) }()
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1)) //nolint:staticcheck
+		require.NoError(t, err)
+		require.NoError(t, pr.ReadFooter()) //nolint:staticcheck
+
+		chunk := pr.Footer.RowGroups[0].Columns[0]
+		require.True(t, chunk.IsSetColumnIndexOffset())
+		require.Equal(t, []byte{0xff, 0xff}, chunk.MetaData.Statistics.MinValue)
+		require.Equal(t, []byte{0xff, 0xff, 0x01}, chunk.MetaData.Statistics.MaxValue)
+		require.False(t, chunk.MetaData.Statistics.GetIsMinValueExact())
+		require.True(t, chunk.MetaData.Statistics.GetIsMaxValueExact())
+		index, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
+		require.NoError(t, err)
+		require.Equal(t, [][]byte{{0xff, 0xff}}, index.MinValues)
+		require.Equal(t, [][]byte{{0xff, 0xff, 0x01}}, index.MaxValues)
+	})
+
 	t.Run("all_null_counts", func(t *testing.T) {
 		type Entry struct {
 			X *int64 `parquet:"name=x, type=INT64"`

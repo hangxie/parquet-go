@@ -154,6 +154,7 @@ Common writer options:
 - `writer.WithPageSize`
 - `writer.WithRowGroupSize`
 - `writer.WithMaxDictionarySize`
+- `writer.WithBinaryMinMaxTruncateLength`
 - `writer.WithCompressionCodec`
 - `writer.WithCompressionLevel`
 - `writer.WithDataPageVersion`
@@ -305,6 +306,17 @@ Encoding notes:
 - `writer.WithDataPageVersion(2)` applies to both dictionary-encoded and plain data pages.
 - Use `omitstats=true` in a field tag to skip statistics for large array fields.
 - Whenever min/max statistics are available, the current `min_value`/`max_value` fields are written. The deprecated `min`/`max` fields (PARQUET-251) are limited to signed sort orders; for unsigned-ordered columns (e.g. `BYTE_ARRAY`/UTF8 and unsigned integer logical types) they are omitted so legacy readers do not misinterpret them.
+
+### Binary statistics bound truncation
+
+Binary footer statistics and column-index bounds target a 64-byte maximum by default; tune it with `writer.WithBinaryMinMaxTruncateLength`. Unlike parquet-java, which leaves row-group statistics effectively untruncated by default, parquet-go intentionally applies the same default truncation policy to both footer statistics and column-index bounds.
+
+The maximum length applies only to these column types:
+
+- Unannotated `BYTE_ARRAY` and unannotated `FIXED_LEN_BYTE_ARRAY`: bounds are truncated as raw bytes. The configured length is a target rather than a hard cap; if an all-`0xFF` maximum prefix cannot be incremented, the original exact maximum is retained.
+- `BYTE_ARRAY` annotated with logical type `STRING` or converted type `UTF8`: minimum bounds are shortened at a UTF-8 character boundary and maximum bounds are rounded up to a valid UTF-8 upper bound. The configured length is a target rather than a hard cap for these columns; for example, with a target of 64 bytes, a stored bound may exceed 64 bytes when retaining the original value is necessary to keep a valid UTF-8 bound.
+
+The maximum length does not apply to any other logical or converted type, including annotated `FIXED_LEN_BYTE_ARRAY`, `ENUM`, `JSON`, `BSON`, `UUID`, `DECIMAL`, `FLOAT16`, `INTERVAL`, `GEOMETRY`, and `GEOGRAPHY`. Compact Parquet bounds must remain valid values of their logical type, which arbitrary prefix truncation cannot guarantee for those annotations.
 
 ## Compression Support
 

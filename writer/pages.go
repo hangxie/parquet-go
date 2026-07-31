@@ -218,8 +218,12 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 		if stats.minVal == nil || stats.maxVal == nil {
 			hasValidBounds = false
 		}
-		columnIndex.MinValues[dataPageIdx] = stats.minVal
-		columnIndex.MaxValues[dataPageIdx] = stats.maxVal
+		minValue, maxValue := layout.TruncateBinaryBounds(page.Schema, stats.minVal, stats.maxVal, pw.binaryMinMaxTruncateLength)
+		if minValue == nil || maxValue == nil {
+			hasValidBounds = false
+		}
+		columnIndex.MinValues[dataPageIdx] = minValue
+		columnIndex.MaxValues[dataPageIdx] = maxValue
 	}
 	if stats.nullCount != nil {
 		if columnIndex.NullCounts == nil {

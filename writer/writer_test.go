@@ -464,6 +464,11 @@ func TestOptionValidation(t *testing.T) {
 		"np_negative":          {[]WriterOption{WithNP(-1)}, "WithNP: value must be positive"},
 		"page_size_zero":       {[]WriterOption{WithPageSize(0)}, "WithPageSize: value must be positive"},
 		"page_size_negative":   {[]WriterOption{WithPageSize(-100)}, "WithPageSize: value must be positive"},
+		"truncate_length_zero": {[]WriterOption{WithBinaryMinMaxTruncateLength(0)}, "WithBinaryMinMaxTruncateLength: value must be positive"},
+		"truncate_length_negative": {
+			[]WriterOption{WithBinaryMinMaxTruncateLength(-1)},
+			"WithBinaryMinMaxTruncateLength: value must be positive",
+		},
 		"row_group_size_zero":  {[]WriterOption{WithRowGroupSize(0)}, "WithRowGroupSize: value must be positive"},
 		"dictionary_size_zero": {[]WriterOption{WithMaxDictionarySize(0)}, "WithMaxDictionarySize: value must be positive"},
 		"dictionary_size_negative": {
@@ -481,7 +486,7 @@ func TestOptionValidation(t *testing.T) {
 		}, "WithCompressionLevel: set compression level for GZIP"},
 		"valid_defaults": {nil, ""},
 		"valid_custom": {
-			[]WriterOption{WithNP(2), WithPageSize(4096), WithRowGroupSize(1024), WithMaxDictionarySize(512), WithDataPageVersion(2)},
+			[]WriterOption{WithNP(2), WithPageSize(4096), WithRowGroupSize(1024), WithMaxDictionarySize(512), WithBinaryMinMaxTruncateLength(32), WithDataPageVersion(2)},
 			"",
 		},
 		"valid_compression_level": {[]WriterOption{

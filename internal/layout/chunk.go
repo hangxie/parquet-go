@@ -110,6 +110,8 @@ func populateStatistics(metaData *parquet.ColumnMetaData, schema *parquet.Schema
 	}
 	metaData.Statistics.MaxValue = tmpBufMax
 	metaData.Statistics.MinValue = tmpBufMin
+	metaData.Statistics.IsMaxValueExact = common.ToPtr(true)
+	metaData.Statistics.IsMinValueExact = common.ToPtr(true)
 	// Deprecated Min/Max (PARQUET-251) only for signed sort orders.
 	if common.IsSignedSortOrder(pT, schema.ConvertedType, schema.LogicalType) {
 		metaData.Statistics.Max = tmpBufMax
