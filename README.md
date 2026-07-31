@@ -369,6 +369,8 @@ pw, err := writer.NewParquetWriter(fw, new(MyStruct),
 )
 ```
 
+`ParquetReader.SkipRows` jumps ahead using the file's own positional metadata: it skips whole row groups by their declared row counts and, when a column offset index is present, seeks straight to the target data page instead of decoding every page along the way. Both are taken on trust, the same way the reader already trusts row group row counts everywhere else, so a corrupted file could in theory point a skip at the wrong row. That is really a broken file rather than a reader bug, and parquet-go just does its best with what the file declares: if an offset index is missing or structurally unusable it quietly falls back to a plain sequential skip, which reads the real page boundaries.
+
 ## File Sources
 
 File sources implement separate reader and writer interfaces.

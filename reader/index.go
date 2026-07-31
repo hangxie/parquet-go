@@ -36,7 +36,7 @@ func (pr *ParquetReader) ReadColumnIndexWithContext(ctx context.Context, rowGrou
 		return nil, nil
 	}
 
-	buf, err := pr.readIndexModule(column, rowGroupOrdinal, columnOrdinal, column.GetColumnIndexOffset(), column.GetColumnIndexLength(), encryption.ModuleColumnIndex)
+	buf, err := pr.readIndexModule(ctx, column, rowGroupOrdinal, columnOrdinal, column.GetColumnIndexOffset(), column.GetColumnIndexLength(), encryption.ModuleColumnIndex)
 	if err != nil {
 		return nil, fmt.Errorf("read column index module: %w", err)
 	}
@@ -94,6 +94,18 @@ func (pr *ParquetReader) ReadOffsetIndexWithContext(ctx context.Context, rowGrou
 	if err := pr.setContext(ctx); err != nil {
 		return nil, err
 	}
+	return pr.readOffsetIndexWithContext(ctx, rowGroupIndex, columnIndex)
+}
+
+// readOffsetIndexWithContext avoids mutating reader-wide context while column
+// buffers perform the same SkipRows operation in parallel.
+func (pr *ParquetReader) readOffsetIndexWithContext(ctx context.Context, rowGroupIndex, columnIndex int) (*parquet.OffsetIndex, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	column, rowGroupOrdinal, columnOrdinal, err := pr.indexColumn(rowGroupIndex, columnIndex)
 	if err != nil {
 		return nil, fmt.Errorf("locate column for offset index: %w", err)
@@ -102,7 +114,7 @@ func (pr *ParquetReader) ReadOffsetIndexWithContext(ctx context.Context, rowGrou
 		return nil, nil
 	}
 
-	buf, err := pr.readIndexModule(column, rowGroupOrdinal, columnOrdinal, column.GetOffsetIndexOffset(), column.GetOffsetIndexLength(), encryption.ModuleOffsetIndex)
+	buf, err := pr.readIndexModule(ctx, column, rowGroupOrdinal, columnOrdinal, column.GetOffsetIndexOffset(), column.GetOffsetIndexLength(), encryption.ModuleOffsetIndex)
 	if err != nil {
 		return nil, fmt.Errorf("read offset index module: %w", err)
 	}
@@ -135,16 +147,16 @@ func (pr *ParquetReader) indexColumn(rowGroupIndex, columnIndex int) (*parquet.C
 	return rowGroup.Columns[columnIndex], rowGroupOrdinal, int16(columnIndex), nil
 }
 
-func (pr *ParquetReader) readIndexModule(column *parquet.ColumnChunk, rowGroupOrdinal, columnOrdinal int16, offset int64, length int32, moduleType encryption.ModuleType) ([]byte, error) {
+func (pr *ParquetReader) readIndexModule(ctx context.Context, column *parquet.ColumnChunk, rowGroupOrdinal, columnOrdinal int16, offset int64, length int32, moduleType encryption.ModuleType) ([]byte, error) {
 	if pr.PFile == nil {
 		return nil, fmt.Errorf("file reader is nil")
 	}
-	pf, err := source.CloneWithContext(pr.context(), pr.PFile)
+	pf, err := source.CloneWithContext(ctx, pr.PFile)
 	if err != nil {
 		return nil, fmt.Errorf("clone file reader: %w", err)
 	}
-	defer func() { _ = source.CloseWithContext(pr.context(), pf) }()
-	contextFile := source.ReadSeekerWithContext{Ctx: pr.context(), ReadSeeker: pf}
+	defer func() { _ = source.CloseWithContext(ctx, pf) }()
+	contextFile := source.ReadSeekerWithContext{Ctx: ctx, ReadSeeker: pf}
 
 	if column.GetCryptoMetadata() == nil {
 		return readPlainIndexModule(contextFile, offset, length)

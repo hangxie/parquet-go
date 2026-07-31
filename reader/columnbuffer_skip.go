@@ -88,6 +88,7 @@ func (cbt *ColumnBufferType) readRawPageForSkip() (*layout.Page, error) {
 	cbt.DataTable.Merge(page.DataTable)
 	cbt.ChunkReadValues += numValues
 	cbt.DataTableNumRows += numRows
+	cbt.finishIndexedDataPage()
 	return page, nil
 }
 
@@ -143,7 +144,7 @@ func (cbt *ColumnBufferType) skipEntireRowGroups(num int64) (int64, error) {
 	}
 	rowGroups := cbt.Footer.RowGroups
 	// A partially consumed chunk cannot use the row group's full row count.
-	for num > 0 && cbt.ChunkReadValues == 0 &&
+	for num > 0 && cbt.ChunkReadValues == 0 && !cbt.hasIndexedPageCursor() &&
 		cbt.RowGroupIndex > 0 && cbt.RowGroupIndex < int64(len(rowGroups)) {
 		// RowGroupIndex points one past the currently loaded row group.
 		currentRG := rowGroups[cbt.RowGroupIndex-1]
@@ -213,6 +214,9 @@ func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 	}
 
 	if page != nil {
+		if err = cbt.ensureIndexedDictionary(); err != nil {
+			return skipped, fmt.Errorf("load indexed dictionary: %w", err)
+		}
 		if err = page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
 			return skipped, fmt.Errorf("decode page values during skip: %w", err)
 		}
@@ -266,6 +270,12 @@ func (cbt *ColumnBufferType) SkipRows(num int64) (int64, error) {
 	// surface an error from data beyond the requested skip boundary.
 	if num == 0 {
 		return originalNum, nil
+	}
+
+	if skipped, used, indexErr := cbt.skipWithOffsetIndex(num); indexErr != nil {
+		return originalNum - num + skipped, fmt.Errorf("skip with offset index: %w", indexErr)
+	} else if used {
+		return originalNum - num + skipped, nil
 	}
 
 	// Finally, skip remaining rows by reading pages.
