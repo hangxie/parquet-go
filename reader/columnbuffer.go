@@ -46,6 +46,11 @@ type ColumnBufferType struct {
 	// past the end (which would report phantom rows) nor across the shared skip-then-read
 	// use of a column buffer.
 	dataTableNumRowsNormalized bool
+	// indexedPagesRemaining counts data pages left to read on a cursor positioned by
+	// the offset index; zero means no such cursor is active. Reaching zero marks the
+	// column chunk as fully consumed even though earlier pages were skipped unread.
+	indexedPagesRemaining    int
+	indexedDictionaryPending bool
 }
 
 // NewColumnBuffer creates a column buffer for the column identified by pathStr.
@@ -197,6 +202,8 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	cbt.ThriftReader = thriftReader
 	cbt.ChunkReadValues = 0
 	cbt.DictPage = nil
+	cbt.indexedPagesRemaining = 0
+	cbt.indexedDictionaryPending = false
 	return nil
 }
 
@@ -209,6 +216,7 @@ func (cbt *ColumnBufferType) context() context.Context {
 
 type columnBufferReader struct {
 	buffer    *ColumnBufferType
+	file      source.ParquetFileReader
 	remaining int64
 }
 
@@ -219,7 +227,11 @@ func (r *columnBufferReader) Read(p []byte) (int, error) {
 	if int64(len(p)) > r.remaining {
 		p = p[:r.remaining]
 	}
-	n, err := source.ReadWithContext(r.buffer.context(), r.buffer.PFile, p)
+	file := r.file
+	if file == nil {
+		file = r.buffer.PFile
+	}
+	n, err := source.ReadWithContext(r.buffer.context(), file, p)
 	r.remaining -= int64(n)
 	return n, err
 }
@@ -374,6 +386,9 @@ func (cbt *ColumnBufferType) ReadPage() error {
 		return nil
 	}
 
+	if err := cbt.ensureIndexedDictionary(); err != nil {
+		return fmt.Errorf("load indexed dictionary: %w", err)
+	}
 	page.Decode(cbt.DictPage)
 	if cbt.DataTable == nil {
 		cbt.DataTable = layout.NewTableFromTable(page.DataTable)
@@ -382,6 +397,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 	cbt.DataTable.Merge(page.DataTable)
 	cbt.ChunkReadValues += numValues
 	cbt.DataTableNumRows += numRows
+	cbt.finishIndexedDataPage()
 	return nil
 }
 

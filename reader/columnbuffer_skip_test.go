@@ -1,8 +1,11 @@
 package reader
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -11,9 +14,196 @@ import (
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
+	"github.com/hangxie/parquet-go/v3/source/writerfile"
 	"github.com/hangxie/parquet-go/v3/writer"
 )
+
+type countingReadRange struct {
+	start int64
+	end   int64
+}
+
+// recordingReadState collects the byte ranges every clone of a recordingReader has
+// read, keyed by file name, so a test can assert which regions were (or were not)
+// touched and how many bytes each backing file served.
+type recordingReadState struct {
+	mu    sync.Mutex
+	reads map[string][]countingReadRange
+}
+
+func newRecordingReadState() *recordingReadState {
+	return &recordingReadState{reads: map[string][]countingReadRange{}}
+}
+
+func (s *recordingReadState) record(name string, read countingReadRange) {
+	s.mu.Lock()
+	s.reads[name] = append(s.reads[name], read)
+	s.mu.Unlock()
+}
+
+func (s *recordingReadState) ranges(name string) []countingReadRange {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]countingReadRange(nil), s.reads[name]...)
+}
+
+func (s *recordingReadState) bytesRead(name string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var total int64
+	for _, read := range s.reads[name] {
+		total += read.end - read.start
+	}
+	return total
+}
+
+func (s *recordingReadState) reset() {
+	s.mu.Lock()
+	s.reads = map[string][]countingReadRange{}
+	s.mu.Unlock()
+}
+
+// recordingReader is an in-memory source.ParquetFileReader over one or more named
+// files that records every read range in a shared recordingReadState. Clones and
+// Opens share that state, so reads performed by the reader's per-column clones are
+// visible to the test that created it.
+type recordingReader struct {
+	files  map[string][]byte
+	name   string
+	offset int64
+	state  *recordingReadState
+}
+
+func newRecordingReader(name string, files map[string][]byte) *recordingReader {
+	return &recordingReader{files: files, name: name, state: newRecordingReadState()}
+}
+
+func (r *recordingReader) Read(p []byte) (int, error) {
+	data := r.files[r.name]
+	if r.offset >= int64(len(data)) {
+		return 0, io.EOF
+	}
+	start := r.offset
+	n := copy(p, data[r.offset:])
+	r.offset += int64(n)
+	r.state.record(r.name, countingReadRange{start: start, end: r.offset})
+	if r.offset == int64(len(data)) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (r *recordingReader) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		r.offset = offset
+	case io.SeekCurrent:
+		r.offset += offset
+	case io.SeekEnd:
+		r.offset = int64(len(r.files[r.name])) + offset
+	}
+	return r.offset, nil
+}
+
+func (r *recordingReader) Close() error { return nil }
+
+func (r *recordingReader) Open(name string) (source.ParquetFileReader, error) {
+	if _, ok := r.files[name]; !ok {
+		return nil, fmt.Errorf("file %q not found", name)
+	}
+	return &recordingReader{files: r.files, name: name, state: r.state}, nil
+}
+
+func (r *recordingReader) Clone() (source.ParquetFileReader, error) {
+	return &recordingReader{files: r.files, name: r.name, offset: r.offset, state: r.state}, nil
+}
+
+func TestSkipRows_UsesOffsetIndex(t *testing.T) {
+	for _, pageVersion := range []int{1, 2} {
+		t.Run(fmt.Sprintf("v%d", pageVersion), func(t *testing.T) {
+			testSkipRowsUsesOffsetIndexVersion(t, pageVersion)
+		})
+	}
+}
+
+func testSkipRowsUsesOffsetIndexVersion(t *testing.T, pageVersion int) {
+	type record struct {
+		Value int64 `parquet:"name=value, type=INT64"`
+	}
+
+	var parquetData bytes.Buffer
+	options := []writer.WriterOption{
+		writer.WithNP(1),
+		writer.WithPageSize(64),
+		writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+	}
+	if pageVersion == 2 {
+		options = append(options, writer.WithDataPageVersion(2))
+	}
+	pw, err := writer.NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&parquetData), new(record), options...)
+	require.NoError(t, err)
+	for i := range int64(256) {
+		require.NoError(t, pw.WriteWithContext(context.Background(), record{Value: i}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	pf := newRecordingReader("main", map[string][]byte{"main": parquetData.Bytes()})
+	pr, err := NewParquetReader(pf, new(record), WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+
+	index, err := pr.ReadOffsetIndexWithContext(context.Background(), 0, 0)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(index.PageLocations), 3)
+	targetPage := 2
+	pageStart := index.PageLocations[targetPage].FirstRowIndex
+	pageEnd := pr.Footer.RowGroups[0].NumRows
+	if targetPage+1 < len(index.PageLocations) {
+		pageEnd = index.PageLocations[targetPage+1].FirstRowIndex
+	}
+
+	positions := []struct {
+		name string
+		skip int64
+	}{{name: "page_boundary", skip: pageStart}}
+	if pageEnd-pageStart > 1 {
+		positions = append(positions, struct {
+			name string
+			skip int64
+		}{name: "inside_page", skip: pageStart + 1})
+	}
+
+	for _, position := range positions {
+		t.Run(position.name, func(t *testing.T) {
+			testIndexedSkipReadRanges(t, pr, pf, index, targetPage, position.skip)
+		})
+	}
+}
+
+func testIndexedSkipReadRanges(t *testing.T, pr *ParquetReader, pf *recordingReader, index *parquet.OffsetIndex, targetPage int, skip int64) {
+	require.NoError(t, pr.Reset())
+	pf.state.reset()
+
+	require.NoError(t, pr.SkipRows(skip))
+	values, _, _, err := pr.ReadColumnByIndex(0, 1)
+	require.NoError(t, err)
+	require.Equal(t, []any{skip}, values)
+	// Pages entirely before the landing page are jumped over via the offset index and
+	// must never be read; that skipped I/O is the whole point of the optimization.
+	for page := range targetPage {
+		assertPageRangeUnread(t, index.PageLocations[page], pf.state.ranges(pf.name), "skip read preceding data page")
+	}
+}
+
+func assertPageRangeUnread(t *testing.T, page *parquet.PageLocation, reads []countingReadRange, message string) {
+	pageEnd := page.Offset + int64(page.CompressedPageSize)
+	for _, read := range reads {
+		require.False(t, read.start < pageEnd && read.end > page.Offset,
+			"%s [%d,%d) via read [%d,%d)", message, page.Offset, pageEnd, read.start, read.end)
+	}
+}
 
 func TestSkipRows(t *testing.T) {
 	tests := []struct {
