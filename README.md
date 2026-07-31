@@ -318,6 +318,8 @@ The maximum length applies only to these column types:
 
 The maximum length does not apply to any other logical or converted type, including annotated `FIXED_LEN_BYTE_ARRAY`, `ENUM`, `JSON`, `BSON`, `UUID`, `DECIMAL`, `FLOAT16`, `INTERVAL`, `GEOMETRY`, and `GEOGRAPHY`. Compact Parquet bounds must remain valid values of their logical type, which arbitrary prefix truncation cannot guarantee for those annotations.
 
+When reading files from non-conforming writers, invalid footer minimum and maximum bounds are independently treated as absent. A column index containing an invalid bound is ignored in full so malformed metadata cannot be used for page pruning. Bounds with unsupported logical ordering or validation, including `GEOMETRY` and `GEOGRAPHY`, are also treated as absent. Compact bounds for unannotated `BYTE_ARRAY` and `FIXED_LEN_BYTE_ARRAY` columns remain valid raw byte bounds.
+
 ## Compression Support
 
 | Compression | Supported | Default Level | Library |

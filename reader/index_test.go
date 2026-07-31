@@ -6,8 +6,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 )
@@ -41,6 +43,123 @@ func TestReadColumnAndOffsetIndex(t *testing.T) {
 	gotOffsetIndex, err := pr.ReadOffsetIndex(0, 0)
 	require.NoError(t, err)
 	require.Equal(t, offsetIndex, gotOffsetIndex)
+}
+
+func TestReadColumnIndexInvalidBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		element   *parquet.SchemaElement
+		min       []byte
+		max       []byte
+		wantIndex bool
+	}{
+		{
+			name:      "compact raw fixed bounds",
+			element:   &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), TypeLength: common.ToPtr(int32(4))},
+			min:       []byte{0x01},
+			max:       []byte{0xfe, 0xff},
+			wantIndex: true,
+		},
+		{
+			name:      "raw byte array empty minimum",
+			element:   &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_BYTE_ARRAY)},
+			min:       []byte{},
+			max:       []byte("zebra"),
+			wantIndex: true,
+		},
+		{
+			name:      "string empty minimum and maximum",
+			element:   &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_BYTE_ARRAY), LogicalType: &parquet.LogicalType{STRING: parquet.NewStringType()}},
+			min:       []byte{},
+			max:       []byte{},
+			wantIndex: true,
+		},
+		{
+			name:    "invalid UTF8 minimum",
+			element: &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_BYTE_ARRAY), LogicalType: &parquet.LogicalType{STRING: parquet.NewStringType()}},
+			min:     []byte{0xff},
+			max:     []byte("zebra"),
+		},
+		{
+			name:    "invalid JSON maximum",
+			element: &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_BYTE_ARRAY), LogicalType: &parquet.LogicalType{JSON: parquet.NewJsonType()}},
+			min:     []byte(`{"a":1}`),
+			max:     []byte(`{"z":`),
+		},
+		{
+			name:    "invalid BSON minimum",
+			element: &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_BYTE_ARRAY), LogicalType: &parquet.LogicalType{BSON: parquet.NewBsonType()}},
+			min:     []byte{5, 0, 0},
+			max:     []byte{5, 0, 0, 0, 0},
+		},
+		{
+			name:    "invalid UUID minimum",
+			element: &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), TypeLength: common.ToPtr(int32(16)), LogicalType: &parquet.LogicalType{UUID: parquet.NewUUIDType()}},
+			min:     make([]byte, 15),
+			max:     make([]byte, 16),
+		},
+		{
+			name: "invalid DECIMAL minimum",
+			element: &parquet.SchemaElement{
+				Name:          "leaf",
+				Type:          common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				TypeLength:    common.ToPtr(int32(4)),
+				ConvertedType: common.ToPtr(parquet.ConvertedType_DECIMAL),
+			},
+			min: []byte{1, 2, 3},
+			max: []byte{1, 2, 3, 4},
+		},
+		{
+			name:    "invalid FLOAT16 maximum",
+			element: &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), TypeLength: common.ToPtr(int32(2)), LogicalType: &parquet.LogicalType{FLOAT16: parquet.NewFloat16Type()}},
+			min:     []byte{0, 0},
+			max:     []byte{0},
+		},
+		{
+			name:    "unsupported GEOMETRY bounds",
+			element: &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_BYTE_ARRAY), LogicalType: &parquet.LogicalType{GEOMETRY: parquet.NewGeometryType()}},
+			min:     []byte{1, 2},
+			max:     []byte{3, 4},
+		},
+		{
+			name:    "unsupported GEOGRAPHY bounds",
+			element: &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_BYTE_ARRAY), LogicalType: &parquet.LogicalType{GEOGRAPHY: parquet.NewGeographyType()}},
+			min:     []byte{1, 2},
+			max:     []byte{3, 4},
+		},
+		{
+			name:    "unsupported unknown logical bounds",
+			element: &parquet.SchemaElement{Name: "leaf", Type: common.ToPtr(parquet.Type_BYTE_ARRAY), LogicalType: parquet.NewLogicalType()},
+			min:     []byte("a"),
+			max:     []byte("z"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			columnIndex := &parquet.ColumnIndex{
+				NullPages:     []bool{false},
+				MinValues:     [][]byte{tc.min},
+				MaxValues:     [][]byte{tc.max},
+				BoundaryOrder: parquet.BoundaryOrder_UNORDERED,
+			}
+			buf := serializeThrift(t, columnIndex)
+			pr := indexTestReader(buf, false, nil, nil, int32(len(buf)), 0)
+			root := &parquet.SchemaElement{Name: "root", NumChildren: common.ToPtr(int32(1))}
+			pr.SchemaHandler = schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{root, tc.element})
+			pr.Footer.RowGroups[0].Columns[0].MetaData = &parquet.ColumnMetaData{PathInSchema: []string{"leaf"}}
+
+			got, err := pr.ReadColumnIndex(0, 0)
+			require.NoError(t, err)
+			if tc.wantIndex {
+				require.Equal(t, columnIndex, got)
+			} else {
+				require.Nil(t, got)
+			}
+		})
+	}
 }
 
 func TestReadEncryptedColumnAndOffsetIndex(t *testing.T) {
