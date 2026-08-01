@@ -29,6 +29,33 @@ func (pr *ParquetReader) InternalFooter() (*parquet.FileMetaData, error) {
 	return footer, nil
 }
 
+// RowGroupSortingColumns returns a copy of the sorting-column metadata for a
+// row group. ColumnIdx is the zero-based leaf-column ordinal in that row group.
+func (pr *ParquetReader) RowGroupSortingColumns(rowGroupIndex int) ([]*parquet.SortingColumn, error) {
+	if pr == nil || pr.Footer == nil {
+		return nil, fmt.Errorf("reader footer is unavailable")
+	}
+	if rowGroupIndex < 0 || rowGroupIndex >= len(pr.Footer.RowGroups) {
+		return nil, fmt.Errorf("row group index %d out of range [0, %d)", rowGroupIndex, len(pr.Footer.RowGroups))
+	}
+	rowGroup := pr.Footer.RowGroups[rowGroupIndex]
+	if rowGroup == nil {
+		return nil, fmt.Errorf("row group %d is nil", rowGroupIndex)
+	}
+	if rowGroup.SortingColumns == nil {
+		return nil, nil
+	}
+	columns := make([]*parquet.SortingColumn, len(rowGroup.SortingColumns))
+	for i, column := range rowGroup.SortingColumns {
+		if column == nil {
+			continue
+		}
+		clonedColumn := *column
+		columns[i] = &clonedColumn
+	}
+	return columns, nil
+}
+
 // RenameSchema rewrites Footer schema names and column metadata paths from
 // external Parquet names to internal Go names. Prefer InternalFooter when a
 // converted footer is needed without mutating the reader's file metadata.

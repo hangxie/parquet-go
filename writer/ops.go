@@ -228,6 +228,7 @@ func (pw *ParquetWriter) buildRowGroup(chunkMap map[string]*layout.Chunk) *layou
 		rowGroup.RowGroupHeader.Columns = append(rowGroup.RowGroupHeader.Columns, chunk.ChunkHeader)
 	}
 	rowGroup.RowGroupHeader.NumRows = pw.numRows
+	rowGroup.RowGroupHeader.SortingColumns = cloneSortingColumns(pw.sortingColumns)
 	pw.numRows = 0
 	return rowGroup
 }

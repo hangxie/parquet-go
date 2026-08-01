@@ -223,6 +223,52 @@ func TestParquetReaderInternalFooterNil(t *testing.T) {
 	require.Nil(t, footer)
 }
 
+func TestParquetReaderRowGroupSortingColumns(t *testing.T) {
+	first := &parquet.SortingColumn{ColumnIdx: 1, Descending: true, NullsFirst: true}
+	footer := &parquet.FileMetaData{
+		RowGroups: []*parquet.RowGroup{
+			{SortingColumns: []*parquet.SortingColumn{first}},
+			{},
+		},
+	}
+	pr := &ParquetReader{Footer: footer}
+
+	columns, err := pr.RowGroupSortingColumns(0)
+	require.NoError(t, err)
+	require.Equal(t, []*parquet.SortingColumn{first}, columns)
+	require.NotSame(t, first, columns[0])
+
+	columns[0].ColumnIdx = 0
+	columns[0] = nil
+	require.Equal(t, int32(1), pr.Footer.RowGroups[0].SortingColumns[0].ColumnIdx)
+
+	columns, err = pr.RowGroupSortingColumns(1)
+	require.NoError(t, err)
+	require.Nil(t, columns)
+
+	nilRowGroupFooter := &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{nil}}
+	nilRowGroupReader := &ParquetReader{Footer: nilRowGroupFooter}
+
+	tests := []struct {
+		name          string
+		reader        *ParquetReader
+		rowGroupIndex int
+		wantErr       string
+	}{
+		{name: "nil reader", reader: nil, wantErr: "reader footer is unavailable"},
+		{name: "nil footer", reader: &ParquetReader{}, wantErr: "reader footer is unavailable"},
+		{name: "negative index", reader: pr, rowGroupIndex: -1, wantErr: "row group index -1 out of range [0, 2)"},
+		{name: "large index", reader: pr, rowGroupIndex: 2, wantErr: "row group index 2 out of range [0, 2)"},
+		{name: "nil row group", reader: nilRowGroupReader, wantErr: "row group 0 is nil"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.reader.RowGroupSortingColumns(tt.rowGroupIndex)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func writeFooterRenamedColumnParquet(t *testing.T) []byte {
 	t.Helper()
 
