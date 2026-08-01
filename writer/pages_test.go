@@ -205,29 +205,48 @@ func TestColumnIndex(t *testing.T) {
 		require.Equal(t, [][]byte{[]byte(`{"z":9}`)}, index.MaxValues)
 	})
 
-	t.Run("default_binary_bound_length", func(t *testing.T) {
-		type Entry struct {
+	t.Run("default_binary_bounds_are_not_truncated", func(t *testing.T) {
+		type rawEntry struct {
+			Value string `parquet:"name=value, type=BYTE_ARRAY"`
+		}
+		type stringEntry struct {
 			Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
 		}
 
-		pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
-		require.NoError(t, err)
-		require.NoError(t, pw.Write(Entry{Value: strings.Repeat("a", DefaultBinaryMinMaxTruncateLength+6)}))
-		require.NoError(t, pw.WriteStop())
+		value := strings.Repeat("a", 70)
+		tests := []struct {
+			name string
+			obj  any
+			row  any
+		}{
+			{name: "raw", obj: new(rawEntry), row: rawEntry{Value: value}},
+			{name: "utf8", obj: new(stringEntry), row: stringEntry{Value: value}},
+		}
 
-		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
-		defer func() { require.NoError(t, pf.Close()) }()
-		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1)) //nolint:staticcheck
-		require.NoError(t, err)
-		require.NoError(t, pr.ReadFooter()) //nolint:staticcheck
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				pw, buf, err := createTestParquetWriter(tt.obj, WithNP(1))
+				require.NoError(t, err)
+				require.NoError(t, pw.Write(tt.row))
+				require.NoError(t, pw.WriteStop())
 
-		chunk := pr.Footer.RowGroups[0].Columns[0]
-		require.Len(t, chunk.MetaData.Statistics.MinValue, DefaultBinaryMinMaxTruncateLength)
-		require.Len(t, chunk.MetaData.Statistics.MaxValue, DefaultBinaryMinMaxTruncateLength)
-		index, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
-		require.NoError(t, err)
-		require.Len(t, index.MinValues[0], DefaultBinaryMinMaxTruncateLength)
-		require.Len(t, index.MaxValues[0], DefaultBinaryMinMaxTruncateLength)
+				pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+				defer func() { require.NoError(t, pf.Close()) }()
+				pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1)) //nolint:staticcheck
+				require.NoError(t, err)
+				require.NoError(t, pr.ReadFooter()) //nolint:staticcheck
+
+				chunk := pr.Footer.RowGroups[0].Columns[0]
+				require.Equal(t, []byte(value), chunk.MetaData.Statistics.MinValue)
+				require.Equal(t, []byte(value), chunk.MetaData.Statistics.MaxValue)
+				require.True(t, chunk.MetaData.Statistics.GetIsMinValueExact())
+				require.True(t, chunk.MetaData.Statistics.GetIsMaxValueExact())
+				index, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
+				require.NoError(t, err)
+				require.Equal(t, [][]byte{[]byte(value)}, index.MinValues)
+				require.Equal(t, [][]byte{[]byte(value)}, index.MaxValues)
+			})
+		}
 	})
 
 	t.Run("truncated_binary_bounds", func(t *testing.T) {
