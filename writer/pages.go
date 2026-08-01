@@ -2,8 +2,10 @@ package writer
 
 import (
 	"fmt"
+	"math"
 	"sync"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -188,16 +190,68 @@ func pageIsAllNull(page *layout.Page) bool {
 	return hist[len(hist)-1] == 0
 }
 
-// recordDataPage fills the ColumnIndex/OffsetIndex entries for one data page.
-// It returns hasValidBounds=false when the page is a non-null page that carries
-// no min/max (statistics omitted, or a type such as GEOMETRY/GEOGRAPHY/INTERVAL
-// that intentionally has none). The caller must not emit a ColumnIndex whose
-// non-null pages lack bounds: the Parquet spec requires min_values[i]/
-// max_values[i] to be valid whenever null_pages[i] is false, so an index with
-// empty bounds there would make predicate-pushdown readers skip matching rows.
-func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.ColumnIndex, offsetIndex *parquet.OffsetIndex, dataPageIdx, dataPageCount int, firstRowIndex *int64) (hasValidBounds bool, err error) {
+type pageBounds struct {
+	minVal any
+	maxVal any
+}
+
+func columnIndexBoundaryOrder(schemaElement *parquet.SchemaElement, bounds []pageBounds) parquet.BoundaryOrder {
+	if schemaElement == nil || schemaElement.Type == nil {
+		return parquet.BoundaryOrder_UNORDERED
+	}
+
+	funcTable, err := common.FindFuncTable(schemaElement.Type, schemaElement.ConvertedType, schemaElement.LogicalType)
+	if err != nil {
+		return parquet.BoundaryOrder_UNORDERED
+	}
+
+	ascending, descending := true, true
+	var previousMin, previousMax any
+	seenNonNullPage := false
+	for _, page := range bounds {
+		if page.minVal == nil && page.maxVal == nil {
+			continue
+		}
+		if page.minVal == nil || page.maxVal == nil || isNaNBound(page.minVal) || isNaNBound(page.maxVal) {
+			return parquet.BoundaryOrder_UNORDERED
+		}
+		if seenNonNullPage {
+			ascending = ascending && !funcTable.LessThan(page.minVal, previousMin) && !funcTable.LessThan(page.maxVal, previousMax)
+			descending = descending && !funcTable.LessThan(previousMin, page.minVal) && !funcTable.LessThan(previousMax, page.maxVal)
+			if !ascending && !descending {
+				return parquet.BoundaryOrder_UNORDERED
+			}
+		}
+		previousMin, previousMax = page.minVal, page.maxVal
+		seenNonNullPage = true
+	}
+	if ascending {
+		return parquet.BoundaryOrder_ASCENDING
+	}
+	if descending {
+		return parquet.BoundaryOrder_DESCENDING
+	}
+	return parquet.BoundaryOrder_UNORDERED
+}
+
+func isNaNBound(value any) bool {
+	switch value := value.(type) {
+	case float32:
+		return math.IsNaN(float64(value))
+	case float64:
+		return math.IsNaN(value)
+	default:
+		return false
+	}
+}
+
+// recordDataPage records one data page in the column and offset indexes and
+// returns its bounds for order detection. A non-null page without min/max
+// invalidates the ColumnIndex because the Parquet spec requires valid bounds
+// whenever null_pages[i] is false.
+func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.ColumnIndex, offsetIndex *parquet.OffsetIndex, dataPageIdx, dataPageCount int, firstRowIndex *int64) (bounds pageBounds, hasValidBounds bool, err error) {
 	if page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil {
-		return false, fmt.Errorf("unsupported data page: %s", page.Header.String())
+		return bounds, false, fmt.Errorf("unsupported data page: %s", page.Header.String())
 	}
 
 	stats := extractPageStats(page)
@@ -224,6 +278,13 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 		}
 		columnIndex.MinValues[dataPageIdx] = minValue
 		columnIndex.MaxValues[dataPageIdx] = maxValue
+		bounds = pageBounds{minVal: page.MinVal, maxVal: page.MaxVal}
+		if page.Schema != nil && page.Schema.Type != nil &&
+			(*page.Schema.Type == parquet.Type_BYTE_ARRAY || *page.Schema.Type == parquet.Type_FIXED_LEN_BYTE_ARRAY) {
+			// Binary bounds may be truncated, so compare the values actually
+			// serialized into the ColumnIndex rather than the exact page extrema.
+			bounds = pageBounds{minVal: string(minValue), maxVal: string(maxValue)}
+		}
 	}
 	if stats.nullCount != nil {
 		if columnIndex.NullCounts == nil {
@@ -252,7 +313,7 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 	// Parquet spec first_row_index counts repetition-level-0 entries, which
 	// differs from NumValues for columns under repeated (LIST/MAP) fields.
 	*firstRowIndex += page.NumRows
-	return hasValidBounds, nil
+	return bounds, hasValidBounds, nil
 }
 
 func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, columnOrdinal int16) error {
@@ -288,6 +349,8 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 	firstRowIndex := int64(0)
 	dataPageIdx := 0
 	columnIndexValid := true
+	dataPageBounds := make([]pageBounds, 0, dataPageCount)
+	var dataPageSchema *parquet.SchemaElement
 
 	for _, page := range pages {
 		pageOrdinal := int16(dataPageIdx)
@@ -307,10 +370,14 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 			chunk.ChunkHeader.MetaData.TotalCompressedSize += int64(len(page.RawData) - plainRawLen)
 		}
 		if isDataPage {
-			hasValidBounds, err := pw.recordDataPage(page, columnIndex, offsetIndex, dataPageIdx, dataPageCount, &firstRowIndex)
+			bounds, hasValidBounds, err := pw.recordDataPage(page, columnIndex, offsetIndex, dataPageIdx, dataPageCount, &firstRowIndex)
 			if err != nil {
 				return fmt.Errorf("record data page %d: %w", dataPageIdx, err)
 			}
+			if dataPageSchema == nil {
+				dataPageSchema = page.Schema
+			}
+			dataPageBounds = append(dataPageBounds, bounds)
 			if !hasValidBounds {
 				columnIndexValid = false
 			}
@@ -328,6 +395,8 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 	// unset, which is spec-valid and keeps the per-chunk slot alignment intact.
 	if !columnIndexValid {
 		pw.columnIndexes[columnIndexSlot] = nil
+	} else {
+		columnIndex.BoundaryOrder = columnIndexBoundaryOrder(dataPageSchema, dataPageBounds)
 	}
 	return nil
 }

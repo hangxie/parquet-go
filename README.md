@@ -321,6 +321,7 @@ Encoding notes:
 - `writer.WithDataPageVersion(2)` applies to both dictionary-encoded and plain data pages.
 - Use `omitstats=true` in a field tag to skip statistics for large array fields.
 - Whenever min/max statistics are available, the current `min_value`/`max_value` fields are written. The deprecated `min`/`max` fields (PARQUET-251) are limited to signed sort orders; for unsigned-ordered columns (e.g. `BYTE_ARRAY`/UTF8 and unsigned integer logical types) they are omitted so legacy readers do not misinterpret them.
+- Column indexes advertise `ASCENDING` or `DESCENDING` boundary order when both page-level minimum and maximum bounds are monotonic under the column's Parquet sort order. Null-only pages are ignored when determining the order; `FLOAT`/`DOUBLE` NaN bounds and other non-monotonic bound sequences are marked `UNORDERED`.
 
 ### Binary statistics bound truncation
 
