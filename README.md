@@ -159,6 +159,7 @@ Common writer options:
 - `writer.WithCompressionLevel`
 - `writer.WithDataPageVersion`
 - `writer.WithWriteCRC`
+- `writer.WithSortingColumns`
 
 Common reader options:
 
@@ -169,6 +170,20 @@ Common reader options:
 Encryption-related options are covered in [Encryption](#encryption).
 
 Reader footers expose schema and column paths as stored in the Parquet file. Use `ParquetReader.InternalFooter()` when a tool needs a converted footer with internal Go schema names.
+
+Use `writer.WithSortingColumns` to declare that the caller supplies rows in a known order. Each `parquet.SortingColumn.ColumnIdx` is a zero-based leaf-column ordinal; the option applies the same declaration to every row group, and the writer records but does not enforce or produce that ordering. A writer using this option must be constructed with a schema so the column ordinals can be validated.
+
+```go
+pw, err := writer.NewParquetWriter(fw, new(Student), writer.WithSortingColumns(
+    &parquet.SortingColumn{ColumnIdx: 2, Descending: false, NullsFirst: false},
+))
+```
+
+Readers can inspect a row group's declaration without mutating the loaded footer:
+
+```go
+sortingColumns, err := pr.RowGroupSortingColumns(0)
+```
 
 ## Schema Definition
 

@@ -54,11 +54,17 @@ func NewJSONWriterWithContext(ctx context.Context, jsonSchema string, pfile sour
 	}
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
 	res.marshalFunc = marshal.MarshalJSON
+	if err = res.validateSortingColumns(); err != nil {
+		return nil, fmt.Errorf("validate sorting columns: %w", err)
+	}
 	if err = res.initBloomFilters(); err != nil {
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
 	if err = res.validateEncryptionColumnKeys(); err != nil {
 		return nil, fmt.Errorf("validate encryption column keys: %w", err)
+	}
+	if err = res.writeMagicHeader(); err != nil {
+		return nil, fmt.Errorf("write magic header: %w", err)
 	}
 
 	res.stopped = false

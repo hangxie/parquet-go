@@ -122,6 +122,7 @@ type ParquetWriter struct {
 	columnCompressors             map[string]*compress.Compressor
 	dataPageVersion               int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
 	writeCRC                      bool  // compute and write CRC32 checksums on pages (default false)
+	sortingColumns                []*parquet.SortingColumn
 	encryptionConfig              *EncryptionConfig
 	encryptionState               *encryptionState
 	optionErrors                  []error
@@ -172,13 +173,13 @@ func NewParquetWriterFromWriterWithContext(ctx context.Context, w io.Writer, obj
 	return NewParquetWriterWithContext(ctx, wf, obj, opts...)
 }
 
-// initBase sets up the ParquetWriter with defaults, applies and validates
-// constructor options, and writes the magic header. It writes PARE when
-// encryption is enabled with an encrypted footer, otherwise PAR1. Options are
-// validated before any IO so that invalid options never produce partial output.
+// initBase sets up the ParquetWriter with defaults and applies and validates
+// constructor options. It performs no IO so constructors can finish schema and
+// schema-dependent validation before writing the magic header.
 //
-// Callers must still set SchemaHandler, marshalFunc, call initBloomFilters,
-// and set stopped = false after successful schema init.
+// Callers must still set SchemaHandler and marshalFunc, finish constructor
+// validation and initialization, call writeMagicHeader, and set stopped to
+// false.
 func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileWriter, opts ...WriterOption) error {
 	pw.defaultCtx = ctx
 	if err := pw.setContext(ctx); err != nil {
@@ -263,14 +264,16 @@ func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileW
 		pw.encryptionState = state
 	}
 
+	return nil
+}
+
+func (pw *ParquetWriter) writeMagicHeader() error {
 	magic := common.MagicBytes
 	if pw.encryptionState != nil && !pw.encryptionState.plaintextFooter {
 		magic = common.MagicBytesEncrypted
 	}
-	if _, err := pw.write([]byte(magic)); err != nil {
-		return fmt.Errorf("write magic header: %w", err)
-	}
-	return nil
+	_, err := pw.write([]byte(magic))
+	return err
 }
 
 // buildColumnCompressors creates per-column compressors for columns that specify
@@ -339,6 +342,7 @@ func NewParquetWriterWithContext(ctx context.Context, pFile source.ParquetFileWr
 		return nil, fmt.Errorf("init writer base: %w", err)
 	}
 	res.marshalFunc = marshal.Marshal
+	sortingColumnsValidated := false
 
 	if obj != nil {
 		if sa, ok := obj.(string); ok {
@@ -346,6 +350,7 @@ func NewParquetWriterWithContext(ctx context.Context, pFile source.ParquetFileWr
 			if err := res.SetSchemaHandlerFromJSON(sa); err != nil {
 				return nil, fmt.Errorf("set schema from JSON: %w", err)
 			}
+			sortingColumnsValidated = true
 		} else {
 			var err error
 			if sa, ok := obj.(*schema.SchemaHandler); ok {
@@ -364,11 +369,19 @@ func NewParquetWriterWithContext(ctx context.Context, pFile source.ParquetFileWr
 	if err := res.buildColumnCompressors(); err != nil {
 		return nil, fmt.Errorf("build column compressors: %w", err)
 	}
+	if !sortingColumnsValidated {
+		if err := res.validateSortingColumns(); err != nil {
+			return nil, fmt.Errorf("validate sorting columns: %w", err)
+		}
+	}
 	if err := res.initBloomFilters(); err != nil {
 		return nil, fmt.Errorf("init bloom filters: %w", err)
 	}
 	if err := res.validateEncryptionColumnKeys(); err != nil {
 		return nil, fmt.Errorf("validate encryption column keys: %w", err)
+	}
+	if err := res.writeMagicHeader(); err != nil {
+		return nil, fmt.Errorf("write magic header: %w", err)
 	}
 
 	// Enable writing after init completed successfully
@@ -415,6 +428,9 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	pw.Footer.Schema = append(pw.Footer.Schema, pw.SchemaHandler.SchemaElements...)
 	if err := pw.buildColumnCompressors(); err != nil {
 		return fmt.Errorf("build column compressors: %w", err)
+	}
+	if err := pw.validateSortingColumns(); err != nil {
+		return fmt.Errorf("validate sorting columns: %w", err)
 	}
 	if err := pw.initBloomFilters(); err != nil {
 		return fmt.Errorf("init bloom filters: %w", err)
