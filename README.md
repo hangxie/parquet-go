@@ -309,7 +309,7 @@ Encoding notes:
 
 ### Binary statistics bound truncation
 
-Binary footer statistics and column-index bounds target a 64-byte maximum by default; tune it with `writer.WithBinaryMinMaxTruncateLength`. Unlike parquet-java, which leaves row-group statistics effectively untruncated by default, parquet-go intentionally applies the same default truncation policy to both footer statistics and column-index bounds.
+Binary footer statistics and column-index bounds are not truncated by default, preserving the writer's historical behavior. Enable truncation and set its target byte length with `writer.WithBinaryMinMaxTruncateLength`.
 
 The maximum length applies only to these column types:
 
