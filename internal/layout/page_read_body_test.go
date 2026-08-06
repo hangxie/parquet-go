@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"math"
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -27,6 +28,54 @@ func TestReadPageV2Data_InvalidLevels(t *testing.T) {
 	header.DataPageHeaderV2.RepetitionLevelsByteLength = 10
 	header.CompressedPageSize = 15
 	_, err = readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "level byte lengths exceed page size")
+}
+
+// TestReadPageV2Data_LevelLengthSumOverflow covers level lengths that overflow when summed.
+func TestReadPageV2Data_LevelLengthSumOverflow(t *testing.T) {
+	// Two positive lengths whose int32 sum wraps negative, slipping under the page
+	// size check and reaching make() with a negative length.
+	for _, tt := range []struct {
+		name     string
+		dll, rll int32
+	}{
+		{"definition dominates", math.MaxInt32, 1},
+		{"repetition dominates", 1, math.MaxInt32},
+		{"both halfway", math.MaxInt32 / 2, math.MaxInt32/2 + 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			header := &parquet.PageHeader{
+				Type:               parquet.PageType_DATA_PAGE_V2,
+				CompressedPageSize: 64,
+				DataPageHeaderV2: &parquet.DataPageHeaderV2{
+					NumValues:                  1,
+					DefinitionLevelsByteLength: tt.dll,
+					RepetitionLevelsByteLength: tt.rll,
+				},
+			}
+			_, err := readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "level byte lengths exceed page size")
+		})
+	}
+}
+
+// TestReadPageV2Data_LevelLengthSumOverflowEncrypted covers the same overflow when decrypting.
+func TestReadPageV2Data_LevelLengthSumOverflowEncrypted(t *testing.T) {
+	// The decrypted path slices the plaintext by that sum, so the wrap goes out of
+	// range instead of allocating.
+	header := &parquet.PageHeader{
+		Type:               parquet.PageType_DATA_PAGE_V2,
+		CompressedPageSize: 64,
+		DataPageHeaderV2: &parquet.DataPageHeaderV2{
+			NumValues:                  1,
+			DefinitionLevelsByteLength: math.MaxInt32,
+			RepetitionLevelsByteLength: 1,
+		},
+	}
+	opt := PageReadOptions{Decryptor: &PageDecryptor{}}
+	_, err := readPageV2Data(nil, header, nil, nil, opt, 1, 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "level byte lengths exceed page size")
 }
@@ -230,8 +279,7 @@ func TestReadPageV1Data_ReadError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// leafPathName builds the InName path and joined name for a leaf column the same
-// way the page reader does (root InName + capitalized column InName).
+// leafPathName builds a leaf column's InName path and joined name as the page reader does.
 func leafPathName(sh *schema.SchemaHandler, colInName string) ([]string, string) {
 	path := []string{sh.GetRootInName(), colInName}
 	return path, common.PathToStr(path)
