@@ -21,8 +21,11 @@ func (p *Page) extractV2LevelBuffers(maxRepetitionLevel, maxDefinitionLevel int3
 	if dll < 0 || rll < 0 {
 		return nil, fmt.Errorf("GetRLDLFromRawData: invalid level byte lengths (dll=%d, rll=%d)", dll, rll)
 	}
-	rawDataLen := int32(len(p.RawData))
-	if dll+rll > rawDataLen {
+	// Widened before summing: two positive int32 lengths can wrap negative, slipping
+	// past this check and reaching make() below with a negative length.
+	levelsLen := int64(dll) + int64(rll)
+	rawDataLen := int64(len(p.RawData))
+	if levelsLen > rawDataLen {
 		return nil, fmt.Errorf("GetRLDLFromRawData: level byte lengths exceed raw data size (dll=%d + rll=%d > %d)", dll, rll, rawDataLen)
 	}
 	if err := validateV2LevelSections(rll, dll, maxRepetitionLevel, maxDefinitionLevel,
@@ -32,7 +35,7 @@ func (p *Page) extractV2LevelBuffers(maxRepetitionLevel, maxDefinitionLevel int3
 
 	bytesReader := bytes.NewReader(p.RawData)
 	repetitionLevelsBuf, definitionLevelsBuf := make([]byte, rll), make([]byte, dll)
-	dataBuf := make([]byte, len(p.RawData)-int(rll)-int(dll))
+	dataBuf := make([]byte, rawDataLen-levelsLen)
 	if _, err := bytesReader.Read(repetitionLevelsBuf); err != nil {
 		return nil, fmt.Errorf("read v2 repetition levels: %w", err)
 	}

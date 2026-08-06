@@ -2,6 +2,7 @@ package layout
 
 import (
 	"bytes"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -443,6 +444,36 @@ func TestExtractV2LevelBuffers_Errors(t *testing.T) {
 	page.RawData = make([]byte, 15)
 	_, err = page.extractV2LevelBuffers(1, 1)
 	require.Error(t, err)
+}
+
+// TestExtractV2LevelBuffers_LevelLengthSumOverflow covers level lengths that overflow when summed.
+func TestExtractV2LevelBuffers_LevelLengthSumOverflow(t *testing.T) {
+	// Two positive lengths whose int32 sum wraps negative, slipping under the raw
+	// data size check and reaching make() with a negative length.
+	for _, tt := range []struct {
+		name     string
+		dll, rll int32
+	}{
+		{"definition dominates", math.MaxInt32, 1},
+		{"repetition dominates", 1, math.MaxInt32},
+		{"both halfway", math.MaxInt32 / 2, math.MaxInt32/2 + 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			page := &Page{
+				Header: &parquet.PageHeader{
+					DataPageHeaderV2: &parquet.DataPageHeaderV2{
+						NumValues:                  1,
+						DefinitionLevelsByteLength: tt.dll,
+						RepetitionLevelsByteLength: tt.rll,
+					},
+				},
+				RawData: make([]byte, 64),
+			}
+			_, err := page.extractV2LevelBuffers(1, 1)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "level byte lengths exceed raw data size")
+		})
+	}
 }
 
 func TestExtractV2LevelBuffers(t *testing.T) {

@@ -26,7 +26,10 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 	if dll < 0 || rll < 0 {
 		return nil, fmt.Errorf("ReadPage: invalid level byte lengths (dll=%d, rll=%d)", dll, rll)
 	}
-	if dll+rll > compressedPageSize {
+	// Widened before summing: two positive int32 lengths can wrap negative, slipping
+	// past this check and reaching make() below with a negative length.
+	levelsLen := int64(dll) + int64(rll)
+	if levelsLen > int64(compressedPageSize) {
 		return nil, fmt.Errorf("ReadPage: level byte lengths exceed page size (dll=%d + rll=%d > %d)", dll, rll, compressedPageSize)
 	}
 	if err := validateV2LevelSections(rll, dll, maxRepetitionLevel, maxDefinitionLevel,
@@ -40,7 +43,7 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 		if err != nil {
 			return nil, fmt.Errorf("read encrypted v2 body: %w", err)
 		}
-		if int32(len(plain)) < rll+dll {
+		if int64(len(plain)) < levelsLen {
 			return nil, fmt.Errorf("ReadPage: decrypted data page v2 body too small")
 		}
 		repetitionLevelsBuf = append([]byte(nil), plain[:rll]...)
@@ -49,7 +52,7 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 	} else {
 		repetitionLevelsBuf = make([]byte, rll)
 		definitionLevelsBuf = make([]byte, dll)
-		dataBuf = make([]byte, compressedPageSize-rll-dll)
+		dataBuf = make([]byte, int64(compressedPageSize)-levelsLen)
 
 		if _, err := io.ReadFull(thriftReader, repetitionLevelsBuf); err != nil {
 			return nil, fmt.Errorf("read v2 repetition levels: %w", err)
@@ -67,7 +70,7 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 	}
 
 	if pageHeader.DataPageHeaderV2.GetIsCompressed() && len(dataBuf) > 0 {
-		expectedDataSize := int64(pageHeader.GetUncompressedPageSize()) - int64(rll) - int64(dll)
+		expectedDataSize := int64(pageHeader.GetUncompressedPageSize()) - levelsLen
 		var err error
 		if dataBuf, err = resolveCompressor(c).UncompressWithExpectedSize(dataBuf, colMetaData.GetCodec(), expectedDataSize); err != nil {
 			return nil, fmt.Errorf("decompress v2 data: %w", err)
