@@ -435,14 +435,65 @@ func TestExtractV2LevelBuffers_Errors(t *testing.T) {
 			},
 		},
 	}
-	_, err := page.extractV2LevelBuffers()
+	_, err := page.extractV2LevelBuffers(1, 1)
 	require.Error(t, err)
 
 	page.Header.DataPageHeaderV2.DefinitionLevelsByteLength = 10
 	page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = 10
 	page.RawData = make([]byte, 15)
-	_, err = page.extractV2LevelBuffers()
+	_, err = page.extractV2LevelBuffers(1, 1)
 	require.Error(t, err)
+}
+
+func TestExtractV2LevelBuffers(t *testing.T) {
+	// 2 bytes of repetition levels, 1 of definition levels, 3 of values. Which
+	// sections survive depends on the schema's max levels.
+	newPage := func() *Page {
+		return &Page{
+			Header: &parquet.PageHeader{
+				DataPageHeaderV2: &parquet.DataPageHeaderV2{
+					NumValues:                  1,
+					RepetitionLevelsByteLength: 2,
+					DefinitionLevelsByteLength: 1,
+				},
+			},
+			RawData: []byte{0x01, 0x02, 0x03, 0x0A, 0x0B, 0x0C},
+		}
+	}
+
+	t.Run("repeated column keeps both sections", func(t *testing.T) {
+		buf, err := newPage().extractV2LevelBuffers(1, 1)
+		require.NoError(t, err)
+		require.Equal(t, []byte{
+			0x02, 0x00, 0x00, 0x00, 0x01, 0x02, // rll prefix + repetition levels
+			0x01, 0x00, 0x00, 0x00, 0x03, // dll prefix + definition levels
+			0x0A, 0x0B, 0x0C, // values
+		}, buf)
+	})
+
+	t.Run("repetition levels dropped when column cannot repeat", func(t *testing.T) {
+		// Those 2 bytes hold no levels and must not reach the level decoder.
+		buf, err := newPage().extractV2LevelBuffers(0, 1)
+		require.NoError(t, err)
+		require.Equal(t, []byte{0x01, 0x00, 0x00, 0x00, 0x03, 0x0A, 0x0B, 0x0C}, buf)
+	})
+
+	t.Run("both dropped when column is required and flat", func(t *testing.T) {
+		buf, err := newPage().extractV2LevelBuffers(0, 0)
+		require.NoError(t, err)
+		require.Equal(t, []byte{0x0A, 0x0B, 0x0C}, buf)
+	})
+
+	t.Run("page contradicting the schema is rejected", func(t *testing.T) {
+		// Wires up validateV2LevelSections: no repetition levels on a column
+		// that repeats would have the definition levels read as repetition ones.
+		page := newPage()
+		page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = 0
+
+		_, err := page.extractV2LevelBuffers(1, 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "carries no repetition levels")
+	})
 }
 
 func TestReadLevelValues_MaxLevel(t *testing.T) {

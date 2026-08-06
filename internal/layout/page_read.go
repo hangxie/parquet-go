@@ -276,20 +276,22 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 		return nil, 0, 0, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, opt.MaxPageSize)
 	}
 
+	path := make([]string, 0)
+	path = append(path, schemaHandler.GetRootInName())
+	path = append(path, colMetaData.GetPathInSchema()...)
+	name := common.PathToStr(path)
+
 	var buf []byte
 	if pageHeader.GetType() == parquet.PageType_DATA_PAGE_V2 {
-		buf, err = readPageV2Data(thriftReader, pageHeader, colMetaData, opt.Compressor, opt)
+		maxDefinitionLevel, _ := schemaHandler.MaxDefinitionLevel(path)
+		maxRepetitionLevel, _ := schemaHandler.MaxRepetitionLevel(path)
+		buf, err = readPageV2Data(thriftReader, pageHeader, colMetaData, opt.Compressor, opt, maxRepetitionLevel, maxDefinitionLevel)
 	} else {
 		buf, err = readPageV1Data(thriftReader, pageHeader, colMetaData, opt.Compressor, opt)
 	}
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("read page data: %w", err)
 	}
-
-	path := make([]string, 0)
-	path = append(path, schemaHandler.GetRootInName())
-	path = append(path, colMetaData.GetPathInSchema()...)
-	name := common.PathToStr(path)
 
 	switch pageHeader.GetType() {
 	case parquet.PageType_DICTIONARY_PAGE:
