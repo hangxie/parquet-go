@@ -11,9 +11,10 @@ import (
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
-// extractV2LevelBuffers extracts the level data from a V2 data page and reassembles it into
-// a contiguous buffer with level-length prefixes followed by value data.
-func (p *Page) extractV2LevelBuffers() ([]byte, error) {
+// extractV2LevelBuffers reassembles a V2 data page into level-length prefixes followed by value data.
+func (p *Page) extractV2LevelBuffers(maxRepetitionLevel, maxDefinitionLevel int32) ([]byte, error) {
+	// The schema's max levels decide which sections get a prefix, matching what
+	// decodeDataPageLevels reads back; writers pad the length even at level 0.
 	dll := p.Header.DataPageHeaderV2.GetDefinitionLevelsByteLength()
 	rll := p.Header.DataPageHeaderV2.GetRepetitionLevelsByteLength()
 
@@ -23,6 +24,10 @@ func (p *Page) extractV2LevelBuffers() ([]byte, error) {
 	rawDataLen := int32(len(p.RawData))
 	if dll+rll > rawDataLen {
 		return nil, fmt.Errorf("GetRLDLFromRawData: level byte lengths exceed raw data size (dll=%d + rll=%d > %d)", dll, rll, rawDataLen)
+	}
+	if err := validateV2LevelSections(rll, dll, maxRepetitionLevel, maxDefinitionLevel,
+		p.Header.DataPageHeaderV2.GetNumValues()); err != nil {
+		return nil, err
 	}
 
 	bytesReader := bytes.NewReader(p.RawData)
@@ -39,7 +44,7 @@ func (p *Page) extractV2LevelBuffers() ([]byte, error) {
 	}
 
 	buf := make([]byte, 0)
-	if rll > 0 {
+	if rll > 0 && maxRepetitionLevel > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(rll)})
 		if err != nil {
 			return nil, fmt.Errorf("encode repetition level length: %w", err)
@@ -47,7 +52,7 @@ func (p *Page) extractV2LevelBuffers() ([]byte, error) {
 		buf = append(buf, tmpBuf...)
 		buf = append(buf, repetitionLevelsBuf...)
 	}
-	if dll > 0 {
+	if dll > 0 && maxDefinitionLevel > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(dll)})
 		if err != nil {
 			return nil, fmt.Errorf("encode definition level length: %w", err)
@@ -85,7 +90,9 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 	var err error
 
 	if p.Header.GetType() == parquet.PageType_DATA_PAGE_V2 {
-		buf, err = p.extractV2LevelBuffers()
+		maxDefinitionLevel, _ := schemaHandler.MaxDefinitionLevel(p.Path)
+		maxRepetitionLevel, _ := schemaHandler.MaxRepetitionLevel(p.Path)
+		buf, err = p.extractV2LevelBuffers(maxRepetitionLevel, maxDefinitionLevel)
 		if err != nil {
 			return 0, 0, fmt.Errorf("extract v2 level buffers: %w", err)
 		}

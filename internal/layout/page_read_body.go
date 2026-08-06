@@ -15,7 +15,7 @@ import (
 )
 
 // readPageV2Data reads a DATA_PAGE_V2 from the reader, decompresses if needed, and reassembles with level prefixes.
-func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet.PageHeader, colMetaData *parquet.ColumnMetaData, c *compress.Compressor, opt PageReadOptions) ([]byte, error) {
+func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet.PageHeader, colMetaData *parquet.ColumnMetaData, c *compress.Compressor, opt PageReadOptions, maxRepetitionLevel, maxDefinitionLevel int32) ([]byte, error) {
 	if pageHeader.DataPageHeaderV2 == nil {
 		return nil, fmt.Errorf("ReadPage: data page v2 missing DataPageHeaderV2")
 	}
@@ -28,6 +28,10 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 	}
 	if dll+rll > compressedPageSize {
 		return nil, fmt.Errorf("ReadPage: level byte lengths exceed page size (dll=%d + rll=%d > %d)", dll, rll, compressedPageSize)
+	}
+	if err := validateV2LevelSections(rll, dll, maxRepetitionLevel, maxDefinitionLevel,
+		pageHeader.DataPageHeaderV2.GetNumValues()); err != nil {
+		return nil, err
 	}
 
 	var repetitionLevelsBuf, definitionLevelsBuf, dataBuf []byte
@@ -70,13 +74,32 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 		}
 	}
 
-	return assembleLevelPrefixedBuf(rll, dll, repetitionLevelsBuf, definitionLevelsBuf, dataBuf)
+	return assembleLevelPrefixedBuf(rll, dll, repetitionLevelsBuf, definitionLevelsBuf, dataBuf, maxRepetitionLevel, maxDefinitionLevel)
+}
+
+// validateV2LevelSections rejects a V2 page whose level sections contradict the schema.
+func validateV2LevelSections(rll, dll, maxRepetitionLevel, maxDefinitionLevel, numValues int32) error {
+	// A page holding no values has no levels to carry either way.
+	if numValues == 0 {
+		return nil
+	}
+	// Omitting required levels would have the next section read as those levels,
+	// returning garbage for every value. Only a malformed page does this.
+	if maxRepetitionLevel > 0 && rll == 0 {
+		return fmt.Errorf("data page v2 carries no repetition levels for a column with max repetition level %d", maxRepetitionLevel)
+	}
+	if maxDefinitionLevel > 0 && dll == 0 {
+		return fmt.Errorf("data page v2 carries no definition levels for a column with max definition level %d", maxDefinitionLevel)
+	}
+	return nil
 }
 
 // assembleLevelPrefixedBuf prefixes level buffers with their lengths and appends the data.
-func assembleLevelPrefixedBuf(rll, dll int32, repBuf, defBuf, dataBuf []byte) ([]byte, error) {
+func assembleLevelPrefixedBuf(rll, dll int32, repBuf, defBuf, dataBuf []byte, maxRepetitionLevel, maxDefinitionLevel int32) ([]byte, error) {
+	// Included only where the schema says those levels exist, matching what
+	// readDataPageBody reads back; writers pad the byte length even at level 0.
 	buf := make([]byte, 0)
-	if rll > 0 {
+	if rll > 0 && maxRepetitionLevel > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(rll)})
 		if err != nil {
 			return nil, fmt.Errorf("encode repetition level length: %w", err)
@@ -84,7 +107,7 @@ func assembleLevelPrefixedBuf(rll, dll int32, repBuf, defBuf, dataBuf []byte) ([
 		buf = append(buf, tmpBuf...)
 		buf = append(buf, repBuf...)
 	}
-	if dll > 0 {
+	if dll > 0 && maxDefinitionLevel > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(dll)})
 		if err != nil {
 			return nil, fmt.Errorf("encode definition level length: %w", err)
