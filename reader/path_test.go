@@ -23,12 +23,27 @@ func testPathSchemaHandler() *schema.SchemaHandler {
 	}
 }
 
+// unnamedRootSchemaHandler mirrors a parquet-mr file whose root element carries no name.
+func unnamedRootSchemaHandler() *schema.SchemaHandler {
+	inPath := common.PathToStr([]string{"", "C0"})
+	exPath := common.PathToStr([]string{"", "c0"})
+	return &schema.SchemaHandler{
+		Infos: []*common.Tag{
+			{InName: "", ExName: ""},
+			{InName: "C0", ExName: "c0"},
+		},
+		MapIndex:       map[string]int32{inPath: 1},
+		ExPathToInPath: map[string]string{exPath: inPath},
+	}
+}
+
 func TestSchemaRootNames(t *testing.T) {
 	tests := []struct {
 		name       string
 		handler    *schema.SchemaHandler
 		wantInName string
 		wantExName string
+		wantOK     bool
 	}{
 		{name: "nil_handler"},
 		{name: "empty_infos", handler: &schema.SchemaHandler{}},
@@ -40,13 +55,24 @@ func TestSchemaRootNames(t *testing.T) {
 			},
 			wantInName: "RootIn",
 			wantExName: "root_ex",
+			wantOK:     true,
+		},
+		{
+			name:    "empty_root_names_still_present",
+			handler: &schema.SchemaHandler{Infos: []*common.Tag{{}}},
+			wantOK:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.wantInName, schemaRootInName(tt.handler))
-			require.Equal(t, tt.wantExName, schemaRootExName(tt.handler))
+			gotInName, gotInOK := schemaRootInName(tt.handler)
+			require.Equal(t, tt.wantInName, gotInName)
+			require.Equal(t, tt.wantOK, gotInOK)
+
+			gotExName, gotExOK := schemaRootExName(tt.handler)
+			require.Equal(t, tt.wantExName, gotExName)
+			require.Equal(t, tt.wantOK, gotExOK)
 		})
 	}
 }
@@ -99,10 +125,20 @@ func TestColumnPathToInPath(t *testing.T) {
 		{name: "case_mismatch_falls_back", handler: handler, path: []string{"COL_L1"}, want: common.PathToStr([]string{common.ParGoRootInName, "COL_L1"})},
 		{name: "case_insensitive_external_path", handler: handler, path: []string{"COL_L1"}, caseInsensitive: true, want: wantInPath},
 		{
-			name:    "empty_external_root_falls_back",
+			// An empty external root name still builds a path; this falls back to
+			// the internal one because nothing maps it.
+			name:    "unmapped_external_path_falls_back",
 			handler: &schema.SchemaHandler{Infos: []*common.Tag{{InName: "Root"}}, MapIndex: map[string]int32{}},
 			path:    []string{"leaf"},
 			want:    common.PathToStr([]string{"Root", "leaf"}),
+		},
+		{
+			// parquet-mr leaves the root unnamed; that empty name must still
+			// prefix the path so the column resolves through ExPathToInPath.
+			name:    "unnamed_root",
+			handler: unnamedRootSchemaHandler(),
+			path:    []string{"c0"},
+			want:    common.PathToStr([]string{"", "C0"}),
 		},
 	}
 
