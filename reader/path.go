@@ -8,18 +8,22 @@ import (
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
-func schemaRootInName(sh *schema.SchemaHandler) string {
+// schemaRootInName reports the root element's internal name and whether a root exists.
+func schemaRootInName(sh *schema.SchemaHandler) (string, bool) {
+	// parquet-mr names the root "", so presence is reported separately: treating
+	// "" as "no root" drops the root prefix and no column ever matches.
 	if sh == nil || len(sh.Infos) == 0 || sh.Infos[0] == nil {
-		return ""
+		return "", false
 	}
-	return sh.Infos[0].InName
+	return sh.Infos[0].InName, true
 }
 
-func schemaRootExName(sh *schema.SchemaHandler) string {
+// schemaRootExName reports the root element's external name and whether a root exists.
+func schemaRootExName(sh *schema.SchemaHandler) (string, bool) {
 	if sh == nil || len(sh.Infos) == 0 || sh.Infos[0] == nil {
-		return ""
+		return "", false
 	}
-	return sh.Infos[0].ExName
+	return sh.Infos[0].ExName, true
 }
 
 func lookupExternalPath(sh *schema.SchemaHandler, path string, caseInsensitive bool) (string, bool) {
@@ -43,8 +47,8 @@ func lookupExternalPath(sh *schema.SchemaHandler, path string, caseInsensitive b
 }
 
 func columnPathToInPath(sh *schema.SchemaHandler, path []string, caseInsensitive bool) string {
-	rootInName := schemaRootInName(sh)
-	if rootInName == "" {
+	rootInName, ok := schemaRootInName(sh)
+	if !ok {
 		return common.PathToStr(path)
 	}
 
@@ -55,10 +59,8 @@ func columnPathToInPath(sh *schema.SchemaHandler, path []string, caseInsensitive
 		}
 	}
 
-	rootExName := schemaRootExName(sh)
-	if rootExName == "" {
-		return inPath
-	}
+	// The root is known to exist by now, and "" is still a name to build a path from.
+	rootExName, _ := schemaRootExName(sh)
 
 	exPath := common.PathToStr(append([]string{rootExName}, path...))
 	if mappedPath, ok := lookupExternalPath(sh, exPath, caseInsensitive); ok {
