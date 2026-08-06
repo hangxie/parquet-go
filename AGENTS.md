@@ -18,6 +18,7 @@ This document defines expectations for contributors to the parquet-go library pr
 - Follow idiomatic Go style; run `gofumpt`/`goimports` on changes.
 - Handle errors explicitly and return meaningful error messages.
 - Write concise, clear code comments explaining intent or non-obvious reasoning; do not restate what the code already says.
+- Keep declaration comments to one line and put longer reasoning in the function body next to the code it explains; question any comment past three lines, as it usually means the code should be clearer.
 - Use `context.Context` for cancellable operations.
 - Avoid leaking goroutines or unnecessary memory allocations.
 - Maintain clean public API surfaces; avoid exposing internal details.
