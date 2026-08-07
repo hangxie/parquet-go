@@ -1713,6 +1713,13 @@ func TestReadBloomFilterForColumnErrors(t *testing.T) {
 	pr.Footer = &parquet.FileMetaData{EncryptionAlgorithm: encryptionAlgorithm([]byte("prefix"), []byte("file-unique"))}
 	_, err = pr.readBloomFilterForColumn(nil, 0, 0, nil, chunk)
 	require.ErrorContains(t, err, "decryption key required")
+
+	// The size-only path resolves the same location and reports the same errors.
+	_, err = pr.readBloomFilterSizeForColumn(nil, 0, 0, nil, nil)
+	require.ErrorContains(t, err, "column metadata is nil")
+
+	_, err = pr.readBloomFilterSizeForColumn(nil, 0, 0, nil, chunk)
+	require.ErrorContains(t, err, "decryption key required")
 }
 
 func minimalFileMetaData() *parquet.FileMetaData {

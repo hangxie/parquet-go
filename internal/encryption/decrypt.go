@@ -14,6 +14,9 @@ const (
 	gcmTagSize   = 16
 	ctrNonceSize = 12
 	lengthSize   = 4
+
+	// GCMOverhead is the nonce and tag an AES-GCM module carries on top of its plaintext.
+	GCMOverhead = gcmNonceSize + gcmTagSize
 )
 
 // DecodeModule unwraps an encrypted Parquet module encoded as a 4-byte
