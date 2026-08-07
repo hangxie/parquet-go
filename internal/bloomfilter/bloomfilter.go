@@ -122,17 +122,24 @@ func (f *Filter) Header() *parquet.BloomFilterHeader {
 	}
 }
 
+// validateBitsetSize reports whether a bitset size satisfies the Split Block Bloom Filter layout.
+func validateBitsetSize(n int) error {
+	// The format allows any positive number of blocks: block selection multiplies by the
+	// block count instead of masking, so a power of 2 is a writer preference, not a rule.
+	if n < MinBytes {
+		return fmt.Errorf("bloom filter bitset too small: %d bytes (minimum %d)", n, MinBytes)
+	}
+	if n%blockSize != 0 {
+		return fmt.Errorf("bloom filter bitset size %d is not a multiple of block size %d", n, blockSize)
+	}
+	return nil
+}
+
 // FromBitset reconstructs a bloom filter from raw bitset bytes.
 func FromBitset(data []byte) (*Filter, error) {
 	n := len(data)
-	if n < MinBytes {
-		return nil, fmt.Errorf("bloom filter bitset too small: %d bytes (minimum %d)", n, MinBytes)
-	}
-	if n%blockSize != 0 {
-		return nil, fmt.Errorf("bloom filter bitset size %d is not a multiple of block size %d", n, blockSize)
-	}
-	if !isPowerOf2(uint32(n)) {
-		return nil, fmt.Errorf("bloom filter bitset size %d is not a power of 2", n)
+	if err := validateBitsetSize(n); err != nil {
+		return nil, err
 	}
 	bitset := make([]byte, n)
 	copy(bitset, data)

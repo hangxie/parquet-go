@@ -19,8 +19,8 @@ type fieldAttr struct {
 	RepetitionType   parquet.FieldRepetitionType
 	CompressionCodec *parquet.CompressionCodec // nil means use file-level compression
 	CompressionLevel *int                      // nil means use codec default level
-	BloomFilter      bool                      // enable bloom filter for this column
-	BloomFilterSize  int32                     // bloom filter size in bytes (0 = default)
+	BloomFilter      bool                      // enable bloom filter for this column; when set by a reader, describes row group 0 only
+	BloomFilterSize  int32                     // bloom filter size in bytes (0 = default); when set by a reader, describes row group 0 only
 
 	convertedType     string
 	isAdjustedToUTC   bool

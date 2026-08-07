@@ -687,6 +687,13 @@ func TestThreeWayBloomFilterAccess(t *testing.T) {
 	found, err = pr.BloomFilterCheck("secret_name", 0, "alpha")
 	require.NoError(t, err)
 	require.True(t, found)
+
+	// Sizes read the bloom filter header alone, decrypting it per classification.
+	for _, column := range []string{"plain_score", "footer_tag", "secret_name"} {
+		size, err := pr.BloomFilterSizeWithContext(context.Background(), column, 0)
+		require.NoError(t, err, column)
+		require.Equal(t, int32(1024), size, column)
+	}
 }
 
 // TestThreeWayColumnIndexAccess verifies column index lookups for each

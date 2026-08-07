@@ -153,11 +153,19 @@ func TestFromBitset(t *testing.T) {
 		require.Contains(t, err.Error(), "not a multiple of block size")
 	})
 
-	t.Run("not-power-of-2", func(t *testing.T) {
-		// 96 = 3*32: valid multiple of block size but not a power of 2
-		_, err := FromBitset(make([]byte, 96))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "not a power of 2")
+	t.Run("block-count-not-power-of-2", func(t *testing.T) {
+		// 96 = 3*32: the format allows any positive block count, so this is a valid filter.
+		filter, err := FromBitset(make([]byte, 96))
+		require.NoError(t, err)
+		require.Equal(t, int32(96), filter.NumBytes())
+
+		// Block selection must stay in range for a non-power-of-2 block count.
+		for hash := range uint64(1000) {
+			filter.Insert(hash * 0x9E3779B97F4A7C15)
+		}
+		for hash := range uint64(1000) {
+			require.True(t, filter.Check(hash*0x9E3779B97F4A7C15))
+		}
 	})
 
 	t.Run("not-multiple-of-32", func(t *testing.T) {

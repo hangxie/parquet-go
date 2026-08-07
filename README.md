@@ -31,6 +31,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 - [File Sources](#file-sources)
 - [Advanced Features](#advanced-features)
   - [CRC Page Checksums](#crc-page-checksums)
+  - [Bloom Filters](#bloom-filters)
   - [Encryption](#encryption)
   - [GeoParquet](#geoparquet)
   - [Concurrency](#concurrency)
@@ -240,7 +241,7 @@ Schema notes:
 - `InName` is the Go field name. `ExName` is the Parquet field name.
 - Avoid field names that differ only by first-letter case.
 - `PARGO_PREFIX_` is reserved and should not be used as a field prefix.
-- Column paths separate their components with `common.ParGoPathDelimiter` (`\x01`); build a path with `common.PathToStr`. `.` is an ordinary character in a field name, never a separator, so a name may contain `.` (it stays a single path component). This applies to every path-taking API, including `ParquetReader.ReadPartial`, `ReadColumnByPath`, `SkipRowsByPath`, `BloomFilterCheck`, `reader.WithColumnKey`, and `writer.WithColumnEncrypted`.
+- Column paths separate their components with `common.ParGoPathDelimiter` (`\x01`); build a path with `common.PathToStr`. `.` is an ordinary character in a field name, never a separator, so a name may contain `.` (it stays a single path component). This applies to every path-taking API, including `ParquetReader.ReadPartial`, `ReadColumnByPath`, `SkipRowsByPath`, `BloomFilterCheck`, `BloomFilterSizeWithContext`, `reader.WithColumnKey`, and `writer.WithColumnEncrypted`.
 - Arrow `Float16` fields are written as `FIXED_LEN_BYTE_ARRAY` with `length=2` and `logicaltype=FLOAT16`; generic Parquet reads expose them as raw two-byte strings. Use `types.ConvertFloat16LogicalValue` when a `float32` value is needed. FLOAT16 statistics and column indexes use the Parquet FLOAT16 total ordering.
 - `UNKNOWN` columns represent always-null columns per the Parquet spec. The Go field must be `*int32` with `repetitiontype=OPTIONAL`. The writer rejects any non-nil value with an error. For a well-formed file every read returns `nil`; a malformed file that stores a non-null INT32 value in an UNKNOWN column will have that value returned as-is.
 
@@ -448,6 +449,16 @@ pw, err := writer.NewParquetWriter(pFile, obj, writer.WithWriteCRC(true))
 ```
 
 CRC is computed for data pages, dictionary pages, and dictionary-encoded data pages.
+
+### Bloom Filters
+
+Write a bloom filter for a column with the `bloomfilter=true` struct tag, optionally sized with `bloomfiltersize` (bytes, rounded up to a power of two). Every row group of that column gets a filter of the configured size.
+
+Reads are per row group. `ParquetReader.BloomFilterCheckWithContext(ctx, columnPath, rowGroupIndex, value)` probes membership and returns true when the column has no filter, so it answers "might contain" rather than "has a filter". `ParquetReader.BloomFilterSizeWithContext(ctx, columnPath, rowGroupIndex)` returns the bitset size in bytes for that row group's filter, or 0 when the column chunk has no filter; it reads the filter header only, never the bitset, which matters because a bitset may be up to 128MB.
+
+Presence and on-disk size are also readable straight from the footer, without touching the file body: `ColumnMetaData.IsSetBloomFilterOffset` reports presence, and `ColumnMetaData.GetBloomFilterLength`, when the writer sets the optional field, gives the stored length of the Thrift header plus the bitset. Prefer these for whole-file inventories.
+
+The `BloomFilter` and `BloomFilterSize` fields of `SchemaHandler.Infos` are populated from row group 0 alone, because they carry per-column write configuration rather than per-row-group state. Do not report them as a property of another row group; writers that size filters from per-row-group cardinality estimates, such as parquet-mr, store different sizes for the same column.
 
 ### Encryption
 
