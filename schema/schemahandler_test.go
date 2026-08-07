@@ -54,7 +54,7 @@ func TestSchemaHandler_GetRepetitionLevelIndex(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-func TestSchemaHandler_GetRootExName(t *testing.T) {
+func TestSchemaHandler_GetRootName(t *testing.T) {
 	// Create a schema with various field types
 	schema, err := NewSchemaHandlerFromStruct(new(struct {
 		SimpleField  string `parquet:"name=simple_field, type=BYTE_ARRAY, convertedtype=UTF8"`
@@ -65,21 +65,40 @@ func TestSchemaHandler_GetRootExName(t *testing.T) {
 	}))
 	require.Nil(t, err)
 
-	// Test getting root external name (this function takes no parameters)
-	rootName := schema.GetRootExName()
-	require.NotEmpty(t, rootName)
-
-	// The root ExName should be the external name of the root element
-	// For struct schemas, this is typically the root name (case-sensitive)
-	require.Equal(t, common.ParGoRootExName, rootName)
-
-	// Test with empty schema
-	emptySchema := &SchemaHandler{
-		SchemaElements: []*parquet.SchemaElement{},
-		Infos:          []*common.Tag{},
+	// A handler carrying only Infos is enough to name the root, and one carrying
+	// only SchemaElements must not index into an empty Infos.
+	infosOnly := &SchemaHandler{
+		Infos: []*common.Tag{{InName: "Custom_root", ExName: "custom_root"}},
 	}
-	emptyRootName := emptySchema.GetRootExName()
-	require.Equal(t, "", emptyRootName)
+	elementsOnly := &SchemaHandler{
+		SchemaElements: []*parquet.SchemaElement{{Name: "custom_root"}},
+	}
+	// SchemaElements is populated so the nil tag is reached rather than
+	// short-circuited by an emptiness check on the wrong slice.
+	nilInfo := &SchemaHandler{
+		SchemaElements: []*parquet.SchemaElement{{Name: "custom_root"}},
+		Infos:          []*common.Tag{nil},
+	}
+
+	testCases := []struct {
+		name     string
+		handler  *SchemaHandler
+		expectIn string
+		expectEx string
+	}{
+		{"from-struct", schema, common.ParGoRootInName, common.ParGoRootExName},
+		{"empty", &SchemaHandler{}, "", ""},
+		{"infos-only", infosOnly, "Custom_root", "custom_root"},
+		{"elements-only", elementsOnly, "", ""},
+		{"nil-info", nilInfo, "", ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expectIn, tc.handler.GetRootInName())
+			require.Equal(t, tc.expectEx, tc.handler.GetRootExName())
+		})
+	}
 }
 
 func TestSchemaHandler_MaxDefinitionLevel(t *testing.T) {

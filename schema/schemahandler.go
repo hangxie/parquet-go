@@ -268,16 +268,17 @@ func (sh *SchemaHandler) ConvertToInPathStr(pathStr string) (string, error) {
 	return "", fmt.Errorf("path not found: %v", pathStr)
 }
 
-// Get root name from the schema handler
+// GetRootInName returns the root element's internal name, or "" if there is none.
 func (sh *SchemaHandler) GetRootInName() string {
-	if len(sh.SchemaElements) <= 0 {
+	if len(sh.Infos) == 0 || sh.Infos[0] == nil {
 		return ""
 	}
 	return sh.Infos[0].InName
 }
 
+// GetRootExName returns the root element's external name, or "" if there is none.
 func (sh *SchemaHandler) GetRootExName() string {
-	if len(sh.SchemaElements) <= 0 {
+	if len(sh.Infos) == 0 || sh.Infos[0] == nil {
 		return ""
 	}
 	return sh.Infos[0].ExName
