@@ -21,8 +21,7 @@ import (
 
 func makeBloomPW(size int32) *ParquetWriter {
 	info := &common.Tag{}
-	info.BloomFilter = true
-	info.BloomFilterSize = size
+	info.SetBloomFilter(true, size)
 	return &ParquetWriter{
 		SchemaHandler: &schema.SchemaHandler{
 			SchemaElements: []*parquet.SchemaElement{{}, {}},
@@ -60,7 +59,7 @@ func TestInitBloomFilters(t *testing.T) {
 
 	t.Run("bloom_filter_false_skipped", func(t *testing.T) {
 		info := &common.Tag{}
-		info.BloomFilter = false
+		info.SetBloomFilter(false, 0)
 		pw := &ParquetWriter{
 			SchemaHandler: &schema.SchemaHandler{
 				SchemaElements: []*parquet.SchemaElement{{}, {}},
@@ -122,7 +121,7 @@ func TestSerializeBloomFilters(t *testing.T) {
 		// serializeBloomFilters) does not re-add an entry; that lets us
 		// verify the map is reset to an empty (but non-nil) map.
 		info := &common.Tag{}
-		info.BloomFilter = false
+		info.SetBloomFilter(false, 0)
 
 		bf := bloomfilter.New(bloomfilter.DefaultNumBytes)
 		h, err := bloomfilter.HashValue(int64(42), parquet.Type_INT64)
