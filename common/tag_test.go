@@ -93,9 +93,9 @@ func TestFieldAttr_Update(t *testing.T) {
 		"compression-with-level-neg":    {"compression", "GZIP:-1", fieldAttr{CompressionCodec: ToPtr(parquet.CompressionCodec_GZIP), CompressionLevel: ToPtr(-1)}, ""},
 		"compression-level-bad-codec":   {"compression", "INVALID:3", fieldAttr{}, "parse compression:"},
 		"compression-level-non-integer": {"compression", "ZSTD:abc", fieldAttr{}, "parse compression level"},
-		"bloomfilter-good":              {"bloomfilter", "true", fieldAttr{BloomFilter: true}, ""},
+		"bloomfilter-good":              {"bloomfilter", "true", fieldAttr{bloomFilter: true}, ""},
 		"bloomfilter-bad":               {"bloomfilter", "abc", fieldAttr{}, "parse bloomfilter value"},
-		"bloomfiltersize-good":          {"bloomfiltersize", "2048", fieldAttr{BloomFilterSize: 2048}, ""},
+		"bloomfiltersize-good":          {"bloomfiltersize", "2048", fieldAttr{bloomFilterSize: 2048}, ""},
 		"bloomfiltersize-bad":           {"bloomfiltersize", "abc", fieldAttr{}, "parse bloomfiltersize value"},
 		"logicaltype":                   {"logicaltype.foo", "bar", fieldAttr{logicalTypeFields: map[string]string{"logicaltype.foo": "bar"}}, ""},
 		"unknown-tag":                   {"unknown-tag.foo", "foobar", fieldAttr{}, "unrecognized tag"},
@@ -833,8 +833,8 @@ func TestStringToTag(t *testing.T) {
 		"value-bad":        {"valuefoo=bar", Tag{}, "parse tag"},
 		"compression-nil":  {"type=INT32", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionCodec: nil}}, ""}, // CompressionCodec is nil when not specified
 		"compression-set":  {"type=INT32,compression=GZIP", Tag{fieldAttr: fieldAttr{Type: "INT32", CompressionCodec: ToPtr(parquet.CompressionCodec_GZIP)}}, ""},
-		"bloomfilter":      {"type=INT64,bloomfilter=true", Tag{fieldAttr: fieldAttr{Type: "INT64", BloomFilter: true}}, ""},
-		"bloomfilter-size": {"type=INT64,bloomfilter=true,bloomfiltersize=2048", Tag{fieldAttr: fieldAttr{Type: "INT64", BloomFilter: true, BloomFilterSize: 2048}}, ""},
+		"bloomfilter":      {"type=INT64,bloomfilter=true", Tag{fieldAttr: fieldAttr{Type: "INT64", bloomFilter: true}}, ""},
+		"bloomfilter-size": {"type=INT64,bloomfilter=true,bloomfiltersize=2048", Tag{fieldAttr: fieldAttr{Type: "INT64", bloomFilter: true, bloomFilterSize: 2048}}, ""},
 	}
 
 	for name, tc := range testCases {
@@ -1368,4 +1368,79 @@ func TestHeadToUpper(t *testing.T) {
 			require.Equal(t, tc.expected, actual)
 		})
 	}
+}
+
+func TestBloomFilterConfig(t *testing.T) {
+	testCases := map[string]struct {
+		tag             string
+		expectedEnabled bool
+		expectedSize    int32
+	}{
+		"untagged":     {"name=col, type=INT64", false, 0},
+		"default-size": {"name=col, type=INT64, bloomfilter=true", true, 0},
+		"sized":        {"name=col, type=INT64, bloomfilter=true, bloomfiltersize=2048", true, 2048},
+		"disabled":     {"name=col, type=INT64, bloomfilter=false, bloomfiltersize=2048", false, 2048},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			tag, err := StringToTag(tc.tag)
+			require.NoError(t, err)
+
+			enabled, size := tag.BloomFilterConfig()
+			require.Equal(t, tc.expectedEnabled, enabled)
+			require.Equal(t, tc.expectedSize, size)
+		})
+	}
+
+	t.Run("set-matches-tag", func(t *testing.T) {
+		tagged, err := StringToTag("name=col, type=INT64, bloomfilter=true, bloomfiltersize=4096")
+		require.NoError(t, err)
+
+		built := &Tag{}
+		built.SetBloomFilter(true, 4096)
+
+		enabled, size := built.BloomFilterConfig()
+		taggedEnabled, taggedSize := tagged.BloomFilterConfig()
+		require.Equal(t, taggedEnabled, enabled)
+		require.Equal(t, taggedSize, size)
+
+		built.SetBloomFilter(false, 0)
+		enabled, size = built.BloomFilterConfig()
+		require.False(t, enabled)
+		require.Zero(t, size)
+	})
+
+	t.Run("key-and-value-tags", func(t *testing.T) {
+		tag, err := StringToTag("name=m, type=MAP, keytype=BYTE_ARRAY, keybloomfilter=true, keybloomfiltersize=2048, valuetype=INT64, valuebloomfilter=true")
+		require.NoError(t, err)
+
+		enabled, size := tag.Key.BloomFilterConfig()
+		require.True(t, enabled)
+		require.Equal(t, int32(2048), size)
+
+		enabled, size = tag.Value.BloomFilterConfig()
+		require.True(t, enabled)
+		require.Zero(t, size)
+
+		// the embedded attributes describe the map itself, which carries no filter
+		enabled, _ = tag.BloomFilterConfig()
+		require.False(t, enabled)
+	})
+
+	// Key and Value attributes become the physical child columns, so a programmatic setting has to
+	// survive that copy to reach the writer.
+	t.Run("set-on-key-and-value", func(t *testing.T) {
+		built := &Tag{}
+		built.Key.SetBloomFilter(true, 2048)
+		built.Value.SetBloomFilter(true, 0)
+
+		enabled, size := GetKeyTagMap(built).BloomFilterConfig()
+		require.True(t, enabled)
+		require.Equal(t, int32(2048), size)
+
+		enabled, size = GetValueTagMap(built).BloomFilterConfig()
+		require.True(t, enabled)
+		require.Zero(t, size)
+	})
 }

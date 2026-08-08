@@ -10,46 +10,6 @@ import (
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
-// detectBloomFilters scans the first row group's metadata to detect which columns have bloom
-// filters and populates the BloomFilter and BloomFilterSize fields in SchemaHandler.Infos.
-func (pr *ParquetReader) detectBloomFilters() {
-	if pr.Footer == nil || len(pr.Footer.RowGroups) == 0 || pr.SchemaHandler == nil {
-		return
-	}
-
-	rg := pr.Footer.RowGroups[0]
-	if rg == nil {
-		return
-	}
-
-	for columnOrdinal, cc := range rg.Columns {
-		if cc == nil || cc.MetaData == nil || !cc.MetaData.IsSetBloomFilterOffset() {
-			continue
-		}
-
-		pathStr := columnPathToInPath(pr.SchemaHandler, cc.MetaData.GetPathInSchema(), pr.caseInsensitive)
-		if index, ok := pr.SchemaHandler.MapIndex[pathStr]; ok {
-			pr.SchemaHandler.Infos[index].BloomFilter = true
-			// Read the bloom filter header from the file to get the actual bitset size.
-			// BloomFilterLength in metadata includes the Thrift header overhead, so we
-			// read the header's NumBytes field which contains only the bitset size.
-			if pr.PFile == nil {
-				continue
-			}
-			pf, err := source.CloneWithContext(pr.context(), pr.PFile)
-			if err != nil {
-				continue
-			}
-
-			filter, err := pr.readBloomFilterForColumn(pf, 0, int16(columnOrdinal), rg, cc)
-			if err == nil {
-				pr.SchemaHandler.Infos[index].BloomFilterSize = filter.NumBytes()
-			}
-			_ = source.CloseWithContext(pr.context(), pf)
-		}
-	}
-}
-
 // BloomFilterCheck checks if a value might exist in the given column of the given row group.
 // It returns true if the value might exist (or if there is no bloom filter), false if the value
 // is definitely not present. columnPath is rootless and matched against the parquet tag names;
@@ -95,9 +55,9 @@ func (pr *ParquetReader) BloomFilterCheckWithContext(ctx context.Context, column
 	return filter.Check(hash), nil
 }
 
-// BloomFilterSizeWithContext returns the bitset size in bytes of a column's bloom filter in one row group.
-// Unlike SchemaHandler.Infos[i].BloomFilterSize, which only ever describes row group 0, this reports the
-// filter stored in the requested row group. columnPath follows the same rules as BloomFilterCheckWithContext.
+// BloomFilterSizeWithContext returns the bitset size in bytes of a column's bloom filter in one row
+// group, or 0 when that column chunk has no filter. columnPath follows the same rules as
+// BloomFilterCheckWithContext.
 func (pr *ParquetReader) BloomFilterSizeWithContext(ctx context.Context, columnPath string, rowGroupIndex int) (int32, error) {
 	if err := pr.setContext(ctx); err != nil {
 		return 0, err

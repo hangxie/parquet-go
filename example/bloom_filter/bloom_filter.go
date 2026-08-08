@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -55,8 +56,9 @@ func main() {
 	_ = fw.Close()
 	fmt.Printf("Successfully wrote %d rows to %s with Bloom filters\n", numRows, filename)
 
-	// 2. Detect Schema and Verify Bloom Filter Attributes
-	// NewParquetReader with nil schema automatically detects schema and Bloom filters.
+	// 2. Detect Schema and Verify Bloom Filters
+	// NewParquetReader with nil schema automatically detects the schema. Bloom filter state is not
+	// part of it and is queried per row group from the footer below.
 	fr, err := local.NewLocalFileReader(filename)
 	if err != nil {
 		log.Fatalf("Failed to create local file reader: %v", err)
@@ -69,16 +71,25 @@ func main() {
 	}
 	defer func() { _ = pr.ReadStop() }()
 
-	fmt.Println("\nDetected Schema Attributes:")
-	for _, info := range pr.SchemaHandler.Infos {
-		if info.InName == common.ParGoRootInName {
-			continue // Skip root element
+	// Bloom filters are per row group, so they are inspected through the footer rather than
+	// through the schema. BloomFilterLength is the stored size of header plus bitset; the size
+	// lookup below reads the filter header alone to report the bitset size.
+	fmt.Println("\nDetected Bloom Filters:")
+	for rowGroupIndex, rowGroup := range pr.Footer.GetRowGroups() {
+		for _, columnChunk := range rowGroup.GetColumns() {
+			metaData := columnChunk.GetMetaData()
+			column := common.PathToStr(metaData.GetPathInSchema())
+			if !metaData.IsSetBloomFilterOffset() {
+				fmt.Printf("Row group %d | Column: %-10s | BloomFilter: Disabled\n", rowGroupIndex, column)
+				continue
+			}
+			size, err := pr.BloomFilterSizeWithContext(context.Background(), column, rowGroupIndex)
+			if err != nil {
+				log.Fatalf("BloomFilterSize error for %s: %v", column, err)
+			}
+			fmt.Printf("Row group %d | Column: %-10s | BloomFilter: Enabled (bitset %d bytes, stored %d bytes)\n",
+				rowGroupIndex, column, size, metaData.GetBloomFilterLength())
 		}
-		bfStatus := "Disabled"
-		if info.BloomFilter {
-			bfStatus = fmt.Sprintf("Enabled (Size: %d bytes)", info.BloomFilterSize)
-		}
-		fmt.Printf("Column: %-10s | BloomFilter: %s\n", info.InName, bfStatus)
 	}
 
 	// 3. Use BloomFilterCheck to efficiently check for values.

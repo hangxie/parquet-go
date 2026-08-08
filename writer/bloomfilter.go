@@ -108,11 +108,15 @@ func (pw *ParquetWriter) initBloomFilters() error {
 	}
 	pw.bloomFilters = make(map[string]*bloomfilter.Filter)
 	for i, info := range pw.SchemaHandler.Infos {
-		if info == nil || !info.BloomFilter {
+		if info == nil {
+			continue
+		}
+		enabled, size := info.BloomFilterConfig()
+		if !enabled {
 			continue
 		}
 		path := pw.SchemaHandler.IndexMap[int32(i)]
-		numBytes := int(info.BloomFilterSize)
+		numBytes := int(size)
 		if numBytes <= 0 {
 			numBytes = bloomfilter.DefaultNumBytes
 		} else if numBytes < bloomfilter.MinBytes || numBytes > bloomfilter.MaxBytes {
