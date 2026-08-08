@@ -55,10 +55,9 @@ func (pr *ParquetReader) BloomFilterCheckWithContext(ctx context.Context, column
 	return filter.Check(hash), nil
 }
 
-// BloomFilterSizeWithContext returns the bitset size in bytes of a column's bloom filter in one row
-// group, or 0 when that column chunk has no filter. columnPath follows the same rules as
-// BloomFilterCheckWithContext.
-func (pr *ParquetReader) BloomFilterSizeWithContext(ctx context.Context, columnPath string, rowGroupIndex int) (int32, error) {
+// BloomFilterSize returns one row group's bloom filter bitset size in bytes, 0 when it has none.
+func (pr *ParquetReader) BloomFilterSize(ctx context.Context, columnPath string, rowGroupIndex int) (int32, error) {
+	// columnPath follows the same rules as BloomFilterCheckWithContext
 	if err := pr.setContext(ctx); err != nil {
 		return 0, err
 	}
