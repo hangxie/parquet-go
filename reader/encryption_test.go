@@ -1516,6 +1516,16 @@ func TestEncryptionHelperErrors(t *testing.T) {
 		},
 	})
 	require.ErrorContains(t, err, "decryption key required")
+	require.ErrorIs(t, err, ErrColumnKeyRequired)
+
+	// A footer-key column reports the same condition, so it carries the same sentinel.
+	_, err = pr.resolveColumnKey(&parquet.ColumnChunk{
+		CryptoMetadata: &parquet.ColumnCryptoMetaData{
+			ENCRYPTION_WITH_FOOTER_KEY: parquet.NewEncryptionWithFooterKey(),
+		},
+	})
+	require.ErrorContains(t, err, "decryption key required for footer")
+	require.ErrorIs(t, err, ErrColumnKeyRequired)
 
 	retrieverErr := fmt.Errorf("kms failure")
 	pr = &ParquetReader{}
