@@ -18,8 +18,8 @@ import (
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
-// ErrColumnKeyRequired reports an encrypted column without a direct,
-// retrieved, or footer-key match. Match with errors.Is.
+// ErrColumnKeyRequired reports encrypted data, either a column or the file
+// footer, with no configured or retrievable key. Match with errors.Is.
 var ErrColumnKeyRequired = errors.New("decryption key required")
 
 func (pr *ParquetReader) readEncryptedFooter(size uint32) error {
@@ -148,7 +148,7 @@ func (pr *ParquetReader) resolveFooterKeyFromMetadata(keyMetadata []byte) ([]byt
 			return key, nil
 		}
 	}
-	return nil, fmt.Errorf("decryption key required for footer")
+	return nil, fmt.Errorf("%w for footer", ErrColumnKeyRequired)
 }
 
 // resolveOptionalFooterKeyFromMetadata returns the footer key if one is
