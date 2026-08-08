@@ -19,9 +19,9 @@ type fieldAttr struct {
 	RepetitionType   parquet.FieldRepetitionType
 	CompressionCodec *parquet.CompressionCodec // nil means use file-level compression
 	CompressionLevel *int                      // nil means use codec default level
-	BloomFilter      bool                      // enable bloom filter for this column; when set by a reader, describes row group 0 only
-	BloomFilterSize  int32                     // bloom filter size in bytes (0 = default); when set by a reader, describes row group 0 only
 
+	bloomFilter       bool
+	bloomFilterSize   int32
 	convertedType     string
 	isAdjustedToUTC   bool
 	fieldID           int32
@@ -68,7 +68,7 @@ func (mp *fieldAttr) update(key, val string) error {
 			return fmt.Errorf("parse omitstats value '%s': %w", val, err)
 		}
 	case "bloomfilter":
-		if mp.BloomFilter, err = strconv.ParseBool(val); err != nil {
+		if mp.bloomFilter, err = strconv.ParseBool(val); err != nil {
 			return fmt.Errorf("parse bloomfilter value '%s': %w", val, err)
 		}
 	case "bloomfiltersize":
@@ -76,7 +76,7 @@ func (mp *fieldAttr) update(key, val string) error {
 		if err != nil {
 			return fmt.Errorf("parse bloomfiltersize value '%s': %w", val, err)
 		}
-		mp.BloomFilterSize = int32(valInt)
+		mp.bloomFilterSize = int32(valInt)
 	case "repetitiontype":
 		mp.RepetitionType, err = parquet.FieldRepetitionTypeFromString(strings.ToUpper(val))
 		if err != nil {
@@ -102,6 +102,20 @@ func (mp *fieldAttr) update(key, val string) error {
 		}
 	}
 	return nil
+}
+
+// BloomFilterConfig reports the bloom filter the column will write, size 0 meaning writer default.
+func (mp *fieldAttr) BloomFilterConfig() (bool, int32) {
+	// what to write, not what a file holds: read ParquetReader.BloomFilterSizeWithContext for that
+	return mp.bloomFilter, mp.bloomFilterSize
+}
+
+// SetBloomFilter configures a bloom filter of numBytes bytes, 0 for the writer default.
+func (mp *fieldAttr) SetBloomFilter(enabled bool, numBytes int32) {
+	// the equivalent of the bloomfilter and bloomfiltersize tags, on a Tag for a plain column or on
+	// Tag.Key and Tag.Value for the child columns of a map or list
+	mp.bloomFilter = enabled
+	mp.bloomFilterSize = numBytes
 }
 
 func (mp *fieldAttr) parseCompression(val string) error {

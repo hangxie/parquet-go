@@ -452,13 +452,13 @@ CRC is computed for data pages, dictionary pages, and dictionary-encoded data pa
 
 ### Bloom Filters
 
-Write a bloom filter for a column with the `bloomfilter=true` struct tag, optionally sized with `bloomfiltersize` (bytes, rounded up to a power of two). Every row group of that column gets a filter of the configured size.
+Write a bloom filter for a column with the `bloomfilter=true` struct tag, optionally sized with `bloomfiltersize` (bytes, rounded up to a power of two). Every row group of that column gets a filter of the configured size. When a schema is built programmatically rather than from struct tags, `common.Tag.SetBloomFilter(enabled, numBytes)` configures the same thing and `common.Tag.BloomFilterConfig()` reports it back. The same pair sits on `Tag.Key` and `Tag.Value`, covering the key and value columns of a map or list the way the `keybloomfilter` and `valuebloomfilter` tags do.
 
 Reads are per row group. `ParquetReader.BloomFilterCheckWithContext(ctx, columnPath, rowGroupIndex, value)` probes membership and returns true when the column has no filter, so it answers "might contain" rather than "has a filter". `ParquetReader.BloomFilterSizeWithContext(ctx, columnPath, rowGroupIndex)` returns the bitset size in bytes for that row group's filter, or 0 when the column chunk has no filter; it reads the filter header only, never the bitset, which matters because a bitset may be up to 128MB.
 
 Presence and on-disk size are also readable straight from the footer, without touching the file body: `ColumnMetaData.IsSetBloomFilterOffset` reports presence, and `ColumnMetaData.GetBloomFilterLength`, when the writer sets the optional field, gives the stored length of the Thrift header plus the bitset. Prefer these for whole-file inventories.
 
-The `BloomFilter` and `BloomFilterSize` fields of `SchemaHandler.Infos` are populated from row group 0 alone, because they carry per-column write configuration rather than per-row-group state. Do not report them as a property of another row group; writers that size filters from per-row-group cardinality estimates, such as parquet-mr, store different sizes for the same column.
+Bloom filter state is never reported through the schema, because a filter belongs to a column chunk in one row group rather than to the column. Opening a file therefore reads no bloom filter data at all. Earlier v3 releases exposed `BloomFilter` and `BloomFilterSize` on `SchemaHandler.Infos`, populated from row group 0 alone: replace reads of those fields with `ColumnMetaData.IsSetBloomFilterOffset` for presence and `BloomFilterSizeWithContext` for size, and replace writes with `common.Tag.SetBloomFilter`.
 
 ### Encryption
 

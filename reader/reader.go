@@ -137,7 +137,6 @@ func NewParquetReaderWithContext(ctx context.Context, pFile source.ParquetFileRe
 		}
 	}
 
-	res.detectBloomFilters()
 	return res, nil
 }
 
@@ -161,7 +160,6 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 			}
 		}
 	}
-	pr.detectBloomFilters()
 	return nil
 }
 
