@@ -515,7 +515,7 @@ func TestBloomFilterSize(t *testing.T) {
 
 		for rgIndex, rg := range pr.Footer.RowGroups {
 			for column, want := range map[string]int32{"id": bloomfilter.DefaultNumBytes, "name": 4096} {
-				size, err := pr.BloomFilterSizeWithContext(ctx, column, rgIndex)
+				size, err := pr.BloomFilterSize(ctx, column, rgIndex)
 				require.NoError(t, err)
 				require.Equal(t, want, size, "column %s row group %d", column, rgIndex)
 
@@ -538,11 +538,11 @@ func TestBloomFilterSize(t *testing.T) {
 		bigOffset := rg1.Columns[columnIndex(t, rg1, "big")].MetaData.GetBloomFilterOffset()
 		rg1.Columns[columnIndex(t, rg1, "id")].MetaData.BloomFilterOffset = &bigOffset
 
-		size, err := pr.BloomFilterSizeWithContext(ctx, "id", 0)
+		size, err := pr.BloomFilterSize(ctx, "id", 0)
 		require.NoError(t, err)
 		require.Equal(t, int32(bloomfilter.DefaultNumBytes), size)
 
-		size, err = pr.BloomFilterSizeWithContext(ctx, "id", 1)
+		size, err = pr.BloomFilterSize(ctx, "id", 1)
 		require.NoError(t, err)
 		require.Equal(t, int32(65536), size)
 	})
@@ -555,11 +555,11 @@ func TestBloomFilterSize(t *testing.T) {
 		rg0 := pr.Footer.RowGroups[0]
 		rg0.Columns[columnIndex(t, rg0, "id")].MetaData.BloomFilterOffset = nil
 
-		size, err := pr.BloomFilterSizeWithContext(ctx, "id", 0)
+		size, err := pr.BloomFilterSize(ctx, "id", 0)
 		require.NoError(t, err)
 		require.Zero(t, size)
 
-		size, err = pr.BloomFilterSizeWithContext(ctx, "id", 1)
+		size, err = pr.BloomFilterSize(ctx, "id", 1)
 		require.NoError(t, err)
 		require.Equal(t, int32(bloomfilter.DefaultNumBytes), size)
 	})
@@ -567,7 +567,7 @@ func TestBloomFilterSize(t *testing.T) {
 	t.Run("column_without_bloom_filter", func(t *testing.T) {
 		pr := openReader(t, writeMultiRowGroup(t, 1))
 
-		size, err := pr.BloomFilterSizeWithContext(context.Background(), "age", 0)
+		size, err := pr.BloomFilterSize(context.Background(), "age", 0)
 		require.NoError(t, err)
 		require.Zero(t, size)
 	})
@@ -575,17 +575,17 @@ func TestBloomFilterSize(t *testing.T) {
 	t.Run("invalid_row_group_index", func(t *testing.T) {
 		pr := openReader(t, writeMultiRowGroup(t, 1))
 
-		_, err := pr.BloomFilterSizeWithContext(context.Background(), "id", -1)
+		_, err := pr.BloomFilterSize(context.Background(), "id", -1)
 		require.ErrorContains(t, err, "out of range")
 
-		_, err = pr.BloomFilterSizeWithContext(context.Background(), "id", 5)
+		_, err = pr.BloomFilterSize(context.Background(), "id", 5)
 		require.ErrorContains(t, err, "out of range")
 	})
 
 	t.Run("invalid_column_path", func(t *testing.T) {
 		pr := openReader(t, writeMultiRowGroup(t, 1))
 
-		_, err := pr.BloomFilterSizeWithContext(context.Background(), "nonexistent", 0)
+		_, err := pr.BloomFilterSize(context.Background(), "nonexistent", 0)
 		require.ErrorContains(t, err, "not found")
 	})
 
@@ -596,7 +596,7 @@ func TestBloomFilterSize(t *testing.T) {
 		rg := pr.Footer.RowGroups[0]
 		rg.Columns[columnIndex(t, rg, "id")].MetaData = nil
 
-		_, err := pr.BloomFilterSizeWithContext(context.Background(), "id", 0)
+		_, err := pr.BloomFilterSize(context.Background(), "id", 0)
 		require.ErrorContains(t, err, "not found")
 	})
 
@@ -605,7 +605,7 @@ func TestBloomFilterSize(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := pr.BloomFilterSizeWithContext(ctx, "id", 0)
+		_, err := pr.BloomFilterSize(ctx, "id", 0)
 		require.ErrorIs(t, err, context.Canceled)
 	})
 
@@ -614,7 +614,7 @@ func TestBloomFilterSize(t *testing.T) {
 		pr := openReader(t, data)
 
 		pr.PFile = &failCloneReader{ParquetFileReader: buffer.NewBufferReaderFromBytesNoAlloc(data)}
-		_, err := pr.BloomFilterSizeWithContext(context.Background(), "id", 0)
+		_, err := pr.BloomFilterSize(context.Background(), "id", 0)
 		require.ErrorContains(t, err, "clone file reader")
 	})
 
@@ -626,7 +626,7 @@ func TestBloomFilterSize(t *testing.T) {
 
 		var sizeBytes int64
 		pr.PFile = &countingReader{ParquetFileReader: pFile, bytesRead: &sizeBytes}
-		size, err := pr.BloomFilterSizeWithContext(context.Background(), "big", 0)
+		size, err := pr.BloomFilterSize(context.Background(), "big", 0)
 		require.NoError(t, err)
 		require.Equal(t, int32(65536), size)
 
@@ -648,7 +648,7 @@ func TestBloomFilterSize(t *testing.T) {
 		badOffset := int64(0)
 		rg.Columns[columnIndex(t, rg, "id")].MetaData.BloomFilterOffset = &badOffset
 
-		_, err := pr.BloomFilterSizeWithContext(context.Background(), "id", 0)
+		_, err := pr.BloomFilterSize(context.Background(), "id", 0)
 		require.ErrorContains(t, err, "read bloom filter")
 	})
 }

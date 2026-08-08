@@ -690,7 +690,7 @@ func TestThreeWayBloomFilterAccess(t *testing.T) {
 
 	// Sizes read the bloom filter header alone, decrypting it per classification.
 	for _, column := range []string{"plain_score", "footer_tag", "secret_name"} {
-		size, err := pr.BloomFilterSizeWithContext(context.Background(), column, 0)
+		size, err := pr.BloomFilterSize(context.Background(), column, 0)
 		require.NoError(t, err, column)
 		require.Equal(t, int32(1024), size, column)
 	}

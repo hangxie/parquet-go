@@ -106,7 +106,7 @@ func (mp *fieldAttr) update(key, val string) error {
 
 // BloomFilterConfig reports the bloom filter the column will write, size 0 meaning writer default.
 func (mp *fieldAttr) BloomFilterConfig() (bool, int32) {
-	// what to write, not what a file holds: read ParquetReader.BloomFilterSizeWithContext for that
+	// what to write, not what a file holds: read ParquetReader.BloomFilterSize for that
 	return mp.bloomFilter, mp.bloomFilterSize
 }
 

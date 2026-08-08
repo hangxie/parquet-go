@@ -83,7 +83,7 @@ func main() {
 				fmt.Printf("Row group %d | Column: %-10s | BloomFilter: Disabled\n", rowGroupIndex, column)
 				continue
 			}
-			size, err := pr.BloomFilterSizeWithContext(context.Background(), column, rowGroupIndex)
+			size, err := pr.BloomFilterSize(context.Background(), column, rowGroupIndex)
 			if err != nil {
 				log.Fatalf("BloomFilterSize error for %s: %v", column, err)
 			}
