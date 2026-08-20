@@ -18,33 +18,26 @@ import (
 func init() {
 	codecFactories[parquet.CompressionCodec_LZ4] = newLZ4Compressor
 
-	lz4WriterPool := sync.Pool{
-		New: func() any {
-			return lz4.NewWriter(nil)
-		},
-	}
 	defaultCodecs[parquet.CompressionCodec_LZ4] = &codec{
-		compress:   lz4Compress(&lz4WriterPool),
+		compress:   hadoopLZ4Compress(pooledLZ4Block(func() any { return new(lz4.Compressor) })),
 		uncompress: lz4Uncompress,
 	}
 }
 
-func lz4Compress(pool *sync.Pool) func([]byte) ([]byte, error) {
-	return func(buf []byte) ([]byte, error) {
-		lz4Writer := pool.Get().(*lz4.Writer)
-		defer func() {
-			lz4Writer.Reset(nil)
-			pool.Put(lz4Writer)
-		}()
-		res := new(bytes.Buffer)
-		lz4Writer.Reset(res)
-		if _, err := lz4Writer.Write(buf); err != nil {
-			return nil, fmt.Errorf("lz4 compress: %w", err)
-		}
-		if err := lz4Writer.Close(); err != nil {
-			return nil, fmt.Errorf("lz4 compress close: %w", err)
-		}
-		return res.Bytes(), nil
+// lz4BlockCompressor is what the fast and high compression block compressors share.
+type lz4BlockCompressor interface {
+	CompressBlock(src, dst []byte) (int, error)
+}
+
+// pooledLZ4Block compresses raw blocks with pooled compressors.
+func pooledLZ4Block(newCompressor func() any) func(src, dst []byte) (int, error) {
+	// Neither compressor is safe to share, and both carry tables far larger than a
+	// chunk. Reuse is safe: each zeroes its tables when handed a new block.
+	pool := sync.Pool{New: newCompressor}
+	return func(src, dst []byte) (int, error) {
+		compressor := pool.Get().(lz4BlockCompressor)
+		defer pool.Put(compressor)
+		return compressor.CompressBlock(src, dst)
 	}
 }
 
@@ -56,6 +49,44 @@ const hadoopLZ4LengthSize = 4
 
 // hadoopLZ4MaxExpansion bounds how far a raw LZ4 block can expand.
 const hadoopLZ4MaxExpansion = 255
+
+// hadoopLZ4BufferSize is the codec buffer parquet-mr compresses and decompresses with.
+const hadoopLZ4BufferSize = 256 * 1024
+
+// hadoopLZ4MaxChunkSize is the most uncompressed data one chunk may carry.
+const hadoopLZ4MaxChunkSize = hadoopLZ4BufferSize - (hadoopLZ4BufferSize/255 + 16)
+
+// hadoopLZ4Compress writes the Hadoop LZ4 framing that parquet-mr reads for the deprecated LZ4 codec.
+func hadoopLZ4Compress(compressBlock func(src, dst []byte) (int, error)) func([]byte) ([]byte, error) {
+	return func(buf []byte) ([]byte, error) {
+		// Chunks are capped at what parquet-mr's decompressor buffers, so every chunk
+		// but the last is full and one bound-sized scratch buffer serves them all.
+		dst := make([]byte, lz4.CompressBlockBound(min(len(buf), hadoopLZ4MaxChunkSize)))
+		chunks := (len(buf) + hadoopLZ4MaxChunkSize - 1) / hadoopLZ4MaxChunkSize
+
+		// A block per chunk: an uncompressed length, a compressed length, then the
+		// chunk. Arrow reads those two lengths as a pair, so chunks cannot share one.
+		res := make([]byte, 0, chunks*(2*hadoopLZ4LengthSize+len(dst)))
+		for len(buf) > 0 {
+			chunk := buf[:min(len(buf), hadoopLZ4MaxChunkSize)]
+			buf = buf[len(chunk):]
+
+			count, err := compressBlock(chunk, dst)
+			if err != nil {
+				return nil, fmt.Errorf("lz4 compress: %w", err)
+			}
+			if count <= 0 {
+				return nil, fmt.Errorf("lz4 compress: %d byte chunk did not compress", len(chunk))
+			}
+
+			res = binary.BigEndian.AppendUint32(res, uint32(len(chunk)))
+			res = binary.BigEndian.AppendUint32(res, uint32(count))
+			res = append(res, dst[:count]...)
+		}
+
+		return res, nil
+	}
+}
 
 // hadoopLZ4Length reads a block or chunk length prefix.
 func hadoopLZ4Length(buf []byte) int64 {
@@ -181,50 +212,20 @@ func lz4Uncompress(buf []byte, maxSize int64) ([]byte, error) {
 	return nil, errors.Join(frameErr, err)
 }
 
-func lz4CompressWithLevel(pool *sync.Pool, cl lz4.CompressionLevel) func([]byte) ([]byte, error) {
-	return func(buf []byte) ([]byte, error) {
-		lz4Writer := pool.Get().(*lz4.Writer)
-		defer func() {
-			lz4Writer.Reset(nil)
-			pool.Put(lz4Writer)
-		}()
-		if err := lz4Writer.Apply(lz4.CompressionLevelOption(cl)); err != nil {
-			return nil, fmt.Errorf("lz4 compress: %w", err)
-		}
-		res := new(bytes.Buffer)
-		lz4Writer.Reset(res)
-		if _, err := lz4Writer.Write(buf); err != nil {
-			return nil, fmt.Errorf("lz4 compress: %w", err)
-		}
-		if err := lz4Writer.Close(); err != nil {
-			return nil, fmt.Errorf("lz4 compress close: %w", err)
-		}
-		return res.Bytes(), nil
-	}
-}
-
 func newLZ4Compressor(level *int) (*codec, error) {
-	cl := lz4.CompressionLevel(1 << 12)
 	l := 4
 	if level != nil {
 		l = *level
-		cl = lz4.CompressionLevel(1 << (8 + l))
+	}
+	// Levels stay the 1 to 9 the frame writer took, and lz4.Level1 through Level9
+	// are the block compressor's search depths behind them.
+	if l < 1 || l > 9 {
+		return nil, fmt.Errorf("invalid lz4 compression level %d: must be between 1 and 9", l)
 	}
 
-	// Validate by creating a writer and applying the option
-	testWriter := lz4.NewWriter(nil)
-	if err := testWriter.Apply(lz4.CompressionLevelOption(cl)); err != nil {
-		return nil, fmt.Errorf("invalid lz4 compression level %d: %w", l, err)
-	}
-
-	writerPool := sync.Pool{
-		New: func() any {
-			return lz4.NewWriter(nil)
-		},
-	}
-
+	cl := lz4.CompressionLevel(1 << (8 + l))
 	return &codec{
-		compress:   lz4CompressWithLevel(&writerPool, cl),
+		compress:   hadoopLZ4Compress(pooledLZ4Block(func() any { return &lz4.CompressorHC{Level: cl} })),
 		uncompress: lz4Uncompress,
 	}, nil
 }
