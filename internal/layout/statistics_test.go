@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"math"
 	"testing"
 	"unicode/utf8"
 
@@ -275,4 +276,131 @@ func TestTruncateRawByteArrayDoesNotApplyUTF8Rules(t *testing.T) {
 	min, max := TruncateBinaryBounds(schema, []byte("ár"), []byte("ár"), 1)
 	require.Equal(t, []byte{0xc3}, min)
 	require.Equal(t, []byte{0xc4}, max)
+}
+
+func TestDictionaryDistinctCount(t *testing.T) {
+	dictPage := func(numValues int32) *Page {
+		page := NewDictPage()
+		page.Header.DictionaryPageHeader = &parquet.DictionaryPageHeader{NumValues: numValues}
+		return page
+	}
+	floatDictPage := func(values ...any) *Page {
+		page := dictPage(int32(len(values)))
+		page.DataTable = &Table{Values: values}
+		return page
+	}
+	dataPage := func(encoding parquet.Encoding) *Page {
+		page := NewDataPage()
+		page.Header.DataPageHeader = &parquet.DataPageHeader{Encoding: encoding}
+		return page
+	}
+	dataPageV2 := func(encoding parquet.Encoding) *Page {
+		page := NewDataPage()
+		page.Header.DataPageHeader = nil
+		page.Header.DataPageHeaderV2 = &parquet.DataPageHeaderV2{Encoding: encoding}
+		return page
+	}
+
+	tests := []struct {
+		name         string
+		pages        []*Page
+		physicalType parquet.Type
+		expected     *int64
+	}{
+		{
+			name:     "all-dictionary-encoded-pages",
+			pages:    []*Page{dictPage(3), dataPage(parquet.Encoding_RLE_DICTIONARY), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			expected: common.ToPtr(int64(3)),
+		},
+		{
+			name:     "all-dictionary-encoded-v2-pages",
+			pages:    []*Page{dictPage(7), dataPageV2(parquet.Encoding_RLE_DICTIONARY)},
+			expected: common.ToPtr(int64(7)),
+		},
+		{
+			name:     "empty-dictionary",
+			pages:    []*Page{dictPage(0)},
+			expected: common.ToPtr(int64(0)),
+		},
+		{
+			name:     "plain-fallback-page",
+			pages:    []*Page{dictPage(3), dataPage(parquet.Encoding_RLE_DICTIONARY), dataPage(parquet.Encoding_PLAIN)},
+			expected: nil,
+		},
+		{
+			name:     "plain-fallback-v2-page",
+			pages:    []*Page{dictPage(3), dataPageV2(parquet.Encoding_PLAIN)},
+			expected: nil,
+		},
+		{
+			name:     "no-pages",
+			pages:    nil,
+			expected: nil,
+		},
+		{
+			name:     "nil-dictionary-page",
+			pages:    []*Page{nil, dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			expected: nil,
+		},
+		{
+			name:     "missing-dictionary-page-header",
+			pages:    []*Page{{Header: parquet.NewPageHeader()}, dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			expected: nil,
+		},
+		{
+			name:     "nil-data-page",
+			pages:    []*Page{dictPage(3), nil},
+			expected: nil,
+		},
+		{
+			name:     "data-page-without-header",
+			pages:    []*Page{dictPage(3), {}},
+			expected: nil,
+		},
+		{
+			name:     "data-page-without-data-page-header",
+			pages:    []*Page{dictPage(3), {Header: parquet.NewPageHeader()}},
+			expected: nil,
+		},
+		{
+			name:         "float-dictionary-without-nan",
+			pages:        []*Page{floatDictPage(float32(1), float32(2)), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_FLOAT,
+			expected:     common.ToPtr(int64(2)),
+		},
+		{
+			name:         "float-dictionary-with-nan",
+			pages:        []*Page{floatDictPage(float32(1), float32(math.NaN()), float32(math.NaN())), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_FLOAT,
+			expected:     nil,
+		},
+		{
+			name:         "double-dictionary-with-nan",
+			pages:        []*Page{floatDictPage(1.0, math.NaN()), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_DOUBLE,
+			expected:     nil,
+		},
+		{
+			name:         "double-dictionary-without-values",
+			pages:        []*Page{dictPage(2), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_DOUBLE,
+			expected:     nil,
+		},
+		{
+			name:         "nan-bits-in-a-non-float-dictionary",
+			pages:        []*Page{floatDictPage(math.NaN()), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_INT64,
+			expected:     common.ToPtr(int64(1)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			physicalType := tt.physicalType
+			if physicalType == 0 {
+				physicalType = parquet.Type_INT32
+			}
+			require.Equal(t, tt.expected, dictionaryDistinctCount(tt.pages, &physicalType))
+		})
+	}
 }

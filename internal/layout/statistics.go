@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"math"
 	"unicode/utf8"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -180,4 +181,56 @@ func TruncateBinaryBounds(schema *parquet.SchemaElement, minValue, maxValue []by
 	default:
 		return minValue, maxValue
 	}
+}
+
+// dictionaryDistinctCount returns the distinct non-null value count of a dictionary chunk, nil when inexact.
+func dictionaryDistinctCount(pages []*Page, pT *parquet.Type) *int64 {
+	if len(pages) == 0 || pages[0] == nil || pages[0].Header == nil || pages[0].Header.DictionaryPageHeader == nil {
+		return nil
+	}
+	// Values of a page that fell back to PLAIN, as happens once the dictionary hits its size limit,
+	// never reach the dictionary, leaving its size a lower bound instead of the exact count.
+	for _, page := range pages[1:] {
+		if page == nil || page.Header == nil {
+			return nil
+		}
+		switch {
+		case page.Header.DataPageHeader != nil:
+			if page.Header.DataPageHeader.Encoding != parquet.Encoding_RLE_DICTIONARY {
+				return nil
+			}
+		case page.Header.DataPageHeaderV2 != nil:
+			if page.Header.DataPageHeaderV2.Encoding != parquet.Encoding_RLE_DICTIONARY {
+				return nil
+			}
+		default:
+			return nil
+		}
+	}
+	if pT != nil && (*pT == parquet.Type_FLOAT || *pT == parquet.Type_DOUBLE) && !nanFreeFloatDictionary(pages[0]) {
+		return nil
+	}
+	return common.ToPtr(int64(pages[0].Header.DictionaryPageHeader.NumValues))
+}
+
+// nanFreeFloatDictionary reports whether a FLOAT/DOUBLE dictionary page is known to hold no NaN.
+func nanFreeFloatDictionary(dictPage *Page) bool {
+	// Dedup goes through Go map equality, which never matches NaN, so each NaN takes an entry of its
+	// own; a page carrying no values cannot be checked.
+	if dictPage.DataTable == nil {
+		return false
+	}
+	for _, value := range dictPage.DataTable.Values {
+		switch typed := value.(type) {
+		case float32:
+			if math.IsNaN(float64(typed)) {
+				return false
+			}
+		case float64:
+			if math.IsNaN(typed) {
+				return false
+			}
+		}
+	}
+	return true
 }

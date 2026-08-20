@@ -1476,3 +1476,76 @@ func createTestPage(xmin, xmax, ymin, ymax float64, geoTypes []int32) *Page {
 		GeospatialTypes: geoTypes,
 	}
 }
+
+func TestPagesToDictChunk_DistinctCount(t *testing.T) {
+	newPages := func(dataPageEncoding parquet.Encoding, omitStats bool) []*Page {
+		schema := &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_INT32),
+			Name: "test_col",
+		}
+		info := &common.Tag{}
+		info.OmitStats = omitStats
+
+		dictPage := NewDictPage()
+		dictPage.Schema = schema
+		dictPage.Info = info
+		dictPage.Header.DictionaryPageHeader.NumValues = 4
+
+		dataPage := NewDataPage()
+		dataPage.Schema = schema
+		dataPage.Info = info
+		dataPage.MinVal, dataPage.MaxVal = int32(1), int32(10)
+		dataPage.NullCount = common.ToPtr(int64(0))
+		dataPage.Header.DataPageHeader.NumValues = 6
+		dataPage.Header.DataPageHeader.Encoding = dataPageEncoding
+
+		return []*Page{dictPage, dataPage}
+	}
+
+	tests := []struct {
+		name     string
+		pages    []*Page
+		expected *int64
+	}{
+		{
+			name:     "dictionary-encoded-chunk",
+			pages:    newPages(parquet.Encoding_RLE_DICTIONARY, false),
+			expected: common.ToPtr(int64(4)),
+		},
+		{
+			name:     "plain-fallback-chunk",
+			pages:    newPages(parquet.Encoding_PLAIN, false),
+			expected: nil,
+		},
+		{
+			name:     "omit-stats",
+			pages:    newPages(parquet.Encoding_RLE_DICTIONARY, true),
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunk, err := PagesToDictChunk(tt.pages)
+			require.NoError(t, err)
+			require.NotNil(t, chunk)
+			require.Equal(t, tt.expected, chunk.ChunkHeader.MetaData.Statistics.DistinctCount)
+		})
+	}
+}
+
+func TestPagesToChunk_NoDistinctCount(t *testing.T) {
+	page := NewDataPage()
+	page.Schema = &parquet.SchemaElement{
+		Type: common.ToPtr(parquet.Type_INT32),
+		Name: "test_col",
+	}
+	page.Info = &common.Tag{}
+	page.MinVal, page.MaxVal = int32(1), int32(10)
+	page.NullCount = common.ToPtr(int64(0))
+	page.Header.DataPageHeader.NumValues = 6
+
+	chunk, err := PagesToChunk([]*Page{page})
+	require.NoError(t, err)
+	require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.DistinctCount)
+}
