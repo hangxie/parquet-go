@@ -357,7 +357,7 @@ Compression notes:
 - Set a file-level codec with `writer.WithCompressionCodec`.
 - Set a per-column codec with a struct tag such as `parquet:"name=col, compression=GZIP"`.
 - Set codec-level compression levels with `writer.WithCompressionLevel(codec, level)`. All columns using that codec share the same level.
-- `LZ4` is deprecated and ambiguous: files in the wild carry either the framed LZ4 format or the Hadoop block framing that parquet-mr writes. Reads accept both, detected from the payload. Writes always emit the framed format, so a file written with `LZ4` is not readable by parquet-mr or Arrow. Use `LZ4_RAW`, which uses raw LZ4 blocks and is the preferred LZ4 variant in the Parquet specification.
+- `LZ4` is deprecated and ambiguous: files in the wild carry either the Hadoop block framing that parquet-mr writes or the framed LZ4 format. Reads accept both, detected from the payload. Writes emit the Hadoop block framing, so a file written with `LZ4` is readable by parquet-mr and Arrow. Releases up to v3.7.4 wrote the framed format under this codec, and those files still read. Use `LZ4_RAW`, which uses raw LZ4 blocks and is the preferred LZ4 variant in the Parquet specification.
 - Compression codecs enforce decompressed size limits, defaulting to 256 MB, via `compress.WithMaxDecompressedSize`.
 
 ## Readers and Writers
