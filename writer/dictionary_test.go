@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"math"
 	"math/bits"
 	"testing"
 
@@ -80,5 +81,150 @@ func TestDictionaryEncodingBitWidthAndFallback(t *testing.T) {
 		for i := range values {
 			require.Equal(t, values[i], got[i].Value)
 		}
+	})
+}
+
+func TestDictionaryDistinctCountStatistics(t *testing.T) {
+	type Entry struct {
+		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=RLE_DICTIONARY"`
+	}
+	type PlainEntry struct {
+		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	type OmitStatsEntry struct {
+		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=RLE_DICTIONARY, omitstats=true"`
+	}
+
+	t.Run("dictionary_chunk_reports_exact_ndv", func(t *testing.T) {
+		pw, buf, err := createTestParquetWriter(
+			new(Entry),
+			WithNP(1),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+
+		values := []string{"alpha", "beta", "gamma", "alpha", "beta", "alpha"}
+		for _, value := range values {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pf.Close()) }()
+		//nolint:staticcheck
+		defer func() { require.NoError(t, pr.ReadStop()) }()
+
+		stats := pr.Footer.RowGroups[0].Columns[0].MetaData.Statistics
+		require.NotNil(t, stats.DistinctCount)
+		require.Equal(t, int64(3), *stats.DistinctCount)
+	})
+
+	t.Run("nulls_are_not_distinct_values", func(t *testing.T) {
+		type OptionalEntry struct {
+			Value *string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=RLE_DICTIONARY, repetitiontype=OPTIONAL"`
+		}
+		pw, _, err := createTestParquetWriter(
+			new(OptionalEntry),
+			WithNP(1),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+
+		alpha, beta := "alpha", "beta"
+		for _, value := range []*string{&alpha, nil, &beta, nil, &alpha} {
+			require.NoError(t, pw.Write(OptionalEntry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		stats := pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics
+		require.NotNil(t, stats.DistinctCount)
+		require.Equal(t, int64(2), *stats.DistinctCount)
+		require.Equal(t, int64(2), stats.GetNullCount())
+	})
+
+	t.Run("plain_fallback_omits_distinct_count", func(t *testing.T) {
+		pw, _, err := createTestParquetWriter(
+			new(Entry),
+			WithNP(1),
+			WithPageSize(5),
+			WithMaxDictionarySize(10),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+
+		for _, value := range []string{"alpha", "bravo", "charlie", "delta"} {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		column := pw.Footer.RowGroups[0].Columns[0]
+		require.Contains(t, column.MetaData.Encodings, parquet.Encoding_PLAIN)
+		require.Nil(t, column.MetaData.Statistics.DistinctCount)
+	})
+
+	t.Run("plain_column_omits_distinct_count", func(t *testing.T) {
+		pw, _, err := createTestParquetWriter(
+			new(PlainEntry),
+			WithNP(1),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+
+		for _, value := range []string{"alpha", "beta", "alpha"} {
+			require.NoError(t, pw.Write(PlainEntry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics.DistinctCount)
+	})
+
+	t.Run("omitstats_omits_distinct_count", func(t *testing.T) {
+		pw, _, err := createTestParquetWriter(
+			new(OmitStatsEntry),
+			WithNP(1),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+
+		for _, value := range []string{"alpha", "beta", "alpha"} {
+			require.NoError(t, pw.Write(OmitStatsEntry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics.DistinctCount)
+	})
+}
+
+func TestDictionaryDistinctCountFloatNaN(t *testing.T) {
+	type Entry struct {
+		Value float64 `parquet:"name=value, type=DOUBLE, encoding=RLE_DICTIONARY"`
+	}
+
+	write := func(t *testing.T, values []float64) *parquet.Statistics {
+		t.Helper()
+		pw, _, err := createTestParquetWriter(
+			new(Entry),
+			WithNP(1),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+		for _, value := range values {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+		return pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics
+	}
+
+	t.Run("nan_omits_distinct_count", func(t *testing.T) {
+		// Each NaN takes a dictionary entry of its own, overstating the distinct value count.
+		stats := write(t, []float64{1.0, math.NaN(), 2.0, math.NaN(), math.NaN(), 1.0})
+		require.Nil(t, stats.DistinctCount)
+	})
+
+	t.Run("without_nan_reports_exact_ndv", func(t *testing.T) {
+		stats := write(t, []float64{1.0, 2.0, 1.0, math.Inf(1), math.Inf(-1)})
+		require.NotNil(t, stats.DistinctCount)
+		require.Equal(t, int64(4), *stats.DistinctCount)
 	})
 }
