@@ -9,7 +9,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check go.mod version is N-2 or older
         run: |
           LATEST=$(curl -s 'https://go.dev/dl/?mode=json' | jq -r '.[0].version' | sed 's/go//')
@@ -26,6 +26,35 @@ jobs:
             exit 1
           fi
 
+  # Lint runs on one recent Go rather than per matrix entry. golangci-lint
+  # supports a narrower Go range than this package does, and its results do not
+  # vary by toolchain; the matrix below is what proves 1.25-1.27 support.
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          cache-dependency-path: go.sum
+      - name: Installing Dependencies
+        run: make deps
+      - name: Running format
+        run: make format
+      - name: Running lint
+        run: make lint
+      - name: Checking uncommitted changes
+        run: |
+          git status -s > /tmp/git-status.log
+          if [ -s /tmp/git-status.log ] ; then
+            echo There are uncommitted changes
+            cat /tmp/git-status.log
+            false
+          fi
+
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -34,18 +63,14 @@ jobs:
       matrix:
         go-version: ["1.25", "1.26", "1.27"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
           cache-dependency-path: go.sum
       - name: Installing Dependencies
         run: make deps
-      - name: Running format
-        run: make format
-      - name: Running lint
-        run: make lint
       - name: Running tests
         run: make test
       - name: Ensure examples can be built
@@ -63,12 +88,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    needs: [check-go-version, build]
+    needs: [check-go-version, lint, build]
     if: always()
     steps:
       - name: Check job results
         run: |
-          if [ "${{ needs.check-go-version.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
+          if [ "${{ needs.check-go-version.result }}" != "success" ] || [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
             echo "::error::One or more jobs failed"
             exit 1
           fi
