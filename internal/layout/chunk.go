@@ -154,7 +154,7 @@ func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 		return nil, fmt.Errorf("populate chunk statistics: %w", err)
 	}
 	if hasDictPage && !omitStats {
-		metaData.Statistics.DistinctCount = dictionaryDistinctCount(pages, pT)
+		metaData.Statistics.DistinctCount = dictionaryDistinctCount(pages, pT, cT, logT)
 	}
 
 	// Aggregate geospatial statistics from pages
