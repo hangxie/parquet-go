@@ -184,7 +184,7 @@ func TruncateBinaryBounds(schema *parquet.SchemaElement, minValue, maxValue []by
 }
 
 // dictionaryDistinctCount returns the distinct non-null value count of a dictionary chunk, nil when inexact.
-func dictionaryDistinctCount(pages []*Page, pT *parquet.Type) *int64 {
+func dictionaryDistinctCount(pages []*Page, pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.LogicalType) *int64 {
 	if len(pages) == 0 || pages[0] == nil || pages[0].Header == nil || pages[0].Header.DictionaryPageHeader == nil {
 		return nil
 	}
@@ -210,7 +210,32 @@ func dictionaryDistinctCount(pages []*Page, pT *parquet.Type) *int64 {
 	if pT != nil && (*pT == parquet.Type_FLOAT || *pT == parquet.Type_DOUBLE) && !nanFreeFloatDictionary(pages[0]) {
 		return nil
 	}
+	if !dictKeyEqualsLogicalValue(pT, cT, logT) {
+		return nil
+	}
 	return common.ToPtr(int64(pages[0].Header.DictionaryPageHeader.NumValues))
+}
+
+// dictKeyEqualsLogicalValue reports whether dictionary key equality matches logical value equality.
+func dictKeyEqualsLogicalValue(pT *parquet.Type, cT *parquet.ConvertedType, logT *parquet.LogicalType) bool {
+	if pT == nil {
+		return true
+	}
+	isDecimal := (cT != nil && *cT == parquet.ConvertedType_DECIMAL) || (logT != nil && logT.IsSetDECIMAL())
+	switch *pT {
+	case parquet.Type_BYTE_ARRAY:
+		// A variable width leaves a binary DECIMAL several encodings: 0x01 and 0x0001 both mean 1.
+		if isDecimal {
+			return false
+		}
+		// WKB carries a byte-order flag, so one geometry encodes two ways.
+		return logT == nil || (!logT.IsSetGEOMETRY() && !logT.IsSetGEOGRAPHY())
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		// FLOAT16 keys are raw halves: -0.0 and +0.0 differ as bytes but compare equal.
+		return logT == nil || !logT.IsSetFLOAT16()
+	default:
+		return true
+	}
 }
 
 // nanFreeFloatDictionary reports whether a FLOAT/DOUBLE dictionary page is known to hold no NaN.

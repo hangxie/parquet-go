@@ -302,10 +302,12 @@ func TestDictionaryDistinctCount(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		pages        []*Page
-		physicalType parquet.Type
-		expected     *int64
+		name          string
+		pages         []*Page
+		physicalType  parquet.Type
+		convertedType *parquet.ConvertedType
+		logicalType   *parquet.LogicalType
+		expected      *int64
 	}{
 		{
 			name:     "all-dictionary-encoded-pages",
@@ -392,6 +394,55 @@ func TestDictionaryDistinctCount(t *testing.T) {
 			physicalType: parquet.Type_INT64,
 			expected:     common.ToPtr(int64(1)),
 		},
+		{
+			name:          "byte-array-decimal-dictionary",
+			pages:         []*Page{dictPage(3), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType:  parquet.Type_BYTE_ARRAY,
+			convertedType: common.ToPtr(parquet.ConvertedType_DECIMAL),
+			expected:      nil,
+		},
+		{
+			name:         "byte-array-decimal-logical-dictionary",
+			pages:        []*Page{dictPage(3), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_BYTE_ARRAY,
+			logicalType:  &parquet.LogicalType{DECIMAL: parquet.NewDecimalType()},
+			expected:     nil,
+		},
+		{
+			name:          "byte-array-utf8-dictionary",
+			pages:         []*Page{dictPage(3), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType:  parquet.Type_BYTE_ARRAY,
+			convertedType: common.ToPtr(parquet.ConvertedType_UTF8),
+			expected:      common.ToPtr(int64(3)),
+		},
+		{
+			name:          "fixed-len-byte-array-decimal-dictionary",
+			pages:         []*Page{dictPage(3), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType:  parquet.Type_FIXED_LEN_BYTE_ARRAY,
+			convertedType: common.ToPtr(parquet.ConvertedType_DECIMAL),
+			expected:      common.ToPtr(int64(3)),
+		},
+		{
+			name:         "float16-dictionary",
+			pages:        []*Page{dictPage(2), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_FIXED_LEN_BYTE_ARRAY,
+			logicalType:  &parquet.LogicalType{FLOAT16: parquet.NewFloat16Type()},
+			expected:     nil,
+		},
+		{
+			name:         "geometry-dictionary",
+			pages:        []*Page{dictPage(2), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_BYTE_ARRAY,
+			logicalType:  &parquet.LogicalType{GEOMETRY: parquet.NewGeometryType()},
+			expected:     nil,
+		},
+		{
+			name:         "geography-dictionary",
+			pages:        []*Page{dictPage(2), dataPage(parquet.Encoding_RLE_DICTIONARY)},
+			physicalType: parquet.Type_BYTE_ARRAY,
+			logicalType:  &parquet.LogicalType{GEOGRAPHY: parquet.NewGeographyType()},
+			expected:     nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -400,7 +451,7 @@ func TestDictionaryDistinctCount(t *testing.T) {
 			if physicalType == 0 {
 				physicalType = parquet.Type_INT32
 			}
-			require.Equal(t, tt.expected, dictionaryDistinctCount(tt.pages, &physicalType))
+			require.Equal(t, tt.expected, dictionaryDistinctCount(tt.pages, &physicalType, tt.convertedType, tt.logicalType))
 		})
 	}
 }

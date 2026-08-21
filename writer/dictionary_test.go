@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"encoding/binary"
 	"math"
 	"math/bits"
 	"testing"
@@ -227,4 +228,161 @@ func TestDictionaryDistinctCountFloatNaN(t *testing.T) {
 		require.NotNil(t, stats.DistinctCount)
 		require.Equal(t, int64(4), *stats.DistinctCount)
 	})
+}
+
+func TestDictionaryDistinctCountDecimal(t *testing.T) {
+	t.Run("byte_array_decimal_omits_distinct_count", func(t *testing.T) {
+		type Entry struct {
+			Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=DECIMAL, scale=0, precision=10, encoding=RLE_DICTIONARY"`
+		}
+		pw, _, err := createTestParquetWriter(
+			new(Entry),
+			WithNP(1),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+
+		// Sign-extended encodings of unscaled 1: three map keys, one decimal.
+		for _, value := range []string{"\x01", "\x00\x01", "\x00\x00\x01"} {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		column := pw.Footer.RowGroups[0].Columns[0]
+		require.Contains(t, column.MetaData.Encodings, parquet.Encoding_RLE_DICTIONARY)
+		require.Nil(t, column.MetaData.Statistics.DistinctCount)
+	})
+
+	t.Run("fixed_len_byte_array_decimal_reports_exact_ndv", func(t *testing.T) {
+		type Entry struct {
+			Value string `parquet:"name=value, type=FIXED_LEN_BYTE_ARRAY, length=4, convertedtype=DECIMAL, scale=0, precision=9, encoding=RLE_DICTIONARY"`
+		}
+		pw, _, err := createTestParquetWriter(
+			new(Entry),
+			WithNP(1),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+
+		// A fixed width gives each value one encoding.
+		for _, value := range []string{"\x00\x00\x00\x01", "\x00\x00\x00\x01", "\x00\x00\x00\x02"} {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		stats := pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics
+		require.NotNil(t, stats.DistinctCount)
+		require.Equal(t, int64(2), *stats.DistinctCount)
+	})
+
+	t.Run("float16_omits_distinct_count", func(t *testing.T) {
+		type Entry struct {
+			Value string `parquet:"name=value, type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16, encoding=RLE_DICTIONARY"`
+		}
+		pw, _, err := createTestParquetWriter(
+			new(Entry),
+			WithNP(1),
+			WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+		)
+		require.NoError(t, err)
+
+		// +0.0 and -0.0 are distinct byte keys but compare equal as float16.
+		for _, value := range []string{"\x00\x00", "\x00\x80"} {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+		require.NoError(t, pw.WriteStop())
+
+		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics.DistinctCount)
+	})
+}
+
+func TestDictionaryDistinctCountGeospatial(t *testing.T) {
+	type GeometryEntry struct {
+		Geom string `parquet:"name=geom, type=BYTE_ARRAY, logicaltype=GEOMETRY, encoding=RLE_DICTIONARY"`
+	}
+	type GeographyEntry struct {
+		Geom string `parquet:"name=geom, type=BYTE_ARRAY, logicaltype=GEOGRAPHY, encoding=RLE_DICTIONARY"`
+	}
+
+	// The same POINT(1 2), in both WKB byte orders.
+	wkbPoint := func(order binary.ByteOrder, flag byte, x, y float64) string {
+		b := make([]byte, 21)
+		b[0] = flag
+		order.PutUint32(b[1:], 1)
+		order.PutUint64(b[5:], math.Float64bits(x))
+		order.PutUint64(b[13:], math.Float64bits(y))
+		return string(b)
+	}
+	littleEndian := wkbPoint(binary.LittleEndian, 1, 1, 2)
+	bigEndian := wkbPoint(binary.BigEndian, 0, 1, 2)
+
+	tests := []struct {
+		name    string
+		obj     any
+		entries []any
+	}{
+		{
+			name:    "GEOMETRY",
+			obj:     new(GeometryEntry),
+			entries: []any{GeometryEntry{Geom: littleEndian}, GeometryEntry{Geom: bigEndian}},
+		},
+		{
+			name:    "GEOGRAPHY",
+			obj:     new(GeographyEntry),
+			entries: []any{GeographyEntry{Geom: littleEndian}, GeographyEntry{Geom: bigEndian}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+"_omits_distinct_count", func(t *testing.T) {
+			pw, _, err := createTestParquetWriter(
+				tt.obj,
+				WithNP(1),
+				WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+			)
+			require.NoError(t, err)
+
+			for _, entry := range tt.entries {
+				require.NoError(t, pw.Write(entry))
+			}
+			require.NoError(t, pw.WriteStop())
+
+			column := pw.Footer.RowGroups[0].Columns[0]
+			require.Contains(t, column.MetaData.Encodings, parquet.Encoding_RLE_DICTIONARY)
+			require.Nil(t, column.MetaData.Statistics.DistinctCount)
+		})
+	}
+}
+
+func TestDictionaryDistinctCountAcrossRowGroups(t *testing.T) {
+	type Entry struct {
+		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=RLE_DICTIONARY"`
+	}
+
+	pw, _, err := createTestParquetWriter(
+		new(Entry),
+		WithNP(1),
+		WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED),
+	)
+	require.NoError(t, err)
+
+	write := func(values ...string) {
+		t.Helper()
+		for _, value := range values {
+			require.NoError(t, pw.Write(Entry{Value: value}))
+		}
+	}
+
+	write("alpha", "beta", "gamma", "alpha")
+	require.NoError(t, pw.Flush(true))
+	// "alpha" counts again: each row group has its own dictionary.
+	write("alpha", "delta", "alpha")
+	require.NoError(t, pw.WriteStop())
+
+	require.Len(t, pw.Footer.RowGroups, 2)
+	for i, expected := range []int64{3, 2} {
+		stats := pw.Footer.RowGroups[i].Columns[0].MetaData.Statistics
+		require.NotNil(t, stats.DistinctCount, "row group %d", i)
+		require.Equal(t, expected, *stats.DistinctCount, "row group %d", i)
+	}
 }
