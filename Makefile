@@ -52,11 +52,13 @@ deps:  ## Install prerequisite for build
 	@go mod tidy
 
 .PHONY: tools
+# golangci-lint is pinned because @latest broke CI the day v2.13 raised its Go
+# floor. No single version spans the build matrix: v2.12 cannot analyse 1.27 and
+# v2.13 cannot be built on 1.25, so lint runs on one recent Go instead.
 tools:  ## Install build tools
 	@echo "==> Installing build tools"
 	@(cd /tmp; \
-		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest; \
-		go install github.com/jstemmer/go-junit-report/v2@latest; \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1; \
 		go install mvdan.cc/gofumpt@latest; \
 		go install golang.org/x/tools/cmd/goimports@latest; \
 	)
@@ -78,18 +80,23 @@ testdata:  ## Download test data from apache/parquet-testing
 	done
 
 .PHONY: test
-test: deps tools testdata  ## Run unit tests
+test: deps testdata  ## Run unit tests
 	@echo "==> Running unit tests"
+	@CGO_ENABLED=1 go test -race -count 1 -trimpath ./...
+
+# Separate from test so the version matrix only pays for the tests themselves;
+# the reports are consumed once, by the coverage badge at release.
+.PHONY: coverage
+coverage: deps testdata  ## Run unit tests and build coverage reports
+	@echo "==> Running unit tests with coverage"
 	@mkdir -p $(BUILD_DIR)/test
 	@set -euo pipefail ; \
 		cd $(BUILD_DIR)/test; \
 		CGO_ENABLED=1 go test -race -count 1 -trimpath \
-			-coverprofile=coverage.out.tmp $(CURDIR)/... \
-			| tee go-test.output ; \
-		cat coverage.out.tmp | grep -v /parquet/ > coverage.out; \
+			-coverprofile=coverage.out.tmp $(CURDIR)/... ; \
+		grep -v /parquet/ coverage.out.tmp > coverage.out; \
 		go tool cover -html=coverage.out -o coverage.html ; \
 		go tool cover -func=coverage.out -o coverage.txt ; \
-		cat go-test.output | $(GOBIN)/go-junit-report > junit.xml ; \
 		cat coverage.txt
 
 .PHONY: example

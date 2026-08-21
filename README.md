@@ -46,6 +46,8 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 go get github.com/hangxie/parquet-go/v3
 ```
 
+parquet-go builds with the latest Go toolchain and is guaranteed to stay compatible two releases back, so `go.mod` never requires anything newer than the current Go release minus two. CI enforces that floor and runs the test suite against it and the two releases above it. See [go.mod](go.mod) for the exact minimum, currently Go 1.25.
+
 ## Quick Start
 
 ### Write a File
