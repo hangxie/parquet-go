@@ -3,7 +3,7 @@
 [![](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/hangxie/parquet-go/blob/main/LICENSE)
 [![](https://img.shields.io/github/v/tag/hangxie/parquet-go.svg?color=brightgreen&label=version&sort=semver)](https://github.com/hangxie/parquet-go/releases)
 [![[parquet-go]](https://github.com/hangxie/parquet-go/actions/workflows/build.yml/badge.svg)](https://github.com/hangxie/parquet-go/actions/workflows/build.yml)
-[![](https://github.com/hangxie/parquet-go/wiki/coverage.svg)](https://github.com/hangxie/parquet-go/wiki/Coverage-Report)
+[![](https://hangxie.github.io/parquet-go/coverage.svg)](https://hangxie.github.io/parquet-go/coverage-history.html)
 
 parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 
@@ -789,7 +789,7 @@ go build -tags example ./example/all_types
 
 `make pages` generates the project's GitHub Pages content locally to `build/pages/`; it currently runs the single `make pages-coverage` target.
 
-`make pages-coverage` collects coverage data and generates the chart. It checks out each day's latest commit, runs `go test`, and appends results to `build/coverage.csv` (sorted chronologically). Days with no commits carry forward the previous day's coverage, and days before the first commit with non-zero coverage are skipped. It also writes the per-package HTML coverage report to `build/pages/coverage.html`.
+`make pages-coverage` collects coverage data and generates the chart. It checks out each day's latest commit, runs `go test`, and appends results to `build/coverage.csv` (sorted chronologically). Days with no commits carry forward the previous day's coverage, and days before the first commit with non-zero coverage are skipped. It also writes the per-package HTML coverage report to `build/pages/coverage.html` and the README coverage badge to `build/pages/coverage.svg`.
 
 ```bash
 make pages-coverage                                                     # last 7 days (default)
