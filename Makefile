@@ -9,6 +9,10 @@ GIT_HASH    = $(shell git rev-parse --short HEAD)
 PKG_PREFIX  = github.com/hangxie/parquet-go
 VERSION     = $(shell git describe --tags --always)
 
+PAGES_DIR    = $(BUILD_DIR)/pages
+COVERAGE_CSV ?= $(BUILD_DIR)/coverage.csv
+COLLECT_ARGS ?=
+
 TESTDATA_DIR     = $(BUILD_DIR)/testdata
 PARQUET_TESTING  = https://raw.githubusercontent.com/apache/parquet-testing/master/data
 TESTDATA_FILES   = $(TESTDATA_DIR)/datapage_v1-uncompressed-checksum.parquet \
@@ -22,6 +26,7 @@ TESTDATA_FILES   = $(TESTDATA_DIR)/datapage_v1-uncompressed-checksum.parquet \
 # go option
 CGO_ENABLED := 0
 GO          ?= go
+PYTHON      ?= python3
 GOBIN       = $(shell go env GOPATH)/bin
 GOFLAGS     := -trimpath
 GOSOURCES   := $(shell find . -type f -name '*.go')
@@ -98,6 +103,22 @@ coverage: deps testdata  ## Run unit tests and build coverage reports
 		go tool cover -html=coverage.out -o coverage.html ; \
 		go tool cover -func=coverage.out -o coverage.txt ; \
 		cat coverage.txt
+
+.PHONY: pages
+pages: pages-coverage  ## Generate all GitHub Pages content to build/pages/
+
+.PHONY: pages-coverage
+pages-coverage: deps testdata  ## Collect coverage history and build charts (COLLECT_ARGS="--start 2024-01-01 --end 2024-06-01")
+	@echo "==> Generating coverage history page"
+	@mkdir -p $(PAGES_DIR)
+	@$(PYTHON) scripts/coverage-history.py $(COLLECT_ARGS) $(PAGES_DIR)/coverage-history.html $(COVERAGE_CSV)
+	@echo "==> Generating Go coverage report"
+	@mkdir -p $(BUILD_DIR)/test
+	@set -euo pipefail ; \
+		CGO_ENABLED=1 $(GO) test -parallel 4 -count 1 -trimpath \
+			-coverprofile=$(BUILD_DIR)/test/coverage.out.tmp ./... ; \
+		grep -v /parquet/ $(BUILD_DIR)/test/coverage.out.tmp > $(BUILD_DIR)/test/coverage.out ; \
+		$(GO) tool cover -html=$(BUILD_DIR)/test/coverage.out -o $(PAGES_DIR)/coverage.html
 
 .PHONY: example
 example: deps  ## Run all examples

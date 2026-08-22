@@ -20,5 +20,8 @@
 # build output
 build/
 
+# python
+__pycache__/
+
 # go
 go.work*
