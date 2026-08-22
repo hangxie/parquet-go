@@ -90,7 +90,8 @@ test: deps testdata  ## Run unit tests
 	@CGO_ENABLED=1 go test -race -count 1 -trimpath ./...
 
 # Separate from test so the version matrix only pays for the tests themselves;
-# the reports are consumed once, by the coverage badge at release.
+# these reports are for local inspection — the published badge and charts are
+# built by the pages workflow.
 .PHONY: coverage
 coverage: deps testdata  ## Run unit tests and build coverage reports
 	@echo "==> Running unit tests with coverage"
