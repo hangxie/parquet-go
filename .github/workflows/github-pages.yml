@@ -1,0 +1,68 @@
+name: github-pages
+
+on:
+  schedule:
+    - cron: '0 8 * * 0'  # Sunday 08:00 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - scripts/coverage-history.py
+      - .github/workflows/github-pages.yml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  coverage-history:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # coverage-history.py walks history to backfill missing days.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          cache-dependency-path: go.sum
+
+      - name: Install Python dependencies
+        run: pip install matplotlib
+
+      # Pages holds the accumulating copy and always wins. The wiki holds the
+      # one-time seed of history collected before the first deploy; it is only
+      # read when Pages has nothing yet.
+      - name: Download coverage CSV
+        run: |
+          mkdir -p build
+          curl --fail --silent --location \
+            https://hangxie.github.io/parquet-go/coverage.csv \
+            --output build/coverage.csv \
+          || curl --fail --silent --location \
+            https://raw.githubusercontent.com/wiki/hangxie/parquet-go/coverage.csv \
+            --output build/coverage.csv \
+          || true
+
+      - name: Generate coverage pages
+        run: make pages-coverage
+
+      - name: Include coverage CSV in Pages artifact
+        run: cp build/coverage.csv build/pages/coverage.csv
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/pages/
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
