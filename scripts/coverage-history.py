@@ -116,7 +116,7 @@ def run_coverage(root, build_dir):
     if not tmp.exists():
         raise RuntimeError("go test produced no coverage profile (build error?)")
 
-    # Same exclusion as the `coverage` Makefile target: the generated Thrift
+    # Same exclusion as the `test` Makefile target: the generated Thrift
     # bindings under parquet/ are not hand-written code and skew the total.
     with open(tmp) as f, open(out, "w") as g:
         for line in f:

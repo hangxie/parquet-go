@@ -84,16 +84,16 @@ testdata:  ## Download test data from apache/parquet-testing
 		fi; \
 	done
 
-.PHONY: test
-test: deps testdata  ## Run unit tests
+# CI-only: the Go version matrix pays for the tests alone, skipping the coverage
+# reports that only matter locally; the published badge and charts are built by
+# the pages workflow. Intentionally undocumented in help.
+.PHONY: compat-test
+compat-test: deps testdata
 	@echo "==> Running unit tests"
 	@CGO_ENABLED=1 go test -race -count 1 -trimpath ./...
 
-# Separate from test so the version matrix only pays for the tests themselves;
-# these reports are for local inspection — the published badge and charts are
-# built by the pages workflow.
-.PHONY: coverage
-coverage: deps testdata  ## Run unit tests and build coverage reports
+.PHONY: test
+test: deps testdata  ## Run unit tests and build coverage reports
 	@echo "==> Running unit tests with coverage"
 	@mkdir -p $(BUILD_DIR)/test
 	@set -euo pipefail ; \
