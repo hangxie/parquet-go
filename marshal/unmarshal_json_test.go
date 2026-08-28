@@ -652,3 +652,198 @@ func TestConvertToJSONFriendly_WithGeospatialConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertToJSONFriendly_LegacyRepeated(t *testing.T) {
+	type RepeatedGroup struct {
+		Value float64 `parquet:"name=value, type=DOUBLE"`
+	}
+	type LegacyRepeated struct {
+		Scores  []float64       `parquet:"name=scores, type=DOUBLE, repetitiontype=REPEATED"`
+		Days    []int32         `parquet:"name=days, type=INT32, convertedtype=DATE, repetitiontype=REPEATED"`
+		Amounts []int32         `parquet:"name=amounts, type=INT32, convertedtype=DECIMAL, scale=2, precision=9, repetitiontype=REPEATED"`
+		Groups  []RepeatedGroup `parquet:"name=groups, repetitiontype=REPEATED"`
+		// A three-level LIST in the same schema must keep using the List/Element path
+		Ratios []float64 `parquet:"name=ratios, type=LIST, valuetype=DOUBLE"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(LegacyRepeated))
+	require.NoError(t, err)
+
+	input := LegacyRepeated{
+		Scores:  []float64{math.NaN(), math.Inf(1), 1.5},
+		Days:    []int32{19000},
+		Amounts: []int32{12345},
+		Groups:  []RepeatedGroup{{Value: math.Inf(-1)}, {Value: 2.5}},
+		Ratios:  []float64{math.NaN(), 0.5},
+	}
+
+	result, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"Scores":  []any{"NaN", "Infinity", 1.5},
+		"Days":    []any{"2022-01-08"},
+		"Amounts": []any{float64(123.45)},
+		"Groups":  []any{map[string]any{"Value": "-Infinity"}, map[string]any{"Value": 2.5}},
+		"Ratios":  []any{"NaN", 0.5},
+	}, result)
+
+	// The whole point of the conversion: the result must be marshalable
+	_, err = json.Marshal(result)
+	require.NoError(t, err)
+}
+
+func TestListElementPath(t *testing.T) {
+	type Nested struct {
+		Value float64 `parquet:"name=value, type=DOUBLE"`
+	}
+	type PathStruct struct {
+		Scores []float64 `parquet:"name=scores, type=DOUBLE, repetitiontype=REPEATED"`
+		Ratios []float64 `parquet:"name=ratios, type=LIST, valuetype=DOUBLE"`
+		Nested Nested    `parquet:"name=nested"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(PathStruct))
+	require.NoError(t, err)
+
+	listPath := func(parts ...string) string {
+		return strings.Join(parts, common.ParGoPathDelimiter)
+	}
+
+	tests := []struct {
+		name       string
+		pathPrefix string
+		expected   string
+	}{
+		{
+			name:       "empty prefix stays empty",
+			pathPrefix: "",
+			expected:   "",
+		},
+		{
+			name:       "three level list uses List/Element",
+			pathPrefix: "Ratios",
+			expected:   listPath("Ratios", "List", "Element"),
+		},
+		{
+			name:       "legacy repeated column is its own element",
+			pathPrefix: "Scores",
+			expected:   "Scores",
+		},
+		{
+			name:       "non-repeated path falls back to List/Element",
+			pathPrefix: "Nested",
+			expected:   listPath("Nested", "List", "Element"),
+		},
+		{
+			name:       "unknown path falls back to List/Element",
+			pathPrefix: "Missing",
+			expected:   listPath("Missing", "List", "Element"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, listElementPath(sh, tt.pathPrefix, &jsonConverter{}))
+		})
+	}
+}
+
+// renameSchemaRoot rewrites a schema handler's root name in place, as reading a file whose root
+// carries a non-default name would.
+func renameSchemaRoot(t *testing.T, sh *schema.SchemaHandler, inName, exName string) {
+	t.Helper()
+
+	renamed := make(map[string]int32, len(sh.MapIndex))
+	for path, index := range sh.MapIndex {
+		renamed[strings.Replace(path, common.ParGoRootInName, inName, 1)] = index
+	}
+	sh.MapIndex = renamed
+	for index, path := range sh.IndexMap {
+		sh.IndexMap[index] = strings.Replace(path, common.ParGoRootInName, inName, 1)
+	}
+	sh.Infos[0].InName, sh.Infos[0].ExName = inName, exName
+	require.Equal(t, inName, sh.GetRootInName())
+}
+
+// A root name that is a lexical prefix of a field name must not be mistaken for a rooted path.
+func TestConvertToJSONFriendly_RootNamePrefixOfField(t *testing.T) {
+	type Amounted struct {
+		Amounts []int32   `parquet:"name=amounts, type=INT32, convertedtype=DECIMAL, scale=2, precision=9, repetitiontype=REPEATED"`
+		Ascores []float64 `parquet:"name=ascores, type=DOUBLE, repetitiontype=REPEATED"`
+		Age     int32     `parquet:"name=age, type=INT32, convertedtype=DATE"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Amounted))
+	require.NoError(t, err)
+
+	// "A" is a prefix of every field name above
+	renameSchemaRoot(t, sh, "A", "a")
+
+	input := Amounted{
+		Amounts: []int32{12345},
+		Ascores: []float64{math.NaN(), 1.5},
+		Age:     19000,
+	}
+
+	result, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"Amounts": []any{float64(123.45)},
+		"Ascores": []any{"NaN", 1.5},
+		"Age":     "2022-01-08",
+	}, result)
+
+	_, err = json.Marshal(result)
+	require.NoError(t, err)
+}
+
+// A repeated group whose own fields are named List and Element must not look like a three-level LIST.
+func TestConvertToJSONFriendly_RepeatedGroupNamedLikeList(t *testing.T) {
+	type ListGroup struct {
+		Element float64 `parquet:"name=element, type=DOUBLE"`
+	}
+	type Group struct {
+		List ListGroup `parquet:"name=list"`
+	}
+	type Decoy struct {
+		Groups []Group `parquet:"name=groups, repetitiontype=REPEATED"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Decoy))
+	require.NoError(t, err)
+
+	input := Decoy{Groups: []Group{{List: ListGroup{Element: math.NaN()}}}}
+
+	result, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"Groups": []any{map[string]any{"List": map[string]any{"Element": "NaN"}}},
+	}, result)
+
+	_, err = json.Marshal(result)
+	require.NoError(t, err)
+}
+
+// A top-level field with the same name as the root must not be mistaken for the root itself.
+func TestConvertToJSONFriendly_RootNameEqualsFieldName(t *testing.T) {
+	type Inner struct {
+		Value  int32     `parquet:"name=value, type=INT32, convertedtype=DATE"`
+		Scores []float64 `parquet:"name=scores, type=DOUBLE, repetitiontype=REPEATED"`
+	}
+	type Outer struct {
+		A Inner `parquet:"name=a"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Outer))
+	require.NoError(t, err)
+	renameSchemaRoot(t, sh, "A", "a")
+
+	input := Outer{A: Inner{Value: 19000, Scores: []float64{math.NaN()}}}
+
+	result, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"A": map[string]any{
+			"Value":  "2022-01-08",
+			"Scores": []any{"NaN"},
+		},
+	}, result)
+
+	_, err = json.Marshal(result)
+	require.NoError(t, err)
+}

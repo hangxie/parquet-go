@@ -632,11 +632,13 @@ Spec references:
 
 ### Non-finite Floating Point JSON Representation
 
-`NaN` and infinite `FLOAT`, `DOUBLE`, and `FLOAT16` values have no JSON number form, so `marshal.ConvertToJSONFriendly` and `types.ConvertToJSONType` render them as the quoted strings `"NaN"`, `"Infinity"`, and `"-Infinity"`, in struct fields, list elements, and map values alike. `JSONWriter` accepts those strings on input, along with `Inf`, `+Inf`, and `-Inf`, case-insensitive. Finite values are unchanged. See [example/json_nan](example/json_nan) for a round trip.
+`NaN` and infinite `FLOAT`, `DOUBLE`, and `FLOAT16` values have no JSON number form, so `marshal.ConvertToJSONFriendly` and `types.ConvertToJSONType` render them as the quoted strings `"NaN"`, `"Infinity"`, and `"-Infinity"`, in struct fields, list elements, map values, and legacy `REPEATED` columns alike. `JSONWriter` accepts those strings on input, along with `Inf`, `+Inf`, and `-Inf`, case-insensitive. Finite values are unchanged. See [example/json_nan](example/json_nan) for a round trip.
 
 Quoted strings are used rather than the bare `NaN` and `Infinity` literals that Python and DuckDB emit, because those are not valid JSON and Go's `encoding/json` refuses to produce them; a quoted string is ordinary JSON that every parser accepts.
 
 The infinity spelling is `"Infinity"` rather than Go's native `"+Inf"` because the output has to survive being read somewhere else. Both round trip through this library, and `"NaN"` is recovered as a float everywhere, but `"+Inf"` and `"-Inf"` are not consistently accepted across ecosystems. Go, Python, and DuckDB parse them as infinities, while Java's `Double.parseDouble` and Jackson reject them and JavaScript's `Number()` silently returns `NaN`, turning an infinity into a different value with no error; Spark's JSON reader is documented as handling quoted non-numeric tokens inconsistently (SPARK-38060). `"Infinity"` and `"-Infinity"` are recovered correctly by all of them. This differs from Apache Arrow's Go implementation, which emits `"+Inf"`.
+
+Logical type conversion in `marshal.ConvertToJSONFriendly` follows the column's own schema path, so it covers legacy `REPEATED` columns, which repeat a value in place rather than wrapping it in a three-level `LIST` group. Those columns get the same treatment as `LIST` elements: `DATE`, `TIMESTAMP`, `DECIMAL`, and non-finite floats all render in their JSON form.
 
 ### Non-finite Floating Point Statistics
 

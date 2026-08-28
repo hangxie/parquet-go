@@ -811,3 +811,49 @@ func TestNonFiniteFloatJSONRoundTrip(t *testing.T) {
 	require.Contains(t, string(marshaled), `"score":"Infinity"`)
 	require.Contains(t, string(marshaled), `"score":"-Infinity"`)
 }
+
+// TestLegacyRepeatedJSONRoundTrip verifies that legacy REPEATED columns, which are repeated in
+// place instead of being wrapped in a three-level LIST, still get their logical type conversions
+// applied by marshal.ConvertToJSONFriendly.
+func TestLegacyRepeatedJSONRoundTrip(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=scores, type=DOUBLE, repetitiontype=REPEATED"},
+			{"Tag": "name=days, type=INT32, convertedtype=DATE, repetitiontype=REPEATED"},
+			{"Tag": "name=groups, repetitiontype=REPEATED", "Fields": [{"Tag": "name=value, type=DOUBLE"}]}
+		]
+	}`
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	jw, err := writer.NewJSONWriterWithContext(ctx, jsonSchema, fw, writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, jw.WriteWithContext(ctx, `{"scores": ["NaN", "+Inf", 1.5], "days": [19000], "groups": [{"value": "-Inf"}]}`))
+	require.NoError(t, jw.WriteStopWithContext(ctx))
+	require.NoError(t, fw.Close())
+
+	fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := NewParquetReader(fr, nil, WithNP(1))
+	require.NoError(t, err)
+	data, err := pr.ReadByNumber(1)
+	require.NoError(t, err)
+	require.NoError(t, pr.ReadStop())
+
+	out, err := marshal.ConvertToJSONFriendly(data, pr.SchemaHandler)
+	require.NoError(t, err)
+
+	rowsOut, ok := out.([]any)
+	require.True(t, ok)
+	require.Len(t, rowsOut, 1)
+	require.Equal(t, map[string]any{
+		"scores": []any{"NaN", "Infinity", 1.5},
+		"days":   []any{"2022-01-08"},
+		"groups": []any{map[string]any{"value": "-Infinity"}},
+	}, rowsOut[0])
+
+	marshaled, err := json.Marshal(out)
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"scores":["NaN","Infinity",1.5],"days":["2022-01-08"],"groups":[{"value":"-Infinity"}]}]`, string(marshaled))
+}

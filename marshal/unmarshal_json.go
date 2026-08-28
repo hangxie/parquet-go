@@ -94,16 +94,7 @@ func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *sch
 // convertSliceToJSONFriendly optimized slice conversion
 func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (any, error) {
 	result := make([]any, val.Len())
-	var elementPath string
-	if pathPrefix != "" {
-		var builder strings.Builder
-		builder.WriteString(pathPrefix)
-		builder.WriteString(common.ParGoPathDelimiter)
-		builder.WriteString("List")
-		builder.WriteString(common.ParGoPathDelimiter)
-		builder.WriteString("Element")
-		elementPath = builder.String()
-	}
+	elementPath := listElementPath(schemaHandler, pathPrefix, converter)
 
 	for i := range val.Len() {
 		converted, err := convertValueToJSONFriendlyWithContext(val.Index(i), schemaHandler, elementPath, converter)
@@ -227,32 +218,49 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 	return result, nil
 }
 
+// listElementPath returns the schema path of a slice's elements, or "" for a rootless slice.
+// A legacy REPEATED column repeats in place, so its own path already addresses the elements;
+// a three-level LIST nests them under List/Element.
+func listElementPath(schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) string {
+	if pathPrefix == "" {
+		return ""
+	}
+	// checked before List/Element, so a repeated group whose own fields happen to be named
+	// List and Element is not mistaken for a three-level LIST
+	if element := lookupSchemaElement(schemaHandler, pathPrefix, converter); element != nil &&
+		element.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED {
+		return pathPrefix
+	}
+	return pathPrefix + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element"
+}
+
+// lookupSchemaElement resolves a conversion path against the schema, returning nil when the
+// path has no schema element. Results, including misses, are cached on the converter.
+func lookupSchemaElement(schemaHandler *schema.SchemaHandler, path string, converter *jsonConverter) *parquet.SchemaElement {
+	// paths are built from Go field names alone, so the root is always missing and never
+	// ambiguous: a top-level field may share the root's name without colliding with it
+	path = schemaHandler.GetRootInName() + common.ParGoPathDelimiter + path
+
+	if cached, ok := converter.schemaCache.Load(path); ok {
+		element, _ := cached.(*parquet.SchemaElement)
+		return element
+	}
+
+	var element *parquet.SchemaElement
+	if schemaIndex, exists := schemaHandler.MapIndex[path]; exists && int(schemaIndex) < len(schemaHandler.SchemaElements) {
+		element = schemaHandler.SchemaElements[schemaIndex]
+	}
+	converter.schemaCache.Store(path, element)
+	return element
+}
+
 // convertPrimitiveToJSONFriendly optimized primitive conversion with schema caching
 func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (any, error) {
 	if pathPrefix == "" {
 		return val.Interface(), nil
 	}
 
-	rootName := schemaHandler.GetRootInName()
-	expectedSchemaPath := pathPrefix
-	if !strings.HasPrefix(pathPrefix, rootName) {
-		expectedSchemaPath = rootName + common.ParGoPathDelimiter + expectedSchemaPath
-	}
-
-	var schemaElement *parquet.SchemaElement
-
-	schemaElementInterface, cached := converter.schemaCache.Load(expectedSchemaPath)
-	if !cached {
-		schemaIndex, exists := schemaHandler.MapIndex[expectedSchemaPath]
-		if !exists || int(schemaIndex) >= len(schemaHandler.SchemaElements) {
-			return val.Interface(), nil
-		}
-		schemaElement = schemaHandler.SchemaElements[schemaIndex]
-		converter.schemaCache.Store(expectedSchemaPath, schemaElement)
-	} else {
-		schemaElement = schemaElementInterface.(*parquet.SchemaElement)
-	}
-
+	schemaElement := lookupSchemaElement(schemaHandler, pathPrefix, converter)
 	if schemaElement == nil {
 		return val.Interface(), nil
 	}
