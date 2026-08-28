@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"strings"
@@ -132,18 +133,6 @@ func TestColumnIndexBoundaryOrderCalculation(t *testing.T) {
 			},
 			want: parquet.BoundaryOrder_ASCENDING,
 		},
-		{
-			name:   "nan_bound",
-			schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_FLOAT)},
-			bounds: []pageBounds{{minVal: float32(1), maxVal: float32(2)}, {minVal: float32(math.NaN()), maxVal: float32(3)}},
-			want:   parquet.BoundaryOrder_UNORDERED,
-		},
-		{
-			name:   "nan_double_bound",
-			schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_DOUBLE)},
-			bounds: []pageBounds{{minVal: float64(1), maxVal: float64(2)}, {minVal: float64(3), maxVal: math.NaN()}},
-			want:   parquet.BoundaryOrder_UNORDERED,
-		},
 	}
 
 	for _, tt := range tests {
@@ -237,26 +226,59 @@ func TestDictionaryColumnIndexBoundaryOrder(t *testing.T) {
 	})
 }
 
-func TestNaNColumnIndexBoundaryOrder(t *testing.T) {
+// TestNaNExcludedFromBounds verifies the Parquet spec rule that min/max statistics must be
+// computed from non-NaN values only. A NaN must neither become a bound nor displace one,
+// regardless of where it falls in the value sequence, and a column whose non-null values are
+// all NaN must carry no bounds at all.
+func TestNaNExcludedFromBounds(t *testing.T) {
 	type Entry struct {
 		Value float32 `parquet:"name=value, type=FLOAT"`
 	}
 
-	pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1), WithPageSize(8))
-	require.NoError(t, err)
-	for _, value := range []float32{1, 2, float32(math.NaN()), 3} {
-		require.NoError(t, pw.Write(Entry{Value: value}))
+	nan := float32(math.NaN())
+	tests := []struct {
+		name     string
+		values   []float32
+		hasStats bool
+		min, max float32
+	}{
+		{name: "nan_first", values: []float32{nan, 1, 2, 3}, hasStats: true, min: 1, max: 3},
+		{name: "nan_middle", values: []float32{1, 2, nan, 3}, hasStats: true, min: 1, max: 3},
+		{name: "nan_last", values: []float32{1, 2, 3, nan}, hasStats: true, min: 1, max: 3},
+		{name: "nan_only", values: []float32{nan, nan}, hasStats: false},
+		{name: "nan_with_infinities", values: []float32{nan, float32(math.Inf(1)), float32(math.Inf(-1))}, hasStats: true, min: float32(math.Inf(-1)), max: float32(math.Inf(1))},
 	}
-	require.NoError(t, pw.WriteStop())
 
-	pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, pf.Close()) }()
-	chunk := pr.Footer.RowGroups[0].Columns[0]
-	index, err := readColumnIndex(pr.PFile, *chunk.ColumnIndexOffset)
-	require.NoError(t, err)
-	require.Greater(t, len(index.MinValues), 1)
-	require.Equal(t, parquet.BoundaryOrder_UNORDERED, index.BoundaryOrder)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pw, buf, err := createTestParquetWriter(new(Entry), WithNP(1))
+			require.NoError(t, err)
+			for _, value := range tt.values {
+				require.NoError(t, pw.Write(Entry{Value: value}))
+			}
+			require.NoError(t, pw.WriteStop())
+
+			pr, pf, err := createTestParquetReader(buf.Bytes(), new(Entry), reader.WithNP(1))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, pf.Close()) }()
+
+			stats := pr.Footer.RowGroups[0].Columns[0].MetaData.Statistics
+			require.NotNil(t, stats)
+			if !tt.hasStats {
+				require.Nil(t, stats.MinValue)
+				require.Nil(t, stats.MaxValue)
+				return
+			}
+			require.Equal(t, tt.min, decodeFloat32Bound(t, stats.MinValue))
+			require.Equal(t, tt.max, decodeFloat32Bound(t, stats.MaxValue))
+		})
+	}
+}
+
+func decodeFloat32Bound(t *testing.T, encoded []byte) float32 {
+	t.Helper()
+	require.Len(t, encoded, 4)
+	return math.Float32frombits(binary.LittleEndian.Uint32(encoded))
 }
 
 // TestOffsetIndexFirstRowIndex verifies that PageLocation.first_row_index

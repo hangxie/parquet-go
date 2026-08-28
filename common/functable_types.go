@@ -1,5 +1,7 @@
 package common
 
+import "math"
+
 type boolFuncTable struct{}
 
 func (boolFuncTable) LessThan(a, b any) bool {
@@ -91,6 +93,10 @@ func (float32FuncTable) LessThan(a, b any) bool {
 }
 
 func (table float32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+	minVal, maxVal = dropNaNBound(minVal), dropNaNBound(maxVal)
+	if isNaNValue(val) {
+		return minVal, maxVal, 4
+	}
 	return Min(table, minVal, val), Max(table, maxVal, val), 4
 }
 
@@ -101,7 +107,32 @@ func (float64FuncTable) LessThan(a, b any) bool {
 }
 
 func (table float64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+	minVal, maxVal = dropNaNBound(minVal), dropNaNBound(maxVal)
+	if isNaNValue(val) {
+		return minVal, maxVal, 8
+	}
 	return Min(table, minVal, val), Max(table, maxVal, val), 8
+}
+
+// isNaNValue reports whether val is a NaN FLOAT or DOUBLE.
+func isNaNValue(val any) bool {
+	switch v := val.(type) {
+	case float32:
+		return math.IsNaN(float64(v))
+	case float64:
+		return math.IsNaN(v)
+	default:
+		return false
+	}
+}
+
+// dropNaNBound clears a NaN accumulator so it cannot survive as a bound. Page scanning seeds
+// min/max with the page's first value, which may itself be NaN.
+func dropNaNBound(bound any) any {
+	if isNaNValue(bound) {
+		return nil
+	}
+	return bound
 }
 
 type stringFuncTable struct{}

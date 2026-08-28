@@ -411,8 +411,10 @@ func TestArrowWriterFloat16TotalOrderStats(t *testing.T) {
 	pr, err := reader.NewParquetReaderWithContext(context.Background(), pf, nil, reader.WithNP(1))
 	require.NoError(t, err)
 
-	expectedMin := float16LE(0xFE00)
-	expectedMax := float16LE(0x7E00)
+	// The FLOAT16 total order places NaN beyond every finite value at both ends, but the
+	// spec requires bounds to be computed from non-NaN values only, so the infinities win.
+	expectedMin := float16LE(0xFC00)
+	expectedMax := float16LE(0x7C00)
 	stats := pr.Footer.RowGroups[0].Columns[0].MetaData.Statistics
 	require.NotNil(t, stats)
 	require.Equal(t, expectedMin, stats.MinValue)

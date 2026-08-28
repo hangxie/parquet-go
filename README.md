@@ -327,7 +327,7 @@ Encoding notes:
 - Use `omitstats=true` in a field tag to skip statistics for large array fields.
 - Whenever min/max statistics are available, the current `min_value`/`max_value` fields are written. The deprecated `min`/`max` fields (PARQUET-251) are limited to signed sort orders; for unsigned-ordered columns (e.g. `BYTE_ARRAY`/UTF8 and unsigned integer logical types) they are omitted so legacy readers do not misinterpret them.
 - A column chunk whose data pages are all dictionary encoded carries an exact `distinct_count` statistic taken from its dictionary, which holds one entry per distinct non-null value, and covers that row group alone. It is omitted for columns tagged `omitstats=true`, and once the dictionary reaches `writer.WithMaxDictionarySize` and the remaining pages fall back to `PLAIN`, because the dictionary then covers only part of the chunk. It is omitted again wherever a dictionary entry does not correspond one-to-one with a distinct logical value: for `FLOAT`/`DOUBLE` columns holding a NaN, whose entries do not deduplicate; for `DECIMAL` backed by `BYTE_ARRAY`, whose variable width admits several two's-complement encodings of the same unscaled value (`FIXED_LEN_BYTE_ARRAY` decimals keep the statistic, since their width pins one encoding per value); for `FLOAT16`, where `-0.0` and `+0.0` occupy separate entries; and for `GEOMETRY`/`GEOGRAPHY`, whose WKB payloads carry a byte-order flag and so encode one geometry two ways.
-- Column indexes advertise `ASCENDING` or `DESCENDING` boundary order when both page-level minimum and maximum bounds are monotonic under the column's Parquet sort order. Null-only pages are ignored when determining the order; `FLOAT`/`DOUBLE` NaN bounds and other non-monotonic bound sequences are marked `UNORDERED`.
+- Column indexes advertise `ASCENDING` or `DESCENDING` boundary order when both page-level minimum and maximum bounds are monotonic under the column's Parquet sort order. Null-only pages are ignored when determining the order; non-monotonic bound sequences are marked `UNORDERED`. NaN never appears as a bound, so it cannot make a sequence non-monotonic.
 
 ### Binary statistics bound truncation
 
@@ -638,6 +638,10 @@ Quoted strings are used rather than the bare `NaN` and `Infinity` literals that 
 
 The infinity spelling is `"Infinity"` rather than Go's native `"+Inf"` because the output has to survive being read somewhere else. Both round trip through this library, and `"NaN"` is recovered as a float everywhere, but `"+Inf"` and `"-Inf"` are not consistently accepted across ecosystems. Go, Python, and DuckDB parse them as infinities, while Java's `Double.parseDouble` and Jackson reject them and JavaScript's `Number()` silently returns `NaN`, turning an infinity into a different value with no error; Spark's JSON reader is documented as handling quoted non-numeric tokens inconsistently (SPARK-38060). `"Infinity"` and `"-Infinity"` are recovered correctly by all of them. This differs from Apache Arrow's Go implementation, which emits `"+Inf"`.
 
+### Non-finite Floating Point Statistics
+
+The Parquet specification treats the two kinds of non-finite value differently in `min`/`max` statistics. Infinities are ordinary values under the column's sort order and are stored as bounds like any other. `NaN` has no position in that ordering, so it is excluded: bounds are computed from non-NaN values only, and a column chunk or page whose non-null values are all `NaN` gets no bounds written at all. A page with no bounds also suppresses the `ColumnIndex` for its column chunk, since `min_values` and `max_values` are required there. This applies to `FLOAT`, `DOUBLE`, and `FLOAT16` columns.
+
 ### GeoParquet
 
 parquet-go supports Apache Parquet geospatial logical types and configurable JSON output through `marshal.ConvertToJSONFriendly`.
@@ -767,7 +771,7 @@ go build -tags example ./example/all_types
 | [json_schema](example/json_schema) | Define schema with JSON |
 | [json_write](example/json_write) | Convert JSON to Parquet |
 | [convert_to_json](example/convert_to_json) | Convert Parquet to JSON |
-| [json_nan](example/json_nan) | Round trip NaN and infinite values through JSON |
+| [json_nan](example/json_nan) | Round trip NaN and infinite values through JSON and inspect their bounds |
 | [csv_write](example/csv_write) | CSV writer |
 | [csv_to_parquet](example/csv_to_parquet) | CSV file to Parquet |
 | [column_read](example/column_read) | Read raw column data |

@@ -66,7 +66,27 @@ func (float16FuncTable) LessThan(a, b any) bool {
 }
 
 func (table float16FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+	if isFloat16NaN(minVal) {
+		minVal = nil
+	}
+	if isFloat16NaN(maxVal) {
+		maxVal = nil
+	}
+	if isFloat16NaN(val) {
+		return minVal, maxVal, 2
+	}
 	return Min(table, minVal, val), Max(table, maxVal, val), 2
+}
+
+// isFloat16NaN reports whether v holds an IEEE 754 binary16 NaN: all-ones exponent with a
+// non-zero significand. halfToFloat32 cannot answer this, since it rejects NaN outright.
+func isFloat16NaN(v any) bool {
+	b := toBytes(v)
+	if len(b) != 2 {
+		return false
+	}
+	bits := binary.LittleEndian.Uint16(b)
+	return bits&0x7C00 == 0x7C00 && bits&0x03FF != 0
 }
 
 func toBytes(v any) []byte {
