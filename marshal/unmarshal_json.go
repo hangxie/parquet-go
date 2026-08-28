@@ -94,7 +94,10 @@ func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *sch
 // convertSliceToJSONFriendly optimized slice conversion
 func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (any, error) {
 	result := make([]any, val.Len())
-	elementPath := listElementPath(schemaHandler, pathPrefix, converter)
+	elementPath, err := listElementPath(schemaHandler, pathPrefix, converter)
+	if err != nil {
+		return nil, err
+	}
 
 	for i := range val.Len() {
 		converted, err := convertValueToJSONFriendlyWithContext(val.Index(i), schemaHandler, elementPath, converter)
@@ -221,37 +224,48 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 // listElementPath returns the schema path of a slice's elements, or "" for a rootless slice.
 // A legacy REPEATED column repeats in place, so its own path already addresses the elements;
 // a three-level LIST nests them under List/Element.
-func listElementPath(schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) string {
+func listElementPath(schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (string, error) {
 	if pathPrefix == "" {
-		return ""
+		return "", nil
 	}
 	// checked before List/Element, so a repeated group whose own fields happen to be named
 	// List and Element is not mistaken for a three-level LIST
-	if element := lookupSchemaElement(schemaHandler, pathPrefix, converter); element != nil &&
-		element.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED {
-		return pathPrefix
+	element, err := lookupSchemaElement(schemaHandler, pathPrefix, converter)
+	if err != nil {
+		return "", err
 	}
-	return pathPrefix + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element"
+	if element != nil && element.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED {
+		return pathPrefix, nil
+	}
+	return pathPrefix + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element", nil
 }
 
-// lookupSchemaElement resolves a conversion path against the schema, returning nil when the
-// path has no schema element. Results, including misses, are cached on the converter.
-func lookupSchemaElement(schemaHandler *schema.SchemaHandler, path string, converter *jsonConverter) *parquet.SchemaElement {
+// lookupSchemaElement resolves a conversion path against the schema. A nil element means the
+// path carries no schema-driven conversion, which is normal: values reached through a partial
+// read or a schema handler that does not describe them are passed through untouched. An error
+// means the schema handler itself is inconsistent. Results are cached on the converter.
+func lookupSchemaElement(schemaHandler *schema.SchemaHandler, path string, converter *jsonConverter) (*parquet.SchemaElement, error) {
 	// paths are built from Go field names alone, so the root is always missing and never
 	// ambiguous: a top-level field may share the root's name without colliding with it
 	path = schemaHandler.GetRootInName() + common.ParGoPathDelimiter + path
 
 	if cached, ok := converter.schemaCache.Load(path); ok {
 		element, _ := cached.(*parquet.SchemaElement)
-		return element
+		return element, nil
 	}
 
 	var element *parquet.SchemaElement
-	if schemaIndex, exists := schemaHandler.MapIndex[path]; exists && int(schemaIndex) < len(schemaHandler.SchemaElements) {
+	if schemaIndex, exists := schemaHandler.MapIndex[path]; exists {
+		// every index is a position in SchemaElements by construction, so a stale one means
+		// the two have been mutated apart and no lookup on this handler can be trusted
+		if int(schemaIndex) < 0 || int(schemaIndex) >= len(schemaHandler.SchemaElements) {
+			return nil, fmt.Errorf("schema handler is inconsistent: path %q maps to element %d of %d",
+				strings.ReplaceAll(path, common.ParGoPathDelimiter, "."), schemaIndex, len(schemaHandler.SchemaElements))
+		}
 		element = schemaHandler.SchemaElements[schemaIndex]
 	}
 	converter.schemaCache.Store(path, element)
-	return element
+	return element, nil
 }
 
 // convertPrimitiveToJSONFriendly optimized primitive conversion with schema caching
@@ -260,7 +274,10 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 		return val.Interface(), nil
 	}
 
-	schemaElement := lookupSchemaElement(schemaHandler, pathPrefix, converter)
+	schemaElement, err := lookupSchemaElement(schemaHandler, pathPrefix, converter)
+	if err != nil {
+		return nil, err
+	}
 	if schemaElement == nil {
 		return val.Interface(), nil
 	}
