@@ -1,6 +1,7 @@
 package common
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -82,4 +83,63 @@ func TestIntervalFuncTable_NoSignBit(t *testing.T) {
 	require.False(t, table.LessThan(withHighByte, base))
 	// base has byte[11] = 0x00 < 0xff, so base IS less than withHighByte.
 	require.True(t, table.LessThan(base, withHighByte))
+}
+
+// TestFloatFuncTable_NaNExcludedFromBounds covers the Parquet spec rule that min/max
+// statistics must be computed from non-NaN values only: a NaN neither becomes a bound nor
+// displaces one, a NaN seeded accumulator is cleared, and infinities stay valid bounds.
+func TestFloatFuncTable_NaNExcludedFromBounds(t *testing.T) {
+	t.Run("float32", func(t *testing.T) {
+		table := float32FuncTable{}
+		nan, posInf, negInf := float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1))
+
+		min, max, size := table.MinMaxSize(float32(1), float32(3), nan)
+		require.Equal(t, float32(1), min)
+		require.Equal(t, float32(3), max)
+		require.Equal(t, int32(4), size)
+
+		min, max, _ = table.MinMaxSize(nan, nan, float32(2))
+		require.Equal(t, float32(2), min)
+		require.Equal(t, float32(2), max)
+
+		min, max, _ = table.MinMaxSize(nan, nan, nan)
+		require.Nil(t, min)
+		require.Nil(t, max)
+
+		min, max, _ = table.MinMaxSize(negInf, posInf, float32(0))
+		require.Equal(t, negInf, min)
+		require.Equal(t, posInf, max)
+	})
+
+	t.Run("float64", func(t *testing.T) {
+		table := float64FuncTable{}
+		nan, posInf, negInf := math.NaN(), math.Inf(1), math.Inf(-1)
+
+		min, max, size := table.MinMaxSize(1.0, 3.0, nan)
+		require.Equal(t, 1.0, min)
+		require.Equal(t, 3.0, max)
+		require.Equal(t, int32(8), size)
+
+		min, max, _ = table.MinMaxSize(nan, nan, 2.0)
+		require.Equal(t, 2.0, min)
+		require.Equal(t, 2.0, max)
+
+		min, max, _ = table.MinMaxSize(nan, nan, nan)
+		require.Nil(t, min)
+		require.Nil(t, max)
+
+		min, max, _ = table.MinMaxSize(negInf, posInf, 0.0)
+		require.Equal(t, negInf, min)
+		require.Equal(t, posInf, max)
+	})
+
+	t.Run("non_float_values_pass_through", func(t *testing.T) {
+		// The NaN checks are type switches, so a nil or non-float accumulator must be
+		// left alone rather than mistaken for a NaN bound.
+		require.False(t, isNaNValue(nil))
+		require.False(t, isNaNValue("not a float"))
+		require.False(t, isNaNValue(int64(7)))
+		require.Nil(t, dropNaNBound(nil))
+		require.Equal(t, "not a float", dropNaNBound("not a float"))
+	})
 }

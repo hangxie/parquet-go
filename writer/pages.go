@@ -2,7 +2,6 @@ package writer
 
 import (
 	"fmt"
-	"math"
 	"sync"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -212,7 +211,7 @@ func columnIndexBoundaryOrder(schemaElement *parquet.SchemaElement, bounds []pag
 		if page.minVal == nil && page.maxVal == nil {
 			continue
 		}
-		if page.minVal == nil || page.maxVal == nil || isNaNBound(page.minVal) || isNaNBound(page.maxVal) {
+		if page.minVal == nil || page.maxVal == nil {
 			return parquet.BoundaryOrder_UNORDERED
 		}
 		if seenNonNullPage {
@@ -232,17 +231,6 @@ func columnIndexBoundaryOrder(schemaElement *parquet.SchemaElement, bounds []pag
 		return parquet.BoundaryOrder_DESCENDING
 	}
 	return parquet.BoundaryOrder_UNORDERED
-}
-
-func isNaNBound(value any) bool {
-	switch value := value.(type) {
-	case float32:
-		return math.IsNaN(float64(value))
-	case float64:
-		return math.IsNaN(value)
-	default:
-		return false
-	}
 }
 
 // recordDataPage records one data page in the column and offset indexes and

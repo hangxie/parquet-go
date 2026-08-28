@@ -142,10 +142,37 @@ func TestFloat16FuncTableTotalOrder(t *testing.T) {
 		})
 	}
 
+	// The total order above places NaN at both extremes, but the Parquet spec requires
+	// min/max statistics to be computed from non-NaN values only, so a NaN must not
+	// displace an existing bound in either direction.
 	min, max, sz := ftab.MinMaxSize(le(0x8000), le(0x0000), le(0xFE00))
-	require.Equal(t, le(0xFE00), min)
+	require.Equal(t, le(0x8000), min)
 	require.Equal(t, le(0x0000), max)
 	require.Equal(t, int32(2), sz)
+
+	min, max, _ = ftab.MinMaxSize(le(0x8000), le(0x0000), le(0x7E00))
+	require.Equal(t, le(0x8000), min)
+	require.Equal(t, le(0x0000), max)
+
+	// A NaN seed is cleared rather than carried, so the first non-NaN value becomes both bounds.
+	min, max, _ = ftab.MinMaxSize(le(0x7E00), le(0x7E00), le(0x3C00))
+	require.Equal(t, le(0x3C00), min)
+	require.Equal(t, le(0x3C00), max)
+
+	// An all-NaN run leaves no bounds at all, so none are written.
+	min, max, _ = ftab.MinMaxSize(le(0xFE00), le(0xFE00), le(0x7E00))
+	require.Nil(t, min)
+	require.Nil(t, max)
+
+	// Infinities are ordinary ordered values and remain valid bounds.
+	min, max, _ = ftab.MinMaxSize(le(0xFC00), le(0x7C00), le(0x3C00))
+	require.Equal(t, le(0xFC00), min)
+	require.Equal(t, le(0x7C00), max)
+
+	// Values that are not decodable as binary16 cannot be NaN and must pass through.
+	require.False(t, isFloat16NaN("abc"))
+	require.False(t, isFloat16NaN(nil))
+	require.False(t, isFloat16NaN(le(0x7C00)))
 }
 
 func TestFloat16FuncTable_FallbackLexicographic(t *testing.T) {
