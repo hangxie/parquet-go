@@ -741,7 +741,9 @@ func TestListElementPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.expected, listElementPath(sh, tt.pathPrefix, &jsonConverter{}))
+			elementPath, err := listElementPath(sh, tt.pathPrefix, &jsonConverter{})
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, elementPath)
 		})
 	}
 }
@@ -846,4 +848,57 @@ func TestConvertToJSONFriendly_RootNameEqualsFieldName(t *testing.T) {
 
 	_, err = json.Marshal(result)
 	require.NoError(t, err)
+}
+
+// A MapIndex entry pointing outside SchemaElements means the handler has been mutated apart;
+// that is a broken handler rather than a path without conversion, so it must not pass silently.
+func TestConvertToJSONFriendly_InconsistentSchemaHandler(t *testing.T) {
+	type Row struct {
+		Day    int32     `parquet:"name=day, type=INT32, convertedtype=DATE"`
+		Scores []float64 `parquet:"name=scores, type=DOUBLE, repetitiontype=REPEATED"`
+	}
+
+	tests := []struct {
+		name  string
+		field string
+		input Row
+	}{
+		{
+			name:  "primitive lookup",
+			field: "Day",
+			input: Row{Day: 19000},
+		},
+		{
+			name:  "list element lookup",
+			field: "Scores",
+			input: Row{Scores: []float64{1.5}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sh, err := schema.NewSchemaHandlerFromStruct(new(Row))
+			require.NoError(t, err)
+
+			path := common.ParGoRootInName + common.ParGoPathDelimiter + tt.field
+			require.Contains(t, sh.MapIndex, path)
+			sh.MapIndex[path] = int32(len(sh.SchemaElements))
+
+			_, err = ConvertToJSONFriendly(tt.input, sh)
+			require.ErrorContains(t, err, "schema handler is inconsistent")
+			require.ErrorContains(t, err, common.ParGoRootInName+"."+tt.field)
+		})
+	}
+}
+
+func TestLookupSchemaElement_NegativeIndex(t *testing.T) {
+	type Row struct {
+		Day int32 `parquet:"name=day, type=INT32, convertedtype=DATE"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Row))
+	require.NoError(t, err)
+	sh.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"Day"] = -1
+
+	_, err = lookupSchemaElement(sh, "Day", &jsonConverter{})
+	require.ErrorContains(t, err, "schema handler is inconsistent")
 }
