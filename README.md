@@ -632,7 +632,7 @@ Spec references:
 
 ### Non-finite Floating Point JSON Representation
 
-`NaN` and infinite `FLOAT`, `DOUBLE`, and `FLOAT16` values have no JSON number form, so `marshal.ConvertToJSONFriendly` and `types.ConvertToJSONType` render them as the quoted strings `"NaN"`, `"Infinity"`, and `"-Infinity"`, in struct fields, list elements, and map values alike. `JSONWriter` accepts those strings on input, along with `Inf`, `+Inf`, and `-Inf`, case-insensitive. Finite values are unchanged.
+`NaN` and infinite `FLOAT`, `DOUBLE`, and `FLOAT16` values have no JSON number form, so `marshal.ConvertToJSONFriendly` and `types.ConvertToJSONType` render them as the quoted strings `"NaN"`, `"Infinity"`, and `"-Infinity"`, in struct fields, list elements, and map values alike. `JSONWriter` accepts those strings on input, along with `Inf`, `+Inf`, and `-Inf`, case-insensitive. Finite values are unchanged. See [example/json_nan](example/json_nan) for a round trip.
 
 Quoted strings are used rather than the bare `NaN` and `Infinity` literals that Python and DuckDB emit, because those are not valid JSON and Go's `encoding/json` refuses to produce them; a quoted string is ordinary JSON that every parser accepts.
 
@@ -767,6 +767,7 @@ go build -tags example ./example/all_types
 | [json_schema](example/json_schema) | Define schema with JSON |
 | [json_write](example/json_write) | Convert JSON to Parquet |
 | [convert_to_json](example/convert_to_json) | Convert Parquet to JSON |
+| [json_nan](example/json_nan) | Round trip NaN and infinite values through JSON |
 | [csv_write](example/csv_write) | CSV writer |
 | [csv_to_parquet](example/csv_to_parquet) | CSV file to Parquet |
 | [column_read](example/column_read) | Read raw column data |
