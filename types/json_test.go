@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -866,6 +867,150 @@ func TestConvertToJSONType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ConvertToJSONType(tt.value, tt.se, tt.opts...)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// named floating-point types, which the library supports through reflection
+type (
+	namedFloat32 float32
+	namedFloat64 float64
+)
+
+// TestConvertToJSONType_NonFiniteFloat verifies that NaN/+Inf/-Inf values are quoted as
+// strings so the result can always be passed to encoding/json.Marshal, matching the strings
+// JSONWriter already accepts on input for FLOAT/DOUBLE/FLOAT16 fields.
+func TestConvertToJSONType_NonFiniteFloat(t *testing.T) {
+	// little-endian FLOAT16 bit patterns
+	float16NaN := []byte{0x00, 0x7e}
+	float16PosInf := []byte{0x00, 0x7c}
+	float16NegInf := []byte{0x00, 0xfc}
+
+	tests := []struct {
+		name     string
+		value    any
+		se       *parquet.SchemaElement
+		expected any
+	}{
+		{
+			name:     "float_nan",
+			value:    float32(math.NaN()),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_FLOAT)},
+			expected: "NaN",
+		},
+		{
+			name:     "float_pos_inf",
+			value:    float32(math.Inf(1)),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_FLOAT)},
+			expected: "Infinity",
+		},
+		{
+			name:     "float_neg_inf",
+			value:    float32(math.Inf(-1)),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_FLOAT)},
+			expected: "-Infinity",
+		},
+		{
+			name:     "float_finite_unchanged",
+			value:    float32(1.5),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_FLOAT)},
+			expected: float32(1.5),
+		},
+		{
+			name:     "double_nan",
+			value:    math.NaN(),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)},
+			expected: "NaN",
+		},
+		{
+			name:     "double_pos_inf",
+			value:    math.Inf(1),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)},
+			expected: "Infinity",
+		},
+		{
+			name:     "double_neg_inf",
+			value:    math.Inf(-1),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)},
+			expected: "-Infinity",
+		},
+		{
+			name:     "double_finite_unchanged",
+			value:    2.5,
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)},
+			expected: 2.5,
+		},
+		{
+			name:     "named_float32_nan",
+			value:    namedFloat32(math.NaN()),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_FLOAT)},
+			expected: "NaN",
+		},
+		{
+			name:     "named_float32_neg_inf",
+			value:    namedFloat32(math.Inf(-1)),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_FLOAT)},
+			expected: "-Infinity",
+		},
+		{
+			name:     "named_float32_finite_unchanged",
+			value:    namedFloat32(1.5),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_FLOAT)},
+			expected: namedFloat32(1.5),
+		},
+		{
+			name:     "named_float64_nan",
+			value:    namedFloat64(math.NaN()),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)},
+			expected: "NaN",
+		},
+		{
+			name:     "named_float64_pos_inf",
+			value:    namedFloat64(math.Inf(1)),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)},
+			expected: "Infinity",
+		},
+		{
+			name:     "named_float64_finite_unchanged",
+			value:    namedFloat64(2.5),
+			se:       &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_DOUBLE)},
+			expected: namedFloat64(2.5),
+		},
+		{
+			name:  "float16_nan",
+			value: float16NaN,
+			se: &parquet.SchemaElement{
+				Type:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			},
+			expected: "NaN",
+		},
+		{
+			name:  "float16_pos_inf",
+			value: float16PosInf,
+			se: &parquet.SchemaElement{
+				Type:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			},
+			expected: "Infinity",
+		},
+		{
+			name:  "float16_neg_inf",
+			value: float16NegInf,
+			se: &parquet.SchemaElement{
+				Type:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			},
+			expected: "-Infinity",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertToJSONType(tt.value, tt.se)
+			require.Equal(t, tt.expected, result)
+			_, err := json.Marshal(result)
+			require.NoError(t, err)
 		})
 	}
 }
@@ -1905,6 +2050,35 @@ func TestJSONTypeToParquetTypeWithLogical(t *testing.T) {
 			value: map[string]any{"key": "val"},
 			pT:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
 			// fmt.Sprintf("%v", val) produces \"map[key:val]\" - returned as string
+		},
+		// FLOAT16 logical type with string input must use ParseFloat16String, not the raw
+		// byte-array direct path (a naive direct conversion would keep the first two bytes
+		// of the string itself instead of the parsed IEEE 754 half-precision value).
+		{
+			name:     "float16_logical_string_input",
+			value:    "9.5",
+			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:       &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			expected: Float32ToFloat16(9.5),
+		},
+		{
+			name:     "float16_logical_nan_string_input",
+			value:    "NaN",
+			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:       &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			expected: Float32ToFloat16(float32(math.NaN())),
+		},
+		// UUID logical type with string input must use uuid.Parse, not the raw
+		// byte-array direct path (which would keep the dashed string as-is).
+		{
+			name:  "uuid_logical_string_input",
+			value: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			pT:    parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:    &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			expected: string([]byte{
+				0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
+				0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+			}),
 		},
 	}
 

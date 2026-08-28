@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"testing"
@@ -742,4 +743,71 @@ func TestGeospatialConfigRoundTrip(t *testing.T) {
 			require.Equal(t, tt.expected, row["geom"])
 		})
 	}
+}
+
+// TestNonFiniteFloatJSONRoundTrip verifies that non-finite FLOAT, DOUBLE, and FLOAT16 values
+// written through JSONWriter using the Go-style "+Inf"/"-Inf" input tokens come back out of
+// marshal.ConvertToJSONFriendly as the portable "Infinity"/"-Infinity" spellings, and that the
+// converted result can always be passed to encoding/json.Marshal.
+func TestNonFiniteFloatJSONRoundTrip(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=score, type=DOUBLE"},
+			{"Tag": "name=score32, type=FLOAT"},
+			{"Tag": "name=score16, type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16"}
+		]
+	}`
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	fw := writerfile.NewWriterFile(&buf)
+	jw, err := writer.NewJSONWriterWithContext(ctx, jsonSchema, fw, writer.WithNP(1))
+	require.NoError(t, err)
+
+	rows := []string{
+		`{"score": "NaN", "score32": "NaN", "score16": "NaN"}`,
+		`{"score": "+Inf", "score32": "+Inf", "score16": "+Inf"}`,
+		`{"score": "-Inf", "score32": "-Inf", "score16": "-Inf"}`,
+		`{"score": 1.5, "score32": 1.5, "score16": 1.5}`,
+	}
+	for _, row := range rows {
+		require.NoError(t, jw.WriteWithContext(ctx, row))
+	}
+	require.NoError(t, jw.WriteStopWithContext(ctx))
+	require.NoError(t, fw.Close())
+
+	fr := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	pr, err := NewParquetReader(fr, nil, WithNP(1))
+	require.NoError(t, err)
+	data, err := pr.ReadByNumber(len(rows))
+	require.NoError(t, err)
+	require.NoError(t, pr.ReadStop())
+
+	out, err := marshal.ConvertToJSONFriendly(data, pr.SchemaHandler)
+	require.NoError(t, err)
+
+	rowsOut, ok := out.([]any)
+	require.True(t, ok)
+	require.Len(t, rowsOut, len(rows))
+
+	expected := []map[string]any{
+		{"score": "NaN", "score32": "NaN", "score16": "NaN"},
+		{"score": "Infinity", "score32": "Infinity", "score16": "Infinity"},
+		{"score": "-Infinity", "score32": "-Infinity", "score16": "-Infinity"},
+		{"score": 1.5, "score32": float32(1.5), "score16": float32(1.5)},
+	}
+	for i, exp := range expected {
+		rowMap, ok := rowsOut[i].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, exp["score"], rowMap["score"])
+		require.Equal(t, exp["score32"], rowMap["score32"])
+		require.Equal(t, exp["score16"], rowMap["score16"])
+	}
+
+	marshaled, err := json.Marshal(out)
+	require.NoError(t, err)
+	require.Contains(t, string(marshaled), `"score":"NaN"`)
+	require.Contains(t, string(marshaled), `"score":"Infinity"`)
+	require.Contains(t, string(marshaled), `"score":"-Infinity"`)
 }
