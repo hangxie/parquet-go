@@ -33,6 +33,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
   - [CRC Page Checksums](#crc-page-checksums)
   - [Bloom Filters](#bloom-filters)
   - [Encryption](#encryption)
+  - [Non-finite Floating Point JSON Representation](#non-finite-floating-point-json-representation)
   - [GeoParquet](#geoparquet)
   - [Concurrency](#concurrency)
 - [Examples](#examples)
@@ -628,6 +629,14 @@ Spec references:
 
 - Modular encryption: https://parquet.apache.org/docs/file-format/data-pages/encryption/
 - Bloom filter encryption: https://parquet.apache.org/docs/file-format/bloomfilter/
+
+### Non-finite Floating Point JSON Representation
+
+`NaN` and infinite `FLOAT`, `DOUBLE`, and `FLOAT16` values have no JSON number form, so `marshal.ConvertToJSONFriendly` and `types.ConvertToJSONType` render them as the quoted strings `"NaN"`, `"Infinity"`, and `"-Infinity"`, in struct fields, list elements, and map values alike. `JSONWriter` accepts those strings on input, along with `Inf`, `+Inf`, and `-Inf`, case-insensitive. Finite values are unchanged.
+
+Quoted strings are used rather than the bare `NaN` and `Infinity` literals that Python and DuckDB emit, because those are not valid JSON and Go's `encoding/json` refuses to produce them; a quoted string is ordinary JSON that every parser accepts.
+
+The infinity spelling is `"Infinity"` rather than Go's native `"+Inf"` because the output has to survive being read somewhere else. Both round trip through this library, and `"NaN"` is recovered as a float everywhere, but `"+Inf"` and `"-Inf"` are not consistently accepted across ecosystems. Go, Python, and DuckDB parse them as infinities, while Java's `Double.parseDouble` and Jackson reject them and JavaScript's `Number()` silently returns `NaN`, turning an infinity into a different value with no error; Spark's JSON reader is documented as handling quoted non-numeric tokens inconsistently (SPARK-38060). `"Infinity"` and `"-Infinity"` are recovered correctly by all of them. This differs from Apache Arrow's Go implementation, which emits `"+Inf"`.
 
 ### GeoParquet
 

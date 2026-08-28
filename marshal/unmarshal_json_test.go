@@ -1,6 +1,8 @@
 package marshal
 
 import (
+	"encoding/json"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -247,6 +249,49 @@ func TestConvertToJSONFriendly_Combined(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestConvertToJSONFriendly_NonFiniteFloat(t *testing.T) {
+	type NestedFloat struct {
+		Value float64 `parquet:"name=value, type=DOUBLE"`
+	}
+	type NonFiniteStruct struct {
+		FloatVal   float32            `parquet:"name=float_val, type=FLOAT"`
+		DoubleVal  float64            `parquet:"name=double_val, type=DOUBLE"`
+		Float16Val string             `parquet:"name=float16_val, type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16"`
+		Nested     NestedFloat        `parquet:"name=nested"`
+		ListVal    []float64          `parquet:"name=list_val, type=LIST, valuetype=DOUBLE"`
+		MapVal     map[string]float64 `parquet:"name=map_val, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=DOUBLE"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(NonFiniteStruct))
+	require.NoError(t, err)
+
+	// FLOAT16 NaN, little-endian bit pattern 0x7e00
+	float16NaN := string([]byte{0x00, 0x7e})
+
+	input := NonFiniteStruct{
+		FloatVal:   float32(math.NaN()),
+		DoubleVal:  math.Inf(1),
+		Float16Val: float16NaN,
+		Nested:     NestedFloat{Value: math.Inf(-1)},
+		ListVal:    []float64{1.5, math.NaN(), math.Inf(1)},
+		MapVal:     map[string]float64{"a": math.Inf(-1), "b": 2.5},
+	}
+
+	result, err := ConvertToJSONFriendly(input, sh)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"FloatVal":   "NaN",
+		"DoubleVal":  "Infinity",
+		"Float16Val": "NaN",
+		"Nested":     map[string]any{"Value": "-Infinity"},
+		"ListVal":    []any{1.5, "NaN", "Infinity"},
+		"MapVal":     map[string]any{"a": "-Infinity", "b": 2.5},
+	}, result)
+
+	marshaled, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.Contains(t, string(marshaled), `"FloatVal":"NaN"`)
 }
 
 func TestGetFieldNameFromTag(t *testing.T) {
