@@ -72,7 +72,7 @@ jobs:
       - name: Installing Dependencies
         run: make deps
       - name: Running tests
-        run: make test
+        run: make compat-test
       - name: Ensure examples can be built
         run: make example
       - name: Checking uncommitted changes
