@@ -6,6 +6,13 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// Fixed widths required by the Parquet spec for FIXED_LEN_BYTE_ARRAY annotations.
+const (
+	UUIDByteLen     = 16
+	Float16ByteLen  = 2
+	IntervalByteLen = 12
+)
+
 func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 	schema := parquet.NewSchemaElement()
 	schema.Name = info.InName
@@ -255,8 +262,8 @@ func validateConvertedType(schema *parquet.SchemaElement) error {
 		if *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
 			return fmt.Errorf("ConvertedType %s can only be used with FIXED_LEN_BYTE_ARRAY", ct)
 		}
-		if schema.TypeLength == nil || *schema.TypeLength != 12 {
-			return fmt.Errorf("ConvertedType %s requires FIXED_LEN_BYTE_ARRAY with length 12", ct)
+		if schema.TypeLength == nil || *schema.TypeLength != IntervalByteLen {
+			return fmt.Errorf("ConvertedType %s requires FIXED_LEN_BYTE_ARRAY with length %d", ct, IntervalByteLen)
 		}
 	}
 	return nil
