@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -71,6 +72,11 @@ func ParseIntervalString(s string) (string, error) {
 			var v float64
 			if _, err := fmt.Sscanf(value, "%f", &v); err != nil {
 				return "", fmt.Errorf("invalid seconds value: %s", value)
+			}
+			// converting a negative, NaN or overflowing float to uint32 is undefined in Go
+			// and wraps in practice, so reject what the millisecond field cannot hold
+			if millis := v * 1000; math.IsNaN(millis) || millis < 0 || millis > math.MaxUint32 {
+				return "", fmt.Errorf("seconds out of range: %s", value)
 			}
 			seconds = v
 		default:

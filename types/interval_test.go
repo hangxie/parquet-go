@@ -63,6 +63,46 @@ func TestParseIntervalString(t *testing.T) {
 			input:  "5",
 			errMsg: "invalid interval format",
 		},
+		{
+			name:     "seconds_max",
+			input:    "4294967.295 sec",
+			expected: []byte{0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255},
+		},
+		{
+			name:   "seconds_negative",
+			input:  "-1 sec",
+			errMsg: "seconds out of range",
+		},
+		{
+			name:   "seconds_overflow",
+			input:  "5000000 sec",
+			errMsg: "seconds out of range",
+		},
+		{
+			name:   "seconds_just_over_max",
+			input:  "4294967.296 sec",
+			errMsg: "seconds out of range",
+		},
+		{
+			name:   "seconds_inf",
+			input:  "Inf sec",
+			errMsg: "seconds out of range",
+		},
+		{
+			name:   "seconds_nan",
+			input:  "NaN sec",
+			errMsg: "seconds out of range",
+		},
+		{
+			name:   "months_overflow",
+			input:  "99999999999 mon",
+			errMsg: "invalid months value",
+		},
+		{
+			name:   "days_overflow",
+			input:  "99999999999 day",
+			errMsg: "invalid days value",
+		},
 	}
 
 	for _, tt := range tests {
