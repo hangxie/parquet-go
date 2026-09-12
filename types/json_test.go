@@ -2084,6 +2084,29 @@ func TestJSONTypeToParquetTypeWithLogical(t *testing.T) {
 				0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
 			}),
 		},
+		// Text logical types with no converted type: a value that happens to be valid
+		// base64 must still be stored verbatim rather than decoded as binary.
+		{
+			name:     "string_logical_base64_looking",
+			value:    "TEST",
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			lT:       &parquet.LogicalType{STRING: parquet.NewStringType()},
+			expected: "TEST",
+		},
+		{
+			name:     "enum_logical_base64_looking",
+			value:    "TEST",
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			lT:       &parquet.LogicalType{ENUM: parquet.NewEnumType()},
+			expected: "TEST",
+		},
+		{
+			name:     "json_logical_base64_looking",
+			value:    "null",
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			lT:       &parquet.LogicalType{JSON: parquet.NewJsonType()},
+			expected: "null",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2716,6 +2739,22 @@ func TestJSONValueToParquetDirect_EdgeCases(t *testing.T) {
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL),
 			expected: StrIntToBinary("12345", "LittleEndian", common.IntervalByteLen, false),
+		},
+		// ENUM and JSON are text on the wire: a value that happens to be valid base64 must
+		// still be stored verbatim rather than decoded as binary.
+		{
+			name:     "enum_ct_base64_looking_string",
+			value:    "TEST",
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_ENUM),
+			expected: "TEST",
+		},
+		{
+			name:     "json_ct_base64_looking_string",
+			value:    "null",
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_JSON),
+			expected: "null",
 		},
 	}
 

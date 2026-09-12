@@ -240,7 +240,8 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 // jsonConvertedTypeDirect handles direct conversion for converted types.
 func jsonConvertedTypeDirect(val reflect.Value, cT parquet.ConvertedType) (any, bool) {
 	switch cT {
-	case parquet.ConvertedType_UTF8:
+	case parquet.ConvertedType_UTF8, parquet.ConvertedType_ENUM, parquet.ConvertedType_JSON:
+		// Text on the wire: keep the string verbatim, never base64-decode it below.
 		if val.Kind() == reflect.String {
 			return val.String(), true
 		}
@@ -337,10 +338,17 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 		}
 	}
 
-	// FLOAT16 and UUID logical types encode string values (e.g. "9.5", "-Inf", a dashed
-	// UUID) that need strToLogicalType's parsing, not the raw byte-array treatment below.
-	if lT != nil && (lT.IsSetFLOAT16() || lT.IsSetUUID()) && val.Kind() == reflect.String {
-		return nil, false
+	if lT != nil && val.Kind() == reflect.String {
+		switch {
+		case lT.IsSetSTRING(), lT.IsSetENUM(), lT.IsSetJSON():
+			// Text on the wire, same as the converted types above. A schema may carry only
+			// the logical type, so this cannot rely on the ConvertedType backfill.
+			return val.String(), true
+		case lT.IsSetFLOAT16(), lT.IsSetUUID():
+			// These encode string values (e.g. "9.5", "-Inf", a dashed UUID) that need
+			// strToLogicalType's parsing, not the raw byte-array treatment below.
+			return nil, false
+		}
 	}
 
 	return jsonPhysicalTypeDirect(val, *pT)
