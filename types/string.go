@@ -183,10 +183,14 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		return v, true, nil
 	}
 	if lT.IsSetUUID() {
-		if u, err := uuid.Parse(s); err == nil {
-			return string(u[:]), true, nil
+		// uuid.Parse skips the wrapping characters of the {...} form, so "[...]" and any
+		// other 38-byte wrapper would pass; uuid.Validate checks them, and it applies
+		// every delimiter and hex check Parse does, so Parse cannot fail after it.
+		if err := uuid.Validate(s); err != nil {
+			return s, true, fmt.Errorf("parse UUID %q: %w", s, err)
 		}
-		return s, true, nil
+		u, _ := uuid.Parse(s)
+		return string(u[:]), true, nil
 	}
 	if lT.IsSetTIMESTAMP() {
 		v, err := strToTimestampLogical(s, lT.GetTIMESTAMP())
@@ -213,6 +217,9 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 	return nil, false, nil
 }
 
+// StrToParquetTypeWithLogical scans a string to a parquet value, honoring the logical type.
+// UUID input must be a textual form uuid.Parse accepts: dashed, undashed hex, braced, or
+// urn:uuid: prefixed. Any other string, raw binary included, returns an error.
 func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
 	if lT != nil {
 		if v, handled, err := strToLogicalType(s, lT, pT, length); handled {

@@ -296,6 +296,23 @@ Schema notes:
 
 Type aliases are supported, for example `type MyString string`, when the base type follows the table. Conversion utilities are available in [types/converter.go](types/converter.go).
 
+### UUID Values
+
+A `UUID` column is a `FIXED_LEN_BYTE_ARRAY(16)`, and its Go representation is a `string` holding the 16 raw bytes. Writers that take Go values directly, such as `ParquetWriter` over structs or maps, write that string as-is and do not check its width against the column: a longer value is silently truncated when the file is read back, and a shorter one produces a page that fails to read. Convert to the raw 16 bytes before handing a value to those writers.
+
+Writers that take string input parse the value instead. `JSONWriter`, `CSVWriter`, and the `types.StrToParquetTypeWithLogical` helper accept these textual forms:
+
+| Form | Example |
+| --- | --- |
+| Canonical dashed | `550e8400-e29b-41d4-a716-446655440000` |
+| Undashed hex | `550e8400e29b41d4a716446655440000` |
+| Braced | `{550e8400-e29b-41d4-a716-446655440000}` |
+| URN | `urn:uuid:550e8400-e29b-41d4-a716-446655440000` |
+
+Any other input fails the write with a `parse UUID` error, including a 38-byte string in some wrapper other than braces such as `[550e8400-e29b-41d4-a716-446655440000]`. Releases up to v3.8.2 silently wrote unparsable input as the raw bytes of the string itself, padding or truncating it to 16 bytes and corrupting the column value. That fallback also let a 16-byte binary string through unchanged; convert such values to one of the forms above first, for example with `uuid.FromBytes([]byte(v))` and `String()`.
+
+JSON output renders UUID columns as canonical dashed strings, so values read that way can be written back without conversion.
+
 ### Repetition Types
 
 | Repetition Type | Go Declaration | Description |
