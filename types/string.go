@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
@@ -138,7 +139,7 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		if res, err := ParseIntervalString(s); err == nil {
 			return res, nil
 		}
-		res := StrIntToBinary(s, "LittleEndian", 12, false)
+		res := StrIntToBinary(s, "LittleEndian", common.IntervalByteLen, false)
 		return res, nil
 	case parquet.ConvertedType_DECIMAL:
 		numSca := big.NewFloat(1.0)
