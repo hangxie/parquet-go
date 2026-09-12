@@ -17,7 +17,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
 	github.com/google/uuid v1.6.0
-	github.com/klauspost/compress v1.19.2
+	github.com/klauspost/compress v1.20.0
 	github.com/ncw/swift v1.0.53
 	github.com/pierrec/lz4/v4 v4.1.29
 	github.com/spf13/afero v1.15.0
