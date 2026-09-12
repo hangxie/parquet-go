@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
@@ -2699,6 +2700,22 @@ func TestJSONValueToParquetDirect_EdgeCases(t *testing.T) {
 			pT:       parquet.TypePtr(parquet.Type_INT32),
 			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DATE),
 			expected: int32(1000),
+		},
+		// INTERVAL cT: jsonValueToParquetDirect returns (nil,false) so the interval string is
+		// parsed into its 12-byte little-endian form instead of being kept verbatim.
+		{
+			name:     "interval_ct_string_parsed",
+			value:    "2 mon 3 day 4.500 sec",
+			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL),
+			expected: string([]byte{2, 0, 0, 0, 3, 0, 0, 0, 0x94, 0x11, 0, 0}),
+		},
+		{
+			name:     "interval_ct_digits_fallback",
+			value:    "12345",
+			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL),
+			expected: StrIntToBinary("12345", "LittleEndian", common.IntervalByteLen, false),
 		},
 	}
 

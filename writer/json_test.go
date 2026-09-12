@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
@@ -432,4 +433,46 @@ func TestJSONWriterValidatesEncryptionColumnKeys(t *testing.T) {
 		)
 		require.NoError(t, err)
 	})
+}
+
+func TestJSONWriterInterval(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=span, type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL"}
+		]
+	}`
+
+	testCases := map[string]struct {
+		value    string
+		expected []byte
+	}{
+		"months_days_seconds": {"2 mon 3 day 4.500 sec", []byte{2, 0, 0, 0, 3, 0, 0, 0, 0x94, 0x11, 0, 0}},
+		"days_only":           {"1 day", []byte{0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0}},
+		"seconds_only":        {"7200.000 sec", []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0xdd, 0x6d, 0}},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+			require.NoError(t, err)
+			require.NoError(t, jw.Write(fmt.Sprintf(`{"span": %q}`, tc.value)))
+			require.NoError(t, jw.WriteStop())
+
+			pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+			//nolint:staticcheck
+			pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+			require.NoError(t, err)
+
+			values, _, _, err := pr.ReadColumnByPathWithContext(t.Context(), "parquet-go-root"+common.ParGoPathDelimiter+"span", 1)
+			require.NoError(t, err)
+			require.Len(t, values, 1)
+			require.Equal(t, string(tc.expected), values[0])
+
+			//nolint:staticcheck
+			_ = pr.ReadStop()
+			_ = pf.Close()
+		})
+	}
 }
