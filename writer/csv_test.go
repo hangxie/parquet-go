@@ -166,6 +166,14 @@ func TestCSVWriter(t *testing.T) {
 		}
 	})
 
+	t.Run("uuid_column_wrong_length", func(t *testing.T) {
+		var buf bytes.Buffer
+		bw := bufio.NewWriter(&buf)
+		_, err := NewCSVWriterFromWriter([]string{"Name=Id, Type=FIXED_LEN_BYTE_ARRAY, Length=8, LogicalType=UUID"}, bw)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length 16")
+	})
+
 	t.Run("write_string_wrong_type", func(t *testing.T) {
 		testCases := map[string]struct {
 			data   any

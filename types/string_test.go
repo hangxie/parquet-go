@@ -301,17 +301,19 @@ func TestStrToParquetTypeWithLogical(t *testing.T) {
 	}{
 		// FLOAT16 tests
 		{
-			name: "float16_human_readable",
-			s:    "3.14",
-			pT:   parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
-			lT:   &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			name:   "float16_human_readable",
+			s:      "3.14",
+			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:     &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			length: 2,
 			// expected is 2-byte float16 representation
 		},
 		{
-			name: "float16_negative",
-			s:    "-1.5",
-			pT:   parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
-			lT:   &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			name:   "float16_negative",
+			s:      "-1.5",
+			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:     &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			length: 2,
 		},
 		// UUID tests
 		{
@@ -319,6 +321,7 @@ func TestStrToParquetTypeWithLogical(t *testing.T) {
 			s:        "550e8400-e29b-41d4-a716-446655440000",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length:   16,
 			expected: "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00",
 		},
 		{
@@ -326,6 +329,7 @@ func TestStrToParquetTypeWithLogical(t *testing.T) {
 			s:        "urn:uuid:550e8400-e29b-41d4-a716-446655440000",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length:   16,
 			expected: "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00",
 		},
 		{
@@ -333,6 +337,7 @@ func TestStrToParquetTypeWithLogical(t *testing.T) {
 			s:        "550e8400e29b41d4a716446655440000",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length:   16,
 			expected: "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00",
 		},
 		{
@@ -340,6 +345,7 @@ func TestStrToParquetTypeWithLogical(t *testing.T) {
 			s:        "{550e8400-e29b-41d4-a716-446655440000}",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length:   16,
 			expected: "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00",
 		},
 		// TIMESTAMP nanos tests
@@ -561,6 +567,7 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 		s        string
 		pT       *parquet.Type
 		lT       *parquet.LogicalType
+		length   int
 		expected any
 	}{
 		{
@@ -568,6 +575,7 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 			s:        "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length:   16,
 			expected: string([]byte{0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8}),
 		},
 		{
@@ -575,6 +583,7 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 			s:        "9.5",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			length:   2,
 			expected: []byte{0xC0, 0x48},
 		},
 		{
@@ -670,6 +679,7 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 		},
 		{
 			name:     "decimal_fixed_len",
+			length:   12,
 			s:        "123.45",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       createDecimalLogicalType(9, 2),
@@ -758,7 +768,7 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := StrToParquetTypeWithLogical(tt.s, tt.pT, nil, tt.lT, 12, 0)
+			result, err := StrToParquetTypeWithLogical(tt.s, tt.pT, nil, tt.lT, tt.length, 0)
 			require.NoError(t, err)
 
 			switch exp := tt.expected.(type) {
@@ -792,6 +802,7 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 		s      string
 		pT     *parquet.Type
 		lT     *parquet.LogicalType
+		length int
 		errMsg string
 	}{
 		{
@@ -799,6 +810,7 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 			s:      "not-a-float",
 			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:     &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			length: 2,
 			errMsg: "parse FLOAT16",
 		},
 		{
@@ -813,6 +825,7 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 			s:      "not-a-uuid",
 			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 16,
 			errMsg: "parse UUID",
 		},
 		{
@@ -820,6 +833,7 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 			s:      "550e8400-e29b-41d4-a716-44665544",
 			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 16,
 			errMsg: "parse UUID",
 		},
 		{
@@ -827,6 +841,7 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 			s:      "550e8400-e29b-41d4-a716-44665544zzzz",
 			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 16,
 			errMsg: "parse UUID",
 		},
 		{
@@ -834,6 +849,7 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 			s:      "[550e8400-e29b-41d4-a716-446655440000]",
 			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 16,
 			errMsg: "parse UUID",
 		},
 		{
@@ -841,6 +857,7 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 			s:      "X550e8400-e29b-41d4-a716-446655440000Y",
 			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 16,
 			errMsg: "parse UUID",
 		},
 		{
@@ -848,13 +865,38 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 			s:      "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00",
 			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 16,
 			errMsg: "parse UUID",
+		},
+		{
+			name:   "uuid_column_too_short",
+			s:      "550e8400-e29b-41d4-a716-446655440000",
+			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 8,
+			errMsg: "UUID requires length 16",
+		},
+		{
+			name:   "uuid_column_length_unset",
+			s:      "550e8400-e29b-41d4-a716-446655440000",
+			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 0,
+			errMsg: "UUID requires length 16",
+		},
+		{
+			name:   "float16_column_wrong_length",
+			s:      "9.5",
+			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:     &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			length: 8,
+			errMsg: "FLOAT16 requires length 2",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := StrToParquetTypeWithLogical(tt.s, tt.pT, nil, tt.lT, 12, 0)
+			_, err := StrToParquetTypeWithLogical(tt.s, tt.pT, nil, tt.lT, tt.length, 0)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tt.errMsg)
 		})

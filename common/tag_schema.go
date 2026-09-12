@@ -164,15 +164,25 @@ func validateLogicalInteger(lt *parquet.LogicalType, pT *parquet.Type) error {
 	return nil
 }
 
-func validateLogicalBinaryTypes(lt *parquet.LogicalType, pT *parquet.Type) error {
+func validateLogicalBinaryTypes(lt *parquet.LogicalType, pT *parquet.Type, typeLength *int32) error {
 	if (lt.STRING != nil || lt.JSON != nil || lt.BSON != nil || lt.ENUM != nil) && *pT != parquet.Type_BYTE_ARRAY {
 		return fmt.Errorf("LogicalType STRING/JSON/BSON/ENUM can only be used with BYTE_ARRAY")
 	}
-	if lt.UUID != nil && *pT != parquet.Type_FIXED_LEN_BYTE_ARRAY {
-		return fmt.Errorf("LogicalType UUID can only be used with FIXED_LEN_BYTE_ARRAY")
+	if lt.UUID != nil {
+		if *pT != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			return fmt.Errorf("LogicalType UUID can only be used with FIXED_LEN_BYTE_ARRAY")
+		}
+		if typeLength == nil || *typeLength != UUIDByteLen {
+			return fmt.Errorf("LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length %d", UUIDByteLen)
+		}
 	}
-	if lt.FLOAT16 != nil && *pT != parquet.Type_FIXED_LEN_BYTE_ARRAY {
-		return fmt.Errorf("LogicalType FLOAT16 can only be used with FIXED_LEN_BYTE_ARRAY")
+	if lt.FLOAT16 != nil {
+		if *pT != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			return fmt.Errorf("LogicalType FLOAT16 can only be used with FIXED_LEN_BYTE_ARRAY")
+		}
+		if typeLength == nil || *typeLength != Float16ByteLen {
+			return fmt.Errorf("LogicalType FLOAT16 requires FIXED_LEN_BYTE_ARRAY with length %d", Float16ByteLen)
+		}
 	}
 	if (lt.GEOMETRY != nil || lt.GEOGRAPHY != nil) && *pT != parquet.Type_BYTE_ARRAY {
 		return fmt.Errorf("LogicalType GEOMETRY/GEOGRAPHY can only be used with BYTE_ARRAY")
@@ -216,7 +226,7 @@ func validateLogicalType(schema *parquet.SchemaElement) error {
 		}
 		return nil
 	}
-	if err := validateLogicalBinaryTypes(lt, schema.Type); err != nil {
+	if err := validateLogicalBinaryTypes(lt, schema.Type, schema.TypeLength); err != nil {
 		return err
 	}
 	if err := validateLogicalDecimal(lt, schema.Type); err != nil {

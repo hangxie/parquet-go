@@ -142,13 +142,29 @@ func TestValidateLogicalTypePhysicalConstraints(t *testing.T) {
 		schema parquet.SchemaElement
 		errMsg string
 	}{
-		// FLOAT16 requires FIXED_LEN_BYTE_ARRAY
+		// FLOAT16 requires FIXED_LEN_BYTE_ARRAY with length 2
 		"float16-fixed-len-byte-array-valid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				TypeLength:  ToPtr(int32(2)),
+				LogicalType: &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			},
+			"",
+		},
+		"float16-fixed-len-wrong-length-invalid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				TypeLength:  ToPtr(int32(8)),
+				LogicalType: &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			},
+			"LogicalType FLOAT16 requires FIXED_LEN_BYTE_ARRAY with length 2",
+		},
+		"float16-fixed-len-nil-length-invalid": {
 			parquet.SchemaElement{
 				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 				LogicalType: &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
 			},
-			"",
+			"LogicalType FLOAT16 requires FIXED_LEN_BYTE_ARRAY with length 2",
 		},
 		"float16-byte-array-invalid": {
 			parquet.SchemaElement{

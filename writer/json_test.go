@@ -383,6 +383,19 @@ func TestJSONWriterUUID(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("column_wrong_length", func(t *testing.T) {
+		badSchema := `{
+			"Tag": "name=parquet-go-root",
+			"Fields": [
+				{"Tag": "name=id, type=FIXED_LEN_BYTE_ARRAY, length=8, logicaltype=UUID"}
+			]
+		}`
+		var buf bytes.Buffer
+		_, err := NewJSONWriterFromWriter(badSchema, &buf, WithNP(1))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length 16")
+	})
 }
 
 func TestJSONWriterValidatesEncryptionColumnKeys(t *testing.T) {
