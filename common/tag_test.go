@@ -755,6 +755,28 @@ func TestNewSchemaElementFromTagMap(t *testing.T) {
 			},
 			"",
 		},
+		"uuid-logicaltype-wrong-length": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:              "FIXED_LEN_BYTE_ARRAY",
+					Length:            8,
+					logicalTypeFields: map[string]string{"logicaltype": "UUID"},
+				},
+			},
+			parquet.SchemaElement{},
+			"LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length 16",
+		},
+		"float16-logicaltype-wrong-length": {
+			Tag{
+				fieldAttr: fieldAttr{
+					Type:              "FIXED_LEN_BYTE_ARRAY",
+					Length:            8,
+					logicalTypeFields: map[string]string{"logicaltype": "FLOAT16"},
+				},
+			},
+			parquet.SchemaElement{},
+			"LogicalType FLOAT16 requires FIXED_LEN_BYTE_ARRAY with length 2",
+		},
 		"timestamp-nanos-logicaltype-no-convertedtype": {
 			Tag{
 				fieldAttr: fieldAttr{
@@ -896,13 +918,30 @@ func TestValidateSchemaElement(t *testing.T) {
 			},
 			"LogicalType STRING/JSON/BSON/ENUM can only be used with BYTE_ARRAY",
 		},
-		// LogicalType UUID requires FIXED_LEN_BYTE_ARRAY
-		"uuid-logicaltype-fixed-len-valid": {
+		// LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length 16
+		"uuid-logicaltype-fixed-len-16-valid": {
 			parquet.SchemaElement{
 				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				TypeLength:  ToPtr(int32(16)),
 				LogicalType: &parquet.LogicalType{UUID: &parquet.UUIDType{}},
 			},
 			"",
+		},
+		"uuid-logicaltype-fixed-len-wrong-length-invalid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				TypeLength:  ToPtr(int32(8)),
+				LogicalType: &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			},
+			"LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length 16",
+		},
+		"uuid-logicaltype-fixed-len-nil-length-invalid": {
+			parquet.SchemaElement{
+				Type:        ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				TypeLength:  nil,
+				LogicalType: &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			},
+			"LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length 16",
 		},
 		"uuid-logicaltype-byte-array-invalid": {
 			parquet.SchemaElement{

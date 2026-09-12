@@ -294,6 +294,8 @@ Schema notes:
 | `LIST` | - | slice |
 | `MAP` | - | map |
 
+`UUID`, `FLOAT16`, and `INTERVAL` have the column width fixed by the specification at 16, 2, and 12 bytes. Schema creation rejects any other `length` on those annotations. `types.StrToParquetTypeWithLogical` and `types.JSONTypeToParquetTypeWithLogical` require the same width in their `length` argument for `UUID` and `FLOAT16`; releases up to v3.8.2 ignored that argument, so a direct caller that passed `0` has to pass the column width.
+
 Type aliases are supported, for example `type MyString string`, when the base type follows the table. Conversion utilities are available in [types/converter.go](types/converter.go).
 
 ### UUID Values
@@ -309,7 +311,9 @@ Writers that take string input parse the value instead. `JSONWriter`, `CSVWriter
 | Braced | `{550e8400-e29b-41d4-a716-446655440000}` |
 | URN | `urn:uuid:550e8400-e29b-41d4-a716-446655440000` |
 
-Any other input fails the write with a `parse UUID` error, including a 38-byte string in some wrapper other than braces such as `[550e8400-e29b-41d4-a716-446655440000]`. Releases up to v3.8.2 silently wrote unparsable input as the raw bytes of the string itself, padding or truncating it to 16 bytes and corrupting the column value. That fallback also let a 16-byte binary string through unchanged; convert such values to one of the forms above first, for example with `uuid.FromBytes([]byte(v))` and `String()`.
+The writers pass the column's declared width to those helpers themselves; a direct caller has to pass `16`, as noted under [Logical Types](#logical-types).
+
+Any other input fails the write with a `parse UUID` error, including a 38-byte string in some wrapper other than braces such as `[550e8400-e29b-41d4-a716-446655440000]`. Releases up to v3.8.2 silently wrote unparsable input as the raw bytes of the string itself, padding or truncating it to 16 bytes and corrupting the column value, and a `UUID` column declared with a width other than 16 truncated every value it stored. That fallback also let a 16-byte binary string through unchanged; convert such values to one of the forms above first, for example with `uuid.FromBytes([]byte(v))` and `String()`.
 
 JSON output renders UUID columns as canonical dashed strings, so values read that way can be written back without conversion.
 

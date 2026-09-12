@@ -2059,6 +2059,7 @@ func TestJSONTypeToParquetTypeWithLogical(t *testing.T) {
 			value:    "9.5",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			length:   2,
 			expected: Float32ToFloat16(9.5),
 		},
 		{
@@ -2066,15 +2067,17 @@ func TestJSONTypeToParquetTypeWithLogical(t *testing.T) {
 			value:    "NaN",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			lT:       &parquet.LogicalType{FLOAT16: &parquet.Float16Type{}},
+			length:   2,
 			expected: Float32ToFloat16(float32(math.NaN())),
 		},
 		// UUID logical type with string input must use uuid.Parse, not the raw
 		// byte-array direct path (which would keep the dashed string as-is).
 		{
-			name:  "uuid_logical_string_input",
-			value: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-			pT:    parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
-			lT:    &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			name:   "uuid_logical_string_input",
+			value:  "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			pT:     parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			lT:     &parquet.LogicalType{UUID: &parquet.UUIDType{}},
+			length: 16,
 			expected: string([]byte{
 				0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
 				0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,

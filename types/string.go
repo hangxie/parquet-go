@@ -176,6 +176,9 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 
 func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, length int) (any, bool, error) {
 	if lT.IsSetFLOAT16() {
+		if length != common.Float16ByteLen {
+			return s, true, fmt.Errorf("FLOAT16 requires length %d, got %d", common.Float16ByteLen, length)
+		}
 		v, err := ParseFloat16String(s)
 		if err != nil {
 			return v, true, fmt.Errorf("parse FLOAT16 %q: %w", s, err)
@@ -183,6 +186,9 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		return v, true, nil
 	}
 	if lT.IsSetUUID() {
+		if length != common.UUIDByteLen {
+			return s, true, fmt.Errorf("UUID requires length %d, got %d", common.UUIDByteLen, length)
+		}
 		// uuid.Parse skips the wrapping characters of the {...} form, so "[...]" and any
 		// other 38-byte wrapper would pass; uuid.Validate checks them, and it applies
 		// every delimiter and hex check Parse does, so Parse cannot fail after it.
@@ -218,8 +224,9 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 }
 
 // StrToParquetTypeWithLogical scans a string to a parquet value, honoring the logical type.
-// UUID input must be a textual form uuid.Parse accepts: dashed, undashed hex, braced, or
-// urn:uuid: prefixed. Any other string, raw binary included, returns an error.
+// UUID requires length 16 and a textual form uuid.Parse accepts (dashed, undashed hex,
+// braced, or urn:uuid: prefixed); any other length or string, raw binary included, errors.
+// FLOAT16 likewise requires length 2; releases up to v3.8.2 ignored both lengths.
 func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
 	if lT != nil {
 		if v, handled, err := strToLogicalType(s, lT, pT, length); handled {
