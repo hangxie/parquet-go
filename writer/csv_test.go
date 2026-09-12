@@ -131,6 +131,41 @@ func TestCSVWriter(t *testing.T) {
 		}
 	})
 
+	t.Run("write_csv_uuid", func(t *testing.T) {
+		testCases := map[string]struct {
+			value  string
+			errMsg string
+		}{
+			"dashed":         {"550e8400-e29b-41d4-a716-446655440000", ""},
+			"undashed":       {"550e8400e29b41d4a716446655440000", ""},
+			"braced":         {"{550e8400-e29b-41d4-a716-446655440000}", ""},
+			"urn":            {"urn:uuid:550e8400-e29b-41d4-a716-446655440000", ""},
+			"not_a_uuid":     {"not-a-uuid", "parse UUID"},
+			"truncated":      {"550e8400-e29b-41d4-a716-44665544", "parse UUID"},
+			"square_bracket": {"[550e8400-e29b-41d4-a716-446655440000]", "parse UUID"},
+			"raw_binary":     {"\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00", "parse UUID"},
+		}
+		schema := []string{"Name=Id, Type=FIXED_LEN_BYTE_ARRAY, Length=16, LogicalType=UUID"}
+
+		for name, tc := range testCases {
+			t.Run(name, func(t *testing.T) {
+				var buf bytes.Buffer
+				bw := bufio.NewWriter(&buf)
+				cw, err := NewCSVWriterFromWriter(schema, bw)
+				require.NoError(t, err)
+
+				err = cw.WriteString([]*string{common.ToPtr(tc.value)})
+				if tc.errMsg == "" {
+					require.NoError(t, err)
+					require.NoError(t, cw.WriteStop())
+				} else {
+					require.Error(t, err)
+					require.Contains(t, err.Error(), tc.errMsg)
+				}
+			})
+		}
+	})
+
 	t.Run("write_string_wrong_type", func(t *testing.T) {
 		testCases := map[string]struct {
 			data   any

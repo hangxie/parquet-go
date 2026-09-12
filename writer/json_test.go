@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -342,6 +343,46 @@ func TestJSONWriter(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestJSONWriterUUID(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=id, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID"}
+		]
+	}`
+
+	testCases := map[string]struct {
+		value  string
+		errMsg string
+	}{
+		"dashed":         {"550e8400-e29b-41d4-a716-446655440000", ""},
+		"urn":            {"urn:uuid:550e8400-e29b-41d4-a716-446655440000", ""},
+		"not_a_uuid":     {"not-a-uuid", "parse UUID"},
+		"truncated":      {"550e8400-e29b-41d4-a716-44665544", "parse UUID"},
+		"square_bracket": {"[550e8400-e29b-41d4-a716-446655440000]", "parse UUID"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+			require.NoError(t, err)
+
+			// Write buffers the row, so a conversion failure surfaces on the flush
+			// that WriteStop performs rather than from Write itself.
+			err = jw.Write(fmt.Sprintf(`{"id": %q}`, tc.value))
+			require.NoError(t, err)
+			err = jw.WriteStop()
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+			}
+		})
+	}
 }
 
 func TestJSONWriterValidatesEncryptionColumnKeys(t *testing.T) {
