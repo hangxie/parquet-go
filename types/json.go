@@ -322,11 +322,13 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 		return nil, false
 	}
 
-	// Handle converted types that need special treatment (skip time/date types that need string parsing)
+	// Handle converted types that need special treatment (skip time/date/interval types that
+	// need string parsing)
 	if cT != nil {
 		switch *cT {
 		case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS, parquet.ConvertedType_TIME_MICROS,
-			parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS:
+			parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS,
+			parquet.ConvertedType_INTERVAL:
 			return nil, false
 		default:
 			if result, ok := jsonConvertedTypeDirect(val, *cT); ok {
