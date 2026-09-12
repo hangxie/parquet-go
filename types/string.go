@@ -20,6 +20,26 @@ func wrapScanErr(typeName, s string, err error) error {
 	return nil
 }
 
+// strToInterval scans the human-readable interval form, falling back to the legacy
+// unsigned little-endian integer form.
+func strToInterval(s string) (any, error) {
+	res, err := ParseIntervalString(s)
+	if err == nil {
+		return res, nil
+	}
+	// Anything that is not a bare unsigned integer is a real parse failure: StrIntToBinary
+	// used to swallow it, storing zeros for "garbage" and a partial value for input it
+	// could scan a leading number out of.
+	num, ok := new(big.Int).SetString(s, 10)
+	if !ok || num.Sign() < 0 {
+		return nil, wrapScanErr("INTERVAL", s, err)
+	}
+	if num.BitLen() > common.IntervalByteLen*8 {
+		return nil, fmt.Errorf("INTERVAL %q exceeds %d bytes", s, common.IntervalByteLen)
+	}
+	return StrIntToBinary(s, "LittleEndian", common.IntervalByteLen, false), nil
+}
+
 // Scan a string to parquet value; length and scale just for decimal
 func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
 	if cT == nil {
@@ -136,11 +156,7 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return v, wrapScanErr("TIMESTAMP_MICROS", s, err)
 	case parquet.ConvertedType_INTERVAL:
-		if res, err := ParseIntervalString(s); err == nil {
-			return res, nil
-		}
-		res := StrIntToBinary(s, "LittleEndian", common.IntervalByteLen, false)
-		return res, nil
+		return strToInterval(s)
 	case parquet.ConvertedType_DECIMAL:
 		numSca := big.NewFloat(1.0)
 		for range scale {
