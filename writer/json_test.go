@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -502,6 +503,53 @@ func TestJSONWriterIntervalRejectsMalformed(t *testing.T) {
 			err = jw.WriteStop()
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "parse INTERVAL")
+		})
+	}
+}
+
+func TestJSONWriterTextConvertedTypes(t *testing.T) {
+	testCases := map[string]struct {
+		convertedType string
+		value         string
+	}{
+		// Values that are also valid base64 must survive as text rather than being decoded.
+		"enum_base64_looking": {"ENUM", "TEST"},
+		"enum_plain":          {"ENUM", "ACTIVE"},
+		"json_base64_looking": {"JSON", "null"},
+		"json_object":         {"JSON", `{"a":1}`},
+		"utf8_base64_looking": {"UTF8", "TEST"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			jsonSchema := fmt.Sprintf(`{
+				"Tag": "name=parquet-go-root",
+				"Fields": [
+					{"Tag": "name=v, type=BYTE_ARRAY, convertedtype=%s"}
+				]
+			}`, tc.convertedType)
+
+			var buf bytes.Buffer
+			jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+			require.NoError(t, err)
+			row, err := json.Marshal(map[string]string{"v": tc.value})
+			require.NoError(t, err)
+			require.NoError(t, jw.Write(string(row)))
+			require.NoError(t, jw.WriteStop())
+
+			pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+			//nolint:staticcheck
+			pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+			require.NoError(t, err)
+
+			values, _, _, err := pr.ReadColumnByPathWithContext(t.Context(), "parquet-go-root"+common.ParGoPathDelimiter+"v", 1)
+			require.NoError(t, err)
+			require.Len(t, values, 1)
+			require.Equal(t, tc.value, values[0])
+
+			//nolint:staticcheck
+			_ = pr.ReadStop()
+			_ = pf.Close()
 		})
 	}
 }
