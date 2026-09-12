@@ -166,6 +166,17 @@ func TestCSVWriter(t *testing.T) {
 		}
 	})
 
+	t.Run("uuid_column_length_omitted", func(t *testing.T) {
+		var buf bytes.Buffer
+		bw := bufio.NewWriter(&buf)
+		cw, err := NewCSVWriterFromWriter([]string{"Name=Id, Type=FIXED_LEN_BYTE_ARRAY, LogicalType=UUID"}, bw)
+		require.NoError(t, err)
+		require.Equal(t, int32(16), cw.SchemaHandler.SchemaElements[1].GetTypeLength())
+
+		require.NoError(t, cw.WriteString([]*string{common.ToPtr("550e8400-e29b-41d4-a716-446655440000")}))
+		require.NoError(t, cw.WriteStop())
+	})
+
 	t.Run("uuid_column_wrong_length", func(t *testing.T) {
 		var buf bytes.Buffer
 		bw := bufio.NewWriter(&buf)

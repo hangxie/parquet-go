@@ -13,6 +13,33 @@ const (
 	IntervalByteLen = 12
 )
 
+// applyFixedTypeLength fills in the width the spec fixes for UUID, FLOAT16, and INTERVAL
+// when the tag left length out, rather than rejecting a column whose size the caller
+// cannot choose. An explicit length, including an explicit 0, is left for validation.
+func applyFixedTypeLength(schema *parquet.SchemaElement, info *Tag) {
+	if info.lengthSet || info.Length != 0 {
+		return
+	}
+	if schema.Type == nil || *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+		return
+	}
+
+	var width int32
+	lt := schema.LogicalType
+	switch {
+	case lt != nil && lt.UUID != nil:
+		width = UUIDByteLen
+	case lt != nil && lt.FLOAT16 != nil:
+		width = Float16ByteLen
+	case schema.ConvertedType != nil && *schema.ConvertedType == parquet.ConvertedType_INTERVAL:
+		width = IntervalByteLen
+	default:
+		return
+	}
+	// A fresh pointer, so the caller's tag keeps whatever it declared.
+	schema.TypeLength = &width
+}
+
 func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 	schema := parquet.NewSchemaElement()
 	schema.Name = info.InName
@@ -108,6 +135,8 @@ func NewSchemaElementFromTagMap(info *Tag) (*parquet.SchemaElement, error) {
 			schema.Precision = &logicalType.DECIMAL.Precision
 		}
 	}
+
+	applyFixedTypeLength(schema, info)
 
 	if err := ValidateSchemaElement(schema); err != nil {
 		return nil, fmt.Errorf("validate schema element: %w", err)
