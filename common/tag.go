@@ -20,6 +20,7 @@ type fieldAttr struct {
 	CompressionCodec *parquet.CompressionCodec // nil means use file-level compression
 	CompressionLevel *int                      // nil means use codec default level
 
+	lengthSet         bool // whether the tag carried an explicit length
 	bloomFilter       bool
 	bloomFilterSize   int32
 	convertedType     string
@@ -41,6 +42,7 @@ func (mp *fieldAttr) update(key, val string) error {
 			return fmt.Errorf("parse length value '%s': %w", val, err)
 		}
 		mp.Length = int32(valInt)
+		mp.lengthSet = true
 	case "scale":
 		valInt, err := strconv.ParseInt(val, 10, 32)
 		if err != nil {

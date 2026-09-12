@@ -294,7 +294,7 @@ Schema notes:
 | `LIST` | - | slice |
 | `MAP` | - | map |
 
-`UUID`, `FLOAT16`, and `INTERVAL` have the column width fixed by the specification at 16, 2, and 12 bytes. Schema creation rejects any other `length` on those annotations. `types.StrToParquetTypeWithLogical` and `types.JSONTypeToParquetTypeWithLogical` require the same width in their `length` argument for `UUID` and `FLOAT16`; releases up to v3.8.2 ignored that argument, so a direct caller that passed `0` has to pass the column width.
+`UUID`, `FLOAT16`, and `INTERVAL` have the column width fixed by the specification at 16, 2, and 12 bytes. A struct tag, CSV metadata entry, or JSON schema that annotates one of them may leave `length` out and get the fixed width filled in; declaring any other width is an error, including an explicit `length=0` in a written-out tag. Code that builds a `common.Tag` directly cannot express an explicit zero, since an unset `Length` and a deliberate `0` are the same value there, and both get the fixed width. `types.StrToParquetTypeWithLogical` and `types.JSONTypeToParquetTypeWithLogical` require the same width in their `length` argument for `UUID` and `FLOAT16`; releases up to v3.8.2 ignored that argument, so a direct caller that passed `0` has to pass the column width.
 
 Type aliases are supported, for example `type MyString string`, when the base type follows the table. Conversion utilities are available in [types/converter.go](types/converter.go).
 

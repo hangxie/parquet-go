@@ -67,7 +67,7 @@ func TestFieldAttr_Update(t *testing.T) {
 	}{
 		"type":                          {"type", "BOOLEAN", fieldAttr{Type: "BOOLEAN"}, ""},
 		"convertedtype":                 {"convertedtype", "UTF8", fieldAttr{convertedType: "UTF8"}, ""},
-		"length-good":                   {"length", "123", fieldAttr{Length: 123}, ""},
+		"length-good":                   {"length", "123", fieldAttr{Length: 123, lengthSet: true}, ""},
 		"length-bad":                    {"length", "abc", fieldAttr{}, "parse length value"},
 		"scale-good":                    {"scale", "123", fieldAttr{Scale: 123}, ""},
 		"scale-bad":                     {"scale", "abc", fieldAttr{}, "parse scale value"},
@@ -832,6 +832,61 @@ func TestNewSchemaElementFromTagMap(t *testing.T) {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.errMsg)
 			}
+		})
+	}
+}
+
+func TestNewSchemaElementFromTagMap_FixedWidthDefaults(t *testing.T) {
+	testCases := map[string]struct {
+		tag      string
+		expected int32
+		errMsg   string
+	}{
+		"uuid-length-omitted":      {"name=v, type=FIXED_LEN_BYTE_ARRAY, logicaltype=UUID", 16, ""},
+		"uuid-length-given":        {"name=v, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID", 16, ""},
+		"float16-length-omitted":   {"name=v, type=FIXED_LEN_BYTE_ARRAY, logicaltype=FLOAT16", 2, ""},
+		"float16-length-given":     {"name=v, type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16", 2, ""},
+		"interval-length-omitted":  {"name=v, type=FIXED_LEN_BYTE_ARRAY, convertedtype=INTERVAL", 12, ""},
+		"interval-length-given":    {"name=v, type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL", 12, ""},
+		"unannotated-flba-omitted": {"name=v, type=FIXED_LEN_BYTE_ARRAY", 0, ""},
+		"uuid-on-byte-array": {
+			"name=v, type=BYTE_ARRAY, logicaltype=UUID", 0,
+			"LogicalType UUID can only be used with FIXED_LEN_BYTE_ARRAY",
+		},
+		"uuid-length-zero": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=0, logicaltype=UUID", 0,
+			"LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length 16",
+		},
+		"uuid-length-wrong": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=8, logicaltype=UUID", 0,
+			"LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length 16",
+		},
+		"float16-length-zero": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=0, logicaltype=FLOAT16", 0,
+			"LogicalType FLOAT16 requires FIXED_LEN_BYTE_ARRAY with length 2",
+		},
+		"interval-length-zero": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=0, convertedtype=INTERVAL", 0,
+			"ConvertedType INTERVAL requires FIXED_LEN_BYTE_ARRAY with length 12",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			tag, err := StringToTag(tc.tag)
+			require.NoError(t, err)
+			declared := tag.Length
+
+			schema, err := NewSchemaElementFromTagMap(tag)
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, *schema.TypeLength)
+			// The filled-in width must not leak back into the caller's tag.
+			require.Equal(t, declared, tag.Length, "tag mutated")
 		})
 	}
 }
