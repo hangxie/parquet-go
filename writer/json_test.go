@@ -476,3 +476,32 @@ func TestJSONWriterInterval(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONWriterIntervalRejectsMalformed(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=span, type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL"}
+		]
+	}`
+
+	for name, value := range map[string]string{
+		"not_an_interval":     "garbage",
+		"unknown_unit":        "2 mon 3 zzz",
+		"negative_seconds":    "-1 sec",
+		"overflowing_seconds": "5000000 sec",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+			require.NoError(t, err)
+
+			// Write buffers the row, so a conversion failure surfaces on the flush
+			// that WriteStop performs rather than from Write itself.
+			require.NoError(t, jw.Write(fmt.Sprintf(`{"span": %q}`, value)))
+			err = jw.WriteStop()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "parse INTERVAL")
+		})
+	}
+}

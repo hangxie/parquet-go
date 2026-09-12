@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
@@ -949,4 +950,38 @@ func TestStrToTimestampLogical_Errors(t *testing.T) {
 	_, err := strToTimestampLogical("not-a-timestamp", ts)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "parse timestamp")
+}
+
+func TestStrToParquetType_IntervalErrors(t *testing.T) {
+	// A bare unsigned integer is the legacy little-endian form and stays accepted; anything
+	// else used to be handed to StrIntToBinary, which silently produced zeros or a partial
+	// value instead of reporting the failure.
+	tests := []struct {
+		name   string
+		s      string
+		errMsg string
+	}{
+		{name: "not_an_interval", s: "garbage", errMsg: "parse INTERVAL"},
+		{name: "unknown_unit", s: "2 mon 3 zzz", errMsg: "parse INTERVAL"},
+		{name: "negative_seconds", s: "-1 sec", errMsg: "parse INTERVAL"},
+		{name: "overflowing_seconds", s: "5000000 sec", errMsg: "parse INTERVAL"},
+		{name: "negative_integer", s: "-1", errMsg: "parse INTERVAL"},
+		{name: "integer_too_wide", s: "79228162514264337593543950336", errMsg: "exceeds 12 bytes"},
+	}
+
+	pT := parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY)
+	cT := parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := StrToParquetType(tt.s, pT, cT, common.IntervalByteLen, 0)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.errMsg)
+		})
+	}
+
+	t.Run("legacy_integer_accepted", func(t *testing.T) {
+		res, err := StrToParquetType("1234567890123", pT, cT, common.IntervalByteLen, 0)
+		require.NoError(t, err)
+		require.Equal(t, StrIntToBinary("1234567890123", "LittleEndian", common.IntervalByteLen, false), res)
+	})
 }
