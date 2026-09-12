@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func FuzzParseIntervalString(f *testing.F) {
 	f.Add("")
@@ -12,6 +16,13 @@ func FuzzParseIntervalString(f *testing.F) {
 	f.Add("0 day 0 day")
 
 	f.Fuzz(func(t *testing.T, s string) {
-		_, _ = ParseIntervalString(s)
+		parsed, err := ParseIntervalString(s)
+		if err != nil {
+			return
+		}
+		// whatever a valid interval renders as must parse back to the same 12 bytes
+		reparsed, err := ParseIntervalString(IntervalToString([]byte(parsed)))
+		require.NoError(t, err)
+		require.Equal(t, parsed, reparsed)
 	})
 }

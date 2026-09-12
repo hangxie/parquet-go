@@ -36,8 +36,7 @@ func IntervalToString(interval []byte) string {
 
 // ParseIntervalString parses an interval string like \"2 mon 3 day 4.500 sec\" and returns 12-byte binary
 func ParseIntervalString(s string) (string, error) {
-	var months, days uint32
-	var seconds float64
+	var months, days, millis uint32
 
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -74,11 +73,18 @@ func ParseIntervalString(s string) (string, error) {
 				return "", fmt.Errorf("invalid seconds value: %s", value)
 			}
 			// converting a negative, NaN or overflowing float to uint32 is undefined in Go
-			// and wraps in practice, so reject what the millisecond field cannot hold
-			if millis := v * 1000; math.IsNaN(millis) || millis < 0 || millis > math.MaxUint32 {
+			// and wraps in practice, so reject what the millisecond field cannot hold.
+			// Check v before rounding: math.Round(-0.4) is -0, which is not < 0.
+			if math.IsNaN(v) || v < 0 {
 				return "", fmt.Errorf("seconds out of range: %s", value)
 			}
-			seconds = v
+			// round rather than truncate: the second form of an exact millisecond scales
+			// back to a hair under it, e.g. 524763.700 sec to 524763699.99999994
+			ms := math.Round(v * 1000)
+			if ms > math.MaxUint32 {
+				return "", fmt.Errorf("seconds out of range: %s", value)
+			}
+			millis = uint32(ms)
 		default:
 			return "", fmt.Errorf("unknown interval unit: %s", unit)
 		}
@@ -88,7 +94,7 @@ func ParseIntervalString(s string) (string, error) {
 	result := make([]byte, 12)
 	binary.LittleEndian.PutUint32(result[0:4], months)
 	binary.LittleEndian.PutUint32(result[4:8], days)
-	binary.LittleEndian.PutUint32(result[8:12], uint32(seconds*1000))
+	binary.LittleEndian.PutUint32(result[8:12], millis)
 
 	return string(result), nil
 }
