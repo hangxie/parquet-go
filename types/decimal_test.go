@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -547,4 +548,22 @@ func TestDecimalRoundTrip(t *testing.T) {
 			require.Equal(t, json.Number(v.s), got)
 		})
 	}
+}
+
+// TestDecimalByteArrayPaddingCanonicalizes pins the one documented exception to the exact
+// physical round trip in TestPhysicalRoundTrip: a BYTE_ARRAY DECIMAL may carry redundant
+// sign-extension bytes, and the value comes back in its minimal encoding instead.
+func TestDecimalByteArrayPaddingCanonicalizes(t *testing.T) {
+	se := parquet.NewSchemaElement()
+	se.Type = parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+	se.LogicalType = createDecimalLogicalType(38, 3)
+
+	minimal := StrIntToBinary("-99999999999999999999999999999999999999", "BigEndian", 16, true)
+	padded := "\xff" + minimal
+	require.Equal(t, ConvertToJSONType(minimal, se), ConvertToJSONType(padded, se))
+
+	got, err := StrToParquetTypeWithLogical(fmt.Sprintf("%v", ConvertToJSONType(padded, se)),
+		se.Type, nil, se.LogicalType, 0, 3)
+	require.NoError(t, err)
+	require.Equal(t, minimal, got)
 }
