@@ -1,6 +1,7 @@
 package types
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -66,6 +67,23 @@ func TestTIME_MILLISToTimeFormat(t *testing.T) {
 			millis:   32703123, // 9*3600*1000 + 5*60*1000 + 3*1000 + 123
 			expected: "09:05:03.123",
 		},
+		{
+			// Out-of-range values are not writable but can arrive from another writer; the
+			// sign belongs to the whole value, not to one component as in "00:00:-1.000".
+			name:     "negative one second",
+			millis:   -1000,
+			expected: "-00:00:01.000",
+		},
+		{
+			name:     "past midnight",
+			millis:   90000000, // 25 hours
+			expected: "25:00:00.000",
+		},
+		{
+			name:     "minimum int32",
+			millis:   math.MinInt32,
+			expected: "-596:31:23.648",
+		},
 	}
 
 	for _, tt := range tests {
@@ -106,6 +124,23 @@ func TestTIME_MICROSToTimeFormat(t *testing.T) {
 			name:     "09:05:03.123456",
 			micros:   32703123456, // 9*3600*1000000 + 5*60*1000000 + 3*1000000 + 123456
 			expected: "09:05:03.123456",
+		},
+		{
+			name:     "negative one second",
+			micros:   -1000000,
+			expected: "-00:00:01.000000",
+		},
+		{
+			name:     "past midnight",
+			micros:   90000000000, // 25 hours
+			expected: "25:00:00.000000",
+		},
+		{
+			// Converting to nanoseconds first overflowed here and printed a value with no
+			// relation to the input.
+			name:     "minimum int64",
+			micros:   math.MinInt64,
+			expected: "-2562047788:00:54.775808",
 		},
 	}
 
@@ -310,5 +345,105 @@ func TestTIMESTAMP_MICROSToISO8601(t *testing.T) {
 			result := TIMESTAMP_MICROSToISO8601(tt.micros, tt.adjustedToUTC)
 			require.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+func TestConvertTimeLogicalValue_NANOS_OutOfRange(t *testing.T) {
+	unit := parquet.NewTimeUnit()
+	unit.NANOS = parquet.NewNanoSeconds()
+	timeType := &parquet.TimeType{Unit: unit}
+	require.Equal(t, "-00:00:00.000000001", ConvertTimeLogicalValue(int64(-1), timeType))
+	require.Equal(t, "24:00:00.000000000", ConvertTimeLogicalValue(int64(86400000000000), timeType))
+}
+
+func TestParseTimeOfDay(t *testing.T) {
+	tests := []struct {
+		name     string
+		s        string
+		unit     time.Duration
+		expected int64
+		errMsg   string
+	}{
+		{name: "clock_string", s: "12:34:56.789", unit: time.Millisecond, expected: 45296789},
+		{name: "clock_string_micros", s: "12:34:56.789012", unit: time.Microsecond, expected: 45296789012},
+		{name: "ticks", s: "45296789", unit: time.Millisecond, expected: 45296789},
+		{name: "ticks_padded", s: " 45296789 ", unit: time.Millisecond, expected: 45296789},
+		{name: "last_tick_of_day", s: "86399999", unit: time.Millisecond, expected: 86399999},
+		{name: "midnight", s: "0", unit: time.Nanosecond, expected: 0},
+		{name: "negative", s: "-1000", unit: time.Millisecond, errMsg: "outside [0, 24h)"},
+		{name: "full_day", s: "86400000", unit: time.Millisecond, errMsg: "outside [0, 24h)"},
+		{name: "past_midnight", s: "90000000", unit: time.Millisecond, errMsg: "outside [0, 24h)"},
+		// The reader's own rendering of an out-of-range value: Sscanf used to keep the 25
+		// and drop the rest, turning 25 hours into 25 milliseconds.
+		{name: "out_of_range_clock_string", s: "25:00:00.000", unit: time.Millisecond, errMsg: "parse TIME_MILLIS"},
+		{name: "negative_clock_string", s: "-00:00:01.000", unit: time.Millisecond, errMsg: "parse TIME_MILLIS"},
+		{name: "trailing_garbage", s: "12abc", unit: time.Millisecond, errMsg: "parse TIME_MILLIS"},
+		// Too wide for the column: the range is what went wrong, not the scan.
+		{name: "wider_than_int64", s: "9223372036854775808", unit: time.Millisecond, errMsg: "outside [0, 24h)"},
+		{name: "negative_wider_than_int64", s: "-9223372036854775809", unit: time.Millisecond, errMsg: "outside [0, 24h)"},
+		// A MILLIS column is an INT32, so the day's worth of ticks is parsed at that width.
+		{name: "wider_than_int32_millis", s: "2147483648", unit: time.Millisecond, errMsg: "outside [0, 24h)"},
+		// The same digits are a legal 35m48s for a MICROS column, which is an INT64.
+		{name: "wider_than_int32_micros", s: "2147483648", unit: time.Microsecond, expected: 2147483648},
+		{name: "empty", s: "", unit: time.Millisecond, errMsg: "parse TIME_MILLIS"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseTimeOfDay(tt.s, "TIME_MILLIS", tt.unit)
+			if tt.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestTimeOutOfRangeIsNotSilentlyRewritten covers the round trip an out-of-range TIME used
+// to corrupt: the reader rendered 25 hours as "25:00:00.000", and writing that string back
+// stored 25 instead of reporting it.
+func TestTimeOutOfRangeIsNotSilentlyRewritten(t *testing.T) {
+	millisCT := parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS)
+	microsCT := parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MICROS)
+	int32PT := parquet.TypePtr(parquet.Type_INT32)
+	int64PT := parquet.TypePtr(parquet.Type_INT64)
+
+	tests := []struct {
+		name     string
+		rendered string
+		pT       *parquet.Type
+		cT       *parquet.ConvertedType
+	}{
+		{name: "millis_negative", rendered: TIME_MILLISToTimeFormat(-1000), pT: int32PT, cT: millisCT},
+		{name: "millis_past_midnight", rendered: TIME_MILLISToTimeFormat(90000000), pT: int32PT, cT: millisCT},
+		{name: "micros_negative", rendered: TIME_MICROSToTimeFormat(-1000000), pT: int64PT, cT: microsCT},
+		{name: "micros_past_midnight", rendered: TIME_MICROSToTimeFormat(90000000000), pT: int64PT, cT: microsCT},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := StrToParquetType(tt.rendered, tt.pT, tt.cT, 0, 0)
+			require.Error(t, err)
+		})
+	}
+}
+
+// TestTimeRoundTrip checks that every TIME value this library accepts comes back as itself.
+func TestTimeRoundTrip(t *testing.T) {
+	millisCT := parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS)
+	microsCT := parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MICROS)
+
+	for _, millis := range []int32{0, 1, 45296789, 86399999} {
+		v, err := StrToParquetType(TIME_MILLISToTimeFormat(millis), parquet.TypePtr(parquet.Type_INT32), millisCT, 0, 0)
+		require.NoError(t, err)
+		require.Equal(t, millis, v)
+	}
+	for _, micros := range []int64{0, 1, 45296789012, 86399999999} {
+		v, err := StrToParquetType(TIME_MICROSToTimeFormat(micros), parquet.TypePtr(parquet.Type_INT64), microsCT, 0, 0)
+		require.NoError(t, err)
+		require.Equal(t, micros, v)
 	}
 }

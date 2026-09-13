@@ -509,6 +509,70 @@ func TestJSONWriterIntervalRejectsMalformed(t *testing.T) {
 	}
 }
 
+func TestJSONWriterTimeRejectsOutOfRange(t *testing.T) {
+	// TIME is elapsed time since midnight, so only [0, 24h) is writable. These used to be
+	// stored as given and read back as strings such as "00:00:-1.000" and "25:00:00.000",
+	// which rewrote as 0 and 25.
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=millis, type=INT32, convertedtype=TIME_MILLIS"},
+			{"Tag": "name=micros, type=INT64, logicaltype=TIME, logicaltype.unit=MICROS, logicaltype.isadjustedtoutc=false"}
+		]
+	}`
+
+	testCases := map[string]struct {
+		millis string
+		micros string
+	}{
+		"negative":          {"-1000", "0"},
+		"past_midnight":     {"90000000", "0"},
+		"micros_negative":   {"0", "-1000000"},
+		"micros_full_day":   {"0", "86400000000"},
+		"rendered_clock":    {`"25:00:00.000"`, "0"},
+		"fractional":        {"1.9", "0"},
+		"negative_fraction": {"-0.5", "0"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+			require.NoError(t, err)
+
+			// Write buffers the row, so a conversion failure surfaces on the flush
+			// that WriteStop performs rather than from Write itself.
+			require.NoError(t, jw.Write(fmt.Sprintf(`{"millis": %s, "micros": %s}`, tc.millis, tc.micros)))
+			require.Error(t, jw.WriteStop())
+		})
+	}
+
+	t.Run("in_range_round_trips", func(t *testing.T) {
+		var buf bytes.Buffer
+		jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+		require.NoError(t, err)
+		require.NoError(t, jw.Write(`{"millis": "23:59:59.999", "micros": 86399999999}`))
+		require.NoError(t, jw.WriteStop())
+
+		pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+		//nolint:staticcheck
+		pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+		require.NoError(t, err)
+
+		millis, _, _, err := pr.ReadColumnByPathWithContext(t.Context(), "parquet-go-root"+common.ParGoPathDelimiter+"millis", 1)
+		require.NoError(t, err)
+		require.Equal(t, int32(86399999), millis[0])
+
+		micros, _, _, err := pr.ReadColumnByPathWithContext(t.Context(), "parquet-go-root"+common.ParGoPathDelimiter+"micros", 1)
+		require.NoError(t, err)
+		require.Equal(t, int64(86399999999), micros[0])
+
+		//nolint:staticcheck
+		_ = pr.ReadStop()
+		_ = pf.Close()
+	})
+}
+
 func TestJSONWriterDecimalPrecision(t *testing.T) {
 	// Every value here needs more than float64's ~15.9 significant digits, the precision
 	// DECIMAL exists to provide.

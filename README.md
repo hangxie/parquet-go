@@ -335,6 +335,16 @@ JSON output is the exact decimal text, trailing zeros included, carried in a `js
 
 Releases up to v3.8.3 routed DECIMAL through `float64`, silently rounding anything past about 16 digits. `9999999999999999.99` was stored as `1000000000000000000`, and the value above read back as `1.2345678901234569e+23`.
 
+### TIME Values
+
+A `TIME` column holds elapsed time since midnight, so the only legal values are `[0, 24h)`: for `TIME_MILLIS` that is `0` through `86399999`, and `86400000` is already out of range.
+
+`JSONWriter`, `CSVWriter`, and the `types.StrToParquetType` helpers accept either a clock string (`23:59:59.999`, `12:34:56.789012345`, or `12:34:56` with no fraction) or a bare count of the column's unit since midnight. A value past the end of the day, or a negative one, fails the write with an `outside [0, 24h)` error, and input that is neither form, `12abc` included, fails with a `parse TIME_MILLIS` error rather than being stored as the digits it happens to start with. `ParquetWriter` over structs and maps stores the integer as given, checking nothing, the same way it handles `UUID` and `DECIMAL`.
+
+`types.JSONTypeToParquetTypeWithLogical` also takes a TIME as a Go number rather than text, and checks it the same way: a fractional or non-finite value fails with a `not a whole number of ticks` error instead of being truncated into the column.
+
+JSON output renders a `TIME` as `HH:MM:SS` with the column's fractional width. An out-of-range value can now only come from another writer; the sign applies to the whole value and the hour field grows past 24, so `-1000` reads as `-00:00:01.000` and 25 hours as `25:00:00.000`, neither of which can be written back as a different value. Releases up to v3.8.3 signed each component separately, rendering `-1000` as `00:00:-1.000` and rewriting that string as `0`, and rewrote their own `25:00:00.000` as `25`.
+
 ### Repetition Types
 
 | Repetition Type | Go Declaration | Description |

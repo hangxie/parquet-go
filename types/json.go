@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
@@ -228,8 +229,8 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	}
 
 	// Try direct type conversion for non-decimal types (avoids fmt.Sprintf/Sscanf round-trip)
-	if result, ok := jsonValueToParquetDirect(val, pT, cT, lT, length); ok {
-		return result, nil
+	if result, ok, err := jsonValueToParquetDirect(val, pT, cT, lT, length); ok {
+		return result, err
 	}
 
 	// Fallback to string-based conversion for complex/unusual types
@@ -316,24 +317,109 @@ func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type) (any, bool) {
 	return nil, false
 }
 
+// isTimeColumn reports whether either annotation marks the column as TIME.
+func isTimeColumn(cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {
+	if lT != nil && lT.IsSetTIME() {
+		return true
+	}
+	return cT != nil && (*cT == parquet.ConvertedType_TIME_MILLIS || *cT == parquet.ConvertedType_TIME_MICROS)
+}
+
+// jsonTimeUnit reports the tick size and spelling of a TIME column described by either
+// annotation. Schema building backfills a matching converted type for a MILLIS or MICROS
+// logical type, so this cannot rely on the logical type alone.
+func jsonTimeUnit(cT *parquet.ConvertedType, lT *parquet.LogicalType) (time.Duration, string, bool) {
+	if lT != nil && lT.IsSetTIME() {
+		if unit, typeName, ok := timeUnitOf(lT.GetTIME()); ok {
+			return unit, typeName, true
+		}
+	}
+	if cT != nil {
+		switch *cT {
+		case parquet.ConvertedType_TIME_MILLIS:
+			return time.Millisecond, "TIME_MILLIS", true
+		case parquet.ConvertedType_TIME_MICROS:
+			return time.Microsecond, "TIME_MICROS", true
+		}
+	}
+	return 0, "", false
+}
+
+// jsonTimeTicks reads a TIME tick count from a JSON number of any kind, keeping the check
+// ahead of the conversion to int64: truncating first would accept 1.9 as 1 and -0.5 as 0,
+// and converting a non-finite or oversized float is undefined in Go.
+func jsonTimeTicks(val reflect.Value, typeName string, ticksPerDay int64) (int64, bool, error) {
+	switch val.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return val.Int(), true, nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if u := val.Uint(); u >= uint64(ticksPerDay) {
+			return 0, true, fmt.Errorf("%s value %d is outside [0, 24h)", typeName, u)
+		}
+		return int64(val.Uint()), true, nil
+	case reflect.Float32, reflect.Float64:
+		f := val.Float()
+		if math.IsNaN(f) || math.IsInf(f, 0) || f != math.Trunc(f) {
+			return 0, true, fmt.Errorf("%s value %v is not a whole number of ticks", typeName, f)
+		}
+		if f < 0 || f >= float64(ticksPerDay) {
+			return 0, true, fmt.Errorf("%s value %v is outside [0, 24h)", typeName, f)
+		}
+		return int64(f), true, nil
+	}
+	return 0, false, nil
+}
+
+// jsonTimeDirect range-checks a TIME carried as a JSON number, which reaches neither
+// ParseTimeString nor the [0, 24h) check the string form goes through.
+func jsonTimeDirect(val reflect.Value, unit time.Duration, typeName string) (any, bool, error) {
+	ticksPerDay := timeTicksPerDay(unit)
+	ticks, ok, err := jsonTimeTicks(val, typeName, ticksPerDay)
+	if !ok || err != nil {
+		return nil, ok, err
+	}
+	if ticks < 0 || ticks >= ticksPerDay {
+		return nil, true, fmt.Errorf("%s value %d is outside [0, 24h)", typeName, ticks)
+	}
+	if unit == time.Millisecond {
+		return int32(ticks), true, nil
+	}
+	return ticks, true, nil
+}
+
 // jsonValueToParquetDirect attempts direct type conversion without string round-trip.
-// Returns (result, true) on success, or (nil, false) if fallback is needed.
-func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, _ int) (any, bool) {
+// Returns (result, true, nil) on success, (nil, false, nil) if fallback is needed, or
+// (nil, true, err) when the value is invalid for the column.
+func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, _ int) (any, bool, error) {
 	if pT == nil {
-		return nil, false
+		return nil, false, nil
+	}
+
+	// TIME comes first: the converted types below hand their values to the string path, which
+	// renders a float64 in %g and reads "4.5296789e+07" as a failed parse rather than a time.
+	if isTimeColumn(cT, lT) {
+		unit, typeName, unitOK := jsonTimeUnit(cT, lT)
+		if !unitOK {
+			// No usable unit: let the string path report the broken schema rather than
+			// storing the number as a plain integer.
+			return nil, false, nil
+		}
+		if result, ok, err := jsonTimeDirect(val, unit, typeName); ok {
+			return result, true, err
+		}
+		return nil, false, nil
 	}
 
 	// Handle converted types that need special treatment (skip time/date/interval types that
 	// need string parsing)
 	if cT != nil {
 		switch *cT {
-		case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS, parquet.ConvertedType_TIME_MICROS,
-			parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS,
-			parquet.ConvertedType_INTERVAL:
-			return nil, false
+		case parquet.ConvertedType_DATE, parquet.ConvertedType_TIMESTAMP_MILLIS,
+			parquet.ConvertedType_TIMESTAMP_MICROS, parquet.ConvertedType_INTERVAL:
+			return nil, false, nil
 		default:
 			if result, ok := jsonConvertedTypeDirect(val, *cT); ok {
-				return result, true
+				return result, true, nil
 			}
 		}
 	}
@@ -343,15 +429,16 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 		case lT.IsSetSTRING(), lT.IsSetENUM(), lT.IsSetJSON():
 			// Text on the wire, same as the converted types above. A schema may carry only
 			// the logical type, so this cannot rely on the ConvertedType backfill.
-			return val.String(), true
+			return val.String(), true, nil
 		case lT.IsSetFLOAT16(), lT.IsSetUUID():
 			// These encode string values (e.g. "9.5", "-Inf", a dashed UUID) that need
 			// strToLogicalType's parsing, not the raw byte-array treatment below.
-			return nil, false
+			return nil, false, nil
 		}
 	}
 
-	return jsonPhysicalTypeDirect(val, *pT)
+	result, ok := jsonPhysicalTypeDirect(val, *pT)
+	return result, ok, nil
 }
 
 // numericType is a constraint for numeric types that can be extracted from reflect.Value.
