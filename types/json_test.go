@@ -2704,3 +2704,212 @@ func TestJSONValueToParquetDirect_EdgeCases(t *testing.T) {
 		})
 	}
 }
+
+// TestJSONTypeToParquetType_TimeNumber covers a TIME carried as a JSON number, which skips
+// the string parser and so needs its own [0, 24h) check.
+func TestJSONTypeToParquetType_TimeNumber(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       any
+		pT          *parquet.Type
+		cT          *parquet.ConvertedType
+		lT          *parquet.LogicalType
+		expected    any
+		expectError bool
+		errMsg      string
+	}{
+		{
+			name:     "millis_in_range",
+			value:    float64(45296789),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			lT:       createTimeLogicalType(true, false, false),
+			expected: int32(45296789),
+		},
+		{
+			name:     "micros_in_range",
+			value:    int64(86399999999),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			lT:       createTimeLogicalType(false, true, false),
+			expected: int64(86399999999),
+		},
+		{
+			name:     "nanos_in_range",
+			value:    int64(45296789012345),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			lT:       createTimeLogicalType(false, false, true),
+			expected: int64(45296789012345),
+		},
+		{
+			name:        "millis_negative",
+			value:       float64(-1000),
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+		},
+		{
+			name:        "millis_past_midnight",
+			value:       float64(90000000),
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+		},
+		{
+			name:        "micros_full_day",
+			value:       int64(86400000000),
+			pT:          parquet.TypePtr(parquet.Type_INT64),
+			lT:          createTimeLogicalType(false, true, false),
+			expectError: true,
+		},
+		{
+			name:        "millis_fractional",
+			value:       1.9,
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+			errMsg:      "not a whole number of ticks",
+		},
+		{
+			// Truncating to int64 first made this a legal 0 instead of a negative TIME.
+			name:        "millis_negative_fraction",
+			value:       -0.5,
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+			errMsg:      "not a whole number of ticks",
+		},
+		{
+			name:        "millis_nan",
+			value:       math.NaN(),
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+			errMsg:      "not a whole number of ticks",
+		},
+		{
+			name:        "millis_inf",
+			value:       math.Inf(1),
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+			errMsg:      "not a whole number of ticks",
+		},
+		{
+			// Past what int64 can hold, where the conversion itself is undefined in Go.
+			name:        "millis_astronomical",
+			value:       1e30,
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+		},
+		{
+			name:        "millis_negative_whole_float",
+			value:       -1.0,
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+		},
+		{
+			// Not a number at all: the clock string goes through the string parser.
+			name:     "millis_clock_string",
+			value:    "12:34:56.789",
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			lT:       createTimeLogicalType(true, false, false),
+			expected: int32(45296789),
+		},
+		{
+			name:     "millis_integral_float",
+			value:    float64(45296789),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			lT:       createTimeLogicalType(true, false, false),
+			expected: int32(45296789),
+		},
+		{
+			name:     "micros_unsigned",
+			value:    uint64(45296789012),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			lT:       createTimeLogicalType(false, true, false),
+			expected: int64(45296789012),
+		},
+		{
+			// A uint64 this large is not representable as int64 at all.
+			name:        "micros_unsigned_astronomical",
+			value:       uint64(math.MaxUint64),
+			pT:          parquet.TypePtr(parquet.Type_INT64),
+			lT:          createTimeLogicalType(false, true, false),
+			expectError: true,
+		},
+		{
+			// Schema building backfills TIME_MILLIS next to the logical type, which is how
+			// every real MILLIS column reaches here.
+			name:     "millis_with_converted_type",
+			value:    float64(45296789),
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
+			lT:       createTimeLogicalType(true, false, false),
+			expected: int32(45296789),
+		},
+		{
+			name:        "millis_with_converted_type_out_of_range",
+			value:       float64(90000000),
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			cT:          parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
+			lT:          createTimeLogicalType(true, false, false),
+			expectError: true,
+		},
+		{
+			name:     "micros_converted_type_only",
+			value:    float64(45296789012),
+			pT:       parquet.TypePtr(parquet.Type_INT64),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MICROS),
+			expected: int64(45296789012),
+		},
+		{
+			name:        "millis_converted_type_only_fractional",
+			value:       1.9,
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			cT:          parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
+			expectError: true,
+			errMsg:      "not a whole number of ticks",
+		},
+		{
+			name:     "millis_converted_type_only_clock_string",
+			value:    "12:34:56.789",
+			pT:       parquet.TypePtr(parquet.Type_INT32),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
+			expected: int32(45296789),
+		},
+		{
+			name:        "empty_unit_rejected",
+			value:       int64(123456789),
+			pT:          parquet.TypePtr(parquet.Type_INT64),
+			lT:          &parquet.LogicalType{TIME: &parquet.TimeType{Unit: parquet.NewTimeUnit()}},
+			expectError: true,
+			errMsg:      "time unit not set",
+		},
+		{
+			name:        "nil_unit_rejected",
+			value:       int64(123456789),
+			pT:          parquet.TypePtr(parquet.Type_INT64),
+			lT:          &parquet.LogicalType{TIME: &parquet.TimeType{}},
+			expectError: true,
+			errMsg:      "time unit not set",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := JSONTypeToParquetTypeWithLogical(reflect.ValueOf(tt.value), tt.pT, tt.cT, tt.lT, 0, 0)
+			if tt.expectError {
+				require.Error(t, err)
+				errMsg := tt.errMsg
+				if errMsg == "" {
+					errMsg = "outside [0, 24h)"
+				}
+				require.Contains(t, err.Error(), errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}

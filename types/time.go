@@ -1,7 +1,10 @@
 package types
 
 import (
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -50,30 +53,82 @@ func fromJulianDay(days int32, nanos int64) time.Time {
 	return t.UTC()
 }
 
-func TIME_MILLISToTimeFormat(millis int32) string {
-	totalNanos := int64(millis) * int64(time.Millisecond)
-	hours := totalNanos / int64(time.Hour)
-	totalNanos %= int64(time.Hour)
-	minutes := totalNanos / int64(time.Minute)
-	totalNanos %= int64(time.Minute)
-	seconds := totalNanos / int64(time.Second)
-	totalNanos %= int64(time.Second)
-	nanos := totalNanos
+// formatTimeOfDay renders ticks since midnight, where perSecond ticks make a second and
+// fracDigits is the width of the fractional field.
+func formatTimeOfDay(ticks int64, perSecond uint64, fracDigits int) string {
+	// A TIME outside [0, 24h) is not writable through this library, but a file from another
+	// writer can carry one: keep the sign in front of the whole value and let the hour field
+	// grow past 24, so the string never reads as a different time than the one stored.
+	sign, mag := "", uint64(ticks)
+	if ticks < 0 {
+		// negating the magnitude rather than the signed value keeps math.MinInt64 in range
+		sign, mag = "-", -mag
+	}
 
-	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, nanos/int64(time.Millisecond))
+	seconds := mag / perSecond
+	return fmt.Sprintf("%s%02d:%02d:%02d.%0*d", sign, seconds/3600, seconds/60%60, seconds%60, fracDigits, mag%perSecond)
+}
+
+func TIME_MILLISToTimeFormat(millis int32) string {
+	return formatTimeOfDay(int64(millis), uint64(time.Second/time.Millisecond), 3)
 }
 
 func TIME_MICROSToTimeFormat(micros int64) string {
-	totalNanos := micros * int64(time.Microsecond)
-	hours := totalNanos / int64(time.Hour)
-	totalNanos %= int64(time.Hour)
-	minutes := totalNanos / int64(time.Minute)
-	totalNanos %= int64(time.Minute)
-	seconds := totalNanos / int64(time.Second)
-	totalNanos %= int64(time.Second)
-	nanos := totalNanos
+	return formatTimeOfDay(micros, uint64(time.Second/time.Microsecond), 6)
+}
 
-	return fmt.Sprintf("%02d:%02d:%02d.%06d", hours, minutes, seconds, nanos/int64(time.Microsecond))
+// timeUnitOf reports the tick size and spelling of a TIME column's unit.
+func timeUnitOf(t *parquet.TimeType) (time.Duration, string, bool) {
+	if t == nil || t.Unit == nil {
+		return 0, "", false
+	}
+	switch {
+	case t.Unit.IsSetMILLIS():
+		return time.Millisecond, "TIME_MILLIS", true
+	case t.Unit.IsSetMICROS():
+		return time.Microsecond, "TIME_MICROS", true
+	case t.Unit.IsSetNANOS():
+		return time.Nanosecond, "TIME_NANOS", true
+	}
+	return 0, "", false
+}
+
+// timeTicksPerDay is the number of unit-sized ticks in the 24 hours a TIME value spans.
+func timeTicksPerDay(unit time.Duration) int64 {
+	return int64(24 * time.Hour / unit)
+}
+
+// parseTimeOfDay scans a TIME value written as either a clock string or a bare count of
+// unit-sized ticks since midnight, rejecting anything outside the [0, 24h) the spec allows.
+func parseTimeOfDay(s, typeName string, unit time.Duration) (int64, error) {
+	// ParseTimeString only accepts hours 00-23, so a value it returns is always in range.
+	nanos, parseErr := ParseTimeString(s)
+	if parseErr == nil {
+		return nanos / int64(unit), nil
+	}
+
+	// A MILLIS column stores its ticks in an INT32 and the whole day fits there, so parse at
+	// the width the column actually has: the narrowing the callers do is then safe by
+	// construction rather than by the range check below.
+	bitSize := 64
+	if unit == time.Millisecond {
+		bitSize = 32
+	}
+
+	// Sscanf used to take the leading digits of whatever it was handed, so the reader's own
+	// "25:00:00.000" came back as 25 and "12abc" as 12; ParseInt refuses both.
+	ticks, err := strconv.ParseInt(strings.TrimSpace(s), 10, bitSize)
+	switch {
+	case errors.Is(err, strconv.ErrRange):
+		// Too wide for the column, and so far past the end of the day that the range is the
+		// useful thing to report rather than the scan failure.
+		return 0, fmt.Errorf("%s %q is outside [0, 24h)", typeName, s)
+	case err != nil:
+		return 0, fmt.Errorf("parse %s %q: %w", typeName, s, parseErr)
+	case ticks < 0 || ticks >= timeTicksPerDay(unit):
+		return 0, fmt.Errorf("%s %q is outside [0, 24h)", typeName, s)
+	}
+	return ticks, nil
 }
 
 // ParseTimeString parses a time string in format \"HH:MM:SS\" or \"HH:MM:SS.sssssssss\"
@@ -110,16 +165,7 @@ func ConvertTimeLogicalValue(val any, timeType *parquet.TimeType) any {
 		}
 		if timeType.Unit.IsSetNANOS() {
 			if v, ok := val.(int64); ok {
-				totalNanos := v
-				hours := totalNanos / int64(time.Hour)
-				totalNanos %= int64(time.Hour)
-				minutes := totalNanos / int64(time.Minute)
-				totalNanos %= int64(time.Minute)
-				seconds := totalNanos / int64(time.Second)
-				totalNanos %= int64(time.Second)
-				nanos := totalNanos
-
-				return fmt.Sprintf("%02d:%02d:%02d.%09d", hours, minutes, seconds, nanos)
+				return formatTimeOfDay(v, uint64(time.Second/time.Nanosecond), 9)
 			}
 		}
 	}
@@ -128,29 +174,13 @@ func ConvertTimeLogicalValue(val any, timeType *parquet.TimeType) any {
 }
 
 func strToTimeLogical(s string, t *parquet.TimeType) (any, error) {
-	if t.Unit == nil {
+	unit, typeName, ok := timeUnitOf(t)
+	if !ok {
 		return nil, fmt.Errorf("time unit not set")
 	}
-	if nanos, err := ParseTimeString(s); err == nil {
-		switch {
-		case t.Unit.IsSetNANOS():
-			return nanos, nil
-		case t.Unit.IsSetMICROS():
-			return nanos / int64(time.Microsecond), nil
-		case t.Unit.IsSetMILLIS():
-			return int32(nanos / int64(time.Millisecond)), nil
-		}
+	v, err := parseTimeOfDay(s, typeName, unit)
+	if unit == time.Millisecond {
+		return int32(v), err
 	}
-	if t.Unit.IsSetMILLIS() {
-		var v int32
-		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
-			return v, fmt.Errorf("parse TIME_MILLIS %q: %w", s, err)
-		}
-		return v, nil
-	}
-	var v int64
-	if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
-		return v, fmt.Errorf("parse time %q: %w", s, err)
-	}
-	return v, nil
+	return v, err
 }

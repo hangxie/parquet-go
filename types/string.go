@@ -120,12 +120,8 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return int32(v), wrapScanErr("DATE", s, err)
 	case parquet.ConvertedType_TIME_MILLIS:
-		if nanos, err := ParseTimeString(s); err == nil {
-			return int32(nanos / int64(time.Millisecond)), nil
-		}
-		var v int32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("TIME_MILLIS", s, err)
+		v, err := parseTimeOfDay(s, "TIME_MILLIS", time.Millisecond)
+		return int32(v), err
 	case parquet.ConvertedType_UINT_64:
 		var vt uint64
 		_, err := fmt.Sscanf(s, "%d", &vt)
@@ -135,12 +131,7 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		_, err := fmt.Sscanf(s, "%d", &v)
 		return v, wrapScanErr("INT_64", s, err)
 	case parquet.ConvertedType_TIME_MICROS:
-		if nanos, err := ParseTimeString(s); err == nil {
-			return nanos / int64(time.Microsecond), nil
-		}
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("TIME_MICROS", s, err)
+		return parseTimeOfDay(s, "TIME_MICROS", time.Microsecond)
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			return t.UnixNano() / int64(time.Millisecond), nil
@@ -198,8 +189,10 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		return v, err == nil, err
 	}
 	if lT.IsSetTIME() {
+		// Claim the value even when it fails: falling through to the physical INT32/INT64
+		// scan would take "25:00:00.000" as 25 rather than report the out-of-range TIME.
 		v, err := strToTimeLogical(s, lT.GetTIME())
-		return v, err == nil, err
+		return v, true, err
 	}
 	if lT.IsSetDATE() {
 		if v, err := ParseDateString(s); err == nil {

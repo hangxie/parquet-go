@@ -197,8 +197,8 @@ func TestStrToParquetType(t *testing.T) {
 		},
 		{
 			name:           "time-millis-converted",
-			inputStr:       "86400000",
-			expectedGoData: int32(86400000),
+			inputStr:       "86399999",
+			expectedGoData: int32(86399999),
 			parquetType:    parquet.TypePtr(parquet.Type_INT32),
 			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS),
 		},
@@ -211,8 +211,8 @@ func TestStrToParquetType(t *testing.T) {
 		},
 		{
 			name:           "time-micros-converted",
-			inputStr:       "86400000000",
-			expectedGoData: int64(86400000000),
+			inputStr:       "86399999999",
+			expectedGoData: int64(86399999999),
 			parquetType:    parquet.TypePtr(parquet.Type_INT64),
 			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MICROS),
 		},
@@ -701,14 +701,6 @@ func TestStrToParquetTypeWithLogical_Comprehensive(t *testing.T) {
 			lT:       &parquet.LogicalType{TIMESTAMP: &parquet.TimestampType{}},
 			expected: int64(123456789),
 		},
-		// Nil unit: strToTimeLogical returns error, falls back to StrToParquetType
-		{
-			name:     "time_nil_unit_fallback",
-			s:        "123456789",
-			pT:       parquet.TypePtr(parquet.Type_INT64),
-			lT:       &parquet.LogicalType{TIME: &parquet.TimeType{}},
-			expected: int64(123456789),
-		},
 		{
 			name:     "integer_int8",
 			s:        "123",
@@ -904,9 +896,9 @@ func TestStrToParquetTypeWithLogical_Errors(t *testing.T) {
 	}
 }
 
-// TestStrToTimeLogical_Errors covers the wrapped Sscanf-failure paths in
-// strToTimeLogical. Reached directly because strToLogicalType swallows these
-// errors as fallthrough signals to StrToParquetType.
+// TestStrToTimeLogical_Errors covers the parse and range failures in strToTimeLogical.
+// A TIME string that fails here is reported rather than handed to the physical scan,
+// which would read "25:00:00.000" as 25.
 func TestStrToTimeLogical_Errors(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -924,13 +916,43 @@ func TestStrToTimeLogical_Errors(t *testing.T) {
 			name:   "micros_invalid",
 			s:      "not-a-time",
 			t:      createTimeLogicalType(false, true, false).GetTIME(),
-			errMsg: "parse time",
+			errMsg: "parse TIME_MICROS",
 		},
 		{
 			name:   "nanos_invalid",
 			s:      "not-a-time",
 			t:      createTimeLogicalType(false, false, true).GetTIME(),
-			errMsg: "parse time",
+			errMsg: "parse TIME_NANOS",
+		},
+		{
+			name:   "nil_unit",
+			s:      "123456789",
+			t:      &parquet.TimeType{},
+			errMsg: "time unit not set",
+		},
+		{
+			name:   "empty_unit",
+			s:      "123456789",
+			t:      &parquet.TimeType{Unit: parquet.NewTimeUnit()},
+			errMsg: "time unit not set",
+		},
+		{
+			name:   "millis_negative",
+			s:      "-1000",
+			t:      createTimeLogicalType(true, false, false).GetTIME(),
+			errMsg: "outside [0, 24h)",
+		},
+		{
+			name:   "micros_full_day",
+			s:      "86400000000",
+			t:      createTimeLogicalType(false, true, false).GetTIME(),
+			errMsg: "outside [0, 24h)",
+		},
+		{
+			name:   "nanos_full_day",
+			s:      "86400000000000",
+			t:      createTimeLogicalType(false, false, true).GetTIME(),
+			errMsg: "outside [0, 24h)",
 		},
 	}
 	for _, tt := range tests {
