@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 func TestJSONWriter(t *testing.T) {
@@ -503,6 +505,123 @@ func TestJSONWriterIntervalRejectsMalformed(t *testing.T) {
 			err = jw.WriteStop()
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "parse INTERVAL")
+		})
+	}
+}
+
+func TestJSONWriterDecimalPrecision(t *testing.T) {
+	// Every value here needs more than float64's ~15.9 significant digits, the precision
+	// DECIMAL exists to provide.
+	testCases := map[string]struct {
+		field    string
+		value    string
+		unscaled string
+		length   int
+	}{
+		"int64_scale_0": {
+			field:    "type=INT64, convertedtype=DECIMAL, scale=0, precision=18",
+			value:    "999999999999999999",
+			unscaled: "999999999999999999",
+		},
+		"int64_scale_2": {
+			field:    "type=INT64, convertedtype=DECIMAL, scale=2, precision=18",
+			value:    `"9999999999999999.99"`,
+			unscaled: "999999999999999999",
+		},
+		"flba_scale_2": {
+			field:    "type=FIXED_LEN_BYTE_ARRAY, convertedtype=DECIMAL, scale=2, precision=38, length=16",
+			value:    `"123456789012345678901234.56"`,
+			unscaled: "12345678901234567890123456",
+			length:   16,
+		},
+		"flba_logicaltype": {
+			field:    "type=FIXED_LEN_BYTE_ARRAY, logicaltype=DECIMAL, logicaltype.precision=38, logicaltype.scale=2, length=16",
+			value:    `"-123456789012345678901234.56"`,
+			unscaled: "-12345678901234567890123456",
+			length:   16,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			jsonSchema := fmt.Sprintf(`{
+				"Tag": "name=parquet-go-root",
+				"Fields": [
+					{"Tag": "name=v, %s"}
+				]
+			}`, tc.field)
+
+			var buf bytes.Buffer
+			jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+			require.NoError(t, err)
+			require.NoError(t, jw.Write(fmt.Sprintf(`{"v": %s}`, tc.value)))
+			require.NoError(t, jw.WriteStop())
+
+			pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+			//nolint:staticcheck
+			pr, err := reader.NewParquetReader(pf, nil, reader.WithNP(1))
+			require.NoError(t, err)
+
+			values, _, _, err := pr.ReadColumnByPathWithContext(t.Context(), "parquet-go-root"+common.ParGoPathDelimiter+"v", 1)
+			require.NoError(t, err)
+			require.Len(t, values, 1)
+			if tc.length == 0 {
+				expected, ok := new(big.Int).SetString(tc.unscaled, 10)
+				require.True(t, ok)
+				require.Equal(t, expected.Int64(), values[0])
+			} else {
+				require.Equal(t, types.StrIntToBinary(tc.unscaled, "BigEndian", tc.length, true), values[0])
+			}
+
+			//nolint:staticcheck
+			_ = pr.ReadStop()
+			_ = pf.Close()
+		})
+	}
+}
+
+func TestJSONWriterDecimalRejectsOutOfRange(t *testing.T) {
+	for name, tc := range map[string]struct {
+		field  string
+		value  string
+		errMsg string
+	}{
+		"not_a_number": {
+			field:  "type=INT64, convertedtype=DECIMAL, scale=2, precision=18",
+			value:  `"not a number"`,
+			errMsg: "parse DECIMAL",
+		},
+		"exceeds_precision": {
+			field:  "type=INT32, convertedtype=DECIMAL, scale=0, precision=9",
+			value:  "99999999999",
+			errMsg: "exceeds precision 9",
+		},
+		"int32_overflow": {
+			field:  "type=INT32, convertedtype=DECIMAL, scale=0, precision=11",
+			value:  "99999999999",
+			errMsg: "does not fit in INT32",
+		},
+		"flba_too_narrow": {
+			field:  "type=FIXED_LEN_BYTE_ARRAY, convertedtype=DECIMAL, scale=2, precision=38, length=4",
+			value:  `"123456789012345678901234.56"`,
+			errMsg: "does not fit in 4 bytes",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			jsonSchema := fmt.Sprintf(`{
+				"Tag": "name=parquet-go-root",
+				"Fields": [
+					{"Tag": "name=v, %s"}
+				]
+			}`, tc.field)
+
+			var buf bytes.Buffer
+			jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+			require.NoError(t, err)
+			require.NoError(t, jw.Write(fmt.Sprintf(`{"v": %s}`, tc.value)))
+			err = jw.WriteStop()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.errMsg)
 		})
 	}
 }

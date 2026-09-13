@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -128,4 +129,422 @@ func TestDECIMAL_BYTE_ARRAY_ToString_DoesNotMutateInput(t *testing.T) {
 
 	// Verify the input slice was NOT mutated
 	require.Equal(t, inputCopy, input, "DECIMAL_BYTE_ARRAY_ToString should not mutate input slice")
+}
+
+func TestDecimalExactWrite(t *testing.T) {
+	tests := []struct {
+		name      string
+		s         string
+		pT        *parquet.Type
+		precision int32
+		scale     int32
+		length    int
+		expected  any
+		errMsg    string
+	}{
+		{
+			name:      "int64_full_18_digits",
+			s:         "999999999999999999",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     0,
+			expected:  int64(999999999999999999),
+		},
+		{
+			name:      "int64_full_18_digits_scaled",
+			s:         "9999999999999999.99",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(999999999999999999),
+		},
+		{
+			name:      "int32_full_9_digits",
+			s:         "9999999.99",
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			precision: 9,
+			scale:     2,
+			expected:  int32(999999999),
+		},
+		{
+			name:      "flba_38_digits",
+			s:         "123456789012345678901234.56",
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			precision: 38,
+			scale:     2,
+			length:    16,
+			expected:  StrIntToBinary("12345678901234567890123456", "BigEndian", 16, true),
+		},
+		{
+			name:      "byte_array_38_digits_negative",
+			s:         "-123456789012345678901234.56",
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			precision: 38,
+			scale:     2,
+			expected:  StrIntToBinary("-12345678901234567890123456", "BigEndian", 0, true),
+		},
+		{
+			name:      "exponent_form",
+			s:         "1.2345e3",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(123450),
+		},
+		{
+			name:      "signed_exponent",
+			s:         "1.2345e+3",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(123450),
+		},
+		{
+			name:      "negative_exponent",
+			s:         "1234500E-3",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(123450),
+		},
+		{
+			name:      "extra_digits_round_half_away_from_zero",
+			s:         "1.235",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(124),
+		},
+		{
+			name:      "extra_digits_round_negative",
+			s:         "-1.235",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(-124),
+		},
+		{
+			name:      "leading_radix_point",
+			s:         ".5",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(50),
+		},
+		{
+			name:      "trailing_radix_point",
+			s:         "12.",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(1200),
+		},
+		{
+			name:      "surrounding_space",
+			s:         "  12.34  ",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  int64(1234),
+		},
+		{
+			name:      "malformed",
+			s:         "not-a-number",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "fraction",
+			s:         "1/2",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "hexadecimal",
+			s:         "0x10",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "binary",
+			s:         "0b101",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "digit_separators",
+			s:         "1_000",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "empty",
+			s:         "",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "radix_point_only",
+			s:         ".",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "exponent_without_digits",
+			s:         "1.5e",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "trailing_garbage",
+			s:         "1.5x",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "exponent_out_of_range",
+			s:         "1e999999999999999999999999999",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "exponent out of range",
+		},
+		{
+			name:      "not_a_number_literal",
+			s:         "NaN",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			errMsg:    "parse DECIMAL",
+		},
+		{
+			name:      "exceeds_declared_precision",
+			s:         "99.99",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 3,
+			scale:     2,
+			errMsg:    `DECIMAL "99.99" exceeds precision 3`,
+		},
+		{
+			name:      "fills_declared_precision",
+			s:         "9.99",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 3,
+			scale:     2,
+			expected:  int64(999),
+		},
+		{
+			name:      "exceeds_declared_precision_negative",
+			s:         "-99.99",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 3,
+			scale:     2,
+			errMsg:    "exceeds precision 3",
+		},
+		{
+			name:      "exceeds_declared_precision_byte_array",
+			s:         "123456789012345678901234.56",
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			precision: 20,
+			scale:     2,
+			errMsg:    "exceeds precision 20",
+		},
+		{
+			name:      "int64_overflow",
+			s:         "99999999999999999999999",
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 23,
+			scale:     0,
+			errMsg:    "does not fit in INT64",
+		},
+		{
+			name:      "int32_overflow",
+			s:         "99999999999",
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			precision: 11,
+			scale:     0,
+			errMsg:    "does not fit in INT32",
+		},
+		{
+			name:      "flba_too_narrow",
+			s:         "123456789012345678901234.56",
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			precision: 38,
+			scale:     2,
+			length:    8,
+			errMsg:    "does not fit",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lT := createDecimalLogicalType(tt.precision, tt.scale)
+			got, err := StrToParquetTypeWithLogical(tt.s, tt.pT, nil, lT, tt.length, int(tt.scale))
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, got)
+
+			// the ConvertedType path must agree with the LogicalType path
+			cT := parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL)
+			gotCT, err := StrToParquetType(tt.s, tt.pT, cT, tt.length, int(tt.scale))
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, gotCT)
+		})
+	}
+}
+
+func TestDecimalConvertedTypePrecisionUnchecked(t *testing.T) {
+	// A ConvertedType DECIMAL carries no precision, so the digit count cannot be
+	// checked on that path; schemas built from a tag always get the LogicalType too.
+	pT := parquet.TypePtr(parquet.Type_INT64)
+	cT := parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL)
+
+	got, err := StrToParquetType("99.99", pT, cT, 0, 2)
+	require.NoError(t, err)
+	require.Equal(t, int64(9999), got)
+
+	_, err = StrToParquetTypeWithLogical("99.99", pT, cT, createDecimalLogicalType(3, 2), 0, 2)
+	require.ErrorContains(t, err, "exceeds precision 3")
+}
+
+func TestDecimalExactRead(t *testing.T) {
+	tests := []struct {
+		name      string
+		val       any
+		pT        *parquet.Type
+		precision int
+		scale     int
+		expected  any
+	}{
+		{
+			name:      "int32",
+			val:       int32(12345),
+			pT:        parquet.TypePtr(parquet.Type_INT32),
+			precision: 9,
+			scale:     2,
+			expected:  json.Number("123.45"),
+		},
+		{
+			name:      "int64_beyond_float64",
+			val:       int64(999999999999999999),
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     0,
+			expected:  json.Number("999999999999999999"),
+		},
+		{
+			name:      "int64_scaled_beyond_float64",
+			val:       int64(999999999999999999),
+			pT:        parquet.TypePtr(parquet.Type_INT64),
+			precision: 18,
+			scale:     2,
+			expected:  json.Number("9999999999999999.99"),
+		},
+		{
+			name:      "flba_38_digits",
+			val:       StrIntToBinary("12345678901234567890123456", "BigEndian", 16, true),
+			pT:        parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			precision: 38,
+			scale:     2,
+			expected:  json.Number("123456789012345678901234.56"),
+		},
+		{
+			name:      "byte_array_bytes_input",
+			val:       []byte(StrIntToBinary("12345", "BigEndian", 0, true)),
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			precision: 10,
+			scale:     2,
+			expected:  json.Number("123.45"),
+		},
+		{
+			name:      "byte_array_unpadded",
+			val:       string([]byte{0x01, 0x23, 0x45}),
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			precision: 5,
+			scale:     2,
+			expected:  json.Number("745.65"),
+		},
+		{
+			name:      "byte_array_negative_one_unscaled",
+			val:       string([]byte{0xFF, 0xFF, 0xFF, 0xFF}),
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			precision: 10,
+			scale:     5,
+			expected:  json.Number("-0.00001"),
+		},
+		{
+			name:      "byte_array_negative",
+			val:       StrIntToBinary("-12345678901234567890123456", "BigEndian", 0, true),
+			pT:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			precision: 38,
+			scale:     2,
+			expected:  json.Number("-123456789012345678901234.56"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ConvertDecimalValue(tt.val, tt.pT, tt.precision, tt.scale)
+			require.Equal(t, tt.expected, got)
+
+			// the JSON form must be a bare number carrying every digit
+			buf, err := json.Marshal(got)
+			require.NoError(t, err)
+			require.Equal(t, string(tt.expected.(json.Number)), string(buf))
+		})
+	}
+}
+
+func TestDecimalUnsupportedValue(t *testing.T) {
+	// a value whose Go type does not back the physical type passes through untouched
+	pT := parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+	require.Equal(t, float32(123.45), ConvertDecimalValue(float32(123.45), pT, 10, 2))
+}
+
+func TestDecimalRoundTrip(t *testing.T) {
+	values := []struct {
+		s         string
+		pT        *parquet.Type
+		precision int32
+		scale     int32
+		length    int
+	}{
+		{"999999999999999999", parquet.TypePtr(parquet.Type_INT64), 18, 0, 0},
+		{"-9999999999999999.99", parquet.TypePtr(parquet.Type_INT64), 18, 2, 0},
+		{"9999999.99", parquet.TypePtr(parquet.Type_INT32), 9, 2, 0},
+		{"123456789012345678901234.56", parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY), 38, 2, 16},
+		{"-99999999999999999999999999999999999.999", parquet.TypePtr(parquet.Type_BYTE_ARRAY), 38, 3, 0},
+		{"0.00", parquet.TypePtr(parquet.Type_BYTE_ARRAY), 38, 2, 0},
+	}
+
+	for _, v := range values {
+		t.Run(v.s, func(t *testing.T) {
+			lT := createDecimalLogicalType(v.precision, v.scale)
+			stored, err := StrToParquetTypeWithLogical(v.s, v.pT, nil, lT, v.length, int(v.scale))
+			require.NoError(t, err)
+			got := ConvertDecimalValue(stored, v.pT, int(v.precision), int(v.scale))
+			require.Equal(t, json.Number(v.s), got)
+		})
+	}
 }
