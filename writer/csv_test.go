@@ -216,3 +216,43 @@ func TestCSVWriter(t *testing.T) {
 		}
 	})
 }
+
+func TestCSVWriterFixedLenByteArrayWidth(t *testing.T) {
+	testCases := map[string]struct {
+		value  string
+		errMsg string
+	}{
+		"raw-width-match": {
+			// Valid base64, but 16 raw characters is what the column takes.
+			"0123456789abcdef", "",
+		},
+		"base64-width-match": {
+			"YWJjZGVmZ2hpamtsbW5vcA==", "",
+		},
+		"neither-width-matches": {
+			"abc", `FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 16`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			cw, err := NewCSVWriter(
+				[]string{"name=V, type=FIXED_LEN_BYTE_ARRAY, length=16"},
+				writerfile.NewWriterFile(&buf), WithNP(1),
+			)
+			require.NoError(t, err)
+
+			// A width the converter cannot satisfy is reported here, not once the
+			// page is built from a value the caller never supplied.
+			err = cw.WriteString([]*string{common.ToPtr(tc.value)})
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, cw.WriteStop())
+		})
+	}
+}

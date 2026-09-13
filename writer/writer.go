@@ -366,6 +366,9 @@ func NewParquetWriterWithContext(ctx context.Context, pFile source.ParquetFileWr
 		}
 	}
 
+	if err := res.validateSchemaForWrite(); err != nil {
+		return nil, fmt.Errorf("validate schema: %w", err)
+	}
 	if err := res.buildColumnCompressors(); err != nil {
 		return nil, fmt.Errorf("build column compressors: %w", err)
 	}

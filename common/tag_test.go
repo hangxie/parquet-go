@@ -842,13 +842,39 @@ func TestNewSchemaElementFromTagMap_FixedWidthDefaults(t *testing.T) {
 		expected int32
 		errMsg   string
 	}{
-		"uuid-length-omitted":      {"name=v, type=FIXED_LEN_BYTE_ARRAY, logicaltype=UUID", 16, ""},
-		"uuid-length-given":        {"name=v, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID", 16, ""},
-		"float16-length-omitted":   {"name=v, type=FIXED_LEN_BYTE_ARRAY, logicaltype=FLOAT16", 2, ""},
-		"float16-length-given":     {"name=v, type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16", 2, ""},
-		"interval-length-omitted":  {"name=v, type=FIXED_LEN_BYTE_ARRAY, convertedtype=INTERVAL", 12, ""},
-		"interval-length-given":    {"name=v, type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL", 12, ""},
-		"unannotated-flba-omitted": {"name=v, type=FIXED_LEN_BYTE_ARRAY", 0, ""},
+		"uuid-length-omitted": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, logicaltype=UUID", 16, "",
+		},
+		"uuid-length-given": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID", 16, "",
+		},
+		"float16-length-omitted": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, logicaltype=FLOAT16", 2, "",
+		},
+		"float16-length-given": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16", 2, "",
+		},
+		"interval-length-omitted": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, convertedtype=INTERVAL", 12, "",
+		},
+		"interval-length-given": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL", 12, "",
+		},
+		"unannotated-flba-given": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=4", 4, "",
+		},
+		"unannotated-flba-omitted": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY", 0,
+			"FIXED_LEN_BYTE_ARRAY requires a positive length, got 0",
+		},
+		"unannotated-flba-length-zero": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=0", 0,
+			"FIXED_LEN_BYTE_ARRAY requires a positive length, got 0",
+		},
+		"unannotated-flba-length-negative": {
+			"name=v, type=FIXED_LEN_BYTE_ARRAY, length=-1", 0,
+			"FIXED_LEN_BYTE_ARRAY requires a positive length, got -1",
+		},
 		"uuid-on-byte-array": {
 			"name=v, type=BYTE_ARRAY, logicaltype=UUID", 0,
 			"LogicalType UUID can only be used with FIXED_LEN_BYTE_ARRAY",

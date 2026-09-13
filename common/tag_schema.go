@@ -321,6 +321,15 @@ func ValidateSchemaElement(schema *parquet.SchemaElement) error {
 		return fmt.Errorf("validate converted type: %w", err)
 	}
 
+	// Checked after the annotations so that a UUID, FLOAT16, or INTERVAL column
+	// reports the width its annotation fixes rather than this generic message. The
+	// width is what a FIXED_LEN_BYTE_ARRAY column is decoded and encoded with, so a
+	// zero-width declaration is unusable in either direction: values written to it
+	// come back empty, and reading a file through it decodes every value as empty.
+	if *schema.Type == parquet.Type_FIXED_LEN_BYTE_ARRAY && schema.GetTypeLength() <= 0 {
+		return fmt.Errorf("field [%s]: FIXED_LEN_BYTE_ARRAY requires a positive length, got %d", schema.Name, schema.GetTypeLength())
+	}
+
 	return nil
 }
 

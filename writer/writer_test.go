@@ -800,3 +800,64 @@ func TestDeprecatedMinMaxBySortOrder(t *testing.T) {
 		require.Nil(t, stats.Max, name)
 	}
 }
+
+func TestWriteFixedLenByteArrayValueWidth(t *testing.T) {
+	type uuidRow struct {
+		ID string `parquet:"name=ID, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID"`
+	}
+	type dictRow struct {
+		ID string `parquet:"name=ID, type=FIXED_LEN_BYTE_ARRAY, length=16, encoding=RLE_DICTIONARY"`
+	}
+
+	testCases := map[string]struct {
+		obj    any
+		value  string
+		opts   []WriterOption
+		errMsg string
+	}{
+		"exact":              {new(uuidRow), "0123456789abcdef", nil, ""},
+		"too-long":           {new(uuidRow), "0123456789abcdefGHIJ", nil, "value of length 20 does not match column length 16"},
+		"too-short":          {new(uuidRow), "abc", nil, "value of length 3 does not match column length 16"},
+		"empty":              {new(uuidRow), "", nil, "value of length 0 does not match column length 16"},
+		"page-v2-exact":      {new(uuidRow), "0123456789abcdef", []WriterOption{WithDataPageVersion(2)}, ""},
+		"page-v2-too-short":  {new(uuidRow), "abc", []WriterOption{WithDataPageVersion(2)}, "value of length 3 does not match column length 16"},
+		"dictionary-exact":   {new(dictRow), "0123456789abcdef", nil, ""},
+		"dictionary-short":   {new(dictRow), "abc", nil, "value of length 3 does not match column length 16"},
+		"dictionary-v2-long": {new(dictRow), "0123456789abcdefGHIJ", []WriterOption{WithDataPageVersion(2)}, "value of length 20 does not match column length 16"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			pw, buf, err := createTestParquetWriter(tc.obj, append([]WriterOption{WithNP(1)}, tc.opts...)...)
+			require.NoError(t, err)
+
+			// Pages are built at flush time, so a wrong-width value is reported by
+			// Write or WriteStop depending on when the row group is flushed.
+			err = errors.Join(pw.Write(rowWithValue(tc.obj, tc.value)), pw.WriteStop())
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+
+			pr, pf, err := createTestParquetReader(buf.Bytes(), tc.obj, reader.WithNP(1))
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, pf.Close())
+			}()
+			require.Equal(t, int64(1), pr.GetNumRows())
+			rows := reflect.New(reflect.SliceOf(reflect.TypeOf(tc.obj).Elem()))
+			rows.Elem().Set(reflect.MakeSlice(rows.Type().Elem(), 1, 1))
+			require.NoError(t, pr.ReadWithContext(context.Background(), rows.Interface()))
+			require.Equal(t, tc.value, rows.Elem().Index(0).Field(0).String())
+		})
+	}
+}
+
+// rowWithValue returns a row of obj's element type with its single string field set to value.
+func rowWithValue(obj any, value string) any {
+	row := reflect.New(reflect.TypeOf(obj).Elem()).Elem()
+	row.Field(0).SetString(value)
+	return row.Interface()
+}

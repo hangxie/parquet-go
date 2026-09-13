@@ -283,7 +283,7 @@ func jsonConvertedTypeDirect(val reflect.Value, cT parquet.ConvertedType) (any, 
 }
 
 // jsonPhysicalTypeDirect handles direct conversion for basic parquet physical types.
-func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type) (any, bool) {
+func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type, length int) (any, bool) {
 	switch pT {
 	case parquet.Type_BOOLEAN:
 		if val.Kind() == reflect.Bool {
@@ -305,13 +305,21 @@ func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type) (any, bool) {
 		if v, ok := getNumericValue[float64](val); ok {
 			return v, true
 		}
-	case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+	case parquet.Type_BYTE_ARRAY:
 		if val.Kind() == reflect.String {
 			s := val.String()
 			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
 				return string(decoded), true
 			}
 			return s, true
+		}
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		if val.Kind() == reflect.String {
+			// A value that matches neither reading of the column width falls through
+			// to the string path, which reports it.
+			if v, err := strToFixedLenByteArray(val.String(), length); err == nil {
+				return v, true
+			}
 		}
 	}
 	return nil, false
@@ -390,7 +398,7 @@ func jsonTimeDirect(val reflect.Value, unit time.Duration, typeName string) (any
 // jsonValueToParquetDirect attempts direct type conversion without string round-trip.
 // Returns (result, true, nil) on success, (nil, false, nil) if fallback is needed, or
 // (nil, true, err) when the value is invalid for the column.
-func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, _ int) (any, bool, error) {
+func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int) (any, bool, error) {
 	if pT == nil {
 		return nil, false, nil
 	}
@@ -437,7 +445,7 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 		}
 	}
 
-	result, ok := jsonPhysicalTypeDirect(val, *pT)
+	result, ok := jsonPhysicalTypeDirect(val, *pT, length)
 	return result, ok, nil
 }
 
