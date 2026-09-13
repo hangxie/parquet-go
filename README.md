@@ -317,6 +317,24 @@ Any other input fails the write with a `parse UUID` error, including a 38-byte s
 
 JSON output renders UUID columns as canonical dashed strings, so values read that way can be written back without conversion.
 
+### DECIMAL Values
+
+A `DECIMAL` column stores an unscaled integer and a fixed `scale`. Every conversion here carries that integer as a `big.Int`, so a `DECIMAL(38, 2)` stays exact end to end.
+
+`JSONWriter`, `CSVWriter`, and the `types.StrToParquetType` helpers parse decimal text at arbitrary precision. Plain (`123.45`) and exponent (`1.2345e2`) forms are both accepted. Digits below the column's scale are rounded half away from zero, the rule SQL engines use when casting to a narrower `DECIMAL`. Bad input fails the write rather than being stored as a different number:
+
+| Input | Error |
+| --- | --- |
+| More digits than the declared `precision` | `exceeds precision` |
+| Too large for the physical type or the column width | `does not fit` |
+| Not decimal text, such as `1/2`, `0x10`, or `NaN` | `parse DECIMAL` |
+
+The precision check needs the `DECIMAL` logical type. Every schema built from a struct tag, JSON schema, or CSV metadata entry carries one, so it is skipped only for a caller that passes a bare `convertedtype=DECIMAL` to the helpers. `ParquetWriter` over structs and maps stores the unscaled integer as given, checking neither precision nor width, the same way it handles `UUID`.
+
+JSON output is the exact decimal text, trailing zeros included, carried in a `json.Number`. `encoding/json` writes that as a bare number, so a `DECIMAL(38, 2)` reads back as `123456789012345678901234.56` and can be written back unchanged. Decoding into a Go `float64` still yields one, with the rounding that implies.
+
+Releases up to v3.8.3 routed DECIMAL through `float64`, silently rounding anything past about 16 digits. `9999999999999999.99` was stored as `1000000000000000000`, and the value above read back as `1.2345678901234569e+23`.
+
 ### Repetition Types
 
 | Repetition Type | Go Declaration | Description |

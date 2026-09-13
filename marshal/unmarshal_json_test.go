@@ -120,11 +120,11 @@ func TestConvertToJSONFriendly_Combined(t *testing.T) {
 			},
 			schemaHandler: decimalSchemaHandler,
 			expected: map[string]any{
-				"Decimal1": float64(123.45),
-				"Decimal2": float64(98765.432),
-				"Decimal3": float64(100000000000.0000), // BYTE_ARRAY now also returns float64
-				"Decimal4": float64(98765432.10),       // FIXED_LEN_BYTE_ARRAY now also returns float64
-				"Decimal5": float64(-44.44),
+				"Decimal1": json.Number("123.45"),
+				"Decimal2": json.Number("98765.432"),
+				"Decimal3": json.Number("100000000000.0000"),
+				"Decimal4": json.Number("98765432.10"),
+				"Decimal5": json.Number("-44.44"),
 				"Name":     "TestUser",
 				"Age":      int32(25),
 			},
@@ -144,10 +144,10 @@ func TestConvertToJSONFriendly_Combined(t *testing.T) {
 			},
 			schemaHandler: containerSchemaHandler,
 			expected: map[string]any{
-				"Nested":   map[string]any{"Value": float64(98.76)},
+				"Nested":   map[string]any{"Value": json.Number("98.76")},
 				"SliceVal": []any{int32(100), int32(200), int32(300)},
 				"MapVal":   map[string]any{"key1": int32(111), "key2": int32(222)},
-				"PtrVal":   float64(123.4),
+				"PtrVal":   json.Number("123.4"),
 			},
 		},
 		{
@@ -234,10 +234,10 @@ func TestConvertToJSONFriendly_Combined(t *testing.T) {
 			schemaHandler: nestedDecimalSchemaHandler,
 			expected: map[string]any{
 				"MapWithDecimals": map[string]any{
-					"price1": float64(123.45),
-					"price2": float64(-67.89),
+					"price1": json.Number("123.45"),
+					"price2": json.Number("-67.89"),
 				},
-				"ListWithDecimals": []any{float64(11.11), float64(22.22), float64(-33.33)},
+				"ListWithDecimals": []any{json.Number("11.11"), json.Number("22.22"), json.Number("-33.33")},
 			},
 		},
 	}
@@ -461,7 +461,7 @@ func TestConvertValueToJSONFriendlyWithContext(t *testing.T) {
 			pathPrefix: "",
 			expected: map[string]any{
 				"Name":  "test",
-				"Value": float64(12.34), // Converted due to decimal type
+				"Value": json.Number("12.34"), // Converted due to decimal type
 			},
 			expectError: false,
 		},
@@ -543,7 +543,7 @@ func TestConvertToJSONFriendly_NonDefaultRootName(t *testing.T) {
 
 	expected := map[string]any{
 		"Name":  "TestUser",
-		"Value": float64(123.45), // Converted due to decimal type
+		"Value": json.Number("123.45"), // Converted due to decimal type
 	}
 	require.Equal(t, expected, result)
 }
@@ -681,7 +681,7 @@ func TestConvertToJSONFriendly_LegacyRepeated(t *testing.T) {
 	require.Equal(t, map[string]any{
 		"Scores":  []any{"NaN", "Infinity", 1.5},
 		"Days":    []any{"2022-01-08"},
-		"Amounts": []any{float64(123.45)},
+		"Amounts": []any{json.Number("123.45")},
 		"Groups":  []any{map[string]any{"Value": "-Infinity"}, map[string]any{"Value": 2.5}},
 		"Ratios":  []any{"NaN", 0.5},
 	}, result)
@@ -787,7 +787,7 @@ func TestConvertToJSONFriendly_RootNamePrefixOfField(t *testing.T) {
 	result, err := ConvertToJSONFriendly(input, sh)
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{
-		"Amounts": []any{float64(123.45)},
+		"Amounts": []any{json.Number("123.45")},
 		"Ascores": []any{"NaN", 1.5},
 		"Age":     "2022-01-08",
 	}, result)

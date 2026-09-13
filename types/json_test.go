@@ -32,7 +32,7 @@ func TestConvertToJSONType_AllConvertedTypes(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			precision: 5,
 			scale:     2,
-			expected:  float64(123.45),
+			expected:  json.Number("123.45"),
 		},
 		{
 			name:      "int64_decimal_convertedtype",
@@ -41,7 +41,7 @@ func TestConvertToJSONType_AllConvertedTypes(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			precision: 5,
 			scale:     3,
-			expected:  float64(98.765),
+			expected:  json.Number("98.765"),
 		},
 		{
 			name:      "string_decimal_byte_array",
@@ -50,7 +50,7 @@ func TestConvertToJSONType_AllConvertedTypes(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			precision: 12,
 			scale:     4,
-			expected:  float64(123456.7890),
+			expected:  json.Number("123456.7890"),
 		},
 		{
 			name:      "string_decimal_fixed_len_byte_array",
@@ -59,7 +59,7 @@ func TestConvertToJSONType_AllConvertedTypes(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			precision: 12,
 			scale:     2,
-			expected:  float64(98765432.10),
+			expected:  json.Number("98765432.10"),
 		},
 		{
 			name:      "non_decimal_convertedtype",
@@ -86,7 +86,7 @@ func TestConvertToJSONType_AllConvertedTypes(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			precision: 5,
 			scale:     2,
-			expected:  float64(-123.45),
+			expected:  json.Number("-123.45"),
 		},
 		{
 			name:      "zero_scale_decimal",
@@ -95,7 +95,7 @@ func TestConvertToJSONType_AllConvertedTypes(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			precision: 5,
 			scale:     0,
-			expected:  float64(123),
+			expected:  json.Number("123"),
 		},
 		{
 			name:      "nil_value",
@@ -301,7 +301,7 @@ func TestConvertToJSONType_AllLogicalTypes(t *testing.T) {
 			lT:        createDecimalLogicalType(9, 2),
 			precision: 9,
 			scale:     2,
-			expected:  float64(444.44),
+			expected:  json.Number("444.44"),
 		},
 		{
 			name:      "int64_logicaltype_decimal",
@@ -311,7 +311,7 @@ func TestConvertToJSONType_AllLogicalTypes(t *testing.T) {
 			lT:        createDecimalLogicalType(18, 3),
 			precision: 18,
 			scale:     3,
-			expected:  float64(-12.345),
+			expected:  json.Number("-12.345"),
 		},
 		{
 			name:      "convertedtype_fallback",
@@ -321,7 +321,7 @@ func TestConvertToJSONType_AllLogicalTypes(t *testing.T) {
 			lT:        nil,
 			precision: 5,
 			scale:     2,
-			expected:  float64(123.45),
+			expected:  json.Number("123.45"),
 		},
 		{
 			name:      "both_types_prefer_logical",
@@ -331,7 +331,7 @@ func TestConvertToJSONType_AllLogicalTypes(t *testing.T) {
 			lT:        createDecimalLogicalType(7, 3),
 			precision: 7,
 			scale:     3,
-			expected:  float64(98.765),
+			expected:  json.Number("98.765"),
 		},
 		{
 			name:      "non_decimal_logical_type",
@@ -361,7 +361,7 @@ func TestConvertToJSONType_AllLogicalTypes(t *testing.T) {
 			lT:        createDecimalLogicalType(15, 4),
 			precision: 15,
 			scale:     4,
-			expected:  float64(12345.6789),
+			expected:  json.Number("12345.6789"),
 		},
 		{
 			name:      "int96_timestamp_with_logical",
@@ -1330,29 +1330,6 @@ func TestConvertBinaryValue(t *testing.T) {
 	}
 }
 
-func TestConvertDecimalValue(t *testing.T) {
-	pT := parquet.TypePtr(parquet.Type_INT32)
-
-	// int32 - now returns float64 instead of string
-	res := ConvertDecimalValue(int32(12345), pT, 10, 2)
-	require.Equal(t, float64(123.45), res)
-
-	// int64 - now returns float64 instead of string
-	pT = parquet.TypePtr(parquet.Type_INT64)
-	res = ConvertDecimalValue(int64(12345), pT, 10, 2)
-	require.Equal(t, float64(123.45), res)
-
-	// string - now returns float64 instead of string
-	pT = parquet.TypePtr(parquet.Type_BYTE_ARRAY)
-	val := StrIntToBinary("12345", "BigEndian", 0, true)
-	res = ConvertDecimalValue(val, pT, 10, 2)
-	require.Equal(t, float64(123.45), res)
-
-	// default
-	res = ConvertDecimalValue(float32(123.45), pT, 10, 2)
-	require.Equal(t, float32(123.45), res)
-}
-
 func TestConvertINT96Value(t *testing.T) {
 	// nil
 	res := convertINT96Value(nil)
@@ -1555,7 +1532,7 @@ func TestConvertToJSONType_ConvertedTypes_Comprehensive(t *testing.T) {
 			pT:       parquet.TypePtr(parquet.Type_INT32),
 			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			scale:    2,
-			expected: decimalIntToFloat(int64(12345), 2),
+			expected: json.Number("123.45"),
 		},
 		{
 			name:     "decimal_int64",
@@ -1563,7 +1540,7 @@ func TestConvertToJSONType_ConvertedTypes_Comprehensive(t *testing.T) {
 			pT:       parquet.TypePtr(parquet.Type_INT64),
 			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			scale:    3,
-			expected: decimalIntToFloat(123456789, 3),
+			expected: json.Number("123456.789"),
 		},
 		{
 			name:      "decimal_byte_array",
@@ -1572,7 +1549,7 @@ func TestConvertToJSONType_ConvertedTypes_Comprehensive(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			precision: 5,
 			scale:     2,
-			expected:  decimalByteArrayToFloat([]byte("12345"), 5, 2),
+			expected:  json.Number("2112956140.05"),
 		},
 		{
 			name:      "decimal_fixed_len_byte_array",
@@ -1581,7 +1558,7 @@ func TestConvertToJSONType_ConvertedTypes_Comprehensive(t *testing.T) {
 			cT:        parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL),
 			precision: 5,
 			scale:     2,
-			expected:  decimalByteArrayToFloat([]byte("12345"), 5, 2),
+			expected:  json.Number("2112956140.05"),
 		},
 		{
 			name:     "decimal_wrong_type",
@@ -1791,39 +1768,6 @@ func TestConvertToJSONType_ConvertedTypes_Comprehensive(t *testing.T) {
 	}
 }
 
-func TestDecimalByteArrayToFloat(t *testing.T) {
-	tests := []struct {
-		name      string
-		data      []byte
-		precision int
-		scale     int
-		expected  any
-	}{
-		{
-			name:      "valid_decimal",
-			data:      []byte{0x01, 0x23, 0x45}, // Valid decimal data
-			precision: 5,
-			scale:     2,
-			expected:  745.65, // Actual parsed value
-		},
-		{
-			name:      "parsing_succeeds_no_fallback",
-			data:      []byte{0xFF, 0xFF, 0xFF, 0xFF}, // This data actually parses successfully
-			precision: 10,
-			scale:     5,
-			expected:  float64(-0.00001), // Actual parsed value
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := decimalByteArrayToFloat(tt.data, tt.precision, tt.scale)
-
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestConvertTimeLogicalValue(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1915,17 +1859,6 @@ func TestParquetTypeToJSONTypeWithLogical_Fallthrough(t *testing.T) {
 			require.Equal(t, tt.value, result)
 		})
 	}
-}
-
-func TestConvertDecimalValue_BytesInput(t *testing.T) {
-	// 123.45 in binary (big-endian)
-	binaryVal := StrIntToBinary("12345", "BigEndian", 0, true)
-	data := []byte(binaryVal)
-
-	pT := parquet.TypePtr(parquet.Type_BYTE_ARRAY)
-	result := ConvertDecimalValue(data, pT, 10, 2)
-
-	require.Equal(t, float64(123.45), result)
 }
 
 func TestJSONTypeToParquetTypeWithLogical(t *testing.T) {

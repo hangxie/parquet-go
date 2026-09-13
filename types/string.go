@@ -158,30 +158,9 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 	case parquet.ConvertedType_INTERVAL:
 		return strToInterval(s)
 	case parquet.ConvertedType_DECIMAL:
-		numSca := big.NewFloat(1.0)
-		for range scale {
-			numSca.Mul(numSca, big.NewFloat(10))
-		}
-		num := new(big.Float)
-		num.SetString(s)
-		num.Mul(num, numSca)
-
-		switch *pT {
-		case parquet.Type_INT32:
-			tmp, _ := num.Float64()
-			return int32(tmp), nil
-		case parquet.Type_INT64:
-			tmp, _ := num.Float64()
-			return int64(tmp), nil
-		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
-			s = num.Text('f', 0)
-			res := StrIntToBinary(s, "BigEndian", length, true)
-			return res, nil
-		default:
-			s = num.Text('f', 0)
-			res := StrIntToBinary(s, "BigEndian", 0, true)
-			return res, nil
-		}
+		// A ConvertedType DECIMAL column carries its precision in the schema element
+		// rather than here, so the digit count goes unchecked on this path.
+		return strToDecimal(s, pT, 0, length, scale)
 	case parquet.ConvertedType_BSON, parquet.ConvertedType_JSON, parquet.ConvertedType_ENUM:
 		// These are BYTE_ARRAY types that should preserve the string value as-is
 		return s, nil
@@ -233,7 +212,8 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		return int32(v), true, nil
 	}
 	if lT.IsSetDECIMAL() {
-		v, err := strToDecimalLogical(s, lT.GetDECIMAL(), pT, length)
+		dec := lT.GetDECIMAL()
+		v, err := strToDecimal(s, pT, int(dec.GetPrecision()), length, int(dec.GetScale()))
 		return v, true, err
 	}
 	return nil, false, nil
