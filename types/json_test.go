@@ -1,7 +1,9 @@
 package types
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -2949,6 +2952,456 @@ func TestJSONTypeToParquetType_FixedLenByteArrayWidth(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, res)
+		})
+	}
+}
+
+// physicalRoundTripCase is one column of the read, JSON, write sweep. Every physical value
+// listed must come back unchanged after being rendered for JSON output and written again.
+type physicalRoundTripCase struct {
+	name   string
+	se     *parquet.SchemaElement
+	values []any
+	issue  string // open defect that keeps this column from round-tripping yet
+}
+
+// roundTripSE builds a schema element for the sweep; length is only set when non-zero so
+// unannotated BYTE_ARRAY columns keep an unset TypeLength.
+func roundTripSE(pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int32) *parquet.SchemaElement {
+	se := parquet.NewSchemaElement()
+	se.Type = parquet.TypePtr(pT)
+	se.ConvertedType = cT
+	se.LogicalType = lT
+	if length != 0 {
+		se.TypeLength = &length
+	}
+	return se
+}
+
+// roundTripPhysical runs one physical value through the full read and write paths the JSON
+// writer uses: render for output, marshal, decode the way marshal/json.go does, write back.
+func roundTripPhysical(se *parquet.SchemaElement, val any) (any, error) {
+	encoded, err := json.Marshal(ConvertToJSONType(val, se))
+	if err != nil {
+		return nil, err
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(encoded))
+	dec.UseNumber()
+	var decoded any
+	if err := dec.Decode(&decoded); err != nil {
+		return nil, err
+	}
+
+	got, err := JSONTypeToParquetTypeWithLogical(reflect.ValueOf(decoded), se.Type, se.ConvertedType,
+		se.LogicalType, int(se.GetTypeLength()), int(se.GetScale()))
+	if err != nil {
+		return nil, fmt.Errorf("rendered as %s: %w", encoded, err)
+	}
+	return got, nil
+}
+
+// TestPhysicalRoundTrip is the cross-type sweep of the exact physical round trip
+// encode(decode(v)) == v. The per-type round trips elsewhere in this package each cover only
+// the type whose own fix added them; this one covers every logical and converted type at the
+// entry points the JSON writer actually uses.
+//
+// Values that are not uniquely recoverable from their rendered form are out of scope by
+// definition and are excluded below: distinct NaN payloads collapse into one, FLOAT16 negative
+// zero renders as 0, and a BYTE_ARRAY DECIMAL padded with redundant sign-extension bytes comes
+// back in its minimal encoding (see TestDecimalByteArrayPaddingCanonicalizes). Columns whose
+// round trip is still broken carry the issue that tracks the break.
+func TestPhysicalRoundTrip(t *testing.T) {
+	decimalSE := func(pT parquet.Type, precision, scale, length int32) *parquet.SchemaElement {
+		se := roundTripSE(pT, nil, createDecimalLogicalType(precision, scale), length)
+		se.Precision, se.Scale = &precision, &scale
+		return se
+	}
+	// A DECIMAL column may carry only the legacy annotation, which keeps precision and
+	// scale on the schema element rather than in a logical type.
+	convertedDecimalSE := func(pT parquet.Type, precision, scale, length int32) *parquet.SchemaElement {
+		se := roundTripSE(pT, parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), nil, length)
+		se.Precision, se.Scale = &precision, &scale
+		return se
+	}
+	float16 := func(bits uint16) string {
+		return string([]byte{byte(bits), byte(bits >> 8)})
+	}
+	interval := func(months, days, millis uint32) string {
+		b := make([]byte, common.IntervalByteLen)
+		binary.LittleEndian.PutUint32(b[0:4], months)
+		binary.LittleEndian.PutUint32(b[4:8], days)
+		binary.LittleEndian.PutUint32(b[8:12], millis)
+		return string(b)
+	}
+	bsonDoc, err := bson.Marshal(bson.D{{Key: "a", Value: int32(1)}})
+	require.NoError(t, err)
+
+	uuidLT := parquet.NewLogicalType()
+	uuidLT.UUID = parquet.NewUUIDType()
+	float16LT := parquet.NewLogicalType()
+	float16LT.FLOAT16 = parquet.NewFloat16Type()
+	enumLT := parquet.NewLogicalType()
+	enumLT.ENUM = parquet.NewEnumType()
+	jsonLT := parquet.NewLogicalType()
+	jsonLT.JSON = parquet.NewJsonType()
+	bsonLT := parquet.NewLogicalType()
+	bsonLT.BSON = parquet.NewBsonType()
+	dateLT := parquet.NewLogicalType()
+	dateLT.DATE = parquet.NewDateType()
+
+	tests := []physicalRoundTripCase{
+		{
+			name:   "BOOLEAN",
+			se:     roundTripSE(parquet.Type_BOOLEAN, nil, nil, 0),
+			values: []any{true, false},
+		},
+		{
+			name:   "INT32",
+			se:     roundTripSE(parquet.Type_INT32, nil, nil, 0),
+			values: []any{int32(0), int32(-1), int32(math.MaxInt32), int32(math.MinInt32)},
+		},
+		{
+			name:   "INT64",
+			se:     roundTripSE(parquet.Type_INT64, nil, nil, 0),
+			values: []any{int64(0), int64(-1), int64(math.MaxInt64), int64(math.MinInt64)},
+		},
+		{
+			name: "FLOAT",
+			se:   roundTripSE(parquet.Type_FLOAT, nil, nil, 0),
+			values: []any{
+				float32(0), float32(-0.5), float32(math.MaxFloat32), float32(math.SmallestNonzeroFloat32),
+				float32(math.Inf(1)), float32(math.Inf(-1)),
+			},
+		},
+		{
+			name: "DOUBLE",
+			se:   roundTripSE(parquet.Type_DOUBLE, nil, nil, 0),
+			values: []any{
+				float64(0), -0.5, math.MaxFloat64, math.SmallestNonzeroFloat64,
+				math.Inf(1), math.Inf(-1),
+			},
+		},
+		{
+			name:   "BYTE_ARRAY unannotated",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, nil, nil, 0),
+			values: []any{"", "hello", "\x00\xff\x01\xfe", "TEST"},
+		},
+		{
+			name:   "FIXED_LEN_BYTE_ARRAY unannotated",
+			se:     roundTripSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, nil, nil, 4),
+			values: []any{"\x00\xff\x01\xfe", "abcd", "\x00\x00\x00\x00"},
+		},
+		{
+			name:   "UTF8",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8), createStringLogicalType(), 0),
+			values: []any{"", "hello", "TEST", "AAAA", "日本語", `{"a":1}`},
+		},
+		{
+			name:   "ENUM",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_ENUM), enumLT, 0),
+			values: []any{"ACTIVE", "TEST", "AAAA"},
+		},
+		{
+			name:   "JSON",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_JSON), jsonLT, 0),
+			values: []any{`{"a":1}`, `null`, `"TEST"`},
+		},
+		{
+			name:   "STRING logical only",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, nil, createStringLogicalType(), 0),
+			values: []any{"", "hello", "TEST", "AAAA", "日本語"},
+		},
+		{
+			name:   "ENUM logical only",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, nil, enumLT, 0),
+			values: []any{"ACTIVE", "TEST", "AAAA"},
+		},
+		{
+			name:   "JSON logical only",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, nil, jsonLT, 0),
+			values: []any{`{"a":1}`, `null`, `"TEST"`},
+		},
+		{
+			name:   "UUID",
+			se:     roundTripSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, nil, uuidLT, common.UUIDByteLen),
+			values: []any{string(make([]byte, common.UUIDByteLen)), "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00"},
+		},
+		{
+			name: "FLOAT16",
+			se:   roundTripSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, nil, float16LT, common.Float16ByteLen),
+			values: []any{
+				float16(0x0000), float16(0x3c00), float16(0xc900), float16(0x0001),
+				float16(0x7bff), float16(0x7c00), float16(0xfc00),
+			},
+		},
+		{
+			name:   "DATE converted",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_DATE), nil, 0),
+			values: []any{int32(0), int32(-1), int32(19723), int32(-719162)},
+		},
+		{
+			name:   "DATE logical",
+			se:     roundTripSE(parquet.Type_INT32, nil, dateLT, 0),
+			values: []any{int32(0), int32(-1), int32(19723)},
+		},
+		{
+			name:   "TIME_MILLIS converted",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MILLIS), nil, 0),
+			values: []any{int32(0), int32(1), int32(45296789), int32(86399999)},
+		},
+		{
+			name:   "TIME_MICROS converted",
+			se:     roundTripSE(parquet.Type_INT64, parquet.ConvertedTypePtr(parquet.ConvertedType_TIME_MICROS), nil, 0),
+			values: []any{int64(0), int64(1), int64(45296789012), int64(86399999999)},
+		},
+		{
+			name:   "TIME MILLIS logical",
+			se:     roundTripSE(parquet.Type_INT32, nil, createTimeLogicalType(true, false, false), 0),
+			values: []any{int32(0), int32(45296789), int32(86399999)},
+		},
+		{
+			name:   "TIME MICROS logical",
+			se:     roundTripSE(parquet.Type_INT64, nil, createTimeLogicalType(false, true, false), 0),
+			values: []any{int64(0), int64(45296789012), int64(86399999999)},
+		},
+		{
+			name:   "TIME NANOS logical",
+			se:     roundTripSE(parquet.Type_INT64, nil, createTimeLogicalType(false, false, true), 0),
+			values: []any{int64(0), int64(45296789012345), int64(86399999999999)},
+		},
+		{
+			name:   "TIMESTAMP_MILLIS converted",
+			se:     roundTripSE(parquet.Type_INT64, parquet.ConvertedTypePtr(parquet.ConvertedType_TIMESTAMP_MILLIS), nil, 0),
+			values: []any{int64(0), int64(-1), int64(1699999999999)},
+		},
+		{
+			name:   "TIMESTAMP_MICROS converted",
+			se:     roundTripSE(parquet.Type_INT64, parquet.ConvertedTypePtr(parquet.ConvertedType_TIMESTAMP_MICROS), nil, 0),
+			values: []any{int64(0), int64(-1), int64(1699999999999999)},
+		},
+		{
+			name:   "TIMESTAMP MILLIS logical",
+			se:     roundTripSE(parquet.Type_INT64, nil, createTimestampLogicalType(true, false, false, true), 0),
+			values: []any{int64(0), int64(-1), int64(1699999999999)},
+		},
+		{
+			name:   "TIMESTAMP MICROS logical",
+			se:     roundTripSE(parquet.Type_INT64, nil, createTimestampLogicalType(false, true, false, true), 0),
+			values: []any{int64(0), int64(-1), int64(1699999999999999)},
+		},
+		{
+			name:   "TIMESTAMP NANOS logical",
+			se:     roundTripSE(parquet.Type_INT64, nil, createTimestampLogicalType(false, false, true, true), 0),
+			values: []any{int64(0), int64(-1), int64(1699999999999999999)},
+		},
+		{
+			name:   "TIMESTAMP MILLIS logical local",
+			se:     roundTripSE(parquet.Type_INT64, nil, createTimestampLogicalType(true, false, false, false), 0),
+			values: []any{int64(0), int64(-1), int64(1699999999999)},
+		},
+		{
+			name:   "TIMESTAMP MICROS logical local",
+			se:     roundTripSE(parquet.Type_INT64, nil, createTimestampLogicalType(false, true, false, false), 0),
+			values: []any{int64(0), int64(-1), int64(1699999999999999)},
+		},
+		{
+			name:   "TIMESTAMP NANOS logical local",
+			se:     roundTripSE(parquet.Type_INT64, nil, createTimestampLogicalType(false, false, true, false), 0),
+			values: []any{int64(0), int64(-1), int64(1699999999999999999)},
+		},
+		{
+			name: "INTERVAL",
+			se:   roundTripSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL), nil, common.IntervalByteLen),
+			values: []any{
+				interval(0, 0, 0), interval(2, 3, 4500), interval(0, 0, 999),
+				interval(math.MaxUint32, math.MaxUint32, math.MaxUint32),
+			},
+		},
+		{
+			name:   "INT96",
+			se:     roundTripSE(parquet.Type_INT96, nil, nil, 0),
+			values: []any{TimeToINT96(time.Unix(0, 0).UTC()), TimeToINT96(time.Date(2023, 1, 2, 3, 4, 5, 123456789, time.UTC))},
+		},
+		{
+			name:   "DECIMAL INT32",
+			se:     decimalSE(parquet.Type_INT32, 9, 2, 0),
+			values: []any{int32(0), int32(-1), int32(999999999), int32(-999999999)},
+		},
+		{
+			name:   "DECIMAL INT64",
+			se:     decimalSE(parquet.Type_INT64, 18, 2, 0),
+			values: []any{int64(0), int64(-1), int64(999999999999999999), int64(-999999999999999999)},
+		},
+		{
+			name:   "DECIMAL FIXED_LEN_BYTE_ARRAY",
+			se:     decimalSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, 38, 2, 16),
+			values: []any{StrIntToBinary("12345678901234567890123456", "BigEndian", 16, true), StrIntToBinary("-1", "BigEndian", 16, true)},
+		},
+		{
+			name:   "DECIMAL BYTE_ARRAY",
+			se:     decimalSE(parquet.Type_BYTE_ARRAY, 38, 3, 0),
+			values: []any{StrIntToBinary("-99999999999999999999999999999999999999", "BigEndian", 16, true), StrIntToBinary("1", "BigEndian", 1, true)},
+		},
+		{
+			name:   "DECIMAL converted INT32",
+			se:     convertedDecimalSE(parquet.Type_INT32, 9, 2, 0),
+			values: []any{int32(0), int32(-1), int32(999999999), int32(-999999999)},
+		},
+		{
+			name:   "DECIMAL converted INT64",
+			se:     convertedDecimalSE(parquet.Type_INT64, 18, 2, 0),
+			values: []any{int64(0), int64(-1), int64(999999999999999999), int64(-999999999999999999)},
+		},
+		{
+			name:   "DECIMAL converted FIXED_LEN_BYTE_ARRAY",
+			se:     convertedDecimalSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, 38, 2, 16),
+			values: []any{StrIntToBinary("12345678901234567890123456", "BigEndian", 16, true), StrIntToBinary("-1", "BigEndian", 16, true)},
+		},
+		{
+			name:   "DECIMAL converted BYTE_ARRAY",
+			se:     convertedDecimalSE(parquet.Type_BYTE_ARRAY, 38, 3, 0),
+			values: []any{StrIntToBinary("-99999999999999999999999999999999999999", "BigEndian", 16, true), StrIntToBinary("1", "BigEndian", 1, true)},
+		},
+		{
+			name:   "INT_8",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_INT_8), nil, 0),
+			values: []any{int32(0), int32(-128), int32(127)},
+		},
+		{
+			name:   "INT_16",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_INT_16), nil, 0),
+			values: []any{int32(0), int32(-32768), int32(32767)},
+		},
+		{
+			name:   "INT_32",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_INT_32), nil, 0),
+			values: []any{int32(math.MinInt32), int32(math.MaxInt32)},
+		},
+		{
+			name:   "INT_64",
+			se:     roundTripSE(parquet.Type_INT64, parquet.ConvertedTypePtr(parquet.ConvertedType_INT_64), nil, 0),
+			values: []any{int64(math.MinInt64), int64(math.MaxInt64)},
+		},
+		{
+			name:   "UINT_8",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_8), nil, 0),
+			values: []any{int32(0), int32(255)},
+		},
+		{
+			name:   "UINT_16",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_16), nil, 0),
+			values: []any{int32(0), int32(65535)},
+		},
+		{
+			name:   "UINT_32",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_32), nil, 0),
+			values: []any{int32(0), int32(-1)},
+		},
+		{
+			name:   "UINT_64",
+			se:     roundTripSE(parquet.Type_INT64, parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_64), nil, 0),
+			values: []any{int64(0), int64(-1)},
+		},
+		{
+			// The shape parquet-go's own schema builder emits: common/logicaltype.go
+			// backfills an INTEGER logical type next to every INT_*/UINT_* converted type,
+			// so this pairing, not either annotation alone, is what the writers usually see.
+			name:   "INT_32 with backfilled INTEGER",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_INT_32), createIntegerLogicalType(32, true), 0),
+			values: []any{int32(0), int32(math.MinInt32), int32(math.MaxInt32)},
+		},
+		{
+			name:   "UINT_32 with backfilled INTEGER",
+			se:     roundTripSE(parquet.Type_INT32, parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_32), createIntegerLogicalType(32, false), 0),
+			values: []any{int32(0), int32(math.MaxInt32), int32(math.MinInt32), int32(-1)},
+		},
+		{
+			name:   "INT_64 with backfilled INTEGER",
+			se:     roundTripSE(parquet.Type_INT64, parquet.ConvertedTypePtr(parquet.ConvertedType_INT_64), createIntegerLogicalType(64, true), 0),
+			values: []any{int64(0), int64(math.MinInt64), int64(math.MaxInt64)},
+		},
+		{
+			name:   "UINT_64 with backfilled INTEGER",
+			se:     roundTripSE(parquet.Type_INT64, parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_64), createIntegerLogicalType(64, false), 0),
+			values: []any{int64(0), int64(math.MaxInt64), int64(math.MinInt64), int64(-1)},
+		},
+		{
+			name:   "INTEGER logical signed 8",
+			se:     roundTripSE(parquet.Type_INT32, nil, createIntegerLogicalType(8, true), 0),
+			values: []any{int32(0), int32(-128), int32(127)},
+		},
+		{
+			name:   "INTEGER logical signed 16",
+			se:     roundTripSE(parquet.Type_INT32, nil, createIntegerLogicalType(16, true), 0),
+			values: []any{int32(0), int32(-32768), int32(32767)},
+		},
+		{
+			name:   "INTEGER logical signed 32",
+			se:     roundTripSE(parquet.Type_INT32, nil, createIntegerLogicalType(32, true), 0),
+			values: []any{int32(math.MinInt32), int32(math.MaxInt32)},
+		},
+		{
+			name:   "INTEGER logical signed 64",
+			se:     roundTripSE(parquet.Type_INT64, nil, createIntegerLogicalType(64, true), 0),
+			values: []any{int64(math.MinInt64), int64(math.MaxInt64)},
+		},
+		{
+			// The unsigned values straddle the sign bit of the physical column, where the
+			// rendered number stops fitting the signed type that carries it.
+			name:   "INTEGER logical unsigned 8",
+			se:     roundTripSE(parquet.Type_INT32, nil, createIntegerLogicalType(8, false), 0),
+			values: []any{int32(0), int32(127), int32(128), int32(255)},
+		},
+		{
+			name:   "INTEGER logical unsigned 16",
+			se:     roundTripSE(parquet.Type_INT32, nil, createIntegerLogicalType(16, false), 0),
+			values: []any{int32(0), int32(32767), int32(32768), int32(65535)},
+		},
+		{
+			name:   "INTEGER logical unsigned 32",
+			se:     roundTripSE(parquet.Type_INT32, nil, createIntegerLogicalType(32, false), 0),
+			values: []any{int32(0), int32(math.MaxInt32), int32(math.MinInt32), int32(-1)},
+		},
+		{
+			name:   "INTEGER logical unsigned 64",
+			se:     roundTripSE(parquet.Type_INT64, nil, createIntegerLogicalType(64, false), 0),
+			values: []any{int64(0), int64(math.MaxInt64), int64(math.MinInt64), int64(-1)},
+		},
+		{
+			name:   "BSON",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_BSON), bsonLT, 0),
+			values: []any{string(bsonDoc)},
+			issue:  "#417: BSON has no interpreted write form, the rendered document is not parsed back",
+		},
+		{
+			name:   "GEOMETRY",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, nil, createGeometryLogicalType("OGC:CRS84"), 0),
+			values: []any{string(createSimpleWKBPoint(1, 2, true))},
+			issue:  "#418: geospatial has no textual write form, GeoJSON output cannot be written back",
+		},
+		{
+			name:   "GEOGRAPHY",
+			se:     roundTripSE(parquet.Type_BYTE_ARRAY, nil, createGeographyLogicalType("OGC:CRS84", parquet.EdgeInterpolationAlgorithm_SPHERICAL), 0),
+			values: []any{string(createSimpleWKBPoint(1, 2, true))},
+			issue:  "#418: geospatial has no textual write form, GeoJSON output cannot be written back",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, val := range tt.values {
+				got, err := roundTripPhysical(tt.se, val)
+				if tt.issue != "" {
+					// Asserting the break rather than skipping it: a skip stays quiet
+					// forever, while this fails the day the issue lands and says so.
+					require.False(t, err == nil && reflect.DeepEqual(val, got),
+						"%s\nvalue %#v now round-trips; drop the issue from this case", tt.issue, val)
+					continue
+				}
+				require.NoError(t, err, "value %#v", val)
+				require.Equal(t, val, got, "value %#v", val)
+			}
 		})
 	}
 }

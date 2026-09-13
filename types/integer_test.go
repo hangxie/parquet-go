@@ -49,3 +49,111 @@ func TestConvertIntegerLogicalValue(t *testing.T) {
 		})
 	}
 }
+
+func TestStrToIntegerLogical(t *testing.T) {
+	testCases := map[string]struct {
+		inputStr string
+		pT       parquet.Type
+		bitWidth int8
+		signed   bool
+		expected any
+		errMsg   string
+	}{
+		"uint64-above-int64-max": {
+			"18446744073709551615", parquet.Type_INT64, 64, false, int64(-1), "",
+		},
+		"uint32-above-int32-max": {
+			"4294967295", parquet.Type_INT32, 32, false, int32(-1), "",
+		},
+		"uint8-max": {
+			"255", parquet.Type_INT32, 8, false, int32(255), "",
+		},
+		"uint16-max": {
+			"65535", parquet.Type_INT32, 16, false, int32(65535), "",
+		},
+		"int8-min": {
+			"-128", parquet.Type_INT32, 8, true, int32(-128), "",
+		},
+		"int64-min": {
+			"-9223372036854775808", parquet.Type_INT64, 64, true, int64(-9223372036854775808), "",
+		},
+		"uint8-out-of-range": {
+			"256", parquet.Type_INT32, 8, false, int32(0),
+			`parse UINT_8 "256": strconv.ParseUint: parsing "256": value out of range`,
+		},
+		"int16-out-of-range": {
+			"32768", parquet.Type_INT32, 16, true, int32(0),
+			`parse INT_16 "32768": strconv.ParseInt: parsing "32768": value out of range`,
+		},
+		"unsigned-rejects-negative": {
+			"-1", parquet.Type_INT32, 32, false, int32(0),
+			`parse UINT_32 "-1": strconv.ParseUint: parsing "-1": invalid syntax`,
+		},
+		"not-a-number": {
+			"abc", parquet.Type_INT64, 64, true, int64(0),
+			`parse INT_64 "abc": strconv.ParseInt: parsing "abc": invalid syntax`,
+		},
+		"odd-bit-width-falls-back-to-column-width": {
+			// Not a width the format defines; the column decides the range instead.
+			"4294967295", parquet.Type_INT32, 7, false, int32(-1), "",
+		},
+		"odd-bit-width-error-names-declared-width": {
+			"abc", parquet.Type_INT32, 7, false, int32(0),
+			`parse UINT_7 "abc": strconv.ParseUint: parsing "abc": invalid syntax`,
+		},
+		"leading-whitespace": {
+			" 42", parquet.Type_INT32, 32, false, int32(42), "",
+		},
+		"trailing-whitespace": {
+			"42\t\n", parquet.Type_INT64, 64, true, int64(42), "",
+		},
+		// Sscanf read these as 42 and 1 up to v3.8.3, the same input strToDecimal has
+		// always rejected. See the StrToParquetTypeWithLogical doc comment.
+		"trailing-garbage-rejected": {
+			"42abc", parquet.Type_INT32, 32, false, int32(0),
+			`parse UINT_32 "42abc": strconv.ParseUint: parsing "42abc": invalid syntax`,
+		},
+		"digit-separator-rejected": {
+			"1_0", parquet.Type_INT32, 32, true, int32(0),
+			`parse INT_32 "1_0": strconv.ParseInt: parsing "1_0": invalid syntax`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			res, err := StrToParquetTypeWithLogical(tc.inputStr, parquet.TypePtr(tc.pT), nil,
+				createIntegerLogicalType(tc.bitWidth, tc.signed), 0, 0)
+			if tc.errMsg != "" {
+				require.EqualError(t, err, tc.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.expected, res)
+		})
+	}
+}
+
+// TestStrToIntegerLogical_MismatchedColumn covers INTEGER annotations the
+// physical type cannot hold, which stay with the physical scan rather than being truncated.
+func TestStrToIntegerLogical_MismatchedColumn(t *testing.T) {
+	// 64-bit annotation on a 32-bit column: the physical INT32 scan reports the overflow.
+	_, err := StrToParquetTypeWithLogical("4294967295", parquet.TypePtr(parquet.Type_INT32), nil,
+		createIntegerLogicalType(64, false), 0, 0)
+	require.ErrorContains(t, err, "parse INT32")
+
+	// The mirror image: a narrow annotation on a 64-bit column. ConvertIntegerLogicalValue
+	// renders such a value without truncating it, so the physical scan takes it back rather
+	// than rejecting what the read path emits.
+	res64, err := StrToParquetTypeWithLogical("300", parquet.TypePtr(parquet.Type_INT64), nil,
+		createIntegerLogicalType(8, false), 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(300), res64)
+	require.Equal(t, uint32(300), ConvertIntegerLogicalValue(int64(300),
+		parquet.TypePtr(parquet.Type_INT64), createIntegerLogicalType(8, false).GetINTEGER()))
+
+	// INTEGER on a byte-backed column is not a schema this can read; the value passes through.
+	res, err := StrToParquetTypeWithLogical("42", parquet.TypePtr(parquet.Type_BYTE_ARRAY), nil,
+		createIntegerLogicalType(32, true), 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, "42", res)
+}

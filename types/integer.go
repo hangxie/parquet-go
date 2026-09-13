@@ -1,6 +1,12 @@
 package types
 
-import "github.com/hangxie/parquet-go/v3/parquet"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/hangxie/parquet-go/v3/parquet"
+)
 
 // ConvertIntegerLogicalValue converts value based on INTEGER logical type width/sign.
 func ConvertIntegerLogicalValue(val any, pT *parquet.Type, intType *parquet.IntType) any {
@@ -59,4 +65,72 @@ func ConvertIntegerLogicalValue(val any, pT *parquet.Type, intType *parquet.IntT
 	default:
 		return val
 	}
+}
+
+// strToIntegerLogical scans an INTEGER logical value using the annotation's width and
+// signedness, inverting ConvertIntegerLogicalValue. Without it an unsigned column falls
+// through to the physical INT32/INT64 scan, which rejects every value above the signed
+// maximum: exactly the values the read path renders for the upper half of the range.
+func strToIntegerLogical(s string, it *parquet.IntType, pT *parquet.Type) (any, bool, error) {
+	if pT == nil || (*pT != parquet.Type_INT32 && *pT != parquet.Type_INT64) {
+		return nil, false, nil
+	}
+	physWidth := 32
+	if *pT == parquet.Type_INT64 {
+		physWidth = 64
+	}
+
+	// The label keeps the declared width even where the column width replaces it below,
+	// so a broken annotation is reported as the schema spells it.
+	width := int(it.GetBitWidth())
+	label := fmt.Sprintf("INT_%d", width)
+	if !it.GetIsSigned() {
+		label = fmt.Sprintf("UINT_%d", width)
+	}
+	switch width {
+	case 8, 16, 32:
+		// The format pins these widths to INT32. On any other column the annotation does
+		// not describe the range the column holds, and the read path renders the wider
+		// value as it stands, so the physical scan takes it back rather than this
+		// rejecting what the reader just emitted.
+		if physWidth != 32 {
+			return nil, false, nil
+		}
+	case 64:
+		if physWidth != 64 {
+			return nil, false, nil
+		}
+	default:
+		// Not a width the format defines; the column decides the range instead.
+		width = physWidth
+	}
+
+	zero := any(int32(0))
+	if physWidth == 64 {
+		zero = int64(0)
+	}
+
+	// Surrounding whitespace is ordinary in a CSV field, and strToDecimal already drops it
+	// before its own strict scan.
+	text := strings.TrimSpace(s)
+
+	if it.GetIsSigned() {
+		v, err := strconv.ParseInt(text, 10, width)
+		if err != nil {
+			return zero, true, wrapScanErr(label, s, err)
+		}
+		if physWidth == 32 {
+			return int32(v), true, nil
+		}
+		return v, true, nil
+	}
+
+	v, err := strconv.ParseUint(text, 10, width)
+	if err != nil {
+		return zero, true, wrapScanErr(label, s, err)
+	}
+	if physWidth == 32 {
+		return int32(uint32(v)), true, nil
+	}
+	return int64(v), true, nil
 }

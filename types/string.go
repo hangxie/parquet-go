@@ -232,6 +232,9 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		v, err := strToDecimal(s, pT, int(dec.GetPrecision()), length, int(dec.GetScale()))
 		return v, true, err
 	}
+	if lT.IsSetINTEGER() {
+		return strToIntegerLogical(s, lT.GetINTEGER(), pT)
+	}
 	return nil, false, nil
 }
 
@@ -239,6 +242,11 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 // UUID requires length 16 and a textual form uuid.Parse accepts (dashed, undashed hex,
 // braced, or urn:uuid: prefixed); any other length or string, raw binary included, errors.
 // FLOAT16 likewise requires length 2; releases up to v3.8.2 ignored both lengths.
+// An INTEGER annotation is scanned at its declared width and must spell a whole number,
+// surrounding whitespace aside. Releases up to v3.8.3 scanned INT_*/UINT_* columns with
+// fmt.Sscanf, which stopped at the first character it could not use and so read "42abc"
+// as 42; schema builders backfill INTEGER for those converted types, so the stricter scan
+// applies to them as well.
 func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
 	if lT != nil {
 		if v, handled, err := strToLogicalType(s, lT, pT, length); handled {
