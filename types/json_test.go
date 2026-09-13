@@ -2913,3 +2913,42 @@ func TestJSONTypeToParquetType_TimeNumber(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONTypeToParquetType_FixedLenByteArrayWidth(t *testing.T) {
+	testCases := map[string]struct {
+		value    string
+		length   int
+		expected string
+		errMsg   string
+	}{
+		"base64-matches-width": {
+			"SGVsbG8gV29ybGQ=", 11, "Hello World", "",
+		},
+		"raw-wins-when-decoded-width-differs": {
+			"0123456789abcdef", 16, "0123456789abcdef", "",
+		},
+		"neither-width-matches": {
+			"abc", 5, "", `FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 5`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			res, err := JSONTypeToParquetTypeWithLogical(
+				reflect.ValueOf(tc.value),
+				parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				nil,
+				nil,
+				tc.length,
+				0,
+			)
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, res)
+		})
+	}
+}

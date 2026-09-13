@@ -923,3 +923,36 @@ func TestPositionTracker_Open(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func TestReadFixedLenByteArrayTagWithoutLength(t *testing.T) {
+	type writeRow struct {
+		V string `parquet:"name=V, type=FIXED_LEN_BYTE_ARRAY, length=4"`
+	}
+	// The width a tag declares is what FLBA values are decoded with, so a tag that
+	// leaves it out reads every value as empty. It is rejected instead.
+	type readRow struct {
+		V string `parquet:"name=V, type=FIXED_LEN_BYTE_ARRAY"`
+	}
+
+	var buf bytes.Buffer
+	pw, err := writer.NewParquetWriterFromWriterWithContext(context.Background(), &buf, new(writeRow), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.WriteWithContext(context.Background(), writeRow{V: "abcd"}))
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	pf := buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes())
+	defer func() {
+		require.NoError(t, pf.Close())
+	}()
+
+	_, err = NewParquetReaderWithContext(context.Background(), pf, new(readRow), WithNP(1))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "FIXED_LEN_BYTE_ARRAY requires a positive length, got 0")
+
+	// The same file reads back through a tag that declares the width.
+	pr, err := NewParquetReaderWithContext(context.Background(), pf, new(writeRow), WithNP(1))
+	require.NoError(t, err)
+	rows := make([]writeRow, 1)
+	require.NoError(t, pr.ReadWithContext(context.Background(), &rows))
+	require.Equal(t, "abcd", rows[0].V)
+}

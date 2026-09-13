@@ -1007,3 +1007,63 @@ func TestStrToParquetType_IntervalErrors(t *testing.T) {
 		require.Equal(t, StrIntToBinary("1234567890123", "LittleEndian", common.IntervalByteLen, false), res)
 	})
 }
+
+func TestStrToParquetType_FixedLenByteArrayWidth(t *testing.T) {
+	testCases := map[string]struct {
+		inputStr string
+		length   int
+		expected string
+		errMsg   string
+	}{
+		"no-length-base64": {
+			"SGVsbG8gV29ybGQ=", 0, "Hello World", "",
+		},
+		"no-length-raw": {
+			"abc bcd", 0, "abc bcd", "",
+		},
+		"base64-matches-width": {
+			"SGVsbG8gV29ybGQ=", 11, "Hello World", "",
+		},
+		"raw-matches-width": {
+			"abc bcd", 7, "abc bcd", "",
+		},
+		"raw-wins-when-decoded-width-differs": {
+			// Valid base64 that decodes to 12 bytes, but the caller means the 16
+			// characters themselves.
+			"0123456789abcdef", 16, "0123456789abcdef", "",
+		},
+		"neither-width-matches-base64": {
+			"SGVsbG8gV29ybGQ=", 5, "",
+			`FIXED_LEN_BYTE_ARRAY "SGVsbG8gV29ybGQ=" is 16 bytes raw and 11 base64-decoded, neither matches column length 5`,
+		},
+		"neither-width-matches-raw": {
+			"abc", 5, "",
+			`FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 5`,
+		},
+		"empty-string": {
+			// "" decodes as base64 to itself, so naming both readings would say the
+			// same thing twice.
+			"", 5, "",
+			`FIXED_LEN_BYTE_ARRAY "" is 0 bytes, column length is 5`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			res, err := StrToParquetType(
+				tc.inputStr,
+				parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+				nil,
+				tc.length,
+				0,
+			)
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, res)
+		})
+	}
+}

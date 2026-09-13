@@ -509,3 +509,41 @@ func TestScanDictPageValues_OmitStats(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(2), res.numValues)
 }
+
+func TestTableToDictDataPagesWithOption_FixedLenByteArrayWidth(t *testing.T) {
+	testCases := map[string]struct {
+		values []any
+		errMsg string
+	}{
+		"exact":     {[]any{"abcd", "efgh"}, ""},
+		"too-short": {[]any{"abcd", "ef"}, "value of length 2 does not match column length 4"},
+		"too-long":  {[]any{"abcdef", "abcd"}, "value of length 6 does not match column length 4"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			table := &Table{
+				Schema: &parquet.SchemaElement{
+					Type:       common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+					TypeLength: common.ToPtr(int32(4)),
+					Name:       "flba_col",
+				},
+				Path:             []string{"root", "flba_col"},
+				Values:           tc.values,
+				DefinitionLevels: []int32{0, 0},
+				RepetitionLevels: []int32{0, 0},
+				Info:             &common.Tag{},
+			}
+			_, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_FIXED_LEN_BYTE_ARRAY), table, PageWriteOption{
+				PageSize:     1024,
+				CompressType: parquet.CompressionCodec_UNCOMPRESSED,
+			})
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.errMsg)
+		})
+	}
+}

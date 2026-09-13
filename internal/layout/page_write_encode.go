@@ -13,6 +13,9 @@ import (
 
 // Encoding values
 func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
+	if err := checkFixedLenByteArrayWidths(page.Schema, page.Path, valuesBuf); err != nil {
+		return nil, err
+	}
 	encodingMethod := parquet.Encoding_PLAIN
 	if page.Info.Encoding != 0 {
 		encodingMethod = page.Info.Encoding

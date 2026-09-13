@@ -736,3 +736,47 @@ func TestJSONWriterTextConvertedTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONWriterFixedLenByteArrayWidth(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=V, type=FIXED_LEN_BYTE_ARRAY, length=16"}
+		]
+	}`
+
+	testCases := map[string]struct {
+		value  string
+		errMsg string
+	}{
+		"raw-width-match": {
+			// Valid base64, but 16 raw characters is what the column takes.
+			"0123456789abcdef", "",
+		},
+		"base64-width-match": {
+			"YWJjZGVmZ2hpamtsbW5vcA==", "",
+		},
+		"neither-width-matches": {
+			"abc", `FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 16`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			jw, err := NewJSONWriter(jsonSchema, writerfile.NewWriterFile(&buf), WithNP(1))
+			require.NoError(t, err)
+
+			// A JSON row is converted while the row group is flushed, so a value the
+			// converter cannot fit reaches the caller from WriteStop rather than Write.
+			require.NoError(t, jw.Write(`{"V":"`+tc.value+`"}`))
+			err = jw.WriteStop()
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

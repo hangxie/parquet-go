@@ -124,6 +124,9 @@ func scanDictPageValues(table *Table, dictRec *DictRecType, startIdx int, pageSi
 			continue
 		}
 		if table.DefinitionLevels[r.endIdx] == table.MaxDefinitionLevel {
+			if err := checkFixedLenByteArrayWidth(table.Schema, table.Path, table.Values[r.endIdx]); err != nil {
+				return r, err
+			}
 			r.numValues++
 			var elSize int32
 			if omitStats {

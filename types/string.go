@@ -40,6 +40,32 @@ func strToInterval(s string) (any, error) {
 	return StrIntToBinary(s, "LittleEndian", common.IntervalByteLen, false), nil
 }
 
+// strToFixedLenByteArray reads s as the bytes of a FIXED_LEN_BYTE_ARRAY column.
+func strToFixedLenByteArray(s string, length int) (string, error) {
+	// A string that decodes as base64 can still be meant literally, so the column
+	// width picks the reading rather than the encoding.
+	decoded, decodeErr := base64.StdEncoding.DecodeString(s)
+	switch {
+	case length <= 0:
+		// No width to match, as when a caller passes 0 for a column it did not look
+		// up: keep the historical base64-first reading.
+		if decodeErr == nil {
+			return string(decoded), nil
+		}
+		return s, nil
+	case decodeErr == nil && len(decoded) == length:
+		return string(decoded), nil
+	case len(s) == length:
+		return s, nil
+	case decodeErr == nil && len(decoded) != len(s):
+		// Reporting it here, rather than leaving it to the page the value is written
+		// into, keeps the message about the string the caller supplied.
+		return "", fmt.Errorf("FIXED_LEN_BYTE_ARRAY %q is %d bytes raw and %d base64-decoded, neither matches column length %d", s, len(s), len(decoded), length)
+	default:
+		return "", fmt.Errorf("FIXED_LEN_BYTE_ARRAY %q is %d bytes, column length is %d", s, len(s), length)
+	}
+}
+
 // Scan a string to parquet value; length and scale just for decimal
 func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
 	if cT == nil {
@@ -76,10 +102,7 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 			}
 			return s, nil
 		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
-			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
-				return string(decoded), nil
-			}
-			return s, nil
+			return strToFixedLenByteArray(s, length)
 		default:
 			return nil, nil
 		}
