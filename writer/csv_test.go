@@ -3,13 +3,23 @@ package writer
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"math"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/reader"
+	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 func TestCSVWriter(t *testing.T) {
@@ -255,4 +265,322 @@ func TestCSVWriterFixedLenByteArrayWidth(t *testing.T) {
 			require.NoError(t, cw.WriteStop())
 		})
 	}
+}
+
+// csvJSONCase is one column of the CSV/JSON equivalence sweep. Every physical value listed
+// must survive both write paths identically, starting from the one rendering the read path
+// produces for it.
+type csvJSONCase struct {
+	name   string
+	tag    string // schema tag for the column, without the name
+	values []any  // physical values as the reader hands them back
+	issue  string // open defect that keeps this column from agreeing yet
+}
+
+// csvCell derives the CSV field for a rendered value: the JSON scalar with a string's quotes
+// removed, which is what a CSV rendering of the same file writes into the cell.
+func csvCell(rendered any) (string, error) {
+	encoded, err := json.Marshal(rendered)
+	if err != nil {
+		return "", err
+	}
+	if len(encoded) > 0 && encoded[0] == '"' {
+		var s string
+		if err := json.Unmarshal(encoded, &s); err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+	return string(encoded), nil
+}
+
+// writeCSVColumn writes one column of CSV cells and reads the physical values back.
+func writeCSVColumn(tag string, cells []string) ([]any, error) {
+	var buf bytes.Buffer
+	cw, err := NewCSVWriterFromWriter([]string{tag}, &buf, WithNP(1))
+	if err != nil {
+		return nil, fmt.Errorf("create CSV writer: %w", err)
+	}
+	for _, cell := range cells {
+		if err := cw.WriteString([]*string{&cell}); err != nil {
+			return nil, fmt.Errorf("write %q: %w", cell, err)
+		}
+	}
+	if err := cw.WriteStop(); err != nil {
+		return nil, fmt.Errorf("stop CSV writer: %w", err)
+	}
+	return readBackColumn(buf.Bytes(), len(cells))
+}
+
+// writeJSONColumn writes the same column as single-field JSON objects and reads it back.
+func writeJSONColumn(tag string, rendered []any) ([]any, error) {
+	schemaJSON := fmt.Sprintf(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":%q}]}`, tag)
+	var buf bytes.Buffer
+	jw, err := NewJSONWriterFromWriter(schemaJSON, &buf, WithNP(1))
+	if err != nil {
+		return nil, fmt.Errorf("create JSON writer: %w", err)
+	}
+	for _, val := range rendered {
+		row, err := json.Marshal(map[string]any{csvJSONColumn: val})
+		if err != nil {
+			return nil, err
+		}
+		if err := jw.Write(string(row)); err != nil {
+			return nil, fmt.Errorf("write %s: %w", row, err)
+		}
+	}
+	if err := jw.WriteStop(); err != nil {
+		return nil, fmt.Errorf("stop JSON writer: %w", err)
+	}
+	return readBackColumn(buf.Bytes(), len(rendered))
+}
+
+// readBackColumn reads the only column of a single-column file.
+func readBackColumn(raw []byte, num int) ([]any, error) {
+	ctx := context.Background()
+	fr := buffer.NewBufferReaderFromBytes(raw)
+	pr, err := reader.NewParquetColumnReaderWithContext(ctx, fr, reader.WithNP(1))
+	if err != nil {
+		return nil, fmt.Errorf("open reader: %w", err)
+	}
+	defer func() { _ = pr.ReadStopWithContext(ctx) }()
+	values, _, _, err := pr.ReadColumnByIndexWithContext(ctx, 0, int64(num))
+	if err != nil {
+		return nil, fmt.Errorf("read column: %w", err)
+	}
+	return values, nil
+}
+
+const csvJSONColumn = "Col"
+
+// TestCSVJSONEquivalence is criterion 3 of the write-path sweep: the CSV and JSON writers must
+// store the same physical value for the same source value. The JSON side starts from the read
+// path's rendering, so this also re-checks the exact physical round trip of
+// types.TestPhysicalRoundTrip through the real writers rather than the conversion helpers.
+//
+// Columns where the two paths still disagree carry the issue that tracks the break; asserting
+// the disagreement rather than skipping it means the case fails, and says so, the day the fix
+// lands.
+func TestCSVJSONEquivalence(t *testing.T) {
+	float16 := func(bits uint16) string {
+		return string([]byte{byte(bits), byte(bits >> 8)})
+	}
+	interval := func(months, days, millis uint32) string {
+		b := make([]byte, common.IntervalByteLen)
+		binary.LittleEndian.PutUint32(b[0:4], months)
+		binary.LittleEndian.PutUint32(b[4:8], days)
+		binary.LittleEndian.PutUint32(b[8:12], millis)
+		return string(b)
+	}
+
+	tests := []csvJSONCase{
+		{
+			name:   "BOOLEAN",
+			tag:    "type=BOOLEAN",
+			values: []any{true, false},
+		},
+		{
+			name:   "INT32",
+			tag:    "type=INT32",
+			values: []any{int32(0), int32(-1), int32(math.MaxInt32), int32(math.MinInt32)},
+		},
+		{
+			name:   "INT64",
+			tag:    "type=INT64",
+			values: []any{int64(0), int64(-1), int64(math.MaxInt64), int64(math.MinInt64)},
+		},
+		{
+			name:   "FLOAT",
+			tag:    "type=FLOAT",
+			values: []any{float32(0), float32(-0.5), float32(math.MaxFloat32)},
+		},
+		{
+			name:   "DOUBLE",
+			tag:    "type=DOUBLE",
+			values: []any{float64(0), -0.5, math.MaxFloat64},
+		},
+		{
+			name:   "BYTE_ARRAY unannotated",
+			tag:    "type=BYTE_ARRAY",
+			values: []any{"", "hello", "\x00\xff\x01\xfe", "TEST"},
+		},
+		{
+			name:   "FIXED_LEN_BYTE_ARRAY unannotated",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=4",
+			values: []any{"\x00\xff\x01\xfe", "abcd", "\x00\x00\x00\x00"},
+		},
+		{
+			name:   "INT96",
+			tag:    "type=INT96",
+			values: []any{string(make([]byte, 12)), "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"},
+		},
+		{
+			name:   "FLOAT non-finite",
+			tag:    "type=FLOAT",
+			values: []any{float32(math.Inf(1)), float32(math.Inf(-1))},
+		},
+		{
+			name:   "DOUBLE non-finite",
+			tag:    "type=DOUBLE",
+			values: []any{math.Inf(1), math.Inf(-1)},
+		},
+		{
+			name:   "TIME NANOS",
+			tag:    "type=INT64, logicaltype=TIME, logicaltype.unit=NANOS, logicaltype.isadjustedtoutc=true",
+			values: []any{int64(0), int64(45296789012345), int64(86399999999999)},
+		},
+		{
+			name:   "DECIMAL BYTE_ARRAY",
+			tag:    "type=BYTE_ARRAY, convertedtype=DECIMAL, precision=20, scale=3",
+			values: []any{"\x01", "\xff", "\x00\xde\xad\xbe\xef"},
+		},
+		{
+			name:   "BSON",
+			tag:    "type=BYTE_ARRAY, convertedtype=BSON",
+			values: []any{"\x0e\x00\x00\x00\x10a\x00\x01\x00\x00\x00\x00"},
+			issue:  "#417: BSON has no interpreted write form, the rendered document is not parsed back",
+		},
+		{
+			name:   "GEOMETRY",
+			tag:    "type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84",
+			values: []any{"\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f\x00\x00\x00\x00\x00\x00\x00\x40"},
+			issue:  "#418: geospatial has no textual write form, GeoJSON output cannot be written back",
+		},
+		{
+			name:   "UTF8",
+			tag:    "type=BYTE_ARRAY, convertedtype=UTF8",
+			values: []any{"", "hello", "日本語", `{"a":1}`},
+		},
+		{
+			name:   "ENUM",
+			tag:    "type=BYTE_ARRAY, convertedtype=ENUM",
+			values: []any{"ACTIVE", "TEST", "AAAA"},
+		},
+		{
+			name:   "JSON",
+			tag:    "type=BYTE_ARRAY, convertedtype=JSON",
+			values: []any{`{"a":1}`, `null`, `"TEST"`},
+		},
+		{
+			name:   "UUID",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID",
+			values: []any{string(make([]byte, common.UUIDByteLen)), "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00"},
+		},
+		{
+			name:   "FLOAT16",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16",
+			values: []any{float16(0x0000), float16(0x3c00), float16(0xc900), float16(0x7bff)},
+		},
+		{
+			name:   "DATE",
+			tag:    "type=INT32, convertedtype=DATE",
+			values: []any{int32(0), int32(-1), int32(19723)},
+		},
+		{
+			name:   "TIME_MILLIS",
+			tag:    "type=INT32, convertedtype=TIME_MILLIS",
+			values: []any{int32(0), int32(45296789), int32(86399999)},
+		},
+		{
+			name:   "TIME_MICROS",
+			tag:    "type=INT64, convertedtype=TIME_MICROS",
+			values: []any{int64(0), int64(45296789012), int64(86399999999)},
+		},
+		{
+			name:   "TIMESTAMP_MILLIS",
+			tag:    "type=INT64, convertedtype=TIMESTAMP_MILLIS",
+			values: []any{int64(0), int64(-1), int64(1699999999999)},
+		},
+		{
+			name:   "TIMESTAMP_MICROS",
+			tag:    "type=INT64, convertedtype=TIMESTAMP_MICROS",
+			values: []any{int64(0), int64(-1), int64(1699999999999999)},
+		},
+		{
+			name:   "INTEGER signed 8",
+			tag:    "type=INT32, logicaltype=INTEGER, logicaltype.bitwidth=8, logicaltype.issigned=true",
+			values: []any{int32(0), int32(-128), int32(127)},
+		},
+		{
+			name:   "INTEGER signed 64",
+			tag:    "type=INT64, logicaltype=INTEGER, logicaltype.bitwidth=64, logicaltype.issigned=true",
+			values: []any{int64(math.MinInt64), int64(math.MaxInt64)},
+		},
+		{
+			name:   "INTEGER unsigned 8",
+			tag:    "type=INT32, logicaltype=INTEGER, logicaltype.bitwidth=8, logicaltype.issigned=false",
+			values: []any{int32(0), int32(127), int32(128), int32(255)},
+		},
+		{
+			name:   "INTEGER unsigned 32",
+			tag:    "type=INT32, logicaltype=INTEGER, logicaltype.bitwidth=32, logicaltype.issigned=false",
+			values: []any{int32(0), int32(math.MaxInt32), int32(math.MinInt32), int32(-1)},
+		},
+		{
+			name:   "INTEGER unsigned 64",
+			tag:    "type=INT64, logicaltype=INTEGER, logicaltype.bitwidth=64, logicaltype.issigned=false",
+			values: []any{int64(0), int64(math.MaxInt64), int64(math.MinInt64), int64(-1)},
+		},
+		{
+			name:   "DECIMAL INT32",
+			tag:    "type=INT32, convertedtype=DECIMAL, precision=9, scale=2",
+			values: []any{int32(0), int32(-1), int32(123456789), int32(-123456789)},
+		},
+		{
+			name:   "DECIMAL INT64",
+			tag:    "type=INT64, convertedtype=DECIMAL, precision=18, scale=4",
+			values: []any{int64(0), int64(-1), int64(123456789012345678)},
+		},
+		{
+			name:   "DECIMAL FIXED_LEN_BYTE_ARRAY",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=DECIMAL, precision=25, scale=5",
+			values: []any{string(make([]byte, 12)), "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"},
+		},
+		{
+			name:   "INTERVAL",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL",
+			values: []any{interval(0, 0, 0), interval(1, 2, 3), interval(math.MaxUint32, 0, 0)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tag := "name=" + csvJSONColumn + ", " + tt.tag
+			se, err := columnSchemaElement(tag)
+			require.NoError(t, err)
+
+			rendered := make([]any, len(tt.values))
+			cells := make([]string, len(tt.values))
+			for i, val := range tt.values {
+				rendered[i] = types.ConvertToJSONType(val, se)
+				cells[i], err = csvCell(rendered[i])
+				require.NoError(t, err)
+			}
+
+			fromJSON, jsonErr := writeJSONColumn(tag, rendered)
+			fromCSV, csvErr := writeCSVColumn(tag, cells)
+
+			if tt.issue != "" {
+				agrees := jsonErr == nil && csvErr == nil &&
+					reflect.DeepEqual(tt.values, fromJSON) && reflect.DeepEqual(tt.values, fromCSV)
+				require.False(t, agrees, "%s\nthis column now agrees; drop the issue from this case", tt.issue)
+				return
+			}
+
+			require.NoError(t, jsonErr)
+			require.NoError(t, csvErr)
+			require.Equal(t, tt.values, fromJSON, "JSON write path")
+			require.Equal(t, tt.values, fromCSV, "CSV write path")
+		})
+	}
+}
+
+// columnSchemaElement returns the schema element a one-column tag builds, which is what the
+// read path needs to render the column's values.
+func columnSchemaElement(tag string) (*parquet.SchemaElement, error) {
+	sh, err := schema.NewSchemaHandlerFromMetadata([]string{tag})
+	if err != nil {
+		return nil, err
+	}
+	return sh.SchemaElements[1], nil
 }

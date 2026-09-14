@@ -29,28 +29,30 @@ func TimeToTIME_MICROS(t time.Time, adjustedToUTC bool) int64 {
 const (
 	JULIAN_DAY_OF_EPOCH int64 = 2440588
 	MICROS_PER_DAY      int64 = 3600 * 24 * 1000 * 1000
+	secondsPerDay       int64 = 3600 * 24
 )
 
-// From Spark
-// https://github.com/apache/spark/blob/b9f2f78de59758d1932c1573338539e485a01112/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/util/DateTimeUtils.scala#L180
-func toJulianDay(t time.Time) (int32, int64) {
+// toJulianDay splits a time into an INT96 Julian day and the nanosecond within that day. The
+// day is not narrowed to the int32 the column stores, so a caller that can report an error
+// sees a day the column cannot hold rather than the one it would wrap onto.
+func toJulianDay(t time.Time) (int64, int64) {
 	utc := t.UTC()
-	nanos := utc.UnixNano()
-	micros := nanos / time.Microsecond.Nanoseconds()
 
-	julianUs := micros + JULIAN_DAY_OF_EPOCH*MICROS_PER_DAY
-	days := int32(julianUs / MICROS_PER_DAY)
-	us := (julianUs % MICROS_PER_DAY) * 1000
-	return days, us
+	// Seconds rather than UnixNano: a Julian day spans 4713 BC to year 5874898, and only a
+	// 292-year window around the epoch fits in nanoseconds. Going through UnixNano wrapped
+	// every day outside that window onto a different date.
+	sec := utc.Unix() + JULIAN_DAY_OF_EPOCH*secondsPerDay
+	days, rem := sec/secondsPerDay, sec%secondsPerDay
+	if rem < 0 {
+		days, rem = days-1, rem+secondsPerDay
+	}
+	return days, rem*time.Second.Nanoseconds() + int64(utc.Nanosecond())
 }
 
-// From Spark
-// https://github.com/apache/spark/blob/b9f2f78de59758d1932c1573338539e485a01112/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/util/DateTimeUtils.scala#L170
+// fromJulianDay rebuilds the time an INT96 Julian day and nanosecond-within-day denote.
 func fromJulianDay(days int32, nanos int64) time.Time {
-	nanos = ((int64(days)-JULIAN_DAY_OF_EPOCH)*MICROS_PER_DAY + nanos/1000) * 1000
-	sec, nsec := nanos/time.Second.Nanoseconds(), nanos%time.Second.Nanoseconds()
-	t := time.Unix(sec, nsec)
-	return t.UTC()
+	sec := (int64(days)-JULIAN_DAY_OF_EPOCH)*secondsPerDay + nanos/time.Second.Nanoseconds()
+	return time.Unix(sec, nanos%time.Second.Nanoseconds()).UTC()
 }
 
 // formatTimeOfDay renders ticks since midnight, where perSecond ticks make a second and

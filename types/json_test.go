@@ -3219,9 +3219,18 @@ func TestPhysicalRoundTrip(t *testing.T) {
 			},
 		},
 		{
-			name:   "INT96",
-			se:     roundTripSE(parquet.Type_INT96, nil, nil, 0),
-			values: []any{TimeToINT96(time.Unix(0, 0).UTC()), TimeToINT96(time.Date(2023, 1, 2, 3, 4, 5, 123456789, time.UTC))},
+			// Raw Julian days rather than only what TimeToINT96 produces: a file from
+			// another writer can carry any day in the range and any nanosecond within it,
+			// which is where the rendering used to overflow (TestINT96PhysicalRoundTrip).
+			name: "INT96",
+			se:   roundTripSE(parquet.Type_INT96, nil, nil, 0),
+			values: []any{
+				TimeToINT96(time.Unix(0, 0).UTC()),
+				TimeToINT96(time.Date(2023, 1, 2, 3, 4, 5, 123456789, time.UTC)),
+				rawINT96(0, 0), rawINT96(0, math.MaxInt32),
+				rawINT96(123456789, uint32(JULIAN_DAY_OF_EPOCH)),
+				rawINT96(uint64(24*time.Hour.Nanoseconds()-1), uint32(JULIAN_DAY_OF_EPOCH)),
+			},
 		},
 		{
 			name:   "DECIMAL INT32",

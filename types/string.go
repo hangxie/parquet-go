@@ -40,6 +40,21 @@ func strToInterval(s string) (any, error) {
 	return StrIntToBinary(s, "LittleEndian", common.IntervalByteLen, false), nil
 }
 
+// strToINT96 scans the timestamp form, falling back to the legacy signed integer form.
+func strToINT96(s string) (string, error) {
+	res, err := ParseINT96String(s)
+	if err == nil {
+		return res, nil
+	}
+	// Anything that is not a bare integer is a real parse failure. The fallback used to
+	// swallow it, so a timestamp the parser rejected was stored as whatever leading digits
+	// it happened to start with: "5874898-06-04T00:00:00Z" became the number 5874898.
+	if _, ok := new(big.Int).SetString(s, 10); !ok {
+		return "", err
+	}
+	return StrIntToBinary(s, "LittleEndian", int96ByteLength, true), nil
+}
+
 // strToFixedLenByteArray reads s as the bytes of a FIXED_LEN_BYTE_ARRAY column.
 func strToFixedLenByteArray(s string, length int) (string, error) {
 	// A string that decodes as base64 can still be meant literally, so the column
@@ -83,11 +98,7 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 			_, err := fmt.Sscanf(s, "%d", &v)
 			return v, wrapScanErr("INT64", s, err)
 		case parquet.Type_INT96:
-			if res, err := ParseINT96String(s); err == nil {
-				return res, nil
-			}
-			res := StrIntToBinary(s, "LittleEndian", 12, true)
-			return res, nil
+			return strToINT96(s)
 		case parquet.Type_FLOAT:
 			var v float32
 			_, err := fmt.Sscanf(s, "%f", &v)

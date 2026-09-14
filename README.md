@@ -351,6 +351,14 @@ A `TIME` column holds elapsed time since midnight, so the only legal values are 
 
 JSON output renders a `TIME` as `HH:MM:SS` with the column's fractional width. An out-of-range value can now only come from another writer; the sign applies to the whole value and the hour field grows past 24, so `-1000` reads as `-00:00:01.000` and 25 hours as `25:00:00.000`, neither of which can be written back as a different value. Releases up to v3.8.3 signed each component separately, rendering `-1000` as `00:00:-1.000` and rewriting that string as `0`, and rewrote their own `25:00:00.000` as `25`.
 
+### INT96 Values
+
+An `INT96` column stores a nanosecond within the day followed by a Julian day, spanning 4713 BC to year 5874898. Both halves are carried whole: JSON output renders the value as an ISO 8601 timestamp with all nine fractional digits, and `JSONWriter`, `CSVWriter`, and `types.ParseINT96String` read that form back, including years that are negative or wider than four digits.
+
+A timestamp the column cannot hold fails the write rather than being stored as a different one: a day past either end of the range gives an `outside the range an INT96 can hold` error, and a day that does not exist in the year supplied, such as `10001-02-29`, gives an `out of range for February` error. Input that is neither a timestamp nor a bare integer fails with a `parse INT96 timestamp` error; up to v3.8.3 it fell through to the integer form, so a rejected timestamp was stored as whatever digits it started with, and `5874898-06-04T00:00:00Z` became the number 5874898.
+
+Releases up to v3.8.3 converted through a nanosecond offset from the Unix epoch, which only covers 1678 through 2262. A day outside that window wrapped onto an unrelated date, so Julian day 0 read as `1717-12-28T19:20:10.805067776Z` and writing that string back stored a different value again; sub-microsecond digits were dropped in both directions, so an `INT96` from another writer lost its last three digits on any read-modify-write.
+
 ### Repetition Types
 
 | Repetition Type | Go Declaration | Description |
