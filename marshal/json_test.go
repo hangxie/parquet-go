@@ -405,7 +405,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 
 		_, err = MarshalJSON(invalidTypeJSON, sch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "expected integer")
+		require.Contains(t, err.Error(), `parse INT32 "not_a_number"`)
 	})
 
 	t.Run("empty_path_handling", func(t *testing.T) {
