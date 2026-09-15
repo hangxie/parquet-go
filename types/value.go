@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -157,4 +159,109 @@ func jsonFloatValue(val reflect.Value, typeName string, bitSize int) (float64, b
 	// zero rather than overflowing, which is what every float conversion does and what
 	// the string path's ParseFloat does too, so the two agree.
 	return f, true, nil
+}
+
+// jsonNumberType is what encoding/json decodes numbers into under UseNumber.
+var jsonNumberType = reflect.TypeOf(json.Number(""))
+
+// isJSONString reports whether val is a JSON string, not a json.Number reading as one.
+func isJSONString(val reflect.Value) bool {
+	return val.Kind() == reflect.String && val.Type() != jsonNumberType
+}
+
+// carriesTextVerbatim reports whether the column's value travels as text that is taken at
+// face value: base64 for a byte-backed column with nothing to interpret, and the string
+// itself for one annotated as text. Rendering a number or boolean into that text is the
+// same guess this file removes one level down, and it is not harmless: "true" is valid
+// base64, so a JSON true was stored as the three bytes b6 bb 9e.
+//
+// INT96 is excluded. It reads its own timestamp form and falls back to the bare 96-bit
+// integer the column stores, so a number there is a value the column holds.
+func carriesTextVerbatim(pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {
+	if isTextAnnotated(cT, lT) {
+		return true
+	}
+	switch pT {
+	case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+	default:
+		return false
+	}
+	return cT == nil && lT == nil
+}
+
+// checkJSONStringColumn requires a JSON string where the column's text is face value.
+func checkJSONStringColumn(val reflect.Value, pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType) error {
+	if !carriesTextVerbatim(pT, cT, lT) || isJSONString(val) {
+		return nil
+	}
+	kind := val.Kind().String()
+	if val.Type() == jsonNumberType {
+		kind = "number"
+	}
+	return fmt.Errorf("%v column takes a JSON string, got %s", pT, kind)
+}
+
+// isTextAnnotated reports whether either annotation guarantees the column holds text,
+// which is verbatim in both modes; base64-decoding it is the corruption in #420.
+func isTextAnnotated(cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {
+	if lT != nil && (lT.IsSetSTRING() || lT.IsSetENUM() || lT.IsSetJSON()) {
+		return true
+	}
+	if cT == nil {
+		return false
+	}
+	switch *cT {
+	case parquet.ConvertedType_UTF8, parquet.ConvertedType_ENUM, parquet.ConvertedType_JSON:
+		return true
+	}
+	return false
+}
+
+// interpretedWriteUnsupported names an annotation with no interpreted write form, or "".
+// Falling through to raw would store "POINT (1 2)" as the eleven bytes of its own text.
+func interpretedWriteUnsupported(cT *parquet.ConvertedType, lT *parquet.LogicalType) string {
+	switch {
+	case lT != nil && lT.IsSetGEOMETRY():
+		return "GEOMETRY"
+	case lT != nil && lT.IsSetGEOGRAPHY():
+		return "GEOGRAPHY"
+	case lT != nil && lT.IsSetBSON():
+		return "BSON"
+	case cT != nil && *cT == parquet.ConvertedType_BSON:
+		return "BSON"
+	}
+	return ""
+}
+
+// base64ToBytes decodes a byte-backed value; a length above zero is the width it must
+// decode to.
+func base64ToBytes(s, typeName string, length int) (string, error) {
+	decoded, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return "", fmt.Errorf("%s %q is not valid base64: %w", typeName, s, err)
+	}
+	if length > 0 && len(decoded) != length {
+		// Reported here so the message names the string the caller supplied.
+		return "", fmt.Errorf("%s %q decodes to %d bytes, column length is %d", typeName, s, len(decoded), length)
+	}
+	return string(decoded), nil
+}
+
+// physicalStrToParquetType scans a value with no logical type applied.
+func physicalStrToParquetType(s string, pT parquet.Type, length int) (any, error) {
+	switch pT {
+	case parquet.Type_INT96:
+		return base64ToBytes(s, "INT96", int96ByteLength)
+	case parquet.Type_BYTE_ARRAY:
+		return base64ToBytes(s, "BYTE_ARRAY", 0)
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		return base64ToBytes(s, "FIXED_LEN_BYTE_ARRAY", length)
+	default:
+		return scalarStrToParquetType(s, pT)
+	}
+}
+
+// errInterpretedWrite reports an annotation whose text form the write path cannot parse.
+func errInterpretedWrite(typeName string) error {
+	return fmt.Errorf("writing %s from its text form is not supported yet, supply base64", typeName)
 }

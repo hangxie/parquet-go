@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"math/big"
@@ -15,16 +14,16 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
-// strToTickCount scans the bare tick count a TIMESTAMP column also accepts.
-func strToTickCount(s, typeName string) (any, error) {
-	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
-	return v, wrapScanErr(typeName, s, err)
-}
-
 // strToDayCount scans the bare day count a DATE column also accepts, over the whole field.
 func strToDayCount(s, typeName string) (any, error) {
 	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 32)
 	return int32(v), wrapScanErr(typeName, s, err)
+}
+
+// strToTickCount scans the bare tick count a TIMESTAMP column also accepts.
+func strToTickCount(s, typeName string) (any, error) {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return v, wrapScanErr(typeName, s, err)
 }
 
 // maxScanErrInput caps how much of a rejected value an error quotes; a float in plain
@@ -82,32 +81,6 @@ func strToINT96(s string) (string, error) {
 	return StrIntToBinary(s, "LittleEndian", int96ByteLength, true), nil
 }
 
-// strToFixedLenByteArray reads s as the bytes of a FIXED_LEN_BYTE_ARRAY column.
-func strToFixedLenByteArray(s string, length int) (string, error) {
-	// A string that decodes as base64 can still be meant literally, so the column
-	// width picks the reading rather than the encoding.
-	decoded, decodeErr := base64.StdEncoding.DecodeString(s)
-	switch {
-	case length <= 0:
-		// No width to match, as when a caller passes 0 for a column it did not look
-		// up: keep the historical base64-first reading.
-		if decodeErr == nil {
-			return string(decoded), nil
-		}
-		return s, nil
-	case decodeErr == nil && len(decoded) == length:
-		return string(decoded), nil
-	case len(s) == length:
-		return s, nil
-	case decodeErr == nil && len(decoded) != len(s):
-		// Reporting it here, rather than leaving it to the page the value is written
-		// into, keeps the message about the string the caller supplied.
-		return "", fmt.Errorf("FIXED_LEN_BYTE_ARRAY %q is %d bytes raw and %d base64-decoded, neither matches column length %d", s, len(s), len(decoded), length)
-	default:
-		return "", fmt.Errorf("FIXED_LEN_BYTE_ARRAY %q is %d bytes, column length is %d", s, len(s), length)
-	}
-}
-
 // StrToParquetType scans a string to a parquet value; length and scale are only used by
 // DECIMAL. A nil physical type is reported, since every branch below needs one.
 func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
@@ -115,19 +88,11 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		return nil, errNoPhysicalType(s)
 	}
 	if cT == nil {
-		switch *pT {
-		case parquet.Type_INT96:
+		// INT96 is the one physical type with a text form of its own.
+		if *pT == parquet.Type_INT96 {
 			return strToINT96(s)
-		case parquet.Type_BYTE_ARRAY:
-			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
-				return string(decoded), nil
-			}
-			return s, nil
-		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
-			return strToFixedLenByteArray(s, length)
-		default:
-			return scalarStrToParquetType(s, *pT)
 		}
+		return physicalStrToParquetType(s, *pT, length)
 	}
 
 	// Scanned at the width and signedness it declares, like the INTEGER type it stands for.
@@ -136,7 +101,7 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 			return v, err
 		}
 		// The annotation does not describe this column's range; the physical scan decides.
-		return scalarStrToParquetType(s, *pT)
+		return physicalStrToParquetType(s, *pT, length)
 	}
 
 	switch *cT {
@@ -247,6 +212,16 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
 	if pT == nil {
 		return nil, errNoPhysicalType(s)
+	}
+
+	// Text on the wire. StrToParquetType below keeps a UTF8, ENUM or JSON converted type
+	// verbatim too, but a schema may carry only the logical type, and falling through to
+	// the physical scan would read the text as base64.
+	if isTextAnnotated(cT, lT) {
+		return s, nil
+	}
+	if typeName := interpretedWriteUnsupported(cT, lT); typeName != "" {
+		return nil, errInterpretedWrite(typeName)
 	}
 
 	if lT != nil {

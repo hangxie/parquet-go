@@ -58,22 +58,10 @@ func TestStrToParquetType(t *testing.T) {
 			parquetType:    parquet.TypePtr(parquet.Type_DOUBLE),
 		},
 		{
-			name:           "byte-array-string",
-			inputStr:       "abc bcd",
-			expectedGoData: string("abc bcd"),
-			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-		},
-		{
 			name:           "byte-array-base64",
 			inputStr:       "SGVsbG8gV29ybGQ=", // "Hello World" in base64
 			expectedGoData: string("Hello World"),
 			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-		},
-		{
-			name:           "fixed-len-byte-array-string",
-			inputStr:       "abc bcd",
-			expectedGoData: string("abc bcd"),
-			parquetType:    parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 		},
 		{
 			name:           "fixed-len-byte-array-base64",
@@ -1019,33 +1007,26 @@ func TestStrToParquetType_FixedLenByteArrayWidth(t *testing.T) {
 		"no-length-base64": {
 			"SGVsbG8gV29ybGQ=", 0, "Hello World", "",
 		},
-		"no-length-raw": {
-			"abc bcd", 0, "abc bcd", "",
-		},
 		"base64-matches-width": {
 			"SGVsbG8gV29ybGQ=", 11, "Hello World", "",
 		},
-		"raw-matches-width": {
-			"abc bcd", 7, "abc bcd", "",
+		"decoded-width-decides": {
+			// Valid base64 that decodes to 12 bytes; the 16 characters themselves are
+			// no longer a second reading the width could pick.
+			"0123456789abcdef", 16, "",
+			`FIXED_LEN_BYTE_ARRAY "0123456789abcdef" decodes to 12 bytes, column length is 16`,
 		},
-		"raw-wins-when-decoded-width-differs": {
-			// Valid base64 that decodes to 12 bytes, but the caller means the 16
-			// characters themselves.
-			"0123456789abcdef", 16, "0123456789abcdef", "",
-		},
-		"neither-width-matches-base64": {
+		"width-mismatch": {
 			"SGVsbG8gV29ybGQ=", 5, "",
-			`FIXED_LEN_BYTE_ARRAY "SGVsbG8gV29ybGQ=" is 16 bytes raw and 11 base64-decoded, neither matches column length 5`,
+			`FIXED_LEN_BYTE_ARRAY "SGVsbG8gV29ybGQ=" decodes to 11 bytes, column length is 5`,
 		},
-		"neither-width-matches-raw": {
+		"not-base64": {
 			"abc", 5, "",
-			`FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 5`,
+			`FIXED_LEN_BYTE_ARRAY "abc" is not valid base64`,
 		},
 		"empty-string": {
-			// "" decodes as base64 to itself, so naming both readings would say the
-			// same thing twice.
 			"", 5, "",
-			`FIXED_LEN_BYTE_ARRAY "" is 0 bytes, column length is 5`,
+			`FIXED_LEN_BYTE_ARRAY "" decodes to 0 bytes, column length is 5`,
 		},
 	}
 
