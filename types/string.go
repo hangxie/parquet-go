@@ -73,8 +73,7 @@ func strToFixedLenByteArray(s string, length int) (string, error) {
 	case len(s) == length:
 		return s, nil
 	case decodeErr == nil && len(decoded) != len(s):
-		// Reporting it here, rather than leaving it to the page the value is written
-		// into, keeps the message about the string the caller supplied.
+		// Reported here so the message names the string the caller supplied.
 		return "", fmt.Errorf("FIXED_LEN_BYTE_ARRAY %q is %d bytes raw and %d base64-decoded, neither matches column length %d", s, len(s), len(decoded), length)
 	default:
 		return "", fmt.Errorf("FIXED_LEN_BYTE_ARRAY %q is %d bytes, column length is %d", s, len(s), length)

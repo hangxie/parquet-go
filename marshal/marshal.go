@@ -516,21 +516,24 @@ func HandleVariant(
 		return nil, true, fmt.Errorf("max definition level for variant %s: %w", node.PathMap.Path, err)
 	}
 
-	// Push Metadata
-	metaNode := nodeBuf.GetNode()
-	metaNode.PathMap = metadataPathMap
-	metaNode.Val = reflect.ValueOf(string(v.Metadata))
-	metaNode.DL = childDL
-	metaNode.RL = node.RL
-	stack = append(stack, metaNode)
-
-	// Push Value
-	valueNode := nodeBuf.GetNode()
-	valueNode.PathMap = valuePathMap
-	valueNode.Val = reflect.ValueOf(string(v.Value))
-	valueNode.DL = childDL
-	valueNode.RL = node.RL
-	stack = append(stack, valueNode)
+	// Both children already hold the encoded bytes. Routing them back through the value
+	// conversion would read them as a BYTE_ARRAY column's text, which is base64.
+	appendChild := func(path string, value []byte) error {
+		table := res[path]
+		if table == nil {
+			return fmt.Errorf("VARIANT child %s has no table", path)
+		}
+		table.Values = append(table.Values, string(value))
+		table.DefinitionLevels = append(table.DefinitionLevels, childDL)
+		table.RepetitionLevels = append(table.RepetitionLevels, node.RL)
+		return nil
+	}
+	if err := appendChild(metadataPathMap.Path, v.Metadata); err != nil {
+		return nil, true, err
+	}
+	if err := appendChild(valuePathMap.Path, v.Value); err != nil {
+		return nil, true, err
+	}
 
 	return stack, true, nil
 }

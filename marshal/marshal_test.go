@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/types"
 )
@@ -101,6 +102,35 @@ func TestMarshalVariant_Error(t *testing.T) {
 		_, err = Marshal(data, sh)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "missing required children")
+	})
+
+	t.Run("missing_child_table", func(t *testing.T) {
+		type MyStruct struct {
+			Var any `parquet:"name=var, type=VARIANT"`
+		}
+
+		sh, err := schema.NewSchemaHandlerFromStruct(new(MyStruct))
+		require.NoError(t, err)
+
+		pathMap := sh.PathMap.Children["Var"]
+		require.NotNil(t, pathMap)
+		se := sh.SchemaElements[sh.MapIndex[pathMap.Path]]
+
+		node := &Node{
+			Val:     reflect.ValueOf(map[string]any{"a": int32(1)}),
+			PathMap: pathMap,
+		}
+		// The variant children are appended straight to their tables, so a table map
+		// that does not describe them is reported rather than dereferenced.
+		for _, present := range []string{"", "Metadata"} {
+			res := map[string]*layout.Table{}
+			if present != "" {
+				res[pathMap.Children[present].Path] = layout.NewEmptyTable()
+			}
+			_, handled, err := HandleVariant(node, se, res, sh, NewNodeBuf(1), nil)
+			require.True(t, handled)
+			require.ErrorContains(t, err, "has no table")
+		}
 	})
 }
 
