@@ -291,3 +291,149 @@ func TestDayCountsAreStrict(t *testing.T) {
 		require.ErrorContains(t, err, "parse DATE", text)
 	}
 }
+
+// TestStrToParquetTypeWithLogical_TextLogicalTypes covers a text column carrying only a
+// logical type, which fell through to the BYTE_ARRAY scan and was read as base64.
+func TestStrToParquetTypeWithLogical_TextLogicalTypes(t *testing.T) {
+	byteArray := parquet.Type_BYTE_ARRAY
+	logicalTypes := map[string]*parquet.LogicalType{
+		"STRING": {STRING: parquet.NewStringType()},
+		"ENUM":   {ENUM: parquet.NewEnumType()},
+		"JSON":   {JSON: parquet.NewJsonType()},
+	}
+
+	for name, lT := range logicalTypes {
+		t.Run(name, func(t *testing.T) {
+			for _, value := range []string{"hello", "TEST", "null", ""} {
+				got, err := StrToParquetTypeWithLogical(value, &byteArray, nil, lT, 0, 0)
+				require.NoError(t, err, "%s", value)
+				require.Equal(t, value, got, "%s", value)
+			}
+		})
+	}
+}
+
+// TestStrToParquetTypeWithLogical_UnsupportedTextForms checks that annotations whose text
+// form the write path cannot parse are refused rather than stored as their own text, which
+// is the silent corruption in #418.
+func TestStrToParquetTypeWithLogical_UnsupportedTextForms(t *testing.T) {
+	tests := []struct {
+		name string
+		str  string
+		pT   parquet.Type
+		cT   *parquet.ConvertedType
+		lT   *parquet.LogicalType
+	}{
+		{
+			name: "GEOMETRY",
+			str:  "POINT (1 2)",
+			pT:   parquet.Type_BYTE_ARRAY,
+			lT:   &parquet.LogicalType{GEOMETRY: parquet.NewGeometryType()},
+		},
+		{
+			name: "GEOGRAPHY",
+			str:  "POINT (1 2)",
+			pT:   parquet.Type_BYTE_ARRAY,
+			lT:   &parquet.LogicalType{GEOGRAPHY: parquet.NewGeographyType()},
+		},
+		{
+			name: "BSON logical type",
+			str:  `{"a": 1}`,
+			pT:   parquet.Type_BYTE_ARRAY,
+			lT:   &parquet.LogicalType{BSON: parquet.NewBsonType()},
+		},
+		{
+			name: "BSON converted type",
+			str:  `{"a": 1}`,
+			pT:   parquet.Type_BYTE_ARRAY,
+			cT:   parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := StrToParquetTypeWithLogical(tt.str, &tt.pT, tt.cT, tt.lT, 0, 0)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "not supported yet")
+			require.Contains(t, err.Error(), tt.name[:4])
+		})
+	}
+}
+
+// TestStrToParquetType_NoBase64Sniffing pins criterion 4 of #421: an unannotated
+// byte-backed column reads its input as base64, and text that is not base64 is an
+// error rather than a silently stored byte string.
+func TestStrToParquetType_NoBase64Sniffing(t *testing.T) {
+	byteArray := parquet.Type_BYTE_ARRAY
+	flba := parquet.Type_FIXED_LEN_BYTE_ARRAY
+
+	t.Run("BYTE_ARRAY decodes base64", func(t *testing.T) {
+		got, err := StrToParquetType("aGVsbG8=", &byteArray, nil, 0, 0)
+		require.NoError(t, err)
+		require.Equal(t, "hello", got)
+	})
+
+	t.Run("BYTE_ARRAY rejects non-base64", func(t *testing.T) {
+		_, err := StrToParquetType("hello", &byteArray, nil, 0, 0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not valid base64")
+	})
+
+	t.Run("FIXED_LEN_BYTE_ARRAY no longer falls back to the literal string", func(t *testing.T) {
+		_, err := StrToParquetType("abcd", &flba, nil, 4, 0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "column length is 4")
+	})
+}
+
+// TestJSONStringColumnsRejectOtherShapes covers a column whose text is taken at face
+// value. A non-string used to be rendered to text and read as one, so JSON true was
+// stored as the three bytes "true" decodes to.
+func TestJSONStringColumnsRejectOtherShapes(t *testing.T) {
+	byteArray := parquet.Type_BYTE_ARRAY
+	utf8CT := parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8)
+
+	columns := map[string]*parquet.ConvertedType{"unannotated": nil, "UTF8": utf8CT}
+	values := map[string]any{
+		"boolean":     true,
+		"json.Number": json.Number("1234"),
+		"float":       1234.0,
+	}
+
+	for colName, cT := range columns {
+		for valName, value := range values {
+			t.Run(colName+"/"+valName, func(t *testing.T) {
+				_, err := JSONTypeToParquetTypeWithLogical(
+					reflect.ValueOf(value), &byteArray, cT, nil, 0, 0)
+				require.ErrorContains(t, err, "takes a JSON string")
+			})
+		}
+	}
+
+	// json.Number is a string to Go, so the message says what it really is.
+	_, err := JSONTypeToParquetTypeWithLogical(
+		reflect.ValueOf(json.Number("1234")), &byteArray, nil, nil, 0, 0)
+	require.ErrorContains(t, err, "got number")
+
+	// INT96 is not in that set: it reads its timestamp form and falls back to the bare
+	// 96-bit integer the column stores, so a number is a value it holds, and the CSV path
+	// always took that integer. Note what the fallback means: the low eight bytes are
+	// nanoseconds within the day and the high four the Julian day, so 12345 is 12,345
+	// nanoseconds on Julian day 0, not day 12,345.
+	int96 := parquet.Type_INT96
+	fromNumber, err := JSONTypeToParquetTypeWithLogical(
+		reflect.ValueOf(json.Number("12345")), &int96, nil, nil, 0, 0)
+	require.NoError(t, err)
+	fromText, err := StrToParquetTypeWithLogical("12345", &int96, nil, nil, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, fromText, fromNumber)
+
+	// A real JSON string still lands, base64-decoded or verbatim as the column asks.
+	got, err := JSONTypeToParquetTypeWithLogical(reflect.ValueOf("aGk="), &byteArray, nil, nil, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, "hi", got)
+
+	got, err = JSONTypeToParquetTypeWithLogical(reflect.ValueOf("aGk="), &byteArray, utf8CT, nil, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, "aGk=", got)
+}

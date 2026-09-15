@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/base64"
 	"fmt"
 	"math"
 	"reflect"
@@ -204,6 +203,9 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	if pT == nil {
 		return nil, errNoPhysicalType(jsonValueText(val))
 	}
+	if err := checkJSONStringColumn(val, *pT, cT, lT); err != nil {
+		return nil, err
+	}
 
 	// Handle decimal types specially to preserve precision from JSON numbers
 	isDecimal := (cT != nil && *cT == parquet.ConvertedType_DECIMAL) || (lT != nil && lT.IsSetDECIMAL())
@@ -232,7 +234,7 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	}
 
 	// Try direct type conversion for non-decimal types (avoids fmt.Sprintf/Sscanf round-trip)
-	if result, ok, err := jsonValueToParquetDirect(val, pT, cT, lT, length); ok {
+	if result, ok, err := jsonValueToParquetDirect(val, pT, cT, lT); ok {
 		return result, err
 	}
 
@@ -240,20 +242,10 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	return StrToParquetTypeWithLogical(jsonValueText(val), pT, cT, lT, length, scale)
 }
 
-// jsonConvertedTypeDirect handles direct conversion for converted types.
-func jsonConvertedTypeDirect(val reflect.Value, cT parquet.ConvertedType) (any, bool) {
-	switch cT {
-	case parquet.ConvertedType_UTF8, parquet.ConvertedType_ENUM, parquet.ConvertedType_JSON:
-		// Text on the wire: keep the string verbatim, never base64-decode it below.
-		if val.Kind() == reflect.String {
-			return val.String(), true
-		}
-	}
-	return nil, false
-}
-
-// jsonPhysicalTypeDirect handles direct conversion for basic parquet physical types.
-func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type, length int) (any, bool, error) {
+// jsonPhysicalTypeDirect converts a JSON boolean or number to the column's physical type,
+// checking it against the column rather than casting through it. Byte-backed columns are
+// absent: their JSON form is base64 text, which the string path decodes.
+func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type) (any, bool, error) {
 	switch pT {
 	case parquet.Type_BOOLEAN:
 		if val.Kind() == reflect.Bool {
@@ -269,22 +261,6 @@ func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type, length int) (any
 		return float32(v), ok, err
 	case parquet.Type_DOUBLE:
 		return jsonFloatValue(val, "DOUBLE", 64)
-	case parquet.Type_BYTE_ARRAY:
-		if val.Kind() == reflect.String {
-			s := val.String()
-			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
-				return string(decoded), true, nil
-			}
-			return s, true, nil
-		}
-	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
-		if val.Kind() == reflect.String {
-			// A value that matches neither reading of the column width falls through
-			// to the string path, which reports it.
-			if v, err := strToFixedLenByteArray(val.String(), length); err == nil {
-				return v, true, nil
-			}
-		}
 	}
 	return nil, false, nil
 }
@@ -362,7 +338,7 @@ func jsonTimeDirect(val reflect.Value, unit time.Duration, typeName string) (any
 // jsonValueToParquetDirect attempts direct type conversion without string round-trip.
 // Returns (result, true, nil) on success, (nil, false, nil) if fallback is needed, or
 // (nil, true, err) when the value is invalid for the column.
-func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int) (any, bool, error) {
+func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType) (any, bool, error) {
 	// TIME comes first: the converted types below hand their values to the string path, which
 	// renders a float64 in %g and reads "4.5296789e+07" as a failed parse rather than a time.
 	if isTimeColumn(cT, lT) {
@@ -380,6 +356,11 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 
 	// Handle converted types that need special treatment (skip time/date/interval types that
 	// need string parsing)
+	// Text on the wire, under either spelling of the annotation.
+	if isTextAnnotated(cT, lT) && val.Kind() == reflect.String {
+		return val.String(), true, nil
+	}
+
 	// An annotated integer needs its declared width and signedness, which a cast cannot
 	// express: UINT_8 must refuse 256 and -1, not wrap them. strToIntegerLogical already
 	// reads the text that way, so the number takes the same route.
@@ -390,29 +371,21 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 	if cT != nil {
 		switch *cT {
 		case parquet.ConvertedType_DATE, parquet.ConvertedType_TIMESTAMP_MILLIS,
-			parquet.ConvertedType_TIMESTAMP_MICROS, parquet.ConvertedType_INTERVAL:
+			parquet.ConvertedType_TIMESTAMP_MICROS, parquet.ConvertedType_INTERVAL,
+			parquet.ConvertedType_DECIMAL:
+			// Text forms the string path parses more carefully than a cast can.
 			return nil, false, nil
-		default:
-			if result, ok := jsonConvertedTypeDirect(val, *cT); ok {
-				return result, true, nil
-			}
 		}
 	}
 
 	if lT != nil && val.Kind() == reflect.String {
-		switch {
-		case lT.IsSetSTRING(), lT.IsSetENUM(), lT.IsSetJSON():
-			// Text on the wire, same as the converted types above. A schema may carry only
-			// the logical type, so this cannot rely on the ConvertedType backfill.
-			return val.String(), true, nil
-		case lT.IsSetFLOAT16(), lT.IsSetUUID():
-			// These encode string values (e.g. "9.5", "-Inf", a dashed UUID) that need
-			// strToLogicalType's parsing, not the raw byte-array treatment below.
+		// FLOAT16 and UUID hold text ("9.5", a dashed UUID) that needs strToLogicalType.
+		if lT.IsSetFLOAT16() || lT.IsSetUUID() {
 			return nil, false, nil
 		}
 	}
 
-	return jsonPhysicalTypeDirect(val, *pT, length)
+	return jsonPhysicalTypeDirect(val, *pT)
 }
 
 // numericType is a constraint for numeric types that can be extracted from reflect.Value.

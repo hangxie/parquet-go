@@ -190,7 +190,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=simple_map, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=simple_map, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -262,7 +262,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 				{"Tag": "name=int64_val, type=INT64", "Type": "int64"},
 				{"Tag": "name=float_val, type=FLOAT", "Type": "float32"},
 				{"Tag": "name=double_val, type=DOUBLE", "Type": "float64"},
-				{"Tag": "name=byte_array_val, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=byte_array_val, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -291,7 +291,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=required_field, type=BYTE_ARRAY", "Type": "string"},
+				{"Tag": "name=required_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
 				{"Tag": "name=missing_field, type=INT32", "Type": "int32"}
 			]
 		}`
@@ -323,7 +323,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 				{
 					"Tag": "name=nested",
 					"Fields": [
-						{"Tag": "name=optional_field, type=BYTE_ARRAY, repetitiontype=OPTIONAL", "Type": "string"},
+						{"Tag": "name=optional_field, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL", "Type": "string"},
 						{"Tag": "name=required_field, type=INT32", "Type": "int32"}
 					]
 				}
@@ -371,7 +371,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=name, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -415,7 +415,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 				{
 					"Tag": "name=nested",
 					"Fields": [
-						{"Tag": "name=field, type=BYTE_ARRAY", "Type": "string"}
+						{"Tag": "name=field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 					]
 				}
 			]
@@ -439,7 +439,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=known_field, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=known_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -467,7 +467,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=data, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=data, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -624,7 +624,7 @@ func TestMarshalJSON_ComplexPath_IsChildPath(t *testing.T) {
 					{
 						"Tag": "name=level2",
 						"Fields": [
-							{"Tag": "name=leaf, type=BYTE_ARRAY", "Type": "string"}
+							{"Tag": "name=leaf, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 						]
 					}
 				]
@@ -657,8 +657,8 @@ func TestMarshalJSON_StringToVariableName(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
-			{"Tag": "name=camel_case_field, type=BYTE_ARRAY", "Type": "string"},
-			{"Tag": "name=simple_field, type=BYTE_ARRAY", "Type": "string"}
+			{"Tag": "name=camel_case_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
+			{"Tag": "name=simple_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 		]
 	}`
 
@@ -720,7 +720,7 @@ func TestMarshalJSON_MapInvalidKeyAccess(t *testing.T) {
 			{
 				"Tag": "name=struct_field",
 				"Fields": [
-					{"Tag": "name=present_field, type=BYTE_ARRAY", "Type": "string"},
+					{"Tag": "name=present_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
 					{"Tag": "name=missing_field, type=INT32, repetitiontype=OPTIONAL", "Type": "int32"}
 				]
 			}
@@ -752,7 +752,7 @@ func TestMarshalJSON_InvalidMapIndexValue(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
-			{"Tag": "name=field1, type=BYTE_ARRAY", "Type": "string"},
+			{"Tag": "name=field1, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
 			{"Tag": "name=field2, type=INT32", "Type": "int32"}
 		]
 	}`
@@ -789,7 +789,7 @@ func TestMarshalJSON_MapIndexErrors(t *testing.T) {
 			{
 				"Tag": "name=struct_field",
 				"Fields": [
-					{"Tag": "name=valid_field, type=BYTE_ARRAY", "Type": "string"},
+					{"Tag": "name=valid_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
 					{"Tag": "name=another_field, type=INT32", "Type": "int32"}
 				]
 			}
@@ -842,7 +842,7 @@ func TestMarshalJSON_StructFieldMapping(t *testing.T) {
 			{
 				"Tag": "name=nested_struct",
 				"Fields": [
-					{"Tag": "name=snake_case_field, type=BYTE_ARRAY, repetitiontype=OPTIONAL", "Type": "string"},
+					{"Tag": "name=snake_case_field, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL", "Type": "string"},
 					{"Tag": "name=another_field, type=INT32", "Type": "int32"}
 				]
 			}
@@ -871,7 +871,7 @@ func TestMarshalJSON_NilMapIndexValues(t *testing.T) {
 			{
 				"Tag": "name=struct_field",
 				"Fields": [
-					{"Tag": "name=field1, type=BYTE_ARRAY, repetitiontype=OPTIONAL", "Type": "string"},
+					{"Tag": "name=field1, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL", "Type": "string"},
 					{"Tag": "name=field2, type=INT32, repetitiontype=OPTIONAL", "Type": "int32"}
 				]
 			}
@@ -987,7 +987,7 @@ func TestMarshalJSON_NodeBufReset(t *testing.T) {
 		"Tag": "name=parquet_go_root",
 		"Fields": [
 			{"Tag": "name=id, type=INT32", "Type": "int32"},
-			{"Tag": "name=name, type=BYTE_ARRAY", "Type": "string"}
+			{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 		]
 	}`
 
