@@ -27,6 +27,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 - [Schema Definition](#schema-definition)
 - [Type System](#type-system)
   - [Value Modes](#value-modes)
+  - [TIMESTAMP Values](#timestamp-values)
 - [Encoding Support](#encoding-support)
 - [Compression Support](#compression-support)
 - [Readers and Writers](#readers-and-writers)
@@ -392,6 +393,14 @@ A `TIME` column holds elapsed time since midnight, so the only legal values are 
 `types.JSONTypeToParquetTypeWithLogical` also takes a TIME as a Go number rather than text, and checks it the same way: a fractional or non-finite value fails with a `not a whole number of ticks` error instead of being truncated into the column.
 
 JSON output renders a `TIME` as `HH:MM:SS` with the column's fractional width. An out-of-range value can now only come from another writer; the sign applies to the whole value and the hour field grows past 24, so `-1000` reads as `-00:00:01.000` and 25 hours as `25:00:00.000`, neither of which can be written back as a different value. Releases up to v3.8.3 signed each component separately, rendering `-1000` as `00:00:-1.000` and rewriting that string as `0`, and rewrote their own `25:00:00.000` as `25`.
+
+### TIMESTAMP Values
+
+A `TIMESTAMP` column stores a count of milliseconds, microseconds, or nanoseconds since the Unix epoch, and `JSONWriter`, `CSVWriter`, and `types.StrToParquetTypeWithLogical` accept either an RFC 3339 timestamp or that bare count. Both spellings of the annotation, the `TIMESTAMP` logical type and the legacy `TIMESTAMP_MILLIS`/`TIMESTAMP_MICROS` converted types, are read identically; the count is scanned over the whole field, so `"123abc"` fails with a `parse TIMESTAMP_MICROS` error rather than being stored as `123`.
+
+Milliseconds and microseconds reach well beyond the year 3000, and a timestamp is now scaled at the column's own unit so that range is usable. Up to v3.8.3 every unit was scaled from a nanosecond count, which only spans 1678 through 2262 and wraps outside it, so `2300-01-01T00:00:00Z` in a `TIMESTAMP_MILLIS` column was stored as a negative count that reads back as 1715. The same arithmetic truncated toward zero rather than down, so a pre-epoch value with sub-unit precision lost a tick: `1969-12-31T23:59:59.9995Z` stored `0` instead of `-1`. `TIMESTAMP_NANOS` genuinely cannot hold a date outside that window and now reports it instead of wrapping.
+
+A `TIMESTAMP` annotation that names no unit, including one whose unit field is set to a member this release does not know, describes nothing about the value, so the column's own `INT64` scan reads it.
 
 ### INT96 Values
 

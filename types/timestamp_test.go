@@ -186,3 +186,54 @@ func TestTimestampUnsetUnit(t *testing.T) {
 		})
 	}
 }
+
+// TestTimestampRangeBeyondNanoseconds covers timestamps outside the nanosecond window,
+// roughly 1678 to 2262. Scaling every unit from UnixNano wrapped there, storing
+// "2300-01-01T00:00:00Z" in a MILLIS column as a count reading back as 1715.
+func TestTimestampRangeBeyondNanoseconds(t *testing.T) {
+	int64T := parquet.Type_INT64
+
+	units := []struct {
+		name string
+		cT   parquet.ConvertedType
+		lT   *parquet.LogicalType
+		want func(time.Time) int64
+	}{
+		{"MILLIS", parquet.ConvertedType_TIMESTAMP_MILLIS, createTimestampLogicalType(true, false, false, true), time.Time.UnixMilli},
+		{"MICROS", parquet.ConvertedType_TIMESTAMP_MICROS, createTimestampLogicalType(false, true, false, true), time.Time.UnixMicro},
+	}
+
+	for _, unit := range units {
+		t.Run(unit.name, func(t *testing.T) {
+			cT := parquet.ConvertedTypePtr(unit.cT)
+			for _, text := range []string{
+				"2300-01-01T00:00:00Z",      // past the nanosecond ceiling
+				"1600-01-01T00:00:00Z",      // before its floor
+				"1969-12-31T23:59:59.9995Z", // sub-unit precision below the epoch
+				"2023-12-25T00:00:00Z",      // well inside it
+			} {
+				parsed, err := time.Parse(time.RFC3339Nano, text)
+				require.NoError(t, err)
+
+				fromConverted, err := StrToParquetTypeWithLogical(text, &int64T, cT, nil, 0, 0)
+				require.NoError(t, err, text)
+				require.Equal(t, unit.want(parsed), fromConverted, text)
+
+				fromLogical, err := StrToParquetTypeWithLogical(text, &int64T, nil, unit.lT, 0, 0)
+				require.NoError(t, err, text)
+				require.Equal(t, fromConverted, fromLogical, text)
+			}
+		})
+	}
+
+	// NANOS genuinely cannot hold those instants, so it reports them instead of wrapping.
+	nanos := createTimestampLogicalType(false, false, true, true)
+	for _, text := range []string{"2300-01-01T00:00:00Z", "1600-01-01T00:00:00Z"} {
+		_, err := StrToParquetTypeWithLogical(text, &int64T, nil, nanos, 0, 0)
+		require.ErrorContains(t, err, "outside the range a nanosecond count can hold", text)
+	}
+
+	got, err := StrToParquetTypeWithLogical("2023-12-25T00:00:00Z", &int64T, nil, nanos, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(1703462400000000000), got)
+}

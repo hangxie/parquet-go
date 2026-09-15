@@ -119,12 +119,12 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		return parseTimeOfDay(s, "TIME_MICROS", time.Microsecond)
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			return t.UnixNano() / int64(time.Millisecond), nil
+			return t.UnixMilli(), nil
 		}
 		return strToTickCount(s, "TIMESTAMP_MILLIS")
 	case parquet.ConvertedType_TIMESTAMP_MICROS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			return t.UnixNano() / int64(time.Microsecond), nil
+			return t.UnixMicro(), nil
 		}
 		return strToTickCount(s, "TIMESTAMP_MICROS")
 	case parquet.ConvertedType_INTERVAL:
