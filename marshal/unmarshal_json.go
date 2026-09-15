@@ -282,7 +282,7 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 		return val.Interface(), nil
 	}
 
-	var typeOpts []types.JSONTypeOption
+	var typeOpts []types.ValueOption
 	if converter.geospatialConfig != nil {
 		typeOpts = append(typeOpts, types.WithGeospatialConfig(converter.geospatialConfig))
 	}

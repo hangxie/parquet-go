@@ -14,6 +14,10 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// maxScanErrInput caps how much of a rejected value an error quotes; a float in plain
+// decimal can otherwise put 300 digits in the message.
+const maxScanErrInput = 64
+
 // strToDayCount scans the bare day count a DATE column also accepts, over the whole field.
 func strToDayCount(s, typeName string) (any, error) {
 	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 32)
@@ -25,10 +29,6 @@ func strToTickCount(s, typeName string) (any, error) {
 	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 	return v, wrapScanErr(typeName, s, err)
 }
-
-// maxScanErrInput caps how much of a rejected value an error quotes; a float in plain
-// decimal can otherwise put 300 digits in the message.
-const maxScanErrInput = 64
 
 // wrapScanErr returns a contextualized parse error or nil when err is nil.
 func wrapScanErr(typeName, s string, err error) error {
@@ -201,29 +201,31 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 }
 
 // StrToParquetTypeWithLogical scans a string to a parquet value, honoring the logical type.
-// UUID requires length 16 and a textual form uuid.Parse accepts (dashed, undashed hex,
-// braced, or urn:uuid: prefixed); any other length or string, raw binary included, errors.
-// FLOAT16 likewise requires length 2; releases up to v3.8.2 ignored both lengths.
-// An INTEGER annotation is scanned at its declared width and must spell a whole number,
-// surrounding whitespace aside. Releases up to v3.8.3 scanned INT_*/UINT_* columns with
-// fmt.Sscanf, which stopped at the first character it could not use and so read "42abc"
-// as 42; schema builders backfill INTEGER for those converted types, so the stricter scan
-// applies to them as well.
-func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
+// The value mode picks the grammar: interpreted (the default) reads each logical type's
+// canonical text, raw reads the physical value as base64 where byte-backed. Interpreted
+// mode requires length 16 for UUID and 2 for FLOAT16, and refuses GEOMETRY, GEOGRAPHY and
+// BSON, which have no write form yet. See README's Value Modes for the full grammar.
+func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int, opts ...ValueOption) (any, error) {
 	if pT == nil {
 		return nil, errNoPhysicalType(s)
 	}
 
-	// Text on the wire. StrToParquetType below keeps a UTF8, ENUM or JSON converted type
-	// verbatim too, but a schema may carry only the logical type, and falling through to
-	// the physical scan would read the text as base64.
+	mode := resolveValueConfig(opts).Mode
+	if !mode.IsValid() {
+		return nil, fmt.Errorf("%w %d", ErrUnsupportedValueMode, int(mode))
+	}
+	if mode == ValueModeRaw {
+		return rawStrToParquetType(s, pT, cT, lT, length)
+	}
+
+	// Text in both modes. StrToParquetType keeps the converted spelling verbatim too, but
+	// a schema may carry only the logical one, and the physical scan reads text as base64.
 	if isTextAnnotated(cT, lT) {
 		return s, nil
 	}
 	if typeName := interpretedWriteUnsupported(cT, lT); typeName != "" {
 		return nil, errInterpretedWrite(typeName)
 	}
-
 	if lT != nil {
 		if v, handled, err := strToLogicalType(s, lT, pT, length); handled {
 			return v, err
