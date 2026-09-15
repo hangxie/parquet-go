@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/types"
 )
@@ -48,6 +49,17 @@ func TestMarshalVariant(t *testing.T) {
 
 	require.Equal(t, 3, len(metadataTable.Values))
 	require.Equal(t, 3, len(valueTable.Values))
+
+	// HandleVariant serves this path as well as the JSON one, and it appends the encoded
+	// bytes to their tables directly, so the struct path states what those bytes are
+	// rather than only how many rows arrived.
+	for i, want := range []types.Variant{
+		{Metadata: types.EncodeVariantMetadata([]string{"a"}), Value: types.EncodeVariantInt8(123)},
+		{Metadata: types.EncodeVariantMetadata([]string{"b"}), Value: types.EncodeVariantString("hello")},
+	} {
+		require.Equal(t, string(want.Metadata), metadataTable.Values[i], "row %d metadata", i)
+		require.Equal(t, string(want.Value), valueTable.Values[i], "row %d value", i)
+	}
 
 	// Third row should be nil
 	require.Nil(t, metadataTable.Values[2])
@@ -101,6 +113,35 @@ func TestMarshalVariant_Error(t *testing.T) {
 		_, err = Marshal(data, sh)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "missing required children")
+	})
+
+	t.Run("missing_child_table", func(t *testing.T) {
+		type MyStruct struct {
+			Var any `parquet:"name=var, type=VARIANT"`
+		}
+
+		sh, err := schema.NewSchemaHandlerFromStruct(new(MyStruct))
+		require.NoError(t, err)
+
+		pathMap := sh.PathMap.Children["Var"]
+		require.NotNil(t, pathMap)
+		se := sh.SchemaElements[sh.MapIndex[pathMap.Path]]
+
+		node := &Node{
+			Val:     reflect.ValueOf(map[string]any{"a": int32(1)}),
+			PathMap: pathMap,
+		}
+		// The variant children are appended straight to their tables, so a table map
+		// that does not describe them is reported rather than dereferenced.
+		for _, present := range []string{"", "Metadata"} {
+			res := map[string]*layout.Table{}
+			if present != "" {
+				res[pathMap.Children[present].Path] = layout.NewEmptyTable()
+			}
+			_, handled, err := HandleVariant(node, se, res, sh, NewNodeBuf(1), nil)
+			require.True(t, handled)
+			require.ErrorContains(t, err, "has no table")
+		}
 	})
 }
 

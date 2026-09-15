@@ -151,8 +151,9 @@ func TestStrToIntegerLogical_MismatchedColumn(t *testing.T) {
 	require.Equal(t, uint32(300), ConvertIntegerLogicalValue(int64(300),
 		parquet.TypePtr(parquet.Type_INT64), createIntegerLogicalType(8, false).GetINTEGER()))
 
-	// INTEGER on a byte-backed column is not a schema this can read; the value passes through.
-	res, err := StrToParquetTypeWithLogical("42", parquet.TypePtr(parquet.Type_BYTE_ARRAY), nil,
+	// INTEGER on a byte-backed column is not a schema this can read, so the value falls to
+	// the physical BYTE_ARRAY scan, which reads its input as base64.
+	res, err := StrToParquetTypeWithLogical("NDI=", parquet.TypePtr(parquet.Type_BYTE_ARRAY), nil,
 		createIntegerLogicalType(32, true), 0, 0)
 	require.NoError(t, err)
 	require.Equal(t, "42", res)

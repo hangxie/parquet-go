@@ -1878,10 +1878,10 @@ func TestJSONTypeToParquetTypeWithLogical(t *testing.T) {
 	}{
 		// Nil interface value returns nil, nil
 		{
-			name:     "nil_interface_value",
-			value:    (*interface{})(nil),
-			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-			expected: nil,
+			name:        "nil_interface_value",
+			value:       (*interface{})(nil),
+			pT:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expectError: true,
 		},
 		// Decimal with LogicalType.DECIMAL - scale from lT overrides scale param
 		{
@@ -1983,10 +1983,13 @@ func TestJSONTypeToParquetTypeWithLogical(t *testing.T) {
 		},
 		// Fallback to string-based conversion for complex types (map)
 		{
-			name:  "map_fallback_to_string_based",
-			value: map[string]any{"key": "val"},
-			pT:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-			// fmt.Sprintf("%v", val) produces \"map[key:val]\" - returned as string
+			// A value with no byte-backed form reaches the string path as its %v
+			// rendering, which a BYTE_ARRAY column now reads as base64 and rejects
+			// rather than storing the text of \"map[key:val]\".
+			name:        "map_fallback_to_string_based",
+			value:       map[string]any{"key": "val"},
+			pT:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expectError: true,
 		},
 		// FLOAT16 logical type with string input must use ParseFloat16String, not the raw
 		// byte-array direct path (a naive direct conversion would keep the first two bytes
@@ -2147,24 +2150,25 @@ func TestJSONTypeToParquetType(t *testing.T) {
 			scale:  0,
 		},
 		{
-			name:   "json_string",
-			value:  "hello",
-			pT:     parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-			length: 0,
-			scale:  0,
+			name:     "json_string",
+			value:    "aGVsbG8=",
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			length:   0,
+			scale:    0,
+			expected: "hello",
 		},
 		{
 			name:        "invalid_json_type",
 			value:       make(map[string]any), // Unsupported type
 			pT:          parquet.TypePtr(parquet.Type_BOOLEAN),
-			expectError: false, // Actually doesn't error, just returns the value
+			expectError: true,
 		},
 		// Comprehensive decimal tests with all numeric types
 		{
-			name:     "nil_interface_value",
-			value:    (*interface{})(nil),
-			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
-			expected: "<nil>",
+			name:        "nil_interface_value",
+			value:       (*interface{})(nil),
+			pT:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			expectError: true,
 		},
 		{
 			name:     "decimal_float32",
@@ -2272,7 +2276,7 @@ func TestJSONTypeToParquetType(t *testing.T) {
 		},
 		{
 			name:     "non_decimal_string",
-			value:    "hello world",
+			value:    "aGVsbG8gd29ybGQ=",
 			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
 			expected: "hello world",
 		},
@@ -2370,11 +2374,13 @@ func TestJSONValueToParquetDirect(t *testing.T) {
 		},
 		// BYTE_ARRAY (string)
 		{
+			// Byte-backed columns are no longer handled directly: their JSON form is
+			// base64, which the string path decodes.
 			name:       "string_direct",
-			value:      "hello world",
+			value:      "aGVsbG8gd29ybGQ=",
 			pT:         parquet.TypePtr(parquet.Type_BYTE_ARRAY),
 			expected:   "hello world",
-			usesDirect: true,
+			usesDirect: false,
 		},
 		// UTF8 converted type
 		{
@@ -2618,14 +2624,14 @@ func TestJSONValueToParquetDirect_EdgeCases(t *testing.T) {
 		expected    any
 		expectError bool
 	}{
-		// nil pT: jsonValueToParquetDirect returns (nil,false) and falls back to StrToParquetType.
-		// With UTF8 cT, StrToParquetType returns the string unchanged.
+		// A schema element with no physical type says nothing about what the column
+		// holds, so the value is refused whatever the annotation.
 		{
-			name:     "nil_pT_with_utf8",
-			value:    "hello",
-			pT:       nil,
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8),
-			expected: "hello",
+			name:        "nil_pT_with_utf8",
+			value:       "hello",
+			pT:          nil,
+			cT:          parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8),
+			expectError: true,
 		},
 		// BYTE_ARRAY with valid base64 string: jsonPhysicalTypeDirect decodes it.
 		{
@@ -2634,15 +2640,14 @@ func TestJSONValueToParquetDirect_EdgeCases(t *testing.T) {
 			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
 			expected: "Hello",
 		},
-		// BSON cT with a string value: jsonConvertedTypeDirect returns (nil,false)
-		// (BSON is not in its switch), then jsonPhysicalTypeDirect also returns false,
-		// and StrToParquetType handles BSON by returning the string as-is.
+		// BSON has no interpreted write form yet, so the value is refused rather than
+		// stored as the bytes of its own text.
 		{
-			name:     "bson_ct_fallthrough",
-			value:    "somedata",
-			pT:       parquet.TypePtr(parquet.Type_INT32),
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
-			expected: "somedata",
+			name:        "bson_ct_fallthrough",
+			value:       "somedata",
+			pT:          parquet.TypePtr(parquet.Type_INT32),
+			cT:          parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+			expectError: true,
 		},
 		// bool value for FLOAT type: getNumericValue returns (0,false),
 		// jsonPhysicalTypeDirect returns false, StrToParquetType fails to parse \"true\" as float.
@@ -2927,11 +2932,12 @@ func TestJSONTypeToParquetType_FixedLenByteArrayWidth(t *testing.T) {
 		"base64-matches-width": {
 			"SGVsbG8gV29ybGQ=", 11, "Hello World", "",
 		},
-		"raw-wins-when-decoded-width-differs": {
-			"0123456789abcdef", 16, "0123456789abcdef", "",
+		"decoded-width-decides": {
+			"0123456789abcdef", 16, "",
+			`FIXED_LEN_BYTE_ARRAY "0123456789abcdef" decodes to 12 bytes, column length is 16`,
 		},
-		"neither-width-matches": {
-			"abc", 5, "", `FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 5`,
+		"not-base64": {
+			"abc", 5, "", `FIXED_LEN_BYTE_ARRAY "abc" is not valid base64`,
 		},
 	}
 

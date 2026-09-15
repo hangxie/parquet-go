@@ -15,6 +15,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 - Configure readers and writers with per-instance functional options.
 - Use modern Parquet features including Data Page V2, CRC page checksums, modular encryption, bloom filters, and newer logical types.
 - Convert geospatial logical types with configurable GeoJSON, hex, base64, or hybrid JSON output.
+- Choose how the JSON and CSV writers read logical values, as canonical text or as the raw physical value.
 
 ## Contents
 
@@ -25,6 +26,8 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 - [Configuration](#configuration)
 - [Schema Definition](#schema-definition)
 - [Type System](#type-system)
+  - [Value Modes](#value-modes)
+  - [TIMESTAMP Values](#timestamp-values)
 - [Encoding Support](#encoding-support)
 - [Compression Support](#compression-support)
 - [Readers and Writers](#readers-and-writers)
@@ -300,9 +303,49 @@ A `FIXED_LEN_BYTE_ARRAY` column must declare a positive `length`. The declared w
 
 Every value written to such a column must be exactly that wide, annotated (`DECIMAL`, `INTERVAL`, `FLOAT16`, `UUID`) or not. A value of any other width is rejected while the page is built, by `Write`, `Flush`, or `WriteStop` depending on when the row group is flushed; up to v3.8.3 it was written verbatim, so a longer value came back truncated and a shorter one left the column chunk unreadable. The Go zero value is not exempt: an empty string in a `FIXED_LEN_BYTE_ARRAY` field is an error, and a column that has to carry no value needs `repetitiontype=OPTIONAL` and a `nil` pointer.
 
-Writers that take string input resolve the width themselves. `JSONWriter`, `CSVWriter`, and `types.StrToParquetTypeWithLogical` read an unannotated `FIXED_LEN_BYTE_ARRAY` value as base64 or as raw bytes, whichever matches the column width, and reject a value that matches neither, naming the string that was supplied. `CSVWriter` converts each row as it is handed over, so that error returns from `WriteString`; `JSONWriter` converts while the row group is flushed, so its error arrives from `Write`, `Flush`, or `WriteStop` like the width check above. Up to v3.8.3 a value that decoded as base64 was always taken as base64, so a raw string of the right width that happened to be valid base64, `0123456789abcdef` for an `FLBA(16)` column, was silently stored as the 12 bytes it decoded to.
+Writers that take string input read an unannotated `FIXED_LEN_BYTE_ARRAY` value as base64 and check the decoded width against the column, rejecting anything that is not base64 or does not decode to the declared width, naming the string that was supplied. `CSVWriter` converts each row as it is handed over, so that error returns from `WriteString`; `JSONWriter` converts while the row group is flushed, so its error arrives from `Write`, `Flush`, or `WriteStop` like the width check above. Up to v3.8.3 the reading was guessed per value, base64 first and the literal string as a fallback, so `0123456789abcdef` for an `FLBA(16)` column was stored as the 12 bytes it decodes to while `abc bcd` for an `FLBA(7)` column was stored as its own seven characters. See [Value Modes](#value-modes) for the rule that replaced the guess.
 
 Type aliases are supported, for example `type MyString string`, when the base type follows the table. Conversion utilities are available in [types/converter.go](types/converter.go).
+
+### Value Modes
+
+`JSONWriter` and `CSVWriter` take values as text, so every logical column has two readings: the canonical text of the logical type, and the physical value the column actually stores. Up to v3.8.3 the reading was guessed per value, by attempting a base64 decode and keeping the literal string when that failed. `writer.WithValueMode` replaces the guess with a choice the caller makes:
+
+```go
+jw, err := writer.NewJSONWriterWithContext(ctx, jsonSchema, fw,
+    writer.WithValueMode(types.ValueModeRaw),
+)
+```
+
+| Mode | Input grammar |
+| --- | --- |
+| `types.ValueModeInterpreted` (default) | The canonical text of the logical type: `550e8400-e29b-41d4-a716-446655440000` for `UUID`, `2023-12-25` for `DATE`, `2 mon 3 day 4.500 sec` for `INTERVAL`. `DATE`, `TIMESTAMP`, `TIME`, `INT96` and `INTERVAL` also still accept the bare number their column stores, which predates the mode. For `INT96` that number is the whole 96-bit value, not a day: its low eight bytes are nanoseconds within the day and its high four the Julian day, so `12345` is 12,345 nanoseconds on Julian day 0. |
+| `types.ValueModeRaw` | The physical value: base64 for every byte-backed column, the underlying number for `INT32` and `INT64` backed ones. |
+
+Three rules hold in both modes. A column annotated `UTF8`, `ENUM`, or `JSON` is text and is stored verbatim, whether the annotation is the converted type or the logical type, since there is nothing to interpret; an unannotated `BYTE_ARRAY` or `FIXED_LEN_BYTE_ARRAY` is base64, matching what the read path renders for it; and `INT96` keeps its own timestamp form in interpreted mode and is base64 in raw mode.
+
+`GEOMETRY`, `GEOGRAPHY`, and `BSON` have no interpreted write form yet, so in the default mode a value for one of those columns fails with a `not supported yet` error. Raw mode writes them from base64. Up to v3.8.3 such a value fell through to the byte-array guess, so `POINT (1 2)` was stored as the eleven characters of that string claiming to be WKB.
+
+Numbers are checked against the column rather than cast through it, in both modes. A value takes the whole field, surrounding whitespace aside, and anything else is reported:
+
+| Column | Rule | Rejected up to v3.8.3 as |
+| --- | --- | --- |
+| `BOOLEAN`, `INT32`, `INT64`, `FLOAT`, `DOUBLE` | The physical type's range | `2023-12-25` into `INT32` stored the year `2023` |
+| `INT_8`…`INT_64`, `UINT_8`…`UINT_64` | The annotation's width and signedness | `256` into `UINT_8` stored `0`, `-1` stored `255`, `"123abc"` stored `123` |
+| `INTEGER` logical type | The annotation's width and signedness | already strict for text, but the number `1000` into `INTEGER(8)` stored `1000` |
+| `DATE`, `TIMESTAMP`, under either spelling | The physical type's range, for the bare day or tick count these also accept | `"19723abc"` stored day `19723`; a logical `TIMESTAMP` stored `"123abc"` as `123` |
+
+The rule holds however the value arrives. An integer column is read the same way whether the value is text from `CSVWriter`, a `json.Number` from `JSONWriter`, or a Go number handed to `types.JSONTypeToParquetTypeWithLogical` by a caller who decoded JSON into `any` without `UseNumber`; all three go through one scanner. Up to v3.8.3 the number form was cast through the column instead, so the same document could be stored differently depending on how it had been decoded.
+
+Both spellings of an integer annotation behave identically, which matters because a schema built from a tag carries both while a schema built from raw `parquet.SchemaElement` values may carry only the converted type. An annotation the physical type cannot hold, such as `INT_8` on an `INT64` column, is not applied at all: the column's own range decides, since that is what the read path renders.
+
+An 8- or 16-bit annotation is checked in raw mode as well, since every value it can hold fits the physical `INT32` and the two ranges therefore cannot disagree. `UINT_32` and `UINT_64` are the exception: raw mode carries the upper half of their range as a negative physical value, so the physical number is the whole story and there is nothing further to check.
+
+A column whose value travels as text taken at face value — base64 for a byte-backed column with nothing to interpret, the string itself for one annotated as text — requires an actual JSON string. A number or boolean is rejected rather than rendered to text and read as if it had been one: `true` is valid base64, so a JSON `true` used to be stored as the three bytes `b6 bb 9e`, and a number under `UseNumber` went the same way because `json.Number` is a string to Go. This is the change most likely to reach existing JSON data: `{"zip": 94110}` into a `UTF8` column now fails, where it used to be stored as `"94110"`. Quote such a value, or declare the column as the type it holds. `INT96` is not in that set: it reads its timestamp form and falls back to the bare 96-bit integer the column stores, so a number is a value it holds.
+
+The mode reaches the conversion helpers as `types.ValueOption`, which `types.StrToParquetTypeWithLogical` and `types.JSONTypeToParquetTypeWithLogical` accept as trailing arguments. `types.ValueConfig` and `types.ValueOption` are the former `types.JSONTypeConfig` and `types.JSONTypeOption`, which remain as deprecated aliases. `ParquetWriter` over structs and maps is unaffected: its values are already typed, so there is no text to read either way.
+
+Values written in raw mode read back through the default JSON rendering, which is the interpreted form. Reading raw is a separate option that has not landed yet.
 
 ### UUID Values
 
@@ -350,6 +393,14 @@ A `TIME` column holds elapsed time since midnight, so the only legal values are 
 `types.JSONTypeToParquetTypeWithLogical` also takes a TIME as a Go number rather than text, and checks it the same way: a fractional or non-finite value fails with a `not a whole number of ticks` error instead of being truncated into the column.
 
 JSON output renders a `TIME` as `HH:MM:SS` with the column's fractional width. An out-of-range value can now only come from another writer; the sign applies to the whole value and the hour field grows past 24, so `-1000` reads as `-00:00:01.000` and 25 hours as `25:00:00.000`, neither of which can be written back as a different value. Releases up to v3.8.3 signed each component separately, rendering `-1000` as `00:00:-1.000` and rewriting that string as `0`, and rewrote their own `25:00:00.000` as `25`.
+
+### TIMESTAMP Values
+
+A `TIMESTAMP` column stores a count of milliseconds, microseconds, or nanoseconds since the Unix epoch, and `JSONWriter`, `CSVWriter`, and `types.StrToParquetTypeWithLogical` accept either an RFC 3339 timestamp or that bare count. Both spellings of the annotation, the `TIMESTAMP` logical type and the legacy `TIMESTAMP_MILLIS`/`TIMESTAMP_MICROS` converted types, are read identically; the count is scanned over the whole field, so `"123abc"` fails with a `parse TIMESTAMP_MICROS` error rather than being stored as `123`.
+
+Milliseconds and microseconds reach well beyond the year 3000, and a timestamp is now scaled at the column's own unit so that range is usable. Up to v3.8.3 every unit was scaled from a nanosecond count, which only spans 1678 through 2262 and wraps outside it, so `2300-01-01T00:00:00Z` in a `TIMESTAMP_MILLIS` column was stored as a negative count that reads back as 1715. The same arithmetic truncated toward zero rather than down, so a pre-epoch value with sub-unit precision lost a tick: `1969-12-31T23:59:59.9995Z` stored `0` instead of `-1`. `TIMESTAMP_NANOS` genuinely cannot hold a date outside that window and now reports it instead of wrapping.
+
+A `TIMESTAMP` annotation that names no unit, including one whose unit field is set to a member this release does not know, describes nothing about the value, so the column's own `INT64` scan reads it.
 
 ### INT96 Values
 

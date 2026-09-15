@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -118,7 +119,7 @@ func TestCSVWriter(t *testing.T) {
 		}{
 			"empty": {[]*string{nil, nil}, ""},
 			"good":  {[]*string{common.ToPtr("name"), common.ToPtr("123")}, ""},
-			"bad":   {[]*string{common.ToPtr("name"), common.ToPtr("abc")}, "expected integer"},
+			"bad":   {[]*string{common.ToPtr("name"), common.ToPtr("abc")}, `parse INT32 "abc"`},
 		}
 		schema := []string{
 			"Name=Name, Type=BYTE_ARRAY, ConvertedType=UTF8, Encoding=PLAIN",
@@ -232,15 +233,17 @@ func TestCSVWriterFixedLenByteArrayWidth(t *testing.T) {
 		value  string
 		errMsg string
 	}{
-		"raw-width-match": {
-			// Valid base64, but 16 raw characters is what the column takes.
-			"0123456789abcdef", "",
-		},
 		"base64-width-match": {
 			"YWJjZGVmZ2hpamtsbW5vcA==", "",
 		},
-		"neither-width-matches": {
-			"abc", `FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 16`,
+		"decoded-width-decides": {
+			// Valid base64, but it decodes to 12 bytes rather than the column's 16;
+			// the 16 characters themselves are no longer a second reading.
+			"0123456789abcdef",
+			`FIXED_LEN_BYTE_ARRAY "0123456789abcdef" decodes to 12 bytes, column length is 16`,
+		},
+		"not-base64": {
+			"abc", `FIXED_LEN_BYTE_ARRAY "abc" is not valid base64`,
 		},
 	}
 
@@ -295,9 +298,9 @@ func csvCell(rendered any) (string, error) {
 }
 
 // writeCSVColumn writes one column of CSV cells and reads the physical values back.
-func writeCSVColumn(tag string, cells []string) ([]any, error) {
+func writeCSVColumn(tag string, cells []string, opts ...WriterOption) ([]any, error) {
 	var buf bytes.Buffer
-	cw, err := NewCSVWriterFromWriter([]string{tag}, &buf, WithNP(1))
+	cw, err := NewCSVWriterFromWriter([]string{tag}, &buf, append([]WriterOption{WithNP(1)}, opts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("create CSV writer: %w", err)
 	}
@@ -313,10 +316,10 @@ func writeCSVColumn(tag string, cells []string) ([]any, error) {
 }
 
 // writeJSONColumn writes the same column as single-field JSON objects and reads it back.
-func writeJSONColumn(tag string, rendered []any) ([]any, error) {
+func writeJSONColumn(tag string, rendered []any, opts ...WriterOption) ([]any, error) {
 	schemaJSON := fmt.Sprintf(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":%q}]}`, tag)
 	var buf bytes.Buffer
-	jw, err := NewJSONWriterFromWriter(schemaJSON, &buf, WithNP(1))
+	jw, err := NewJSONWriterFromWriter(schemaJSON, &buf, append([]WriterOption{WithNP(1)}, opts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("create JSON writer: %w", err)
 	}
@@ -583,4 +586,196 @@ func columnSchemaElement(tag string) (*parquet.SchemaElement, error) {
 		return nil, err
 	}
 	return sh.SchemaElements[1], nil
+}
+
+// rawCell renders a physical value the way raw mode carries it: byte-backed values as
+// base64, text-annotated ones verbatim, everything else as the number or boolean itself.
+func rawCell(val any, isText bool) string {
+	s, ok := val.(string)
+	if !ok {
+		return fmt.Sprintf("%v", val)
+	}
+	if isText {
+		return s
+	}
+	return base64.StdEncoding.EncodeToString([]byte(s))
+}
+
+// textAnnotated reports whether a column's annotation guarantees it holds text, which
+// raw mode carries verbatim rather than as base64.
+func textAnnotated(se *parquet.SchemaElement) bool {
+	if lT := se.LogicalType; lT != nil && (lT.IsSetSTRING() || lT.IsSetENUM() || lT.IsSetJSON()) {
+		return true
+	}
+	if se.ConvertedType == nil {
+		return false
+	}
+	switch *se.ConvertedType {
+	case parquet.ConvertedType_UTF8, parquet.ConvertedType_ENUM, parquet.ConvertedType_JSON:
+		return true
+	}
+	return false
+}
+
+// TestRawModeWritePath covers raw mode across both writers. Every column is handed the
+// lossless form of its physical value; BSON and geospatial can be written no other way.
+func TestRawModeWritePath(t *testing.T) {
+	float16 := func(bits uint16) string {
+		return string([]byte{byte(bits), byte(bits >> 8)})
+	}
+	wkbPoint := string([]byte{
+		0x01, 0x01, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40,
+	})
+
+	tests := []csvJSONCase{
+		{
+			name:   "unannotated BYTE_ARRAY",
+			tag:    "type=BYTE_ARRAY",
+			values: []any{"", "hello", "\x00\xff"},
+		},
+		{
+			name:   "UTF8 stays text",
+			tag:    "type=BYTE_ARRAY, convertedtype=UTF8",
+			values: []any{"hello", "TEST"},
+		},
+		{
+			name:   "ENUM stays text",
+			tag:    "type=BYTE_ARRAY, convertedtype=ENUM",
+			values: []any{"ACTIVE", "TEST", "AAAA"},
+		},
+		{
+			name:   "UUID",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID",
+			values: []any{string(make([]byte, common.UUIDByteLen)), "\x55\x0e\x84\x00\xe2\x9b\x41\xd4\xa7\x16\x44\x66\x55\x44\x00\x00"},
+		},
+		{
+			name:   "FLOAT16",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=2, logicaltype=FLOAT16",
+			values: []any{float16(0x0000), float16(0x7bff)},
+		},
+		{
+			name:   "INTERVAL",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL",
+			values: []any{string(make([]byte, common.IntervalByteLen))},
+		},
+		{
+			name:   "BSON",
+			tag:    "type=BYTE_ARRAY, convertedtype=BSON",
+			values: []any{"\x05\x00\x00\x00\x00"},
+		},
+		{
+			name:   "GEOMETRY",
+			tag:    "type=BYTE_ARRAY, logicaltype=GEOMETRY",
+			values: []any{wkbPoint},
+		},
+		{
+			name:   "GEOGRAPHY",
+			tag:    "type=BYTE_ARRAY, logicaltype=GEOGRAPHY",
+			values: []any{wkbPoint},
+		},
+		{
+			name:   "DATE as a day count",
+			tag:    "type=INT32, convertedtype=DATE",
+			values: []any{int32(0), int32(-1), int32(19723)},
+		},
+		{
+			name:   "TIMESTAMP_MICROS as a tick count",
+			tag:    "type=INT64, convertedtype=TIMESTAMP_MICROS",
+			values: []any{int64(0), int64(1699999999999999)},
+		},
+		{
+			name:   "DECIMAL FIXED_LEN_BYTE_ARRAY",
+			tag:    "type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=DECIMAL, precision=25, scale=5",
+			values: []any{string(make([]byte, 12))},
+		},
+	}
+
+	raw := WithValueMode(types.ValueModeRaw)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tag := "name=" + csvJSONColumn + ", " + tt.tag
+			se, err := columnSchemaElement(tag)
+			require.NoError(t, err)
+			isText := textAnnotated(se)
+
+			cells := make([]string, len(tt.values))
+			rendered := make([]any, len(tt.values))
+			for i, val := range tt.values {
+				cells[i] = rawCell(val, isText)
+				if _, isString := val.(string); isString {
+					rendered[i] = cells[i]
+				} else {
+					rendered[i] = val
+				}
+			}
+
+			fromJSON, err := writeJSONColumn(tag, rendered, raw)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.values, fromJSON, "JSON write path")
+
+			fromCSV, err := writeCSVColumn(tag, cells, raw)
+			require.NoError(t, err)
+			require.Equal(t, tt.values, fromCSV, "CSV write path")
+		})
+	}
+}
+
+// TestInterpretedModeRefusesUnsupported pins the other half of #418: the default mode
+// reports a geospatial or BSON value it cannot parse instead of storing the bytes of the
+// text it was given.
+func TestInterpretedModeRefusesUnsupported(t *testing.T) {
+	tests := map[string]struct {
+		tag   string
+		value string
+	}{
+		"GEOMETRY":  {"type=BYTE_ARRAY, logicaltype=GEOMETRY", "POINT (1 2)"},
+		"GEOGRAPHY": {"type=BYTE_ARRAY, logicaltype=GEOGRAPHY", "POINT (1 2)"},
+		"BSON":      {"type=BYTE_ARRAY, convertedtype=BSON", `{"a":1}`},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			tag := "name=" + csvJSONColumn + ", " + tt.tag
+
+			_, err := writeCSVColumn(tag, []string{tt.value})
+			require.ErrorContains(t, err, name)
+			require.ErrorContains(t, err, "interpreted mode is not supported yet")
+
+			_, err = writeJSONColumn(tag, []any{tt.value})
+			require.ErrorContains(t, err, name)
+		})
+	}
+}
+
+// TestValueModeOptionValidation pins that a mode outside the two defined ones is reported
+// when the writer is built, rather than quietly taking the interpreted grammar.
+func TestValueModeOptionValidation(t *testing.T) {
+	var buf bytes.Buffer
+	_, err := NewCSVWriterFromWriter([]string{"name=V, type=INT32"}, &buf,
+		WithValueMode(types.ValueMode(7)))
+	require.ErrorIs(t, err, types.ErrUnsupportedValueMode)
+	require.ErrorContains(t, err, "WithValueMode: unsupported value mode 7")
+}
+
+// TestTextLogicalTypeStaysVerbatim covers a text column annotated only with a logical
+// type, which both writers previously read as base64: "hello" failed the write and "TEST"
+// was stored as the three bytes it decodes to.
+func TestTextLogicalTypeStaysVerbatim(t *testing.T) {
+	for _, logicalType := range []string{"STRING", "ENUM", "JSON"} {
+		t.Run(logicalType, func(t *testing.T) {
+			tag := "name=" + csvJSONColumn + ", type=BYTE_ARRAY, logicaltype=" + logicalType
+			values := []any{"hello", "TEST", "AAAA"}
+
+			fromCSV, err := writeCSVColumn(tag, []string{"hello", "TEST", "AAAA"})
+			require.NoError(t, err)
+			require.Equal(t, values, fromCSV, "CSV write path")
+
+			fromJSON, err := writeJSONColumn(tag, values)
+			require.NoError(t, err)
+			require.Equal(t, values, fromJSON, "JSON write path")
+		})
+	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
+	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
@@ -189,7 +190,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=simple_map, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=simple_map, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -261,7 +262,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 				{"Tag": "name=int64_val, type=INT64", "Type": "int64"},
 				{"Tag": "name=float_val, type=FLOAT", "Type": "float32"},
 				{"Tag": "name=double_val, type=DOUBLE", "Type": "float64"},
-				{"Tag": "name=byte_array_val, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=byte_array_val, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -290,7 +291,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=required_field, type=BYTE_ARRAY", "Type": "string"},
+				{"Tag": "name=required_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
 				{"Tag": "name=missing_field, type=INT32", "Type": "int32"}
 			]
 		}`
@@ -322,7 +323,7 @@ func TestMarshalJSON_Comprehensive(t *testing.T) {
 				{
 					"Tag": "name=nested",
 					"Fields": [
-						{"Tag": "name=optional_field, type=BYTE_ARRAY, repetitiontype=OPTIONAL", "Type": "string"},
+						{"Tag": "name=optional_field, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL", "Type": "string"},
 						{"Tag": "name=required_field, type=INT32", "Type": "int32"}
 					]
 				}
@@ -370,7 +371,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=name, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -404,7 +405,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 
 		_, err = MarshalJSON(invalidTypeJSON, sch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "expected integer")
+		require.Contains(t, err.Error(), `parse INT32 "not_a_number"`)
 	})
 
 	t.Run("empty_path_handling", func(t *testing.T) {
@@ -414,7 +415,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 				{
 					"Tag": "name=nested",
 					"Fields": [
-						{"Tag": "name=field, type=BYTE_ARRAY", "Type": "string"}
+						{"Tag": "name=field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 					]
 				}
 			]
@@ -438,7 +439,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=known_field, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=known_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -466,7 +467,7 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 		schemaString := `{
 			"Tag": "name=parquet_go_root",
 			"Fields": [
-				{"Tag": "name=data, type=BYTE_ARRAY", "Type": "string"}
+				{"Tag": "name=data, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 			]
 		}`
 
@@ -623,7 +624,7 @@ func TestMarshalJSON_ComplexPath_IsChildPath(t *testing.T) {
 					{
 						"Tag": "name=level2",
 						"Fields": [
-							{"Tag": "name=leaf, type=BYTE_ARRAY", "Type": "string"}
+							{"Tag": "name=leaf, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 						]
 					}
 				]
@@ -656,8 +657,8 @@ func TestMarshalJSON_StringToVariableName(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
-			{"Tag": "name=camel_case_field, type=BYTE_ARRAY", "Type": "string"},
-			{"Tag": "name=simple_field, type=BYTE_ARRAY", "Type": "string"}
+			{"Tag": "name=camel_case_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
+			{"Tag": "name=simple_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 		]
 	}`
 
@@ -719,7 +720,7 @@ func TestMarshalJSON_MapInvalidKeyAccess(t *testing.T) {
 			{
 				"Tag": "name=struct_field",
 				"Fields": [
-					{"Tag": "name=present_field, type=BYTE_ARRAY", "Type": "string"},
+					{"Tag": "name=present_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
 					{"Tag": "name=missing_field, type=INT32, repetitiontype=OPTIONAL", "Type": "int32"}
 				]
 			}
@@ -751,7 +752,7 @@ func TestMarshalJSON_InvalidMapIndexValue(t *testing.T) {
 	schemaString := `{
 		"Tag": "name=parquet_go_root",
 		"Fields": [
-			{"Tag": "name=field1, type=BYTE_ARRAY", "Type": "string"},
+			{"Tag": "name=field1, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
 			{"Tag": "name=field2, type=INT32", "Type": "int32"}
 		]
 	}`
@@ -788,7 +789,7 @@ func TestMarshalJSON_MapIndexErrors(t *testing.T) {
 			{
 				"Tag": "name=struct_field",
 				"Fields": [
-					{"Tag": "name=valid_field, type=BYTE_ARRAY", "Type": "string"},
+					{"Tag": "name=valid_field, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"},
 					{"Tag": "name=another_field, type=INT32", "Type": "int32"}
 				]
 			}
@@ -841,7 +842,7 @@ func TestMarshalJSON_StructFieldMapping(t *testing.T) {
 			{
 				"Tag": "name=nested_struct",
 				"Fields": [
-					{"Tag": "name=snake_case_field, type=BYTE_ARRAY, repetitiontype=OPTIONAL", "Type": "string"},
+					{"Tag": "name=snake_case_field, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL", "Type": "string"},
 					{"Tag": "name=another_field, type=INT32", "Type": "int32"}
 				]
 			}
@@ -870,7 +871,7 @@ func TestMarshalJSON_NilMapIndexValues(t *testing.T) {
 			{
 				"Tag": "name=struct_field",
 				"Fields": [
-					{"Tag": "name=field1, type=BYTE_ARRAY, repetitiontype=OPTIONAL", "Type": "string"},
+					{"Tag": "name=field1, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL", "Type": "string"},
 					{"Tag": "name=field2, type=INT32, repetitiontype=OPTIONAL", "Type": "int32"}
 				]
 			}
@@ -986,7 +987,7 @@ func TestMarshalJSON_NodeBufReset(t *testing.T) {
 		"Tag": "name=parquet_go_root",
 		"Fields": [
 			{"Tag": "name=id, type=INT32", "Type": "int32"},
-			{"Tag": "name=name, type=BYTE_ARRAY", "Type": "string"}
+			{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8", "Type": "string"}
 		]
 	}`
 
@@ -1022,5 +1023,148 @@ func TestMarshalJSON_NodeBufReset(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		require.Equal(t, expectedIds[i], idColumn.Values[i], "Expected correct id value at index %d", i)
 		require.Equal(t, expectedNames[i], nameColumn.Values[i], "Expected correct name value at index %d", i)
+	}
+}
+
+// TestMarshalJSON_ShapeMustMatchColumn is the whole table of value shapes against column
+// kinds. Picking the handler from the shape alone lost data silently: an object dropped
+// into a primitive column, and filled none of a LIST's children, leaving a null list. A
+// repeated column still takes a bare value for one element, which loses nothing.
+func TestMarshalJSON_ShapeMustMatchColumn(t *testing.T) {
+	columns := []struct {
+		name    string
+		tag     string
+		samples map[string]string
+	}{
+		{
+			name: "primitive",
+			tag:  `{"Tag": "name=col, type=BYTE_ARRAY, convertedtype=UTF8"}`,
+			samples: map[string]string{
+				"scalar": `"text"`, "object": `{"a":"b"}`, "array": `["a"]`, "null": `null`,
+			},
+		},
+		{
+			name: "repeated primitive",
+			tag:  `{"Tag": "name=col, type=INT32, repetitiontype=REPEATED"}`,
+			samples: map[string]string{
+				"scalar": `5`, "object": `{"a":1}`, "array": `[1,2]`, "null": `null`,
+			},
+		},
+		{
+			name: "group",
+			tag:  `{"Tag": "name=col", "Fields": [{"Tag": "name=inner, type=INT32"}]}`,
+			samples: map[string]string{
+				"scalar": `5`, "object": `{"inner":1}`, "array": `[{"inner":1}]`, "null": `null`,
+			},
+		},
+		{
+			name: "repeated group",
+			tag:  `{"Tag": "name=col, repetitiontype=REPEATED", "Fields": [{"Tag": "name=inner, type=INT32"}]}`,
+			samples: map[string]string{
+				"scalar": `5`, "object": `{"inner":1}`, "array": `[{"inner":1}]`, "null": `null`,
+			},
+		},
+		{
+			name: "LIST",
+			tag:  `{"Tag": "name=col, type=LIST, convertedtype=LIST", "Fields": [{"Tag": "name=element, type=INT32"}]}`,
+			samples: map[string]string{
+				"scalar": `5`, "object": `{"element":1}`, "array": `[1,2]`, "null": `null`,
+			},
+		},
+		{
+			name: "MAP",
+			tag:  `{"Tag": "name=col, type=MAP, convertedtype=MAP", "Fields": [{"Tag": "name=key, type=BYTE_ARRAY, convertedtype=UTF8"}, {"Tag": "name=value, type=INT32"}]}`,
+			samples: map[string]string{
+				"scalar": `5`, "object": `{"a":1}`, "array": `[{"key":"a"}]`, "null": `null`,
+			},
+		},
+	}
+
+	// The shapes each column kind accepts. Anything absent must be reported, never
+	// stored as a null or spread across the column's rows.
+	accepts := map[string]map[string]bool{
+		"primitive":          {"scalar": true, "null": true},
+		"repeated primitive": {"scalar": true, "array": true, "null": true},
+		"group":              {"object": true, "null": true},
+		"repeated group":     {"object": true, "array": true, "null": true},
+		"LIST":               {"array": true, "null": true},
+		"MAP":                {"object": true, "null": true},
+	}
+
+	for _, col := range columns {
+		for _, shape := range []string{"scalar", "object", "array", "null"} {
+			t.Run(col.name+"/"+shape, func(t *testing.T) {
+				sch, err := schema.NewSchemaHandlerFromJSON(
+					`{"Tag": "name=parquet_go_root", "Fields": [` + col.tag + `]}`,
+				)
+				require.NoError(t, err)
+
+				_, err = MarshalJSON([]any{`{"col":` + col.samples[shape] + `}`}, sch)
+				if accepts[col.name][shape] {
+					require.NoError(t, err)
+					return
+				}
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "Col")
+			})
+		}
+	}
+}
+
+// TestMarshalJSON_ListRejectsObject pins the row a LIST used to swallow into a null list.
+func TestMarshalJSON_ListRejectsObject(t *testing.T) {
+	sch, err := schema.NewSchemaHandlerFromJSON(`{
+		"Tag": "name=parquet_go_root",
+		"Fields": [{"Tag": "name=col, type=LIST, convertedtype=LIST", "Fields": [{"Tag": "name=element, type=INT32"}]}]
+	}`)
+	require.NoError(t, err)
+
+	_, err = MarshalJSON([]any{`{"col":{"not":"a list"}}`}, sch)
+	require.ErrorContains(t, err, "is a LIST and cannot take a JSON object")
+}
+
+// TestMarshalJSON_ListAndMapLogicalSpelling covers LIST and MAP annotated with the logical
+// type alone, which a schema assembled from SchemaElement values can carry.
+func TestMarshalJSON_ListAndMapLogicalSpelling(t *testing.T) {
+	tests := []struct {
+		name string
+		tag  string
+		row  string
+		set  func(*parquet.SchemaElement)
+	}{
+		{
+			name: "LIST",
+			tag:  `{"Tag": "name=col, type=LIST, convertedtype=LIST", "Fields": [{"Tag": "name=element, type=INT32"}]}`,
+			row:  `{"col": [1, 2]}`,
+			set: func(se *parquet.SchemaElement) {
+				se.LogicalType = &parquet.LogicalType{LIST: parquet.NewListType()}
+			},
+		},
+		{
+			name: "MAP",
+			tag:  `{"Tag": "name=col, type=MAP, convertedtype=MAP", "Fields": [{"Tag": "name=key, type=BYTE_ARRAY, convertedtype=UTF8"}, {"Tag": "name=value, type=INT32"}]}`,
+			row:  `{"col": {"a": 1}}`,
+			set: func(se *parquet.SchemaElement) {
+				se.LogicalType = &parquet.LogicalType{MAP: parquet.NewMapType()}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sch, err := schema.NewSchemaHandlerFromJSON(
+				`{"Tag": "name=parquet_go_root", "Fields": [` + tt.tag + `]}`,
+			)
+			require.NoError(t, err)
+
+			// Drop the converted type so only the logical one names the structure.
+			se := sch.SchemaElements[sch.MapIndex[sch.GetRootInName()+common.ParGoPathDelimiter+"Col"]]
+			require.NotNil(t, se)
+			se.ConvertedType = nil
+			tt.set(se)
+
+			_, err = MarshalJSON([]any{tt.row}, sch)
+			require.NoError(t, err)
+		})
 	}
 }

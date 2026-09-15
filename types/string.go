@@ -1,9 +1,11 @@
 package types
 
 import (
-	"encoding/base64"
+	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,12 +14,36 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// maxScanErrInput caps how much of a rejected value an error quotes; a float in plain
+// decimal can otherwise put 300 digits in the message.
+const maxScanErrInput = 64
+
+// strToDayCount scans the bare day count a DATE column also accepts, over the whole field.
+func strToDayCount(s, typeName string) (any, error) {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 32)
+	return int32(v), wrapScanErr(typeName, s, err)
+}
+
+// strToTickCount scans the bare tick count a TIMESTAMP column also accepts.
+func strToTickCount(s, typeName string) (any, error) {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return v, wrapScanErr(typeName, s, err)
+}
+
 // wrapScanErr returns a contextualized parse error or nil when err is nil.
 func wrapScanErr(typeName, s string, err error) error {
-	if err != nil {
-		return fmt.Errorf("parse %s %q: %w", typeName, s, err)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if len(s) > maxScanErrInput {
+		// strconv repeats the whole input; keep its sentinel, drop the repeat.
+		var numErr *strconv.NumError
+		if errors.As(err, &numErr) {
+			err = numErr.Err
+		}
+		return fmt.Errorf("parse %s %q...(%d bytes): %w", typeName, s[:maxScanErrInput], len(s), err)
+	}
+	return fmt.Errorf("parse %s %q: %w", typeName, s, err)
 }
 
 // strToInterval scans the human-readable interval form, falling back to the legacy
@@ -55,131 +81,52 @@ func strToINT96(s string) (string, error) {
 	return StrIntToBinary(s, "LittleEndian", int96ByteLength, true), nil
 }
 
-// strToFixedLenByteArray reads s as the bytes of a FIXED_LEN_BYTE_ARRAY column.
-func strToFixedLenByteArray(s string, length int) (string, error) {
-	// A string that decodes as base64 can still be meant literally, so the column
-	// width picks the reading rather than the encoding.
-	decoded, decodeErr := base64.StdEncoding.DecodeString(s)
-	switch {
-	case length <= 0:
-		// No width to match, as when a caller passes 0 for a column it did not look
-		// up: keep the historical base64-first reading.
-		if decodeErr == nil {
-			return string(decoded), nil
-		}
-		return s, nil
-	case decodeErr == nil && len(decoded) == length:
-		return string(decoded), nil
-	case len(s) == length:
-		return s, nil
-	case decodeErr == nil && len(decoded) != len(s):
-		// Reporting it here, rather than leaving it to the page the value is written
-		// into, keeps the message about the string the caller supplied.
-		return "", fmt.Errorf("FIXED_LEN_BYTE_ARRAY %q is %d bytes raw and %d base64-decoded, neither matches column length %d", s, len(s), len(decoded), length)
-	default:
-		return "", fmt.Errorf("FIXED_LEN_BYTE_ARRAY %q is %d bytes, column length is %d", s, len(s), length)
-	}
-}
-
-// Scan a string to parquet value; length and scale just for decimal
+// StrToParquetType scans a string to a parquet value; length and scale are only used by
+// DECIMAL. A nil physical type is reported, since every branch below needs one.
 func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
+	if pT == nil {
+		return nil, errNoPhysicalType(s)
+	}
 	if cT == nil {
-		switch *pT {
-		case parquet.Type_BOOLEAN:
-			var v bool
-			_, err := fmt.Sscanf(s, "%t", &v)
-			return v, wrapScanErr("BOOLEAN", s, err)
-		case parquet.Type_INT32:
-			var v int32
-			_, err := fmt.Sscanf(s, "%d", &v)
-			return v, wrapScanErr("INT32", s, err)
-		case parquet.Type_INT64:
-			var v int64
-			_, err := fmt.Sscanf(s, "%d", &v)
-			return v, wrapScanErr("INT64", s, err)
-		case parquet.Type_INT96:
+		// INT96 is the one physical type with a text form of its own.
+		if *pT == parquet.Type_INT96 {
 			return strToINT96(s)
-		case parquet.Type_FLOAT:
-			var v float32
-			_, err := fmt.Sscanf(s, "%f", &v)
-			return v, wrapScanErr("FLOAT", s, err)
-		case parquet.Type_DOUBLE:
-			var v float64
-			_, err := fmt.Sscanf(s, "%f", &v)
-			return v, wrapScanErr("DOUBLE", s, err)
-		case parquet.Type_BYTE_ARRAY:
-			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
-				return string(decoded), nil
-			}
-			return s, nil
-		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
-			return strToFixedLenByteArray(s, length)
-		default:
-			return nil, nil
 		}
+		return physicalStrToParquetType(s, *pT, length)
+	}
+
+	// Scanned at the width and signedness it declares, like the INTEGER type it stands for.
+	if it := convertedIntegerType(*cT); it != nil {
+		if v, handled, err := strToIntegerLogical(s, it, pT); handled {
+			return v, err
+		}
+		// The annotation does not describe this column's range; the physical scan decides.
+		return physicalStrToParquetType(s, *pT, length)
 	}
 
 	switch *cT {
 	case parquet.ConvertedType_UTF8:
 		return s, nil
-	case parquet.ConvertedType_INT_8:
-		var v int8
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("INT_8", s, err)
-	case parquet.ConvertedType_INT_16:
-		var v int16
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("INT_16", s, err)
-	case parquet.ConvertedType_INT_32:
-		var v int32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("INT_32", s, err)
-	case parquet.ConvertedType_UINT_8:
-		var v uint8
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("UINT_8", s, err)
-	case parquet.ConvertedType_UINT_16:
-		var v uint16
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("UINT_16", s, err)
-	case parquet.ConvertedType_UINT_32:
-		var v uint32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("UINT_32", s, err)
 	case parquet.ConvertedType_DATE:
 		if v, err := ParseDateString(s); err == nil {
 			return v, nil
 		}
-		var v int32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("DATE", s, err)
+		return strToDayCount(s, "DATE")
 	case parquet.ConvertedType_TIME_MILLIS:
 		v, err := parseTimeOfDay(s, "TIME_MILLIS", time.Millisecond)
 		return int32(v), err
-	case parquet.ConvertedType_UINT_64:
-		var vt uint64
-		_, err := fmt.Sscanf(s, "%d", &vt)
-		return int64(vt), wrapScanErr("UINT_64", s, err)
-	case parquet.ConvertedType_INT_64:
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("INT_64", s, err)
 	case parquet.ConvertedType_TIME_MICROS:
 		return parseTimeOfDay(s, "TIME_MICROS", time.Microsecond)
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			return t.UnixNano() / int64(time.Millisecond), nil
+			return t.UnixMilli(), nil
 		}
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("TIMESTAMP_MILLIS", s, err)
+		return strToTickCount(s, "TIMESTAMP_MILLIS")
 	case parquet.ConvertedType_TIMESTAMP_MICROS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			return t.UnixNano() / int64(time.Microsecond), nil
+			return t.UnixMicro(), nil
 		}
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("TIMESTAMP_MICROS", s, err)
+		return strToTickCount(s, "TIMESTAMP_MICROS")
 	case parquet.ConvertedType_INTERVAL:
 		return strToInterval(s)
 	case parquet.ConvertedType_DECIMAL:
@@ -219,8 +166,15 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		return string(u[:]), true, nil
 	}
 	if lT.IsSetTIMESTAMP() {
-		v, err := strToTimestampLogical(s, lT.GetTIMESTAMP())
-		return v, err == nil, err
+		ts := lT.GetTIMESTAMP()
+		if !hasTimestampUnit(ts) {
+			// No unit means the annotation says nothing; the column's scan decides.
+			return nil, false, nil
+		}
+		// Otherwise claim it even on failure, as TIME does: the bare tick count is read
+		// here too, so falling through would report a bad value as a failed INT64.
+		v, err := strToTimestampLogical(s, ts)
+		return v, true, err
 	}
 	if lT.IsSetTIME() {
 		// Claim the value even when it fails: falling through to the physical INT32/INT64
@@ -232,11 +186,8 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		if v, err := ParseDateString(s); err == nil {
 			return v, true, nil
 		}
-		var v int32
-		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
-			return int32(v), true, fmt.Errorf("parse DATE %q: %w", s, err)
-		}
-		return int32(v), true, nil
+		v, err := strToDayCount(s, "DATE")
+		return v, true, err
 	}
 	if lT.IsSetDECIMAL() {
 		dec := lT.GetDECIMAL()
@@ -250,15 +201,31 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 }
 
 // StrToParquetTypeWithLogical scans a string to a parquet value, honoring the logical type.
-// UUID requires length 16 and a textual form uuid.Parse accepts (dashed, undashed hex,
-// braced, or urn:uuid: prefixed); any other length or string, raw binary included, errors.
-// FLOAT16 likewise requires length 2; releases up to v3.8.2 ignored both lengths.
-// An INTEGER annotation is scanned at its declared width and must spell a whole number,
-// surrounding whitespace aside. Releases up to v3.8.3 scanned INT_*/UINT_* columns with
-// fmt.Sscanf, which stopped at the first character it could not use and so read "42abc"
-// as 42; schema builders backfill INTEGER for those converted types, so the stricter scan
-// applies to them as well.
-func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
+// The value mode picks the grammar: interpreted (the default) reads each logical type's
+// canonical text, raw reads the physical value as base64 where byte-backed. Interpreted
+// mode requires length 16 for UUID and 2 for FLOAT16, and refuses GEOMETRY, GEOGRAPHY and
+// BSON, which have no write form yet. See README's Value Modes for the full grammar.
+func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int, opts ...ValueOption) (any, error) {
+	if pT == nil {
+		return nil, errNoPhysicalType(s)
+	}
+
+	mode := resolveValueConfig(opts).Mode
+	if !mode.IsValid() {
+		return nil, fmt.Errorf("%w %d", ErrUnsupportedValueMode, int(mode))
+	}
+	if mode == ValueModeRaw {
+		return rawStrToParquetType(s, pT, cT, lT, length)
+	}
+
+	// Text in both modes. StrToParquetType keeps the converted spelling verbatim too, but
+	// a schema may carry only the logical one, and the physical scan reads text as base64.
+	if isTextAnnotated(cT, lT) {
+		return s, nil
+	}
+	if typeName := interpretedWriteUnsupported(cT, lT); typeName != "" {
+		return nil, errInterpretedWrite(typeName)
+	}
 	if lT != nil {
 		if v, handled, err := strToLogicalType(s, lT, pT, length); handled {
 			return v, err
