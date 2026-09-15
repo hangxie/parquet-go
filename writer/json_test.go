@@ -749,15 +749,17 @@ func TestJSONWriterFixedLenByteArrayWidth(t *testing.T) {
 		value  string
 		errMsg string
 	}{
-		"raw-width-match": {
-			// Valid base64, but 16 raw characters is what the column takes.
-			"0123456789abcdef", "",
-		},
 		"base64-width-match": {
 			"YWJjZGVmZ2hpamtsbW5vcA==", "",
 		},
-		"neither-width-matches": {
-			"abc", `FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 16`,
+		"decoded-width-decides": {
+			// Valid base64, but it decodes to 12 bytes rather than the column's 16;
+			// the 16 characters themselves are no longer a second reading.
+			"0123456789abcdef",
+			`FIXED_LEN_BYTE_ARRAY "0123456789abcdef" decodes to 12 bytes, column length is 16`,
+		},
+		"not-base64": {
+			"abc", `FIXED_LEN_BYTE_ARRAY "abc" is not valid base64`,
 		},
 	}
 

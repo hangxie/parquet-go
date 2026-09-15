@@ -232,15 +232,17 @@ func TestCSVWriterFixedLenByteArrayWidth(t *testing.T) {
 		value  string
 		errMsg string
 	}{
-		"raw-width-match": {
-			// Valid base64, but 16 raw characters is what the column takes.
-			"0123456789abcdef", "",
-		},
 		"base64-width-match": {
 			"YWJjZGVmZ2hpamtsbW5vcA==", "",
 		},
-		"neither-width-matches": {
-			"abc", `FIXED_LEN_BYTE_ARRAY "abc" is 3 bytes, column length is 16`,
+		"decoded-width-decides": {
+			// Valid base64, but it decodes to 12 bytes rather than the column's 16;
+			// the 16 characters themselves are no longer a second reading.
+			"0123456789abcdef",
+			`FIXED_LEN_BYTE_ARRAY "0123456789abcdef" decodes to 12 bytes, column length is 16`,
+		},
+		"not-base64": {
+			"abc", `FIXED_LEN_BYTE_ARRAY "abc" is not valid base64`,
 		},
 	}
 
@@ -583,4 +585,51 @@ func columnSchemaElement(tag string) (*parquet.SchemaElement, error) {
 		return nil, err
 	}
 	return sh.SchemaElements[1], nil
+}
+
+// TestInterpretedModeRefusesUnsupported pins the other half of #418: a geospatial or BSON
+// value the write path cannot parse is reported instead of being stored as the bytes of
+// the text it was given.
+func TestInterpretedModeRefusesUnsupported(t *testing.T) {
+	tests := map[string]struct {
+		tag   string
+		value string
+	}{
+		"GEOMETRY":  {"type=BYTE_ARRAY, logicaltype=GEOMETRY", "POINT (1 2)"},
+		"GEOGRAPHY": {"type=BYTE_ARRAY, logicaltype=GEOGRAPHY", "POINT (1 2)"},
+		"BSON":      {"type=BYTE_ARRAY, convertedtype=BSON", `{"a":1}`},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			tag := "name=" + csvJSONColumn + ", " + tt.tag
+
+			_, err := writeCSVColumn(tag, []string{tt.value})
+			require.ErrorContains(t, err, name)
+			require.ErrorContains(t, err, "not supported yet")
+
+			_, err = writeJSONColumn(tag, []any{tt.value})
+			require.ErrorContains(t, err, name)
+		})
+	}
+}
+
+// TestTextLogicalTypeStaysVerbatim covers a text column annotated only with a logical
+// type, which both writers previously read as base64: "hello" failed the write and "TEST"
+// was stored as the three bytes it decodes to.
+func TestTextLogicalTypeStaysVerbatim(t *testing.T) {
+	for _, logicalType := range []string{"STRING", "ENUM", "JSON"} {
+		t.Run(logicalType, func(t *testing.T) {
+			tag := "name=" + csvJSONColumn + ", type=BYTE_ARRAY, logicaltype=" + logicalType
+			values := []any{"hello", "TEST", "AAAA"}
+
+			fromCSV, err := writeCSVColumn(tag, []string{"hello", "TEST", "AAAA"})
+			require.NoError(t, err)
+			require.Equal(t, values, fromCSV, "CSV write path")
+
+			fromJSON, err := writeJSONColumn(tag, values)
+			require.NoError(t, err)
+			require.Equal(t, values, fromJSON, "JSON write path")
+		})
+	}
 }
