@@ -101,6 +101,19 @@ func convertTimestampLogicalValue(val any, timestamp *parquet.TimestampType) any
 	return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
 }
 
+// timestampLabel names a TIMESTAMP by its unit, so both spellings report alike.
+func timestampLabel(ts *parquet.TimestampType) string {
+	switch {
+	case ts.Unit.IsSetNANOS():
+		return "TIMESTAMP_NANOS"
+	case ts.Unit.IsSetMICROS():
+		return "TIMESTAMP_MICROS"
+	case ts.Unit.IsSetMILLIS():
+		return "TIMESTAMP_MILLIS"
+	}
+	return "TIMESTAMP"
+}
+
 func strToTimestampLogical(s string, ts *parquet.TimestampType) (any, error) {
 	if ts.Unit != nil {
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
@@ -113,11 +126,7 @@ func strToTimestampLogical(s string, ts *parquet.TimestampType) (any, error) {
 				return t.UnixNano() / int64(time.Millisecond), nil
 			}
 		}
-		var v int64
-		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
-			return v, fmt.Errorf("parse timestamp %q: %w", s, err)
-		}
-		return v, nil
+		return strToTickCount(s, timestampLabel(ts))
 	}
 	return nil, fmt.Errorf("timestamp unit not set")
 }

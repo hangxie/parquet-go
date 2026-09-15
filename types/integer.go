@@ -1,7 +1,6 @@
 package types
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -67,6 +66,15 @@ func ConvertIntegerLogicalValue(val any, pT *parquet.Type, intType *parquet.IntT
 	}
 }
 
+// integerLabel names an integer annotation as the schema spells it, declared width and
+// all. Built only in the error branches: this runs once per value.
+func integerLabel(it *parquet.IntType) string {
+	if it.GetIsSigned() {
+		return "INT_" + strconv.Itoa(int(it.GetBitWidth()))
+	}
+	return "UINT_" + strconv.Itoa(int(it.GetBitWidth()))
+}
+
 // strToIntegerLogical scans an INTEGER logical value using the annotation's width and
 // signedness, inverting ConvertIntegerLogicalValue. Without it an unsigned column falls
 // through to the physical INT32/INT64 scan, which rejects every value above the signed
@@ -80,13 +88,7 @@ func strToIntegerLogical(s string, it *parquet.IntType, pT *parquet.Type) (any, 
 		physWidth = 64
 	}
 
-	// The label keeps the declared width even where the column width replaces it below,
-	// so a broken annotation is reported as the schema spells it.
 	width := int(it.GetBitWidth())
-	label := fmt.Sprintf("INT_%d", width)
-	if !it.GetIsSigned() {
-		label = fmt.Sprintf("UINT_%d", width)
-	}
 	switch width {
 	case 8, 16, 32:
 		// The format pins these widths to INT32. On any other column the annotation does
@@ -117,7 +119,7 @@ func strToIntegerLogical(s string, it *parquet.IntType, pT *parquet.Type) (any, 
 	if it.GetIsSigned() {
 		v, err := strconv.ParseInt(text, 10, width)
 		if err != nil {
-			return zero, true, wrapScanErr(label, s, err)
+			return zero, true, wrapScanErr(integerLabel(it), s, err)
 		}
 		if physWidth == 32 {
 			return int32(v), true, nil
@@ -127,7 +129,7 @@ func strToIntegerLogical(s string, it *parquet.IntType, pT *parquet.Type) (any, 
 
 	v, err := strconv.ParseUint(text, 10, width)
 	if err != nil {
-		return zero, true, wrapScanErr(label, s, err)
+		return zero, true, wrapScanErr(integerLabel(it), s, err)
 	}
 	if physWidth == 32 {
 		return int32(uint32(v)), true, nil

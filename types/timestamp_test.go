@@ -119,3 +119,45 @@ func TestTimeToTIMESTAMP_NANOS(t *testing.T) {
 	expected2 := localTime.Sub(epoch).Nanoseconds()
 	require.Equal(t, expected2, result2, "TimeToTIMESTAMP_NANOS(UTC=false) expected %d, got %d", expected2, result2)
 }
+
+// TestTimestampSpellingsAgree covers the two ways a TIMESTAMP can be annotated. The logical
+// one kept fmt.Sscanf, so it stored "123abc" as 123 where the converted one rejected it.
+func TestTimestampSpellingsAgree(t *testing.T) {
+	int64T := parquet.Type_INT64
+
+	units := []struct {
+		name  string
+		cT    parquet.ConvertedType
+		logic *parquet.LogicalType
+	}{
+		{"MILLIS", parquet.ConvertedType_TIMESTAMP_MILLIS, createTimestampLogicalType(true, false, false, true)},
+		{"MICROS", parquet.ConvertedType_TIMESTAMP_MICROS, createTimestampLogicalType(false, true, false, true)},
+	}
+
+	for _, unit := range units {
+		t.Run(unit.name, func(t *testing.T) {
+			cT := parquet.ConvertedTypePtr(unit.cT)
+
+			for _, text := range []string{"123abc", "1.5", "NaN", ""} {
+				_, logicalErr := StrToParquetTypeWithLogical(text, &int64T, nil, unit.logic, 0, 0)
+				_, convertedErr := StrToParquetTypeWithLogical(text, &int64T, cT, nil, 0, 0)
+				require.Error(t, logicalErr, "logical %q", text)
+				require.Error(t, convertedErr, "converted %q", text)
+			}
+
+			// A value both spellings hold reads the same, in either form.
+			for _, text := range []string{"1699999999999", "-1", " 42 ", "2023-12-25T00:00:00Z"} {
+				fromLogical, err := StrToParquetTypeWithLogical(text, &int64T, nil, unit.logic, 0, 0)
+				require.NoError(t, err, "logical %q", text)
+				fromConverted, err := StrToParquetTypeWithLogical(text, &int64T, cT, nil, 0, 0)
+				require.NoError(t, err, "converted %q", text)
+				require.Equal(t, fromConverted, fromLogical, "%q", text)
+			}
+		})
+	}
+
+	// NANOS has no converted spelling, but its tick count is scanned the same way.
+	nanos := createTimestampLogicalType(false, false, true, true)
+	_, err := StrToParquetTypeWithLogical("123abc", &int64T, nil, nanos, 0, 0)
+	require.ErrorContains(t, err, `parse TIMESTAMP_NANOS "123abc"`)
+}

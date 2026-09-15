@@ -2,8 +2,11 @@ package types
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,12 +15,36 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// strToDayCount scans the bare day count a DATE column also accepts, over the whole field.
+func strToDayCount(s, typeName string) (any, error) {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 32)
+	return int32(v), wrapScanErr(typeName, s, err)
+}
+
+// strToTickCount scans the bare tick count a TIMESTAMP column also accepts.
+func strToTickCount(s, typeName string) (any, error) {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return v, wrapScanErr(typeName, s, err)
+}
+
+// maxScanErrInput caps how much of a rejected value an error quotes; a float in plain
+// decimal can otherwise put 300 digits in the message.
+const maxScanErrInput = 64
+
 // wrapScanErr returns a contextualized parse error or nil when err is nil.
 func wrapScanErr(typeName, s string, err error) error {
-	if err != nil {
-		return fmt.Errorf("parse %s %q: %w", typeName, s, err)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if len(s) > maxScanErrInput {
+		// strconv repeats the whole input; keep its sentinel, drop the repeat.
+		var numErr *strconv.NumError
+		if errors.As(err, &numErr) {
+			err = numErr.Err
+		}
+		return fmt.Errorf("parse %s %q...(%d bytes): %w", typeName, s[:maxScanErrInput], len(s), err)
+	}
+	return fmt.Errorf("parse %s %q: %w", typeName, s, err)
 }
 
 // strToInterval scans the human-readable interval form, falling back to the legacy
@@ -88,28 +115,8 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 	}
 	if cT == nil {
 		switch *pT {
-		case parquet.Type_BOOLEAN:
-			var v bool
-			_, err := fmt.Sscanf(s, "%t", &v)
-			return v, wrapScanErr("BOOLEAN", s, err)
-		case parquet.Type_INT32:
-			var v int32
-			_, err := fmt.Sscanf(s, "%d", &v)
-			return v, wrapScanErr("INT32", s, err)
-		case parquet.Type_INT64:
-			var v int64
-			_, err := fmt.Sscanf(s, "%d", &v)
-			return v, wrapScanErr("INT64", s, err)
 		case parquet.Type_INT96:
 			return strToINT96(s)
-		case parquet.Type_FLOAT:
-			var v float32
-			_, err := fmt.Sscanf(s, "%f", &v)
-			return v, wrapScanErr("FLOAT", s, err)
-		case parquet.Type_DOUBLE:
-			var v float64
-			_, err := fmt.Sscanf(s, "%f", &v)
-			return v, wrapScanErr("DOUBLE", s, err)
 		case parquet.Type_BYTE_ARRAY:
 			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
 				return string(decoded), nil
@@ -118,71 +125,42 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		case parquet.Type_FIXED_LEN_BYTE_ARRAY:
 			return strToFixedLenByteArray(s, length)
 		default:
-			return nil, nil
+			return scalarStrToParquetType(s, *pT)
 		}
+	}
+
+	// Scanned at the width and signedness it declares, like the INTEGER type it stands for.
+	if it := convertedIntegerType(*cT); it != nil {
+		if v, handled, err := strToIntegerLogical(s, it, pT); handled {
+			return v, err
+		}
+		// The annotation does not describe this column's range; the physical scan decides.
+		return scalarStrToParquetType(s, *pT)
 	}
 
 	switch *cT {
 	case parquet.ConvertedType_UTF8:
 		return s, nil
-	case parquet.ConvertedType_INT_8:
-		var v int8
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("INT_8", s, err)
-	case parquet.ConvertedType_INT_16:
-		var v int16
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("INT_16", s, err)
-	case parquet.ConvertedType_INT_32:
-		var v int32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("INT_32", s, err)
-	case parquet.ConvertedType_UINT_8:
-		var v uint8
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("UINT_8", s, err)
-	case parquet.ConvertedType_UINT_16:
-		var v uint16
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("UINT_16", s, err)
-	case parquet.ConvertedType_UINT_32:
-		var v uint32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("UINT_32", s, err)
 	case parquet.ConvertedType_DATE:
 		if v, err := ParseDateString(s); err == nil {
 			return v, nil
 		}
-		var v int32
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return int32(v), wrapScanErr("DATE", s, err)
+		return strToDayCount(s, "DATE")
 	case parquet.ConvertedType_TIME_MILLIS:
 		v, err := parseTimeOfDay(s, "TIME_MILLIS", time.Millisecond)
 		return int32(v), err
-	case parquet.ConvertedType_UINT_64:
-		var vt uint64
-		_, err := fmt.Sscanf(s, "%d", &vt)
-		return int64(vt), wrapScanErr("UINT_64", s, err)
-	case parquet.ConvertedType_INT_64:
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("INT_64", s, err)
 	case parquet.ConvertedType_TIME_MICROS:
 		return parseTimeOfDay(s, "TIME_MICROS", time.Microsecond)
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			return t.UnixNano() / int64(time.Millisecond), nil
 		}
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("TIMESTAMP_MILLIS", s, err)
+		return strToTickCount(s, "TIMESTAMP_MILLIS")
 	case parquet.ConvertedType_TIMESTAMP_MICROS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			return t.UnixNano() / int64(time.Microsecond), nil
 		}
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("TIMESTAMP_MICROS", s, err)
+		return strToTickCount(s, "TIMESTAMP_MICROS")
 	case parquet.ConvertedType_INTERVAL:
 		return strToInterval(s)
 	case parquet.ConvertedType_DECIMAL:
@@ -222,8 +200,15 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		return string(u[:]), true, nil
 	}
 	if lT.IsSetTIMESTAMP() {
-		v, err := strToTimestampLogical(s, lT.GetTIMESTAMP())
-		return v, err == nil, err
+		ts := lT.GetTIMESTAMP()
+		if ts.Unit == nil {
+			// No unit means the annotation says nothing; the column's scan decides.
+			return nil, false, nil
+		}
+		// Otherwise claim it even on failure, as TIME does: the bare tick count is read
+		// here too, so falling through would report a bad value as a failed INT64.
+		v, err := strToTimestampLogical(s, ts)
+		return v, true, err
 	}
 	if lT.IsSetTIME() {
 		// Claim the value even when it fails: falling through to the physical INT32/INT64
@@ -235,11 +220,8 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		if v, err := ParseDateString(s); err == nil {
 			return v, true, nil
 		}
-		var v int32
-		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
-			return int32(v), true, fmt.Errorf("parse DATE %q: %w", s, err)
-		}
-		return int32(v), true, nil
+		v, err := strToDayCount(s, "DATE")
+		return v, true, err
 	}
 	if lT.IsSetDECIMAL() {
 		dec := lT.GetDECIMAL()

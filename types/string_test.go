@@ -964,14 +964,15 @@ func TestStrToTimeLogical_Errors(t *testing.T) {
 	}
 }
 
-// TestStrToTimestampLogical_Errors covers the wrapped Sscanf-failure path in
+// TestStrToTimestampLogical_Errors covers the failed tick-count scan in
 // strToTimestampLogical. Reached directly for the same reason as
-// TestStrToTimeLogical_Errors.
+// TestStrToTimeLogical_Errors. The error names the column's unit, so the logical and
+// converted spellings of the same column report a bad value identically.
 func TestStrToTimestampLogical_Errors(t *testing.T) {
 	ts := createTimestampLogicalType(true, false, false, true).GetTIMESTAMP()
 	_, err := strToTimestampLogical("not-a-timestamp", ts)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "parse timestamp")
+	require.Contains(t, err.Error(), `parse TIMESTAMP_MILLIS "not-a-timestamp"`)
 }
 
 func TestStrToParquetType_IntervalErrors(t *testing.T) {
