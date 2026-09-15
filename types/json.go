@@ -14,15 +14,14 @@ import (
 // schema element's type information (physical, converted, logical).
 // Options (e.g., WithGeospatialConfig) control type-specific rendering; unset options use defaults.
 // This is the canonical conversion entry point; callers only need the SchemaElement.
-func ConvertToJSONType(val any, se *parquet.SchemaElement, opts ...JSONTypeOption) any {
+//
+// WithValueMode is accepted but not honoured yet: the rendering is always interpreted.
+func ConvertToJSONType(val any, se *parquet.SchemaElement, opts ...ValueOption) any {
 	if val == nil || se == nil {
 		return val
 	}
 
-	var cfg JSONTypeConfig
-	for _, opt := range opts {
-		opt(&cfg)
-	}
+	cfg := resolveValueConfig(opts)
 
 	pT, cT, lT := se.Type, se.ConvertedType, se.LogicalType
 
@@ -196,14 +195,31 @@ func JSONTypeToParquetType(val reflect.Value, pT *parquet.Type, cT *parquet.Conv
 	return JSONTypeToParquetTypeWithLogical(val, pT, cT, nil, length, scale)
 }
 
-func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
+// JSONTypeToParquetTypeWithLogical converts a decoded JSON value to its column's physical
+// value, under the same value mode grammar as StrToParquetTypeWithLogical.
+func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int, opts ...ValueOption) (any, error) {
 	if val.Type().Kind() == reflect.Interface && val.IsNil() {
 		return nil, nil
 	}
 	if pT == nil {
 		return nil, errNoPhysicalType(jsonValueText(val))
 	}
-	if err := checkJSONStringColumn(val, *pT, cT, lT); err != nil {
+
+	mode := resolveValueConfig(opts).Mode
+	if !mode.IsValid() {
+		return nil, fmt.Errorf("%w %d", ErrUnsupportedValueMode, int(mode))
+	}
+	if mode == ValueModeRaw {
+		if err := checkJSONStringColumn(val, *pT, cT, lT, ValueModeRaw); err != nil {
+			return nil, err
+		}
+		return jsonRawValueToParquetType(val, pT, cT, lT, length)
+	}
+
+	if typeName := interpretedWriteUnsupported(cT, lT); typeName != "" {
+		return nil, errInterpretedWrite(typeName)
+	}
+	if err := checkJSONStringColumn(val, *pT, cT, lT, ValueModeInterpreted); err != nil {
 		return nil, err
 	}
 
@@ -240,29 +256,6 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 
 	// Fallback to string-based conversion for complex/unusual types
 	return StrToParquetTypeWithLogical(jsonValueText(val), pT, cT, lT, length, scale)
-}
-
-// jsonPhysicalTypeDirect converts a JSON boolean or number to the column's physical type,
-// checking it against the column rather than casting through it. Byte-backed columns are
-// absent: their JSON form is base64 text, which the string path decodes.
-func jsonPhysicalTypeDirect(val reflect.Value, pT parquet.Type) (any, bool, error) {
-	switch pT {
-	case parquet.Type_BOOLEAN:
-		if val.Kind() == reflect.Bool {
-			return val.Bool(), true, nil
-		}
-	case parquet.Type_INT32:
-		v, ok, err := jsonIntegerValue(val, "INT32", 32)
-		return int32(v), ok, err
-	case parquet.Type_INT64:
-		return jsonIntegerValue(val, "INT64", 64)
-	case parquet.Type_FLOAT:
-		v, ok, err := jsonFloatValue(val, "FLOAT", 32)
-		return float32(v), ok, err
-	case parquet.Type_DOUBLE:
-		return jsonFloatValue(val, "DOUBLE", 64)
-	}
-	return nil, false, nil
 }
 
 // isTimeColumn reports whether either annotation marks the column as TIME.
@@ -354,8 +347,6 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 		return nil, false, nil
 	}
 
-	// Handle converted types that need special treatment (skip time/date/interval types that
-	// need string parsing)
 	// Text on the wire, under either spelling of the annotation.
 	if isTextAnnotated(cT, lT) && val.Kind() == reflect.String {
 		return val.String(), true, nil
@@ -386,35 +377,4 @@ func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.C
 	}
 
 	return jsonPhysicalTypeDirect(val, *pT)
-}
-
-// numericType is a constraint for numeric types that can be extracted from reflect.Value.
-type numericType interface {
-	~int64 | ~uint64 | ~float64
-}
-
-// getNumericValue extracts a numeric value from a reflect.Value.
-func getNumericValue[T numericType](val reflect.Value) (T, bool) {
-	switch val.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return T(val.Int()), true
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return T(val.Uint()), true
-	case reflect.Float32, reflect.Float64:
-		return T(val.Float()), true
-	}
-	return 0, false
-}
-
-// JSONTypeConfig holds configuration for ConvertToJSONType.
-type JSONTypeConfig struct {
-	Geospatial *GeospatialConfig
-}
-
-// JSONTypeOption configures ConvertToJSONType behavior.
-type JSONTypeOption func(*JSONTypeConfig)
-
-// WithGeospatialConfig sets a custom GeospatialConfig for GEOMETRY/GEOGRAPHY rendering.
-func WithGeospatialConfig(cfg *GeospatialConfig) JSONTypeOption {
-	return func(c *JSONTypeConfig) { c.Geospatial = cfg }
 }

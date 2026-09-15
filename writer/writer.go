@@ -16,6 +16,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
+	"github.com/hangxie/parquet-go/v3/types"
 )
 
 // DefaultMaxDictionarySize is the default encoded dictionary value-byte limit.
@@ -99,6 +100,19 @@ func WithWriteCRC(enabled bool) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) { pw.writeCRC = enabled })
 }
 
+// WithValueMode selects how JSONWriter and CSVWriter read logical values: interpreted
+// (the default) expects canonical text, raw the physical value as base64 where byte-backed.
+// ParquetWriter is unaffected, its values already being typed.
+func WithValueMode(m types.ValueMode) WriterOption {
+	return writerOptionFunc(func(pw *ParquetWriter) {
+		if !m.IsValid() {
+			pw.optionErrors = append(pw.optionErrors, fmt.Errorf("WithValueMode: %w %d", types.ErrUnsupportedValueMode, int(m)))
+			return
+		}
+		pw.valueOptions = append(pw.valueOptions, types.WithValueMode(m))
+	})
+}
+
 // ParquetWriter writes parquet files.
 //
 // A ParquetWriter must not be used by multiple goroutines concurrently.
@@ -122,6 +136,7 @@ type ParquetWriter struct {
 	columnCompressors             map[string]*compress.Compressor
 	dataPageVersion               int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
 	writeCRC                      bool  // compute and write CRC32 checksums on pages (default false)
+	valueOptions                  []types.ValueOption
 	sortingColumns                []*parquet.SortingColumn
 	encryptionConfig              *EncryptionConfig
 	encryptionState               *encryptionState
@@ -196,6 +211,7 @@ func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileW
 	pw.compressor = nil
 	pw.dataPageVersion = 1 // default to DATA_PAGE (V1)
 	pw.offset = 4
+	pw.valueOptions = nil
 	pw.encryptionConfig = nil
 	pw.encryptionState = nil
 	pw.optionErrors = nil
@@ -223,7 +239,7 @@ func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileW
 	// Surface any errors recorded by options before IO so partial output is
 	// impossible. Option-time errors carry full path/argument context.
 	if len(pw.optionErrors) > 0 {
-		return fmt.Errorf("invalid writer options: %s", formatOptionErrors(pw.optionErrors))
+		return fmt.Errorf("invalid writer options: %w", optionErrorList(pw.optionErrors))
 	}
 
 	// Validate options before any IO to avoid partial writes on invalid input.
@@ -326,6 +342,13 @@ func formatOptionErrors(errs []error) string {
 	}
 	return strings.Join(parts, "; ")
 }
+
+// optionErrorList reports the option errors as one message, each still matchable.
+type optionErrorList []error
+
+func (e optionErrorList) Error() string { return formatOptionErrors(e) }
+
+func (e optionErrorList) Unwrap() []error { return e }
 
 // NewParquetWriter creates a parquet writer. Obj is an object with tags or a JSON schema string.
 //
