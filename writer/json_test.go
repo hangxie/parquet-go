@@ -782,3 +782,61 @@ func TestJSONWriterFixedLenByteArrayWidth(t *testing.T) {
 		})
 	}
 }
+
+// TestJSONWriterRejectsMismatchedShape covers the row count the writer promises: an object
+// handed to a primitive column contributed no value, so two rows in gave one value out.
+func TestJSONWriterRejectsMismatchedShape(t *testing.T) {
+	const jsonSchema = `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [{"Tag": "name=Col, type=BYTE_ARRAY, repetitiontype=REQUIRED"}]
+	}`
+
+	for _, tt := range []struct {
+		name   string
+		rows   []string
+		errMsg string
+	}{
+		{
+			name:   "object",
+			rows:   []string{`{"Col":{"not":"base64"}}`, `{"Col":"aGVsbG8="}`},
+			errMsg: "cannot take a JSON object",
+		},
+		{
+			name:   "array",
+			rows:   []string{`{"Col":["aGk=","aGk="]}`, `{"Col":"aGVsbG8="}`},
+			errMsg: "cannot take a JSON array",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+			require.NoError(t, err)
+
+			// Rows are converted when the row group is flushed, so the error can come
+			// from any of Write, Flush or WriteStop.
+			for _, row := range tt.rows {
+				if err = jw.Write(row); err != nil {
+					break
+				}
+			}
+			if err == nil {
+				err = jw.WriteStop()
+			}
+			require.ErrorContains(t, err, tt.errMsg)
+		})
+	}
+
+	t.Run("every row lands when the shapes match", func(t *testing.T) {
+		var buf bytes.Buffer
+		jw, err := NewJSONWriterFromWriter(jsonSchema, &buf, WithNP(1))
+		require.NoError(t, err)
+		for _, row := range []string{`{"Col":"aGk="}`, `{"Col":"aGVsbG8="}`} {
+			require.NoError(t, jw.Write(row))
+		}
+		require.NoError(t, jw.WriteStop())
+
+		values, err := readBackColumn(buf.Bytes(), 2)
+		require.NoError(t, err)
+		require.Equal(t, []any{"hi", "hello"}, values)
+	})
+}
