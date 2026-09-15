@@ -50,6 +50,17 @@ func TestMarshalVariant(t *testing.T) {
 	require.Equal(t, 3, len(metadataTable.Values))
 	require.Equal(t, 3, len(valueTable.Values))
 
+	// HandleVariant serves this path as well as the JSON one, and it appends the encoded
+	// bytes to their tables directly, so the struct path states what those bytes are
+	// rather than only how many rows arrived.
+	for i, want := range []types.Variant{
+		{Metadata: types.EncodeVariantMetadata([]string{"a"}), Value: types.EncodeVariantInt8(123)},
+		{Metadata: types.EncodeVariantMetadata([]string{"b"}), Value: types.EncodeVariantString("hello")},
+	} {
+		require.Equal(t, string(want.Metadata), metadataTable.Values[i], "row %d metadata", i)
+		require.Equal(t, string(want.Value), valueTable.Values[i], "row %d value", i)
+	}
+
 	// Third row should be nil
 	require.Nil(t, metadataTable.Values[2])
 	require.Nil(t, valueTable.Values[2])

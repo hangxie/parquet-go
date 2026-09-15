@@ -2157,7 +2157,7 @@ func TestJSONTypeToParquetType(t *testing.T) {
 			name:        "invalid_json_type",
 			value:       make(map[string]any), // Unsupported type
 			pT:          parquet.TypePtr(parquet.Type_BOOLEAN),
-			expectError: false, // Actually doesn't error, just returns the value
+			expectError: true,
 		},
 		// Comprehensive decimal tests with all numeric types
 		{

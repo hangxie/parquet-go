@@ -118,7 +118,7 @@ func TestCSVWriter(t *testing.T) {
 		}{
 			"empty": {[]*string{nil, nil}, ""},
 			"good":  {[]*string{common.ToPtr("name"), common.ToPtr("123")}, ""},
-			"bad":   {[]*string{common.ToPtr("name"), common.ToPtr("abc")}, "expected integer"},
+			"bad":   {[]*string{common.ToPtr("name"), common.ToPtr("abc")}, `parse INT32 "abc"`},
 		}
 		schema := []string{
 			"Name=Name, Type=BYTE_ARRAY, ConvertedType=UTF8, Encoding=PLAIN",
