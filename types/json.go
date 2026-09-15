@@ -201,6 +201,9 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	if val.Type().Kind() == reflect.Interface && val.IsNil() {
 		return nil, nil
 	}
+	if pT == nil {
+		return nil, errNoPhysicalType(fmt.Sprintf("%v", val))
+	}
 
 	// Handle decimal types specially to preserve precision from JSON numbers
 	isDecimal := (cT != nil && *cT == parquet.ConvertedType_DECIMAL) || (lT != nil && lT.IsSetDECIMAL())
@@ -399,10 +402,6 @@ func jsonTimeDirect(val reflect.Value, unit time.Duration, typeName string) (any
 // Returns (result, true, nil) on success, (nil, false, nil) if fallback is needed, or
 // (nil, true, err) when the value is invalid for the column.
 func jsonValueToParquetDirect(val reflect.Value, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int) (any, bool, error) {
-	if pT == nil {
-		return nil, false, nil
-	}
-
 	// TIME comes first: the converted types below hand their values to the string path, which
 	// renders a float64 in %g and reads "4.5296789e+07" as a failed parse rather than a time.
 	if isTimeColumn(cT, lT) {
