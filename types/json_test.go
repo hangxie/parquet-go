@@ -2618,14 +2618,14 @@ func TestJSONValueToParquetDirect_EdgeCases(t *testing.T) {
 		expected    any
 		expectError bool
 	}{
-		// nil pT: jsonValueToParquetDirect returns (nil,false) and falls back to StrToParquetType.
-		// With UTF8 cT, StrToParquetType returns the string unchanged.
+		// A schema element with no physical type says nothing about what the column
+		// holds, so the value is refused whatever the annotation.
 		{
-			name:     "nil_pT_with_utf8",
-			value:    "hello",
-			pT:       nil,
-			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8),
-			expected: "hello",
+			name:        "nil_pT_with_utf8",
+			value:       "hello",
+			pT:          nil,
+			cT:          parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8),
+			expectError: true,
 		},
 		// BYTE_ARRAY with valid base64 string: jsonPhysicalTypeDirect decodes it.
 		{

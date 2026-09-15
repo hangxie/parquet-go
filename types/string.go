@@ -80,8 +80,12 @@ func strToFixedLenByteArray(s string, length int) (string, error) {
 	}
 }
 
-// Scan a string to parquet value; length and scale just for decimal
+// StrToParquetType scans a string to a parquet value; length and scale are only used by
+// DECIMAL. A nil physical type is reported, since every branch below needs one.
 func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, length, scale int) (any, error) {
+	if pT == nil {
+		return nil, errNoPhysicalType(s)
+	}
 	if cT == nil {
 		switch *pT {
 		case parquet.Type_BOOLEAN:
@@ -258,6 +262,10 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 // as 42; schema builders backfill INTEGER for those converted types, so the stricter scan
 // applies to them as well.
 func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int) (any, error) {
+	if pT == nil {
+		return nil, errNoPhysicalType(s)
+	}
+
 	if lT != nil {
 		if v, handled, err := strToLogicalType(s, lT, pT, length); handled {
 			return v, err
