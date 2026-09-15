@@ -155,6 +155,22 @@ func marshalJSONPrimitive(node *Node, se *parquet.SchemaElement, res map[string]
 	return nil
 }
 
+// isListColumn and isMapColumn recognise both spellings: a schema built from raw
+// SchemaElement values may carry only the logical type a tag would have backfilled.
+func isListColumn(se *parquet.SchemaElement) bool {
+	if lT := se.LogicalType; lT != nil && lT.IsSetLIST() {
+		return true
+	}
+	return se.GetConvertedType() == parquet.ConvertedType_LIST
+}
+
+func isMapColumn(se *parquet.SchemaElement) bool {
+	if lT := se.LogicalType; lT != nil && lT.IsSetMAP() {
+		return true
+	}
+	return se.GetConvertedType() == parquet.ConvertedType_MAP
+}
+
 func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
 	pathStr := node.PathMap.Path
 	schemaIndex, ok := schemaHandler.MapIndex[pathStr]
@@ -176,18 +192,31 @@ func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *sc
 		return newStack, nil
 	}
 
+	// The value's shape picks the handler, but only among the shapes the column can hold.
+	// Dispatching on the Go kind alone dropped an object into a primitive column without
+	// a word, and spread an array across a column that takes one value.
 	switch node.Val.Type().Kind() {
 	case reflect.Map:
-		if se.GetConvertedType() == parquet.ConvertedType_MAP {
+		// An object fills a group's fields or a MAP's entries. A LIST's children are its
+		// repeated element, never the object's keys, so it filled none and left a null.
+		switch {
+		case isMapColumn(se):
 			stack = marshalJSONRealMap(node, pathStr, res, schemaHandler, nodeBuf, stack)
-		} else {
+		case isListColumn(se):
+			return nil, fmt.Errorf("column %s is a LIST and cannot take a JSON object", pathStr)
+		case se.GetNumChildren() > 0:
 			stack = marshalJSONStruct(node, res, schemaHandler, nodeBuf, stack)
+		default:
+			return nil, fmt.Errorf("column %s is primitive and cannot take a JSON object", pathStr)
 		}
 	case reflect.Slice:
-		if se.GetConvertedType() == parquet.ConvertedType_LIST {
+		switch {
+		case isListColumn(se):
 			stack = marshalJSONList(node, pathStr, res, schemaHandler, nodeBuf, stack)
-		} else {
+		case se.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED:
 			stack = marshalJSONRepeated(node, pathStr, res, schemaHandler, nodeBuf, stack)
+		default:
+			return nil, fmt.Errorf("column %s is not repeated and cannot take a JSON array", pathStr)
 		}
 	default:
 		if err := marshalJSONPrimitive(node, se, res); err != nil {
