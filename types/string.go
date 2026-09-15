@@ -167,7 +167,7 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 	}
 	if lT.IsSetTIMESTAMP() {
 		ts := lT.GetTIMESTAMP()
-		if ts.Unit == nil {
+		if !hasTimestampUnit(ts) {
 			// No unit means the annotation says nothing; the column's scan decides.
 			return nil, false, nil
 		}

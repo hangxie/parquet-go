@@ -101,6 +101,13 @@ func convertTimestampLogicalValue(val any, timestamp *parquet.TimestampType) any
 	return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
 }
 
+// hasTimestampUnit reports whether the annotation names a unit this package can read. A
+// thrift union naming an unknown member decodes with no field set, saying as little as nil.
+func hasTimestampUnit(ts *parquet.TimestampType) bool {
+	return ts != nil && ts.Unit != nil &&
+		(ts.Unit.IsSetMILLIS() || ts.Unit.IsSetMICROS() || ts.Unit.IsSetNANOS())
+}
+
 // timestampLabel names a TIMESTAMP by its unit, so both spellings report alike.
 func timestampLabel(ts *parquet.TimestampType) string {
 	switch {
@@ -115,7 +122,7 @@ func timestampLabel(ts *parquet.TimestampType) string {
 }
 
 func strToTimestampLogical(s string, ts *parquet.TimestampType) (any, error) {
-	if ts.Unit != nil {
+	if hasTimestampUnit(ts) {
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			switch {
 			case ts.Unit.IsSetNANOS():

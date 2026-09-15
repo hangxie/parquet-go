@@ -161,3 +161,28 @@ func TestTimestampSpellingsAgree(t *testing.T) {
 	_, err := StrToParquetTypeWithLogical("123abc", &int64T, nil, nanos, 0, 0)
 	require.ErrorContains(t, err, `parse TIMESTAMP_NANOS "123abc"`)
 }
+
+// TestTimestampUnsetUnit covers a TIMESTAMP whose unit union carries no field, as a file
+// naming an unknown unit decodes. It says as little as a missing unit, so both behave alike.
+func TestTimestampUnsetUnit(t *testing.T) {
+	int64T := parquet.Type_INT64
+
+	unsetUnion := parquet.NewLogicalType()
+	unsetUnion.TIMESTAMP = &parquet.TimestampType{IsAdjustedToUTC: true, Unit: parquet.NewTimeUnit()}
+	nilUnit := parquet.NewLogicalType()
+	nilUnit.TIMESTAMP = &parquet.TimestampType{IsAdjustedToUTC: true}
+
+	for name, lT := range map[string]*parquet.LogicalType{"unset union": unsetUnion, "nil unit": nilUnit} {
+		t.Run(name, func(t *testing.T) {
+			// The bare tick count the column stores is read as the column's own INT64.
+			got, err := StrToParquetTypeWithLogical("12345", &int64T, nil, lT, 0, 0)
+			require.NoError(t, err)
+			require.Equal(t, int64(12345), got)
+
+			// Timestamp text cannot be scaled without a unit, and both spellings say so
+			// the same way.
+			_, err = StrToParquetTypeWithLogical("2023-12-25T00:00:00Z", &int64T, nil, lT, 0, 0)
+			require.ErrorContains(t, err, `parse INT64 "2023-12-25T00:00:00Z"`)
+		})
+	}
+}
