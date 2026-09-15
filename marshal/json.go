@@ -143,9 +143,9 @@ func marshalJSONRepeated(node *Node, pathStr string, res map[string]*layout.Tabl
 	return stack
 }
 
-func marshalJSONPrimitive(node *Node, se *parquet.SchemaElement, res map[string]*layout.Table) error {
+func marshalJSONPrimitive(node *Node, se *parquet.SchemaElement, res map[string]*layout.Table, opts []types.ValueOption) error {
 	table := res[node.PathMap.Path]
-	val, err := types.JSONTypeToParquetTypeWithLogical(node.Val, se.Type, se.ConvertedType, se.LogicalType, int(se.GetTypeLength()), int(se.GetScale()))
+	val, err := types.JSONTypeToParquetTypeWithLogical(node.Val, se.Type, se.ConvertedType, se.LogicalType, int(se.GetTypeLength()), int(se.GetScale()), opts...)
 	if err != nil {
 		return fmt.Errorf("convert JSON value for %s: %w", node.PathMap.Path, err)
 	}
@@ -155,7 +155,7 @@ func marshalJSONPrimitive(node *Node, se *parquet.SchemaElement, res map[string]
 	return nil
 }
 
-func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
+func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node, opts []types.ValueOption) ([]*Node, error) {
 	pathStr := node.PathMap.Path
 	schemaIndex, ok := schemaHandler.MapIndex[pathStr]
 	if !ok {
@@ -190,15 +190,15 @@ func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *sc
 			stack = marshalJSONRepeated(node, pathStr, res, schemaHandler, nodeBuf, stack)
 		}
 	default:
-		if err := marshalJSONPrimitive(node, se, res); err != nil {
+		if err := marshalJSONPrimitive(node, se, res, opts); err != nil {
 			return nil, fmt.Errorf("marshal JSON primitive for %s: %w", pathStr, err)
 		}
 	}
 	return stack, nil
 }
 
-// ss is []string
-func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
+// MarshalJSON converts JSON rows to column tables, reading values under opts.
+func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler, opts ...types.ValueOption) (tb *map[string]*layout.Table, err error) {
 	res, err := setupTableMap(schemaHandler, len(ss))
 	if err != nil {
 		return nil, fmt.Errorf("setup table map: %w", err)
@@ -234,7 +234,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler) (tb *map[string]
 			node = stack[ln-1]
 			stack = stack[:ln-1]
 
-			if stack, err = processJSONNode(node, res, schemaHandler, nodeBuf, stack); err != nil {
+			if stack, err = processJSONNode(node, res, schemaHandler, nodeBuf, stack, opts); err != nil {
 				return nil, fmt.Errorf("process JSON node row %d: %w", i, err)
 			}
 		}

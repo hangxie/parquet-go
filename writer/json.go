@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/marshal"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
@@ -53,7 +54,9 @@ func NewJSONWriterWithContext(ctx context.Context, jsonSchema string, pfile sour
 		return nil, fmt.Errorf("create schema from JSON: %w", err)
 	}
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
-	res.marshalFunc = marshal.MarshalJSON
+	res.marshalFunc = func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error) {
+		return marshal.MarshalJSON(src, sh, res.valueOptions...)
+	}
 	if err = res.validateSortingColumns(); err != nil {
 		return nil, fmt.Errorf("validate sorting columns: %w", err)
 	}

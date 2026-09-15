@@ -101,6 +101,7 @@ func (w *CSVWriter) WriteStringWithContext(ctx context.Context, recsi any) error
 				w.SchemaHandler.SchemaElements[i+1].LogicalType,
 				int(w.SchemaHandler.SchemaElements[i+1].GetTypeLength()),
 				int(w.SchemaHandler.SchemaElements[i+1].GetScale()),
+				w.valueOptions...,
 			)
 			if err != nil {
 				return fmt.Errorf("convert string to parquet type: %w", err)
