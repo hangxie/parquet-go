@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -101,23 +102,53 @@ func convertTimestampLogicalValue(val any, timestamp *parquet.TimestampType) any
 	return TIMESTAMP_MILLISToISO8601(v, adjustedToUTC)
 }
 
+// nanosecondsRepresentable reports whether t is inside the window a nanosecond count can
+// address, roughly 1678 to 2262, outside which UnixNano wraps. Only NANOS is that narrow.
+func nanosecondsRepresentable(t time.Time) bool {
+	return !t.Before(minNanosecondTime) && !t.After(maxNanosecondTime)
+}
+
+var (
+	minNanosecondTime = time.Unix(0, math.MinInt64)
+	maxNanosecondTime = time.Unix(0, math.MaxInt64)
+)
+
+// hasTimestampUnit reports whether the annotation names a unit this package can read. A
+// thrift union naming an unknown member decodes with no field set, saying as little as nil.
+func hasTimestampUnit(ts *parquet.TimestampType) bool {
+	return ts != nil && ts.Unit != nil &&
+		(ts.Unit.IsSetMILLIS() || ts.Unit.IsSetMICROS() || ts.Unit.IsSetNANOS())
+}
+
+// timestampLabel names a TIMESTAMP by its unit, so both spellings report alike.
+func timestampLabel(ts *parquet.TimestampType) string {
+	switch {
+	case ts.Unit.IsSetNANOS():
+		return "TIMESTAMP_NANOS"
+	case ts.Unit.IsSetMICROS():
+		return "TIMESTAMP_MICROS"
+	case ts.Unit.IsSetMILLIS():
+		return "TIMESTAMP_MILLIS"
+	}
+	return "TIMESTAMP"
+}
+
 func strToTimestampLogical(s string, ts *parquet.TimestampType) (any, error) {
-	if ts.Unit != nil {
+	if hasTimestampUnit(ts) {
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			switch {
 			case ts.Unit.IsSetNANOS():
+				if !nanosecondsRepresentable(t) {
+					return nil, fmt.Errorf("TIMESTAMP_NANOS %q is outside the range a nanosecond count can hold", s)
+				}
 				return t.UnixNano(), nil
 			case ts.Unit.IsSetMICROS():
-				return t.UnixNano() / int64(time.Microsecond), nil
+				return t.UnixMicro(), nil
 			case ts.Unit.IsSetMILLIS():
-				return t.UnixNano() / int64(time.Millisecond), nil
+				return t.UnixMilli(), nil
 			}
 		}
-		var v int64
-		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
-			return v, fmt.Errorf("parse timestamp %q: %w", s, err)
-		}
-		return v, nil
+		return strToTickCount(s, timestampLabel(ts))
 	}
 	return nil, fmt.Errorf("timestamp unit not set")
 }
