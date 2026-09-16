@@ -15,6 +15,12 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// strToTickCount scans the bare tick count a TIMESTAMP column also accepts.
+func strToTickCount(s, typeName string) (any, error) {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return v, wrapScanErr(typeName, s, err)
+}
+
 // strToDayCount scans the bare day count a DATE column also accepts, over the whole field.
 func strToDayCount(s, typeName string) (any, error) {
 	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 32)
@@ -148,18 +154,14 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		return parseTimeOfDay(s, "TIME_MICROS", time.Microsecond)
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			return t.UnixNano() / int64(time.Millisecond), nil
+			return t.UnixMilli(), nil
 		}
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("TIMESTAMP_MILLIS", s, err)
+		return strToTickCount(s, "TIMESTAMP_MILLIS")
 	case parquet.ConvertedType_TIMESTAMP_MICROS:
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			return t.UnixNano() / int64(time.Microsecond), nil
+			return t.UnixMicro(), nil
 		}
-		var v int64
-		_, err := fmt.Sscanf(s, "%d", &v)
-		return v, wrapScanErr("TIMESTAMP_MICROS", s, err)
+		return strToTickCount(s, "TIMESTAMP_MICROS")
 	case parquet.ConvertedType_INTERVAL:
 		return strToInterval(s)
 	case parquet.ConvertedType_DECIMAL:
@@ -199,8 +201,15 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 		return string(u[:]), true, nil
 	}
 	if lT.IsSetTIMESTAMP() {
-		v, err := strToTimestampLogical(s, lT.GetTIMESTAMP())
-		return v, err == nil, err
+		ts := lT.GetTIMESTAMP()
+		if !hasTimestampUnit(ts) {
+			// No unit means the annotation says nothing; the column's scan decides.
+			return nil, false, nil
+		}
+		// Otherwise claim it even on failure, as TIME does: the bare tick count is read
+		// here too, so falling through would report a bad value as a failed INT64.
+		v, err := strToTimestampLogical(s, ts)
+		return v, true, err
 	}
 	if lT.IsSetTIME() {
 		// Claim the value even when it fails: falling through to the physical INT32/INT64
