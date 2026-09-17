@@ -22,16 +22,24 @@ func roundCoordinate(v float64, precision int) float64 {
 
 // wkbToGeoJSON converts WKB (2D Point/LineString/Polygon/Multi*) to a GeoJSON geometry map
 // Returns (geoJSON, true) on success; (nil, false) on failure
-// readSubGeomHeader reads a sub-geometry's byte order and type from the buffer, returning
-// the sub-geometry's big-endian flag, the new offset, and whether it matched the expected type.
-// outerBE is used for reading the type field to match original WKB parsing behavior.
-func readSubGeomHeader(b []byte, off int, outerBE bool, expectedType uint32) (bool, int, bool) {
+// readSubGeomHeader reads a sub-geometry's own byte order and type from the buffer.
+func readSubGeomHeader(b []byte, off int, expectedType uint32) (bool, int, bool) {
+	// Each member of a Multi* or collection carries its own byte order byte, so the type
+	// after it is read with that byte order, not the outer geometry's. Reading it with the
+	// outer one turned a legal mixed-endianness value into a parse failure.
 	if off >= len(b) {
 		return false, 0, false
 	}
-	subBE := b[off] == 0
+	var subBE bool
+	switch b[off] {
+	case 0:
+		subBE = true
+	case 1:
+	default:
+		return false, 0, false
+	}
 	off++
-	gType, ok := u32(b, off, outerBE)
+	gType, ok := u32(b, off, subBE)
 	if !ok || gType != expectedType {
 		return false, 0, false
 	}
@@ -58,7 +66,7 @@ func multiPointToGeoJSON(b []byte, off int, be bool, precision int) (map[string]
 	off += 4
 	coords := make([][]float64, 0, cappedCap(n, len(b)-off))
 	for i := uint32(0); i < n; i++ {
-		pointBE, newOff, ok := readSubGeomHeader(b, off, be, WKBPoint)
+		pointBE, newOff, ok := readSubGeomHeader(b, off, WKBPoint)
 		if !ok {
 			return nil, false
 		}
@@ -80,7 +88,7 @@ func multiLineStringToGeoJSON(b []byte, off int, be bool, precision int) (map[st
 	off += 4
 	lines := make([][][]float64, 0, cappedCap(n, len(b)-off))
 	for i := uint32(0); i < n; i++ {
-		lineBE, newOff, ok := readSubGeomHeader(b, off, be, WKBLineString)
+		lineBE, newOff, ok := readSubGeomHeader(b, off, WKBLineString)
 		if !ok {
 			return nil, false
 		}
@@ -102,7 +110,7 @@ func multiPolygonToGeoJSON(b []byte, off int, be bool, precision int) (map[strin
 	off += 4
 	polygons := make([][][][]float64, 0, cappedCap(n, len(b)-off))
 	for i := uint32(0); i < n; i++ {
-		polyBE, newOff, ok := readSubGeomHeader(b, off, be, WKBPolygon)
+		polyBE, newOff, ok := readSubGeomHeader(b, off, WKBPolygon)
 		if !ok {
 			return nil, false
 		}

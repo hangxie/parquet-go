@@ -936,7 +936,7 @@ func TestWkbToGeoJSON_BigEndian_EdgeCases(t *testing.T) {
 		{
 			name:     "multipoint_big_endian_header_little_endian_points",
 			wkb:      []byte{0, 0, 0, 0, 4, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64},
-			expectOK: false, // Mixed endianness within multi-geometries may not be supported
+			expectOK: true, // each member declares its own byte order, so this is legal WKB
 		},
 		{
 			name:     "multilinestring_insufficient_data_for_linestring_header",

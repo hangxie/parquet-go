@@ -770,6 +770,8 @@ Overview:
 - CRS defaults to `OGC:CRS84` when not provided.
 - GEOGRAPHY algorithms include `SPHERICAL`, `VINCENTY`, `THOMAS`, `ANDOYER`, and `KARNEY`.
 
+Mixed byte orders: each member of a `MultiPoint`, `MultiLineString` or `MultiPolygon` carries its own byte order byte, which up to v3.8.3 was read but then ignored, the member's type being read with the outer geometry's byte order instead. A legal value mixing the two therefore failed to parse, rendering as the `wkb_hex` substitute and contributing nothing to the column chunk's bounding box. From v3.9.0 it reads correctly.
+
 JSON output modes:
 
 | Mode | Output |

@@ -180,7 +180,7 @@ func (b *BoundingBoxCalculator) addMultiPointWKB(wkb []byte, off int, be bool) {
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
-		pointBE, newOff, ok := readSubGeomHeader(wkb, off, be, WKBPoint)
+		pointBE, newOff, ok := readSubGeomHeader(wkb, off, WKBPoint)
 		if !ok {
 			return
 		}
@@ -204,7 +204,7 @@ func (b *BoundingBoxCalculator) addMultiLineStringWKB(wkb []byte, off int, be bo
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
-		lineBE, newOff, ok := readSubGeomHeader(wkb, off, be, WKBLineString)
+		lineBE, newOff, ok := readSubGeomHeader(wkb, off, WKBLineString)
 		if !ok {
 			return
 		}
@@ -226,7 +226,7 @@ func (b *BoundingBoxCalculator) addMultiPolygonWKB(wkb []byte, off int, be bool)
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
-		polyBE, newOff, ok := readSubGeomHeader(wkb, off, be, WKBPolygon)
+		polyBE, newOff, ok := readSubGeomHeader(wkb, off, WKBPolygon)
 		if !ok {
 			return
 		}
