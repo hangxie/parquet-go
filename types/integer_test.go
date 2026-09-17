@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -157,4 +158,37 @@ func TestStrToIntegerLogical_MismatchedColumn(t *testing.T) {
 		createIntegerLogicalType(32, true), 0, 0)
 	require.NoError(t, err)
 	require.Equal(t, "42", res)
+}
+
+// TestNarrowIntegerOnMismatchedColumn covers a narrow annotation the physical type cannot
+// hold. strToIntegerLogical declines it, so the column's own range decides and the value
+// stays the width the column stores; the narrow check has no int32 to look at.
+func TestNarrowIntegerOnMismatchedColumn(t *testing.T) {
+	int64T := parquet.Type_INT64
+	int8CT := parquet.ConvertedTypePtr(parquet.ConvertedType_INT_8)
+
+	for _, mode := range []ValueMode{ValueModeInterpreted, ValueModeRaw} {
+		got, err := StrToParquetTypeWithLogical("1000", &int64T, int8CT, nil, 0, 0, WithValueMode(mode))
+		require.NoError(t, err, "%s mode", mode)
+		require.Equal(t, int64(1000), got, "%s mode", mode)
+	}
+}
+
+// TestNarrowIntegerMalformedWidth covers an INTEGER width the format does not define, which
+// both modes leave to the physical scan rather than invent a range for. A signed 0 panicked.
+func TestNarrowIntegerMalformedWidth(t *testing.T) {
+	int32T := parquet.Type_INT32
+
+	for _, width := range []int8{0, 1, 12, 17, 33} {
+		t.Run(fmt.Sprintf("width %d", width), func(t *testing.T) {
+			lT := parquet.NewLogicalType()
+			lT.INTEGER = &parquet.IntType{BitWidth: width, IsSigned: true}
+
+			for _, mode := range []ValueMode{ValueModeInterpreted, ValueModeRaw} {
+				got, err := StrToParquetTypeWithLogical("100", &int32T, nil, lT, 0, 0, WithValueMode(mode))
+				require.NoError(t, err, "%s mode", mode)
+				require.Equal(t, int32(100), got, "%s mode", mode)
+			}
+		})
+	}
 }
