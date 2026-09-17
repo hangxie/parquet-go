@@ -316,9 +316,9 @@ Type aliases are supported, for example `type MyString string`, when the base ty
 rendered, err := types.ConvertValue(v, schemaElement)
 ```
 
-These are reported rather than replaced, each wrapping `types.ErrUnrenderable` so a caller can tell a column holding bad data from a call made with a bad mode or schema element: BSON that does not parse or is empty, bytes the requested geospatial rendering cannot be produced from, and a `UUID`, `FLOAT16`, `INTERVAL` or `INT96` whose width is not the one the format fixes. A number-backed column given a value of the wrong Go type still passes it through, since only a corrupt reader produces one.
+A value the column cannot render is reported rather than replaced, each error wrapping `types.ErrUnrenderable` so a caller can tell a column holding bad data from a call made with a bad mode or schema element: BSON that does not parse or is empty, bytes the requested geospatial rendering cannot be produced from, and a `UUID`, `FLOAT16`, `INTERVAL` or `INT96` whose width is not the one the format fixes. The WKB reading is 2D, so an ISO geometry carrying Z or M coordinates is among the bytes the GeoJSON and hybrid modes cannot read. Raw mode reports one more, since it promises the value writes back as it was read: any `FIXED_LEN_BYTE_ARRAY` whose width is not the schema element's `type_length`, annotated or not, where the interpreted path renders base64 or a decimal and says nothing. A number-backed column given a value of the wrong Go type still passes it through, since only a corrupt reader produces one.
 
-On error the returned value is the substitute `ConvertToJSONType` produces rather than nil, so a caller that wants to carry on with the old rendering can. A `GEOMETRY` or `GEOGRAPHY` column fails on bytes the requested rendering cannot be produced from, which only the modes that read the bytes can hit: `GeospatialModeHex` and `GeospatialModeBase64` render any bytes. A value that is not bytes at all is reported in every mode.
+On error the returned value is the substitute `ConvertToJSONType` produces rather than nil, so a caller that wants to carry on with the old rendering can. `ConvertValue` also honours `WithValueMode`, which is how a value is read back in the raw form it was written; see [Value Modes](#value-modes). A `GEOMETRY` or `GEOGRAPHY` column fails on bytes the requested rendering cannot be produced from, which only the modes that read the bytes can hit: `GeospatialModeHex` and `GeospatialModeBase64` render any bytes. A value that is not bytes at all is reported in every mode.
 
 `types.ConvertToJSONType` is deprecated in favour of it. That function returns a value for anything, substituting where it cannot render — base64 for unparsable BSON, a `wkb_hex` map for unparsable WKB, the raw bytes for a mis-sized `UUID` — and a caller cannot tell those from a value that really rendered. The substitutions are unchanged, with one exception: an `INT96` is now checked for the exact twelve bytes the format fixes, so a longer value comes back as itself rather than as the timestamp its first twelve bytes spell, and one passed as `[]byte` renders rather than passing through. No reader emits either shape.
 
@@ -360,7 +360,9 @@ A column whose value travels as text taken at face value — base64 for a byte-b
 
 The mode reaches the conversion helpers as `types.ValueOption`, which `types.StrToParquetTypeWithLogical` and `types.JSONTypeToParquetTypeWithLogical` accept as trailing arguments. `types.ValueConfig` and `types.ValueOption` are the former `types.JSONTypeConfig` and `types.JSONTypeOption`, which remain as deprecated aliases. `ParquetWriter` over structs and maps is unaffected: its values are already typed, so there is no text to read either way.
 
-Values written in raw mode read back through the default JSON rendering, which is the interpreted form. Reading raw is a separate option that has not landed yet.
+`types.ConvertValue` takes the mode too, so a value reads back in the form it was written: raw rendering emits base64 for a byte-backed column and the underlying number otherwise, which is exactly what the raw write path takes. That symmetry is what lets `GEOMETRY`, `GEOGRAPHY` and `BSON` round trip through this library alone: raw mode could already write them, but nothing here produced the value to write, since their interpreted forms are still unimplemented.
+
+`types.ConvertToJSONType` renders the interpreted form whatever mode it is given, which is what it did before the mode existed; use `ConvertValue` for raw.
 
 ### UUID Values
 
