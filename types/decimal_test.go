@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -566,4 +567,44 @@ func TestDecimalByteArrayPaddingCanonicalizes(t *testing.T) {
 		se.Type, nil, se.LogicalType, 0, 3)
 	require.NoError(t, err)
 	require.Equal(t, minimal, got)
+}
+
+// TestDecimalDigitsEqualScale covers an unscaled value with exactly as many digits as the
+// scale, where the radix point lands at position zero: the leading zero is part of the
+// number, and a json.Number without it is one json.Marshal refuses.
+func TestDecimalDigitsEqualScale(t *testing.T) {
+	tests := []struct {
+		name     string
+		unscaled int64
+		scale    int
+		expected string
+	}{
+		{"digits equal scale", 92, 2, "0.92"},
+		{"digits equal scale, negative", -92, 2, "-0.92"},
+		{"one digit, scale one", 5, 1, "0.5"},
+		{"digits below scale", 5, 2, "0.05"},
+		{"digits above scale", 123, 2, "1.23"},
+		{"widest", 999999999999999999, 18, "0.999999999999999999"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, DECIMAL_INT_ToString(tt.unscaled, 18, tt.scale))
+			require.Equal(t, tt.expected,
+				DECIMAL_BYTE_ARRAY_ToString([]byte(StrIntToBinary(strconv.FormatInt(tt.unscaled, 10), "BigEndian", 16, true)), 18, tt.scale))
+
+			rendered, err := ConvertValue(tt.unscaled, &parquet.SchemaElement{
+				Type: parquet.TypePtr(parquet.Type_INT64),
+				LogicalType: &parquet.LogicalType{
+					DECIMAL: &parquet.DecimalType{Precision: 18, Scale: int32(tt.scale)},
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, json.Number(tt.expected), rendered)
+			// A rendering the JSON encoder refuses is one no caller can use.
+			marshalled, err := json.Marshal(rendered)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, string(marshalled))
+		})
+	}
 }
