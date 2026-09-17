@@ -438,9 +438,12 @@ func TestCSVJSONEquivalence(t *testing.T) {
 			values: []any{"\x01", "\xff", "\x00\xde\xad\xbe\xef"},
 		},
 		{
-			name:   "BSON",
-			tag:    "type=BYTE_ARRAY, convertedtype=BSON",
-			values: []any{"\x0e\x00\x00\x00\x10a\x00\x01\x00\x00\x00\x00"},
+			name: "BSON",
+			tag:  "type=BYTE_ARRAY, convertedtype=BSON",
+			// bson.Marshal(bson.D{{Key: "a", Value: int32(1)}}); the declared length is the
+			// document's own 12 bytes. It used to read 14, which no parser accepts, so
+			// this column was failing to render rather than failing to round trip.
+			values: []any{"\x0c\x00\x00\x00\x10a\x00\x01\x00\x00\x00\x00"},
 			issue:  "#417: BSON has no interpreted write form, the rendered document is not parsed back",
 		},
 		{
@@ -555,7 +558,8 @@ func TestCSVJSONEquivalence(t *testing.T) {
 			rendered := make([]any, len(tt.values))
 			cells := make([]string, len(tt.values))
 			for i, val := range tt.values {
-				rendered[i] = types.ConvertToJSONType(val, se)
+				rendered[i], err = types.ConvertValue(val, se)
+				require.NoError(t, err)
 				cells[i], err = csvCell(rendered[i])
 				require.NoError(t, err)
 			}

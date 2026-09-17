@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/hangxie/parquet-go/v3/common"
 )
 
 func IntervalToString(interval []byte) string {
@@ -100,21 +102,17 @@ func ParseIntervalString(s string) (string, error) {
 }
 
 // convertIntervalValue handles INTERVAL to formatted string conversion.
-func convertIntervalValue(val any) any {
+func convertIntervalValue(val any) (any, error) {
 	if val == nil {
-		return nil
+		return nil, nil
 	}
 
-	switch v := val.(type) {
-	case []byte:
-		if len(v) == 12 {
-			return IntervalToString(v)
-		}
-	case string:
-		if len(v) == 12 {
-			return IntervalToString([]byte(v))
-		}
+	b, ok := valueBytes(val)
+	if !ok {
+		return val, errUnrenderable("INTERVAL", "value is %T, not bytes", val)
 	}
-
-	return val
+	if len(b) != common.IntervalByteLen {
+		return val, errUnrenderable("INTERVAL", "is %d bytes, must be %d", len(b), common.IntervalByteLen)
+	}
+	return IntervalToString(b), nil
 }

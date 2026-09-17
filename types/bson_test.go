@@ -1,6 +1,7 @@
 package types
 
 import (
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -55,4 +56,15 @@ func TestConvertBSONLogicalValue(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// TestConvertBSONValueKeepsCause pins the driver's error inside the chain. It is the one
+// reason this package does not write itself, so formatting it into the message would leave
+// errors.Is and errors.As with nothing to reach.
+func TestConvertBSONValueKeepsCause(t *testing.T) {
+	// A document declaring five bytes and carrying two: the driver reports EOF.
+	rendered, err := convertBSONValue("\x05\x00")
+	require.ErrorIs(t, err, ErrUnrenderable)
+	require.ErrorIs(t, err, io.EOF)
+	require.Equal(t, "BQA=", rendered)
 }

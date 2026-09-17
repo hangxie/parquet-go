@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"testing"
@@ -253,4 +254,22 @@ func TestStrToINT96(t *testing.T) {
 			require.Equal(t, tc.expected, res)
 		})
 	}
+}
+
+// TestINT96ToTimeAcceptsEveryTwelveByteValue pins what convertINT96Value relies on when it
+// drops INT96ToTime's error: the only value INT96ToTime rejects is one shorter than the
+// width the format fixes, which convertINT96Value has already rejected itself.
+func TestINT96ToTimeAcceptsEveryTwelveByteValue(t *testing.T) {
+	for _, b := range [][]byte{
+		make([]byte, int96ByteLength),
+		bytes.Repeat([]byte{0xff}, int96ByteLength),
+		bytes.Repeat([]byte{0x80}, int96ByteLength),
+		append(bytes.Repeat([]byte{0xff}, 8), 0x00, 0x00, 0x00, 0x80),
+	} {
+		_, err := INT96ToTime(string(b))
+		require.NoError(t, err, "% x", b)
+	}
+
+	_, err := INT96ToTime(string(make([]byte, int96ByteLength-1)))
+	require.Error(t, err)
 }

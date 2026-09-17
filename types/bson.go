@@ -8,29 +8,32 @@ import (
 
 // ConvertBSONLogicalValue handles BSON decoding to a map for JSON compatibility.
 func ConvertBSONLogicalValue(val any) any {
+	rendered, _ := convertBSONValue(val)
+	return rendered
+}
+
+// convertBSONValue renders a BSON document, reporting one it cannot parse.
+func convertBSONValue(val any) (any, error) {
 	if val == nil {
-		return nil
+		return nil, nil
 	}
 
-	var bsonBytes []byte
-	switch v := val.(type) {
-	case []byte:
-		bsonBytes = v
-	case string:
-		bsonBytes = []byte(v)
-	default:
-		return val
+	bsonBytes, ok := valueBytes(val)
+	if !ok {
+		return val, errUnrenderable("BSON", "value is %T, not bytes", val)
 	}
 
 	if len(bsonBytes) == 0 {
-		return map[string]any{}
+		// bson.Unmarshal rejects this as EOF; the empty map is the long-standing
+		// substitution, so it stays as the value while the reason is reported.
+		return map[string]any{}, errUnrenderable("BSON", "document is empty")
 	}
 
 	var result map[string]any
-	err := bson.Unmarshal(bsonBytes, &result)
-	if err != nil {
-		return base64.StdEncoding.EncodeToString(bsonBytes)
+	if err := bson.Unmarshal(bsonBytes, &result); err != nil {
+		// base64 is the substitution the deprecated path keeps.
+		return base64.StdEncoding.EncodeToString(bsonBytes), errUnrenderableCause("BSON", err)
 	}
 
-	return result
+	return result, nil
 }

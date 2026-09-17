@@ -18,6 +18,18 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// renderedInterval is convertIntervalValue's value half, for use in struct literals.
+func renderedInterval(s string) any {
+	v, _ := convertIntervalValue(s)
+	return v
+}
+
+// renderedINT96 is convertINT96Value's value half, for use in struct literals.
+func renderedINT96(s string) any {
+	v, _ := convertINT96Value(s)
+	return v
+}
+
 func TestConvertToJSONType_AllConvertedTypes(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1154,7 +1166,7 @@ func TestConvertIntervalValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := convertIntervalValue(tt.val)
+			result, _ := convertIntervalValue(tt.val)
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -1335,23 +1347,23 @@ func TestConvertBinaryValue(t *testing.T) {
 
 func TestConvertINT96Value(t *testing.T) {
 	// nil
-	res := convertINT96Value(nil)
+	res, _ := convertINT96Value(nil)
 	require.Nil(t, res)
 
 	// string
 	timeStr := "2023-01-01T12:00:00.000000000Z"
 	ts, _ := time.Parse(time.RFC3339Nano, timeStr)
 	int96 := TimeToINT96(ts)
-	res = convertINT96Value(int96)
+	res, _ = convertINT96Value(int96)
 	require.Equal(t, timeStr, res)
 
 	// error path: string shorter than 12 bytes causes INT96ToTime to fail
 	short := "tooshort"
-	res = convertINT96Value(short)
+	res, _ = convertINT96Value(short)
 	require.Equal(t, short, res)
 
 	// default
-	res = convertINT96Value(123)
+	res, _ = convertINT96Value(123)
 	require.Equal(t, 123, res)
 }
 
@@ -1506,7 +1518,7 @@ func TestConvertToJSONType_ConvertedTypes_Comprehensive(t *testing.T) {
 			name:     "int96_timestamp",
 			value:    string(make([]byte, 12)), // Proper 12-byte INT96 data
 			pT:       parquet.TypePtr(parquet.Type_INT96),
-			expected: convertINT96Value(string(make([]byte, 12))),
+			expected: renderedINT96(string(make([]byte, 12))),
 		},
 		// Binary types without converted type
 		{
@@ -1732,7 +1744,7 @@ func TestConvertToJSONType_ConvertedTypes_Comprehensive(t *testing.T) {
 			value:    "interval_data",
 			pT:       parquet.TypePtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
 			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_INTERVAL),
-			expected: convertIntervalValue("interval_data"),
+			expected: renderedInterval("interval_data"),
 		},
 		// BSON conversion
 		{
