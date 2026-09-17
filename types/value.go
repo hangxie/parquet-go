@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 
@@ -13,9 +14,13 @@ func errNoPhysicalType(s string) error {
 }
 
 // ErrUnrenderable reports bytes a column cannot produce its rendering from: BSON that does
-// not parse, bytes that are not WKB, a UUID or FLOAT16 or INTERVAL or INT96 of the wrong
-// width. Every such error wraps it, so a caller can tell a column holding bad data from a
-// call made with a bad mode or schema element.
+// not parse, bytes the geospatial parser cannot read as WKB, a UUID or FLOAT16 or INTERVAL
+// or INT96 of the wrong width, and in raw mode a FIXED_LEN_BYTE_ARRAY of any annotation
+// that is not the schema element's type_length. Every such error wraps it, so a caller can
+// tell a column holding bad data from a call made with a bad mode or schema element.
+//
+// The WKB reading is 2D, so an ISO geometry carrying Z or M coordinates is bytes this
+// parser does not understand rather than bytes that are not WKB.
 var ErrUnrenderable = errors.New("value cannot be rendered")
 
 // errUnrenderable wraps ErrUnrenderable with what the column could not render. Every
@@ -65,4 +70,35 @@ func isTextAnnotated(cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {
 		return true
 	}
 	return false
+}
+
+// rawRenderValue renders the physical value a column stores, which is what raw mode carries
+// out of the file: base64 for a byte-backed column, the value itself otherwise.
+// rawStrToParquetType reads back exactly what this writes. The caller has already
+// returned for a nil value.
+func rawRenderValue(val any, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int) (any, error) {
+	if pT == nil {
+		return val, errNoPhysicalType(fmt.Sprintf("%v", val))
+	}
+	if isTextAnnotated(cT, lT) {
+		return val, nil
+	}
+	switch *pT {
+	case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY, parquet.Type_INT96:
+		b, ok := valueBytes(val)
+		if !ok {
+			return val, errUnrenderable(pT.String(), "value is %T, not bytes", val)
+		}
+		// A column whose width the format or the schema fixes is checked against it, as
+		// the interpreted path checks UUID, FLOAT16 and INTERVAL.
+		switch {
+		case *pT == parquet.Type_INT96 && len(b) != int96ByteLength:
+			return val, errUnrenderable("INT96", "is %d bytes, must be %d", len(b), int96ByteLength)
+		case *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY && length > 0 && len(b) != length:
+			return val, errUnrenderable(pT.String(), "is %d bytes, must be %d", len(b), length)
+		}
+		return base64.StdEncoding.EncodeToString(b), nil
+	default:
+		return val, nil
+	}
 }

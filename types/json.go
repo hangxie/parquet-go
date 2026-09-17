@@ -26,15 +26,23 @@ func ConvertValue(val any, se *parquet.SchemaElement, opts ...ValueOption) (any,
 //
 // Deprecated: use ConvertValue. This keeps the substitutions ConvertValue reports, so a
 // value the column cannot render comes back as base64, a wkb_hex map, or the raw bytes,
-// indistinguishable from one that rendered.
+// indistinguishable from one that rendered. It renders the interpreted form whatever mode
+// it is given, which is what it has always done; ConvertValue is where the mode is read.
 func ConvertToJSONType(val any, se *parquet.SchemaElement, opts ...ValueOption) any {
-	rendered, _ := convertValue(val, se, resolveValueConfig(opts))
+	cfg := resolveValueConfig(opts)
+	cfg.Mode = ValueModeInterpreted
+	rendered, _ := convertValue(val, se, cfg)
 	return rendered
 }
 
 // convertValue renders one value, returning both the substitution and the reason so each
 // entry point can keep the half it wants.
 func convertValue(val any, se *parquet.SchemaElement, cfg ValueConfig) (any, error) {
+	// The mode is checked first: it describes the call, not the value, so a bad one is
+	// wrong even where there is nothing to render.
+	if !cfg.Mode.IsValid() {
+		return val, fmt.Errorf("%w %d", ErrUnsupportedValueMode, int(cfg.Mode))
+	}
 	if val == nil {
 		return nil, nil
 	}
@@ -43,6 +51,14 @@ func convertValue(val any, se *parquet.SchemaElement, cfg ValueConfig) (any, err
 	}
 
 	pT, cT, lT := se.Type, se.ConvertedType, se.LogicalType
+	if cfg.Mode == ValueModeRaw {
+		rendered, err := rawRenderValue(val, pT, cT, lT, int(se.GetTypeLength()))
+		// A raw FLOAT or DOUBLE is the Go float itself, and NaN and the infinities have
+		// no JSON number form, so they are quoted here as the interpreted path quotes
+		// them. scalarStrToParquetType reads all three back.
+		return nonFiniteFloatToJSONString(rendered), err
+	}
+
 	// Handle INT96 timestamp conversion (before checking logical/converted types)
 	if pT != nil && *pT == parquet.Type_INT96 {
 		return convertINT96Value(val)
