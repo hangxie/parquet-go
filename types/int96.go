@@ -93,13 +93,22 @@ func parseWideYearRFC3339(s string) (time.Time, error) {
 }
 
 // convertINT96Value handles INT96 to datetime string conversion.
-func convertINT96Value(val any) any {
-	if v, ok := val.(string); ok {
-		t, err := INT96ToTime(v)
-		if err != nil {
-			return val
-		}
-		return t.Format("2006-01-02T15:04:05.000000000Z")
+func convertINT96Value(val any) (any, error) {
+	if val == nil {
+		return nil, nil
 	}
-	return val
+	b, ok := valueBytes(val)
+	if !ok {
+		return val, errUnrenderable("INT96", "value is %T, not bytes", val)
+	}
+	// INT96ToTime only rejects what is too short, so anything longer was rendering from
+	// its first twelve bytes.
+	if len(b) != int96ByteLength {
+		return val, errUnrenderable("INT96", "is %d bytes, must be %d", len(b), int96ByteLength)
+	}
+	// That check is strictly stronger than INT96ToTime's, so its error cannot fire;
+	// TestINT96ToTimeAcceptsEveryTwelveByteValue pins it, since dropping a live error
+	// here would read as a silent -4713-11-24 rather than as a report.
+	t, _ := INT96ToTime(string(b))
+	return t.Format("2006-01-02T15:04:05.000000000Z"), nil
 }

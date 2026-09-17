@@ -26,6 +26,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 - [Configuration](#configuration)
 - [Schema Definition](#schema-definition)
 - [Type System](#type-system)
+  - [Reading Values](#reading-values)
   - [Value Modes](#value-modes)
   - [TIMESTAMP Values](#timestamp-values)
 - [Encoding Support](#encoding-support)
@@ -306,6 +307,20 @@ Every value written to such a column must be exactly that wide, annotated (`DECI
 Writers that take string input read an unannotated `FIXED_LEN_BYTE_ARRAY` value as base64 and check the decoded width against the column, rejecting anything that is not base64 or does not decode to the declared width, naming the string that was supplied. `CSVWriter` converts each row as it is handed over, so that error returns from `WriteString`; `JSONWriter` converts while the row group is flushed, so its error arrives from `Write`, `Flush`, or `WriteStop` like the width check above. Up to v3.8.3 the reading was guessed per value, base64 first and the literal string as a fallback, so `0123456789abcdef` for an `FLBA(16)` column was stored as the 12 bytes it decodes to while `abc bcd` for an `FLBA(7)` column was stored as its own seven characters. See [Value Modes](#value-modes) for the rule that replaced the guess.
 
 Type aliases are supported, for example `type MyString string`, when the base type follows the table. Conversion utilities are available in [types/converter.go](types/converter.go).
+
+### Reading Values
+
+`types.ConvertValue` renders a column value for output, taking the schema element and the same options the write path does:
+
+```go
+rendered, err := types.ConvertValue(v, schemaElement)
+```
+
+These are reported rather than replaced, each wrapping `types.ErrUnrenderable` so a caller can tell a column holding bad data from a call made with a bad mode or schema element: BSON that does not parse or is empty, bytes the requested geospatial rendering cannot be produced from, and a `UUID`, `FLOAT16`, `INTERVAL` or `INT96` whose width is not the one the format fixes. A number-backed column given a value of the wrong Go type still passes it through, since only a corrupt reader produces one.
+
+On error the returned value is the substitute `ConvertToJSONType` produces rather than nil, so a caller that wants to carry on with the old rendering can. A `GEOMETRY` or `GEOGRAPHY` column fails on bytes the requested rendering cannot be produced from, which only the modes that read the bytes can hit: `GeospatialModeHex` and `GeospatialModeBase64` render any bytes. A value that is not bytes at all is reported in every mode.
+
+`types.ConvertToJSONType` is deprecated in favour of it. That function returns a value for anything, substituting where it cannot render — base64 for unparsable BSON, a `wkb_hex` map for unparsable WKB, the raw bytes for a mis-sized `UUID` — and a caller cannot tell those from a value that really rendered. The substitutions are unchanged, with one exception: an `INT96` is now checked for the exact twelve bytes the format fixes, so a longer value comes back as itself rather than as the timestamp its first twelve bytes spell, and one passed as `[]byte` renders rather than passing through. No reader emits either shape.
 
 ### Value Modes
 

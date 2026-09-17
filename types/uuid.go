@@ -8,23 +8,23 @@ import (
 
 // ConvertUUIDValue handles UUID conversion from binary data to standard UUID string format.
 func ConvertUUIDValue(val any) any {
+	rendered, _ := convertUUIDValue(val)
+	return rendered
+}
+
+// convertUUIDValue renders a UUID, reporting bytes that are not one.
+func convertUUIDValue(val any) (any, error) {
 	if val == nil {
-		return nil
+		return nil, nil
 	}
 
-	var bytes []byte
-	switch v := val.(type) {
-	case []byte:
-		bytes = v
-	case string:
-		bytes = []byte(v)
-	default:
-		return val
+	bytes, ok := valueBytes(val)
+	if !ok {
+		return val, errUnrenderable("UUID", "value is %T, not bytes", val)
 	}
-
 	if len(bytes) != common.UUIDByteLen {
-		return val
+		return val, errUnrenderable("UUID", "is %d bytes, must be %d", len(bytes), common.UUIDByteLen)
 	}
 
-	return uuid.UUID(bytes).String()
+	return uuid.UUID(bytes).String(), nil
 }

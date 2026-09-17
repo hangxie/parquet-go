@@ -9,17 +9,19 @@ import (
 
 // ConvertGeographyLogicalValue converts WKB bytes to a JSON-friendly wrapper with hex, CRS and algorithm.
 func ConvertGeographyLogicalValue(val any, geo *parquet.GeographyType, cfg *GeospatialConfig) any {
+	rendered, _ := convertGeographyValue(val, geo, cfg)
+	return rendered
+}
+
+// convertGeographyValue renders a GEOGRAPHY, reporting bytes the requested rendering cannot
+// be produced from. GeoJSON is the default here, so that is the usual path.
+func convertGeographyValue(val any, geo *parquet.GeographyType, cfg *GeospatialConfig) (any, error) {
 	if val == nil {
-		return nil
+		return nil, nil
 	}
-	var b []byte
-	switch v := val.(type) {
-	case []byte:
-		b = v
-	case string:
-		b = []byte(v)
-	default:
-		return val
+	b, ok := valueBytes(val)
+	if !ok {
+		return val, errUnrenderable("GEOGRAPHY", "value is %T, not bytes", val)
 	}
 	crs := "OGC:CRS84"
 	if geo != nil && geo.CRS != nil && *geo.CRS != "" {
@@ -29,35 +31,43 @@ func ConvertGeographyLogicalValue(val any, geo *parquet.GeographyType, cfg *Geos
 	if geo != nil && geo.Algorithm != nil {
 		algo = geo.Algorithm.String()
 	}
+	// Built only where it is returned: hex-encoding every value would cost twice the
+	// WKB in bytes on the GeoJSON and base64 paths, which never use it.
+	hexForm := func() map[string]any {
+		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
+	}
+
+	reproject := func(gj map[string]any) map[string]any {
+		if crs != "OGC:CRS84" && cfg.Reprojector != nil {
+			if rj, ok := cfg.Reprojector(crs, gj); ok {
+				return rj
+			}
+		}
+		return gj
+	}
+
 	switch cfg.GeographyJSONMode {
 	case GeospatialModeGeoJSON:
-		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
-			if crs != "OGC:CRS84" && cfg.Reprojector != nil {
-				if rj, ok2 := cfg.Reprojector(crs, gj); ok2 {
-					gj = rj
-				}
-			}
-			if cfg.GeoJSONAsFeature {
-				return makeGeoJSONFeature(gj, map[string]any{"crs": crs, "algorithm": algo})
-			}
-			return gj
+		gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision)
+		if !ok {
+			return hexForm(), errNotWKB("GEOGRAPHY")
 		}
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
+		gj = reproject(gj)
+		if cfg.GeoJSONAsFeature {
+			return makeGeoJSONFeature(gj, map[string]any{"crs": crs, "algorithm": algo}), nil
+		}
+		return gj, nil
 	case GeospatialModeBase64:
-		return map[string]any{"wkb_b64": base64.StdEncoding.EncodeToString(b), "crs": crs, "algorithm": algo}
+		return map[string]any{"wkb_b64": base64.StdEncoding.EncodeToString(b), "crs": crs, "algorithm": algo}, nil
 	case GeospatialModeHybrid:
-		if gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision); ok {
-			if crs != "OGC:CRS84" && cfg.Reprojector != nil {
-				if rj, ok2 := cfg.Reprojector(crs, gj); ok2 {
-					gj = rj
-				}
-			}
-			m := wrapGeoJSONHybrid(gj, b, cfg.HybridUseBase64, true)
-			m["crs"], m["algorithm"] = crs, algo
-			return m
+		gj, ok := wkbToGeoJSON(b, cfg.CoordPrecision)
+		if !ok {
+			return hexForm(), errNotWKB("GEOGRAPHY")
 		}
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
-	default:
-		return map[string]any{"wkb_hex": hex.EncodeToString(b), "crs": crs, "algorithm": algo}
+		m := wrapGeoJSONHybrid(reproject(gj), b, cfg.HybridUseBase64, true)
+		m["crs"], m["algorithm"] = crs, algo
+		return m, nil
+	default: // hex
+		return hexForm(), nil
 	}
 }

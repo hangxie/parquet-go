@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+
+	"github.com/hangxie/parquet-go/v3/common"
 )
 
 // ParseFloat16String parses a float string and returns 2-byte IEEE 754 half-precision binary
@@ -69,22 +71,22 @@ func Float32ToFloat16(f32 float32) string {
 
 // ConvertFloat16LogicalValue converts FIXED[2] IEEE 754 half-precision to float32.
 func ConvertFloat16LogicalValue(val any) any {
+	rendered, _ := convertFloat16Value(val)
+	return rendered
+}
+
+// convertFloat16Value renders a FLOAT16, reporting bytes that are not one.
+func convertFloat16Value(val any) (any, error) {
 	if val == nil {
-		return nil
+		return nil, nil
 	}
 
-	var b []byte
-	switch v := val.(type) {
-	case []byte:
-		b = v
-	case string:
-		b = []byte(v)
-	default:
-		return val
+	b, ok := valueBytes(val)
+	if !ok {
+		return val, errUnrenderable("FLOAT16", "value is %T, not bytes", val)
 	}
-
-	if len(b) != 2 {
-		return val
+	if len(b) != common.Float16ByteLen {
+		return val, errUnrenderable("FLOAT16", "is %d bytes, must be %d", len(b), common.Float16ByteLen)
 	}
 
 	u := binary.LittleEndian.Uint16(b)
@@ -123,5 +125,5 @@ func ConvertFloat16LogicalValue(val any) any {
 		}
 	}
 
-	return f
+	return f, nil
 }
