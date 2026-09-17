@@ -184,21 +184,47 @@ func narrowIntegerType(cT *parquet.ConvertedType, lT *parquet.LogicalType) *parq
 	case cT != nil:
 		it = convertedIntegerType(*cT)
 	}
-	// Only 8 and 16 are narrower than the INT32 they sit on; 32- and 64-bit unsigned
-	// carry their upper half as a negative value. Undefined widths, such as the 0 and 12
-	// a hand-built schema can hold, go to the physical scan as they do interpreted.
-	if it == nil || (it.GetBitWidth() != 8 && it.GetBitWidth() != 16) {
+	if !isNarrowInteger(it) {
 		return nil
 	}
 	return it
 }
 
-// checkNarrowInteger reports a value outside the range its annotation declares. 256 is
-// not a UINT_8 in either mode, since every value one holds fits the physical INT32.
-func checkNarrowInteger(val any, it *parquet.IntType) error {
+// isNarrowInteger reports whether the annotation pins the column to a range narrower than
+// the physical type it sits on. Only 8 and 16 are narrower than the INT32 they sit on;
+// 32- and 64-bit unsigned carry their upper half as a negative value. Undefined widths,
+// such as the 0 and 12 a hand-built schema can hold, are not checked against anything.
+func isNarrowInteger(it *parquet.IntType) bool {
+	return it != nil && (it.GetBitWidth() == 8 || it.GetBitWidth() == 16)
+}
+
+// errNarrowInteger reports a value outside the range a narrower annotation declares, in
+// either mode. The rendering it accompanies is the cast the column has always produced:
+// uint8(256) is 0, which is the substitution the deprecated path keeps.
+func errNarrowInteger(val any, it *parquet.IntType) error {
+	if !isNarrowInteger(it) {
+		return nil
+	}
+	if reason := narrowIntegerReason(val, it); reason != "" {
+		return errUnrenderable(integerLabel(it), "%s", reason)
+	}
+	return nil
+}
+
+// convertIntegerLogicalValue renders an annotated integer, reporting one the annotation
+// cannot hold.
+func convertIntegerLogicalValue(val any, pT *parquet.Type, it *parquet.IntType) (any, error) {
+	return ConvertIntegerLogicalValue(val, pT, it), errNarrowInteger(val, it)
+}
+
+// narrowIntegerReason reports why val does not fit the range its annotation declares, or
+// "" when it does. 256 is not a UINT_8 in either mode or either direction, since every
+// value one holds fits the physical INT32. The two paths name the annotation themselves:
+// a scan reports what it would not store, a rendering what the column could not produce.
+func narrowIntegerReason(val any, it *parquet.IntType) string {
 	v, ok := val.(int32)
 	if !ok {
-		return nil
+		return ""
 	}
 	width := int(it.GetBitWidth())
 	var minValue, maxValue int64
@@ -209,7 +235,15 @@ func checkNarrowInteger(val any, it *parquet.IntType) error {
 		maxValue = int64(1)<<width - 1
 	}
 	if int64(v) < minValue || int64(v) > maxValue {
-		return fmt.Errorf("%s value %d is out of range", integerLabel(it), v)
+		return fmt.Sprintf("value %d is out of range", v)
+	}
+	return ""
+}
+
+// checkNarrowInteger reports a value the scan would not store in the annotated column.
+func checkNarrowInteger(val any, it *parquet.IntType) error {
+	if reason := narrowIntegerReason(val, it); reason != "" {
+		return fmt.Errorf("%s %s", integerLabel(it), reason)
 	}
 	return nil
 }
