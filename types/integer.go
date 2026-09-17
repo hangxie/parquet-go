@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -135,4 +136,88 @@ func strToIntegerLogical(s string, it *parquet.IntType, pT *parquet.Type) (any, 
 		return int32(uint32(v)), true, nil
 	}
 	return int64(v), true, nil
+}
+
+// Shared, read-only: the write path resolves one per value and must not allocate.
+var (
+	intType8   = parquet.IntType{BitWidth: 8, IsSigned: true}
+	intType16  = parquet.IntType{BitWidth: 16, IsSigned: true}
+	intType32  = parquet.IntType{BitWidth: 32, IsSigned: true}
+	intType64  = parquet.IntType{BitWidth: 64, IsSigned: true}
+	uintType8  = parquet.IntType{BitWidth: 8}
+	uintType16 = parquet.IntType{BitWidth: 16}
+	uintType32 = parquet.IntType{BitWidth: 32}
+	uintType64 = parquet.IntType{BitWidth: 64}
+)
+
+// convertedIntegerType maps a legacy integer annotation to the INTEGER type it stands
+// for, so both spellings reach one strict reader. nil for any other converted type.
+func convertedIntegerType(cT parquet.ConvertedType) *parquet.IntType {
+	switch cT {
+	case parquet.ConvertedType_INT_8:
+		return &intType8
+	case parquet.ConvertedType_INT_16:
+		return &intType16
+	case parquet.ConvertedType_INT_32:
+		return &intType32
+	case parquet.ConvertedType_INT_64:
+		return &intType64
+	case parquet.ConvertedType_UINT_8:
+		return &uintType8
+	case parquet.ConvertedType_UINT_16:
+		return &uintType16
+	case parquet.ConvertedType_UINT_32:
+		return &uintType32
+	case parquet.ConvertedType_UINT_64:
+		return &uintType64
+	}
+	return nil
+}
+
+// narrowIntegerType returns the annotation when it pins the column to a range narrower
+// than its physical type, which raw mode can check too. nil otherwise.
+func narrowIntegerType(cT *parquet.ConvertedType, lT *parquet.LogicalType) *parquet.IntType {
+	var it *parquet.IntType
+	switch {
+	case lT != nil && lT.IsSetINTEGER():
+		it = lT.GetINTEGER()
+	case cT != nil:
+		it = convertedIntegerType(*cT)
+	}
+	// Only 8 and 16 are narrower than the INT32 they sit on; 32- and 64-bit unsigned
+	// carry their upper half as a negative value. Undefined widths, such as the 0 and 12
+	// a hand-built schema can hold, go to the physical scan as they do interpreted.
+	if it == nil || (it.GetBitWidth() != 8 && it.GetBitWidth() != 16) {
+		return nil
+	}
+	return it
+}
+
+// checkNarrowInteger reports a value outside the range its annotation declares. 256 is
+// not a UINT_8 in either mode, since every value one holds fits the physical INT32.
+func checkNarrowInteger(val any, it *parquet.IntType) error {
+	v, ok := val.(int32)
+	if !ok {
+		return nil
+	}
+	width := int(it.GetBitWidth())
+	var minValue, maxValue int64
+	if it.GetIsSigned() {
+		maxValue = int64(1)<<(width-1) - 1
+		minValue = -maxValue - 1
+	} else {
+		maxValue = int64(1)<<width - 1
+	}
+	if int64(v) < minValue || int64(v) > maxValue {
+		return fmt.Errorf("%s value %d is out of range", integerLabel(it), v)
+	}
+	return nil
+}
+
+// isAnnotatedInteger reports whether either annotation fixes the width and signedness.
+func isAnnotatedInteger(cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {
+	if lT != nil && lT.IsSetINTEGER() {
+		return true
+	}
+	return cT != nil && convertedIntegerType(*cT) != nil
 }
