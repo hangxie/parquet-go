@@ -20,7 +20,9 @@ func DECIMAL_INT_ToString(dec int64, precision, scale int) string {
 		ans = ans[1:]
 	}
 	if scale > 0 {
-		if scale > len(ans) {
+		// One digit past the scale, so the radix point never lands at position zero:
+		// ".92" is not a number json.Marshal accepts, "0.92" is.
+		if scale >= len(ans) {
 			ans = strings.Repeat("0", scale-len(ans)+1) + ans
 		}
 		radixLoc := len(ans) - scale
