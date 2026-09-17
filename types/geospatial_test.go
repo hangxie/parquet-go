@@ -1609,7 +1609,7 @@ func TestBoundingBoxCalculator_AddWKB(t *testing.T) {
 		binary.LittleEndian.PutUint64(coordBuf, math.Float64bits(10.0))
 		buf = append(buf, coordBuf...)
 
-		// Second point: big-endian (this will cause type reading to fail due to endianness mismatch)
+		// Second point: big-endian, which the member's own byte order byte declares
 		buf = append(buf, 0) // big-endian
 		binary.BigEndian.PutUint32(tmp, WKBPoint)
 		buf = append(buf, tmp...)
@@ -1621,10 +1621,11 @@ func TestBoundingBoxCalculator_AddWKB(t *testing.T) {
 		err := calc.AddWKB(buf)
 
 		require.NoError(t, err)
-		// A MultiPoint with mixed endianness is considered invalid.
-		// With atomic processing, the whole geometry is considered invalid and no bounds should be calculated.
-		_, _, _, _, ok := calc.GetBounds()
-		require.False(t, ok) // Should not have bounds
+		// Each member of a Multi* carries its own byte order byte, so mixing the two is
+		// legal WKB and both points are read.
+		minX, minY, maxX, maxY, ok := calc.GetBounds()
+		require.True(t, ok)
+		require.Equal(t, []float64{5, 10, 15, 20}, []float64{minX, minY, maxX, maxY})
 	})
 
 	// Additional error path tests for better coverage
