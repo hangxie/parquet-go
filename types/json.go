@@ -1,7 +1,6 @@
 package types
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -15,9 +14,14 @@ import (
 // information, taking the same options as the write path.
 //
 // A value the column cannot render is reported rather than replaced, the error wrapping
-// ErrUnrenderable, and the value returned with it is still a rendering, so a caller can
-// carry on with what ConvertToJSONType would have produced. A nil value renders as nil; a
-// nil schema element is an error. The README lists what each mode reports.
+// ErrUnrenderable, ErrInvalidSchemaElement or ErrUnsupportedValueMode, and the value
+// returned with it is still a rendering, so a caller can carry on with what
+// ConvertToJSONType would have produced. A nil value renders as nil.
+//
+// Raw mode reports one case interpreted mode does not, since it promises the value writes
+// back as it was read: a FIXED_LEN_BYTE_ARRAY whose width is not the schema element's
+// type_length, which a column annotated as text is the exception to, being carried verbatim
+// and measured in neither mode. The Reading Values section of the README has the rest.
 func ConvertValue(val any, se *parquet.SchemaElement, opts ...ValueOption) (any, error) {
 	return convertValue(val, se, resolveValueConfig(opts))
 }
@@ -25,9 +29,8 @@ func ConvertValue(val any, se *parquet.SchemaElement, opts ...ValueOption) (any,
 // ConvertToJSONType converts a parquet value to its JSON-friendly representation.
 //
 // Deprecated: use ConvertValue. This keeps the substitutions ConvertValue reports, so a
-// value the column cannot render comes back as base64, a wkb_hex map, or the raw bytes,
-// indistinguishable from one that rendered. It renders the interpreted form whatever mode
-// it is given, which is what it has always done; ConvertValue is where the mode is read.
+// value the column cannot render is indistinguishable from one that did. It renders the
+// interpreted form whatever mode it is given; ConvertValue is where the mode is read.
 func ConvertToJSONType(val any, se *parquet.SchemaElement, opts ...ValueOption) any {
 	cfg := resolveValueConfig(opts)
 	cfg.Mode = ValueModeInterpreted
@@ -47,12 +50,16 @@ func convertValue(val any, se *parquet.SchemaElement, cfg ValueConfig) (any, err
 		return nil, nil
 	}
 	if se == nil {
-		return val, errors.New("cannot render a value without a schema element")
+		return val, errNoSchemaElement()
 	}
 
 	pT, cT, lT := se.Type, se.ConvertedType, se.LogicalType
 	if cfg.Mode == ValueModeRaw {
-		rendered, err := rawRenderValue(val, pT, cT, lT, int(se.GetTypeLength()))
+		if pT == nil {
+			// Raw rendering is a reading of the physical type and nothing else.
+			return val, errNoPhysicalType(fmt.Sprintf("%v", val))
+		}
+		rendered, err := rawRenderValue(val, *pT, cT, lT, int(se.GetTypeLength()))
 		// A raw FLOAT or DOUBLE is the Go float itself, and NaN and the infinities have
 		// no JSON number form, so they are quoted here as the interpreted path quotes
 		// them. scalarStrToParquetType reads all three back.
@@ -116,6 +123,11 @@ func nonFiniteFloatToJSONString(val any) any {
 // parquetTypeToJSONTypeWithLogical converts a value using its LogicalType.
 func parquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, lT *parquet.LogicalType, geoCfg *GeospatialConfig) (any, error) {
 	if lT.IsSetDECIMAL() {
+		if pT == nil {
+			// The only interpreted converter that reads the physical type, and it takes
+			// it by pointer: without one this panicked rather than reporting anything.
+			return val, errNoPhysicalType(fmt.Sprintf("%v", val))
+		}
 		decimal := lT.GetDECIMAL()
 		return ConvertDecimalValue(val, pT, int(decimal.GetPrecision()), int(decimal.GetScale())), nil
 	}
@@ -135,7 +147,7 @@ func parquetTypeToJSONTypeWithLogical(val any, pT *parquet.Type, lT *parquet.Log
 		return val, nil
 	}
 	if lT.IsSetINTEGER() {
-		return ConvertIntegerLogicalValue(val, pT, lT.GetINTEGER()), nil
+		return convertIntegerLogicalValue(val, pT, lT.GetINTEGER())
 	}
 	if lT.IsSetUUID() {
 		return convertUUIDValue(val)
@@ -169,6 +181,9 @@ func parquetTypeToJSONTypeWithConverted(val any, pT *parquet.Type, cT *parquet.C
 
 	switch *cT {
 	case parquet.ConvertedType_DECIMAL:
+		if pT == nil {
+			return val, errNoPhysicalType(fmt.Sprintf("%v", val))
+		}
 		return ConvertDecimalValue(val, pT, precision, scale), nil
 	case parquet.ConvertedType_UTF8, parquet.ConvertedType_DATE,
 		parquet.ConvertedType_INT_32, parquet.ConvertedType_INT_64:
@@ -189,22 +204,22 @@ func parquetTypeToJSONTypeWithConverted(val any, pT *parquet.Type, cT *parquet.C
 		return ConvertTimestampValue(val, parquet.ConvertedType_TIMESTAMP_MICROS), nil
 	case parquet.ConvertedType_INT_8:
 		if v, ok := val.(int32); ok {
-			return int8(v), nil
+			return int8(v), errNarrowInteger(v, &intType8)
 		}
 		return val, nil
 	case parquet.ConvertedType_INT_16:
 		if v, ok := val.(int32); ok {
-			return int16(v), nil
+			return int16(v), errNarrowInteger(v, &intType16)
 		}
 		return val, nil
 	case parquet.ConvertedType_UINT_8:
 		if v, ok := val.(int32); ok {
-			return uint8(v), nil
+			return uint8(v), errNarrowInteger(v, &uintType8)
 		}
 		return val, nil
 	case parquet.ConvertedType_UINT_16:
 		if v, ok := val.(int32); ok {
-			return uint16(v), nil
+			return uint16(v), errNarrowInteger(v, &uintType16)
 		}
 		return val, nil
 	case parquet.ConvertedType_UINT_32:

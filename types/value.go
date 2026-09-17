@@ -8,19 +8,24 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
-// errNoPhysicalType reports a schema element with no physical type to scan into.
-func errNoPhysicalType(s string) error {
-	return fmt.Errorf("cannot scan %q without a physical type", s)
+// ErrInvalidSchemaElement reports a schema element that says nothing about how to render or
+// scan a value: a nil element, or one with no physical type where the rendering needs one.
+var ErrInvalidSchemaElement = errors.New("invalid schema element")
+
+// errNoSchemaElement reports a value handed over with no schema element to render against.
+func errNoSchemaElement() error {
+	return fmt.Errorf("%w: cannot render a value without a schema element", ErrInvalidSchemaElement)
 }
 
-// ErrUnrenderable reports bytes a column cannot produce its rendering from: BSON that does
-// not parse, bytes the geospatial parser cannot read as WKB, a UUID or FLOAT16 or INTERVAL
-// or INT96 of the wrong width, and in raw mode a FIXED_LEN_BYTE_ARRAY of any annotation
-// that is not the schema element's type_length. Every such error wraps it, so a caller can
-// tell a column holding bad data from a call made with a bad mode or schema element.
-//
-// The WKB reading is 2D, so an ISO geometry carrying Z or M coordinates is bytes this
-// parser does not understand rather than bytes that are not WKB.
+// errNoPhysicalType reports a schema element with no physical type to convert through.
+func errNoPhysicalType(s string) error {
+	return fmt.Errorf("%w: cannot convert %q without a physical type", ErrInvalidSchemaElement, s)
+}
+
+// ErrUnrenderable reports a value a column cannot produce its rendering from: unparsable
+// BSON, bytes the geospatial parser cannot read, a fixed-width value of the wrong width, an
+// integer outside its annotation's range. It is distinct from a bad mode
+// (ErrUnsupportedValueMode) and a bad schema element (ErrInvalidSchemaElement).
 var ErrUnrenderable = errors.New("value cannot be rendered")
 
 // errUnrenderable wraps ErrUnrenderable with what the column could not render. Every
@@ -76,29 +81,42 @@ func isTextAnnotated(cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {
 // out of the file: base64 for a byte-backed column, the value itself otherwise.
 // rawStrToParquetType reads back exactly what this writes. The caller has already
 // returned for a nil value.
-func rawRenderValue(val any, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int) (any, error) {
-	if pT == nil {
-		return val, errNoPhysicalType(fmt.Sprintf("%v", val))
-	}
+func rawRenderValue(val any, pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int) (any, error) {
 	if isTextAnnotated(cT, lT) {
+		// The bytes a text column holds are its text. Handing them back as []byte would
+		// render as base64 through a JSON encoder, which the raw write path would then
+		// store verbatim, so the value would not survive the round trip this mode promises.
+		if b, ok := val.([]byte); ok {
+			return string(b), nil
+		}
 		return val, nil
 	}
-	switch *pT {
+	switch pT {
 	case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY, parquet.Type_INT96:
 		b, ok := valueBytes(val)
 		if !ok {
 			return val, errUnrenderable(pT.String(), "value is %T, not bytes", val)
 		}
-		// A column whose width the format or the schema fixes is checked against it, as
-		// the interpreted path checks UUID, FLOAT16 and INTERVAL.
+		// A column whose width the format or the schema fixes is checked against it, as the
+		// interpreted path checks UUID, FLOAT16 and INTERVAL. The error carries the base64
+		// all the same, so a caller that logs and carries on reads one shape.
+		encoded := base64.StdEncoding.EncodeToString(b)
 		switch {
-		case *pT == parquet.Type_INT96 && len(b) != int96ByteLength:
-			return val, errUnrenderable("INT96", "is %d bytes, must be %d", len(b), int96ByteLength)
-		case *pT == parquet.Type_FIXED_LEN_BYTE_ARRAY && length > 0 && len(b) != length:
-			return val, errUnrenderable(pT.String(), "is %d bytes, must be %d", len(b), length)
+		case pT == parquet.Type_INT96 && len(b) != int96ByteLength:
+			return encoded, errUnrenderable("INT96", "is %d bytes, must be %d", len(b), int96ByteLength)
+		case pT == parquet.Type_FIXED_LEN_BYTE_ARRAY && length > 0 && len(b) != length:
+			return encoded, errUnrenderable(pT.String(), "is %d bytes, must be %d", len(b), length)
 		}
-		return base64.StdEncoding.EncodeToString(b), nil
+		return encoded, nil
 	default:
+		// The annotation narrows what the column can hold, and the raw scan rejects a
+		// value outside it, so rendering one out unreported would hand the caller a
+		// value it could not write back.
+		if it := narrowIntegerType(cT, lT); it != nil {
+			if reason := narrowIntegerReason(val, it); reason != "" {
+				return val, errUnrenderable(integerLabel(it), "%s", reason)
+			}
+		}
 		return val, nil
 	}
 }

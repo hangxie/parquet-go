@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
 func TestCappedCap(t *testing.T) {
@@ -1641,8 +1643,8 @@ func TestReadWKBHeader(t *testing.T) {
 	}
 }
 
-// TestWkbZAndMSurviveByteModes covers the modes that do not read coordinates. Hex and
-// base64 carry a geometry's bytes whatever its dimension, so a Z, M or ZM value round
+// TestWkbZAndMSurviveByteModes covers the modes that do not read coordinates. Hex, base64
+// and raw carry a geometry's bytes whatever its dimension, so a Z, M or ZM value round
 // trips through them untouched; only the readings that place coordinates decline it.
 func TestWkbZAndMSurviveByteModes(t *testing.T) {
 	values := map[string][]byte{
@@ -1656,8 +1658,20 @@ func TestWkbZAndMSurviveByteModes(t *testing.T) {
 		return map[string]any{"wkb_hex": hexEncode(wkb), "crs": "OGC:CRS84"}
 	}
 
+	se := &parquet.SchemaElement{
+		Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+		LogicalType: &parquet.LogicalType{GEOMETRY: parquet.NewGeometryType()},
+	}
+
 	for name, wkb := range values {
 		t.Run(name, func(t *testing.T) {
+			// Raw mode carries the bytes whatever the geometry's dimension, which is how
+			// such a value round trips through this library: it reads back as the base64
+			// the raw write path takes.
+			got, err := ConvertValue(string(wkb), se, WithValueMode(ValueModeRaw))
+			require.NoError(t, err)
+			require.Equal(t, base64.StdEncoding.EncodeToString(wkb), got)
+
 			hexCfg := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeHex))
 			require.Equal(t, hexSubstitute(wkb), ConvertGeometryLogicalValue(wkb, nil, hexCfg))
 
