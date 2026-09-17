@@ -23,6 +23,10 @@ const (
 	WKBMultiLineString    uint32 = 5
 	WKBMultiPolygon       uint32 = 6
 	WKBGeometryCollection uint32 = 7
+	// wkbMaxGeometryType is Triangle, the top of the standardized WKB/SQL-MM code space.
+	// Codes above 7 have no reader here: their coordinates are declined, their declared
+	// type kept.
+	wkbMaxGeometryType uint32 = 17
 )
 
 // GeospatialReprojector transforms a GeoJSON geometry from an input CRS to CRS84 (lon/lat degrees).
@@ -108,6 +112,9 @@ var defaultGeospatialConfig = DefaultGeospatialConfig()
 type BoundingBoxCalculator struct {
 	minX, minY, maxX, maxY float64
 	initialized            bool
+	// unreadable records a value whose coordinates this walk could not read: a geometry
+	// carrying Z or M ordinates, or bytes that are not WKB it understands.
+	unreadable bool
 }
 
 // NewBoundingBoxCalculator creates a new bounding box calculator
@@ -130,9 +137,24 @@ func (b *BoundingBoxCalculator) AddPoint(x, y float64) {
 	b.maxY = max(b.maxY, y)
 }
 
-// GetBounds returns the calculated bounding box coordinates
+// markUnreadable records a value whose coordinates could not be read, withdrawing the bounds.
+func (b *BoundingBoxCalculator) markUnreadable() {
+	// A box covering only the values the walk understood is smaller than the data, and a
+	// reader pushing a spatial filter down to it would skip rows that match.
+	b.unreadable = true
+}
+
+// BoundsUnknown reports whether a value was added whose coordinates could not be read.
+func (b *BoundingBoxCalculator) BoundsUnknown() bool {
+	// This is how a caller tells bounds that describe less than the values given from
+	// having been given nothing to measure; GetBounds returns false for both.
+	return b.unreadable
+}
+
+// GetBounds returns the calculated bounding box coordinates, and false where there are
+// none to report or a value in the set was one the walk could not read.
 func (b *BoundingBoxCalculator) GetBounds() (minX, minY, maxX, maxY float64, ok bool) {
-	if !b.initialized {
+	if !b.initialized || b.unreadable {
 		return 0, 0, 0, 0, false
 	}
 	return b.minX, b.minY, b.maxX, b.maxY, true
@@ -176,16 +198,19 @@ func (b *BoundingBoxCalculator) addMultiPointWKB(wkb []byte, off int, be bool) {
 	tempCalc := NewBoundingBoxCalculator()
 	n, ok := u32(wkb, off, be)
 	if !ok {
+		b.markUnreadable()
 		return
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
 		pointBE, newOff, ok := readSubGeomHeader(wkb, off, WKBPoint)
 		if !ok {
+			b.markUnreadable()
 			return
 		}
 		coords, ptOff, ok := parsePoint(wkb, pointBE, newOff, -1)
 		if !ok {
+			b.markUnreadable()
 			return
 		}
 		if len(coords) == 2 {
@@ -200,16 +225,19 @@ func (b *BoundingBoxCalculator) addMultiLineStringWKB(wkb []byte, off int, be bo
 	tempCalc := NewBoundingBoxCalculator()
 	n, ok := u32(wkb, off, be)
 	if !ok {
+		b.markUnreadable()
 		return
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
 		lineBE, newOff, ok := readSubGeomHeader(wkb, off, WKBLineString)
 		if !ok {
+			b.markUnreadable()
 			return
 		}
 		coords, lineOff, ok := parseLineString(wkb, lineBE, newOff, -1)
 		if !ok {
+			b.markUnreadable()
 			return
 		}
 		tempCalc.addPointsFromCoords(coords)
@@ -222,16 +250,19 @@ func (b *BoundingBoxCalculator) addMultiPolygonWKB(wkb []byte, off int, be bool)
 	tempCalc := NewBoundingBoxCalculator()
 	n, ok := u32(wkb, off, be)
 	if !ok {
+		b.markUnreadable()
 		return
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
 		polyBE, newOff, ok := readSubGeomHeader(wkb, off, WKBPolygon)
 		if !ok {
+			b.markUnreadable()
 			return
 		}
 		rings, polyOff, ok := parsePolygon(wkb, polyBE, newOff, -1)
 		if !ok {
+			b.markUnreadable()
 			return
 		}
 		tempCalc.addPointsFromRings(rings)
@@ -243,16 +274,19 @@ func (b *BoundingBoxCalculator) addMultiPolygonWKB(wkb []byte, off int, be bool)
 func (b *BoundingBoxCalculator) addGeometryCollectionWKB(wkb []byte, off int, be bool) {
 	n, ok := u32(wkb, off, be)
 	if !ok {
+		b.markUnreadable()
 		return
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
 		geomSize, ok := calculateWKBSize(wkb[off:])
 		if !ok {
+			b.markUnreadable()
 			return
 		}
 		geomEnd := off + geomSize
 		if geomEnd > len(wkb) {
+			b.markUnreadable()
 			return
 		}
 		_ = b.AddWKB(wkb[off:geomEnd])
@@ -263,33 +297,43 @@ func (b *BoundingBoxCalculator) addGeometryCollectionWKB(wkb []byte, off int, be
 // AddWKB recursively processes WKB data to extract all coordinate points
 func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
 	if len(wkb) < 5 {
+		b.markUnreadable()
 		return nil
 	}
 
-	be := wkb[0] == 0
-	gType, ok := u32(wkb, 1, be)
-	if !ok {
+	gType, be, ok := readWKBHeader(wkb)
+	if !ok || !wkbIs2D(gType) {
+		// Bounds read two doubles per point as the renderers do, so a Z or M geometry
+		// carries ordinates this walk cannot place, and a header the format does not
+		// define says nothing about what the bytes after it are.
+		b.markUnreadable()
 		return nil
 	}
 	off := 5
 
 	const noRound = -1
-	switch gType % 1000 {
+	switch gType {
 	case WKBPoint:
 		coords, _, ok := parsePoint(wkb, be, off, noRound)
-		if ok && len(coords) == 2 {
-			b.AddPoint(coords[0], coords[1])
+		if !ok || len(coords) != 2 {
+			b.markUnreadable()
+			return nil
 		}
+		b.AddPoint(coords[0], coords[1])
 	case WKBLineString:
 		coords, _, ok := parseLineString(wkb, be, off, noRound)
-		if ok {
-			b.addPointsFromCoords(coords)
+		if !ok {
+			b.markUnreadable()
+			return nil
 		}
+		b.addPointsFromCoords(coords)
 	case WKBPolygon:
 		coords, _, ok := parsePolygon(wkb, be, off, noRound)
-		if ok {
-			b.addPointsFromRings(coords)
+		if !ok {
+			b.markUnreadable()
+			return nil
 		}
+		b.addPointsFromRings(coords)
 	case WKBMultiPoint:
 		b.addMultiPointWKB(wkb, off, be)
 	case WKBMultiLineString:
@@ -298,6 +342,8 @@ func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
 		b.addMultiPolygonWKB(wkb, off, be)
 	case WKBGeometryCollection:
 		b.addGeometryCollectionWKB(wkb, off, be)
+	default:
+		b.markUnreadable()
 	}
 	return nil
 }

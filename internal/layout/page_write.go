@@ -119,9 +119,11 @@ func setPageStats(page *Page, scan pageValueResult, omitStats bool, cT *parquet.
 	page.NullCount = &scan.nullCount
 
 	if isGeospatial {
-		bbox, geoTypes := computePageGeospatialStatistics(page.DataTable.Values, page.DataTable.DefinitionLevels, page.DataTable.MaxDefinitionLevel)
-		page.GeospatialBBox = bbox
-		page.GeospatialTypes = geoTypes
+		stats := computePageGeospatialStatistics(page.DataTable.Values, page.DataTable.DefinitionLevels, page.DataTable.MaxDefinitionLevel)
+		page.GeospatialBBox = stats.BBox
+		page.GeospatialTypes = stats.Types
+		page.GeospatialBoundsUnknown = stats.BoundsUnknown
+		page.GeospatialTypesUnknown = stats.TypesUnknown
 	}
 }
 
@@ -196,14 +198,29 @@ func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int
 	return res, totSize, nil
 }
 
-// computePageGeospatialStatistics calculates bounding box and geometry types for a page of geospatial data
-func computePageGeospatialStatistics(values []any, definitionLevels []int32, maxDefinitionLevel int32) (*parquet.BoundingBox, []int32) {
+// pageGeospatialStats is what a page can say about the geospatial values it holds.
+//
+// Either half can be unknown on its own: a Z or M geometry has a readable type and
+// coordinates this library cannot place, while bytes that are not WKB have neither.
+type pageGeospatialStats struct {
+	BBox  *parquet.BoundingBox
+	Types []int32
+	// BoundsUnknown marks a value whose coordinates could not be read, and TypesUnknown
+	// one whose geometry type could not. Bounds around the rest would be smaller than the
+	// page, and a type list from the rest would say the page holds only those types.
+	BoundsUnknown bool
+	TypesUnknown  bool
+}
+
+// computePageGeospatialStatistics measures a page of geospatial data.
+func computePageGeospatialStatistics(values []any, definitionLevels []int32, maxDefinitionLevel int32) pageGeospatialStats {
 	if len(values) == 0 {
-		return nil, nil
+		return pageGeospatialStats{}
 	}
 
 	calc := types.NewBoundingBoxCalculator()
 	geoTypesMap := make(map[int32]bool)
+	stats := pageGeospatialStats{}
 
 	for i, val := range values {
 		// Only process non-null values (those with the maximum definition level)
@@ -222,56 +239,40 @@ func computePageGeospatialStatistics(values []any, definitionLevels []int32, max
 		case string:
 			wkbBytes = []byte(v)
 		default:
-			continue // Skip non-binary values
+			// A geospatial column holding something that is not bytes holds a value
+			// with neither coordinates to measure nor a header to read.
+			stats.BoundsUnknown = true
+			stats.TypesUnknown = true
+			continue
 		}
 
-		// Add to bounding box calculation
-		if err := calc.AddWKB(wkbBytes); err != nil {
-			continue // Skip invalid WKB data
-		}
+		_ = calc.AddWKB(wkbBytes)
 
-		// Extract geometry type from WKB
-		if geoType := extractGeometryType(wkbBytes); geoType > 0 {
+		// The type comes from the WKB header, which a Z or M geometry carries as plainly
+		// as a 2D one even though its coordinates cannot be placed.
+		if geoType, ok := extractGeometryType(wkbBytes); ok {
 			geoTypesMap[geoType] = true
+		} else {
+			stats.TypesUnknown = true
+		}
+	}
+	stats.BoundsUnknown = stats.BoundsUnknown || calc.BoundsUnknown()
+
+	if !stats.TypesUnknown {
+		for gType := range geoTypesMap {
+			stats.Types = append(stats.Types, gType)
 		}
 	}
 
-	// Get bounding box
-	minX, minY, maxX, maxY, ok := calc.GetBounds()
-	if !ok {
-		return nil, nil
+	if minX, minY, maxX, maxY, ok := calc.GetBounds(); ok {
+		stats.BBox = &parquet.BoundingBox{Xmin: minX, Xmax: maxX, Ymin: minY, Ymax: maxY}
 	}
-
-	bbox := &parquet.BoundingBox{
-		Xmin: minX,
-		Xmax: maxX,
-		Ymin: minY,
-		Ymax: maxY,
-	}
-
-	// Convert geometry types map to slice
-	var geoTypes []int32
-	for gType := range geoTypesMap {
-		geoTypes = append(geoTypes, gType)
-	}
-
-	return bbox, geoTypes
+	return stats
 }
 
-// extractGeometryType extracts the geometry type from WKB data
-func extractGeometryType(wkb []byte) int32 {
-	if len(wkb) < 5 {
-		return 0
-	}
-
-	// Read byte order and geometry type
-	order := wkb[0]
-	var gType uint32
-	if order == 0 { // big-endian
-		gType = uint32(wkb[1])<<24 | uint32(wkb[2])<<16 | uint32(wkb[3])<<8 | uint32(wkb[4])
-	} else { // little-endian
-		gType = uint32(wkb[4])<<24 | uint32(wkb[3])<<16 | uint32(wkb[2])<<8 | uint32(wkb[1])
-	}
-
-	return int32(gType)
+// extractGeometryType reads the geometry type from a WKB header, reporting false for one
+// the format does not define. The readers that build the bounding box check the same
+// header, so the two halves of the statistic agree about what counts as WKB.
+func extractGeometryType(wkb []byte) (int32, bool) {
+	return types.WKBGeometryType(wkb)
 }

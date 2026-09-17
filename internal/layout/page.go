@@ -47,6 +47,14 @@ type Page struct {
 	// Geospatial statistics for GEOMETRY/GEOGRAPHY columns
 	GeospatialBBox  *parquet.BoundingBox
 	GeospatialTypes []int32
+	// GeospatialBoundsUnknown marks a page holding a value whose coordinates could not be
+	// read, which is why it has no bounding box. A page with nothing to measure has none
+	// either, and the chunk has to tell the two apart: bounds around the pages it could
+	// read would leave out a value this one holds.
+	GeospatialBoundsUnknown bool
+	// GeospatialTypesUnknown marks a page holding a value whose geometry type could not
+	// be read, so the types it does list are not all the types it holds.
+	GeospatialTypesUnknown bool
 
 	// Level histograms for ColumnIndex (computed during page creation).
 	// Each has size maxLevel+1; nil if maxLevel == 0.

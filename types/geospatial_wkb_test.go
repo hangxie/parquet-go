@@ -1,7 +1,9 @@
 package types
 
 import (
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"math"
 	"testing"
 
@@ -1414,3 +1416,300 @@ func TestWkbToGeoJSON_OversizedCountNoOOM(t *testing.T) {
 }
 
 // Test edge case where GeometryCollection buffer ends exactly at geometry boundary
+
+// wkbWithOrdinates builds an ISO WKB geometry whose header declares gType and whose points
+// carry as many ordinates as that type implies.
+func wkbWithOrdinates(gType uint32, counts []uint32, points [][]float64) []byte {
+	buf := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+	for _, c := range counts {
+		buf = binary.LittleEndian.AppendUint32(buf, c)
+	}
+	for _, p := range points {
+		for _, ordinate := range p {
+			buf = binary.LittleEndian.AppendUint64(buf, math.Float64bits(ordinate))
+		}
+	}
+	return buf
+}
+
+// TestWkbZAndMAreNotRead covers ISO geometries carrying Z, M or ZM coordinates. These
+// parsers read two doubles per point, so masking the dimension out of the type and reading
+// the body as 2D took the third ordinate of one point for the first of the next: a
+// LineString Z over (1,2,99) (3,4,98) (5,6,97) rendered as [[1,2],[99,3],[4,98]] and
+// reported success. A geometry this reader cannot read is reported instead.
+func TestWkbZAndMAreNotRead(t *testing.T) {
+	tests := []struct {
+		name  string
+		gType uint32
+		wkb   []byte
+	}{
+		{"Point Z", 1001, wkbWithOrdinates(1001, nil, [][]float64{{1, 2, 99}})},
+		{"Point M", 2001, wkbWithOrdinates(2001, nil, [][]float64{{1, 2, 99}})},
+		{"Point ZM", 3001, wkbWithOrdinates(3001, nil, [][]float64{{1, 2, 99, 98}})},
+		{
+			"LineString Z", 1002,
+			wkbWithOrdinates(1002, []uint32{3}, [][]float64{{1, 2, 99}, {3, 4, 98}, {5, 6, 97}}),
+		},
+		{
+			"Polygon Z", 1003,
+			wkbWithOrdinates(1003, []uint32{1, 4}, [][]float64{{0, 0, 9}, {1, 0, 9}, {1, 1, 9}, {0, 0, 9}}),
+		},
+	}
+
+	geoJSON := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeGeoJSON))
+	hybrid := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeHybrid))
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := wkbToGeoJSON(tt.wkb, 6)
+			require.False(t, ok)
+
+			_, ok = calculateWKBSize(tt.wkb)
+			require.False(t, ok)
+
+			// Both renderings that place coordinates fall back to the hex substitute;
+			// hybrid would otherwise pair the raw bytes with GeoJSON they do not hold.
+			for mode, cfg := range map[string]*GeospatialConfig{"geojson": geoJSON, "hybrid": hybrid} {
+				rendered := ConvertGeometryLogicalValue(tt.wkb, nil, cfg)
+				require.Contains(t, rendered, "wkb_hex", mode)
+				require.NotContains(t, rendered, "type", mode)
+			}
+
+			// Bounds are read the same way, so a geometry the readers cannot read
+			// contributes none rather than coordinates it does not hold.
+			calc := NewBoundingBoxCalculator()
+			require.NoError(t, calc.AddWKB(tt.wkb))
+			_, _, _, _, ok = calc.GetBounds()
+			require.False(t, ok)
+		})
+	}
+}
+
+// TestBoundingBoxWithdrawnForUnreadableGeometry covers a set mixing geometries the walk can
+// read with one it cannot. Bounds built from the readable ones alone would be smaller than
+// the data they describe, and a reader pushing a spatial filter down to them would skip
+// rows that match, so the whole set reports none.
+func TestBoundingBoxWithdrawnForUnreadableGeometry(t *testing.T) {
+	twoD := func(x, y float64) []byte {
+		b := binary.LittleEndian.AppendUint32([]byte{1}, 1)
+		b = binary.LittleEndian.AppendUint64(b, math.Float64bits(x))
+		return binary.LittleEndian.AppendUint64(b, math.Float64bits(y))
+	}
+	pointZ := wkbWithOrdinates(1001, nil, [][]float64{{100, 200, 9}})
+
+	// The readable values alone have bounds, and no doubt about them.
+	calc := NewBoundingBoxCalculator()
+	require.NoError(t, calc.AddWKB(twoD(1, 2)))
+	require.NoError(t, calc.AddWKB(twoD(3, 4)))
+	minX, minY, maxX, maxY, ok := calc.GetBounds()
+	require.True(t, ok)
+	require.Equal(t, []float64{1, 2, 3, 4}, []float64{minX, minY, maxX, maxY})
+	require.False(t, calc.BoundsUnknown())
+
+	// A calculator given nothing has no bounds either, which is not the same thing: the
+	// chunk skips such a page rather than withholding its own box.
+	require.False(t, NewBoundingBoxCalculator().BoundsUnknown())
+
+	// A Z geometry outside their extent withdraws them, whichever order it arrives in.
+	for _, values := range [][][]byte{
+		{twoD(1, 2), twoD(3, 4), pointZ},
+		{pointZ, twoD(1, 2), twoD(3, 4)},
+		{twoD(1, 2), []byte{1, 2}, twoD(3, 4)},
+	} {
+		mixed := NewBoundingBoxCalculator()
+		for _, v := range values {
+			require.NoError(t, mixed.AddWKB(v))
+		}
+		_, _, _, _, ok := mixed.GetBounds()
+		require.False(t, ok)
+		require.True(t, mixed.BoundsUnknown())
+	}
+}
+
+// TestBoundingBoxWithdrawnForTruncatedGeometry covers the points where a multi-geometry or
+// collection walk gives up part way. Whatever it had already measured describes less than
+// the value does, so the bounds go with it.
+func TestBoundingBoxWithdrawnForTruncatedGeometry(t *testing.T) {
+	header := func(gType uint32, counts ...uint32) []byte {
+		b := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+		for _, c := range counts {
+			b = binary.LittleEndian.AppendUint32(b, c)
+		}
+		return b
+	}
+	point := func(x, y float64) []byte {
+		b := binary.LittleEndian.AppendUint32([]byte{1}, 1)
+		b = binary.LittleEndian.AppendUint64(b, math.Float64bits(x))
+		return binary.LittleEndian.AppendUint64(b, math.Float64bits(y))
+	}
+
+	tests := []struct {
+		name string
+		wkb  []byte
+	}{
+		{"MultiPoint with no count", header(4)},
+		{"MultiPoint missing a member", append(header(4, 2), point(1, 2)...)},
+		{"MultiPoint with truncated coordinates", append(header(4, 1), 1, 1, 0, 0, 0, 0)},
+		// A member's byte order byte is held to the same two values as the outer one.
+		{"MultiPoint member with an undefined byte order", append(header(4, 1), 7, 1, 0, 0, 0)},
+		{"MultiLineString with no count", header(5)},
+		{"MultiLineString missing a member", append(header(5, 2), header(2, 1)...)},
+		{"MultiPolygon with no count", header(6)},
+		{"MultiPolygon missing a member", append(header(6, 2), header(3, 1)...)},
+		{"GeometryCollection with no count", header(7)},
+		{"GeometryCollection with unreadable member", append(header(7, 1), 1, 9, 9, 9, 9)},
+		{"GeometryCollection with a member past the end", append(header(7, 2), point(1, 2)...)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calc := NewBoundingBoxCalculator()
+			require.NoError(t, calc.AddWKB(point(5, 6)))
+			require.NoError(t, calc.AddWKB(tt.wkb))
+			_, _, _, _, ok := calc.GetBounds()
+			require.False(t, ok)
+		})
+	}
+}
+
+// wkbHeader spells a WKB header: a byte order byte followed by the geometry type.
+func wkbHeader(order byte, gType uint32, bigEndian bool) []byte {
+	if bigEndian {
+		return binary.BigEndian.AppendUint32([]byte{order}, gType)
+	}
+	return binary.LittleEndian.AppendUint32([]byte{order}, gType)
+}
+
+// TestReadWKBHeader covers the header rules every geospatial reader here shares. Bytes that
+// are not WKB read as a byte order and a type number all the same, and a code the format
+// does not define is worse in a file's geospatial_types than no list at all.
+func TestReadWKBHeader(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		wantType uint32
+		wantBE   bool
+		wantOK   bool
+		wantIs2D bool
+	}{
+		{"Point little-endian", wkbHeader(1, 1, false), 1, false, true, true},
+		{"Point big-endian", wkbHeader(0, 1, true), 1, true, true, true},
+		{"GeometryCollection", wkbHeader(1, 7, false), 7, false, true, true},
+		{"Point Z", wkbHeader(1, 1001, false), 1001, false, true, false},
+		{"Point M", wkbHeader(1, 2001, false), 2001, false, true, false},
+		{"Point ZM", wkbHeader(1, 3001, false), 3001, false, true, false},
+		{"byte order 2", wkbHeader(2, 1, false), 0, false, false, false},
+		{"byte order 255", wkbHeader(255, 1, false), 0, false, false, false},
+		{"base type 0", wkbHeader(1, 0, false), 0, false, false, false},
+		// The standardized code space runs to Triangle, and codes above 7 have no reader: the
+		// header takes them so the type list can carry them, and the coordinate readers
+		// refuse them as they refuse a Z or M geometry.
+		{"CircularString", wkbHeader(1, 8, false), 8, false, true, true},
+		{"PolyhedralSurface", wkbHeader(1, 15, false), 15, false, true, true},
+		{"TIN", wkbHeader(1, 16, false), 16, false, true, true},
+		{"Triangle", wkbHeader(1, 17, false), 17, false, true, true},
+		{"Triangle Z", wkbHeader(1, 1017, false), 1017, false, true, false},
+		{"base type 18", wkbHeader(1, 18, false), 0, false, false, false},
+		{"dimension 4000", wkbHeader(1, 4001, false), 0, false, false, false},
+		{"EWKB SRID flag", wkbHeader(1, 0x20000001, false), 0, false, false, false},
+		{"EWKB Z flag", wkbHeader(1, 0x80000001, false), 0, false, false, false},
+		{"bytes that are not WKB", []byte("not-wkb"), 0, false, false, false},
+		{"too short", []byte{1, 1, 0, 0}, 0, false, false, false},
+		{"empty", nil, 0, false, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gType, bigEndian, ok := readWKBHeader(tt.wkb)
+			require.Equal(t, tt.wantOK, ok)
+			require.Equal(t, tt.wantType, gType)
+			require.Equal(t, tt.wantBE, bigEndian)
+			if ok {
+				require.Equal(t, tt.wantIs2D, wkbIs2D(gType))
+			}
+
+			// The rendering and the bounds read the same header, so a value this
+			// rejects contributes to neither.
+			if !ok {
+				_, geoOK := wkbToGeoJSON(tt.wkb, 6)
+				require.False(t, geoOK)
+				calc := NewBoundingBoxCalculator()
+				require.NoError(t, calc.AddWKB(tt.wkb))
+				require.True(t, calc.BoundsUnknown())
+			}
+		})
+	}
+}
+
+// TestWkbZAndMSurviveByteModes covers the modes that do not read coordinates. Hex and
+// base64 carry a geometry's bytes whatever its dimension, so a Z, M or ZM value round
+// trips through them untouched; only the readings that place coordinates decline it.
+func TestWkbZAndMSurviveByteModes(t *testing.T) {
+	values := map[string][]byte{
+		"Point Z":      wkbWithOrdinates(1001, nil, [][]float64{{1, 2, 3}}),
+		"Point M":      wkbWithOrdinates(2001, nil, [][]float64{{1, 2, 3}}),
+		"Point ZM":     wkbWithOrdinates(3001, nil, [][]float64{{1, 2, 3, 4}}),
+		"LineString Z": wkbWithOrdinates(1002, []uint32{2}, [][]float64{{1, 2, 3}, {4, 5, 6}}),
+	}
+
+	hexSubstitute := func(wkb []byte) map[string]any {
+		return map[string]any{"wkb_hex": hexEncode(wkb), "crs": "OGC:CRS84"}
+	}
+
+	for name, wkb := range values {
+		t.Run(name, func(t *testing.T) {
+			hexCfg := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeHex))
+			require.Equal(t, hexSubstitute(wkb), ConvertGeometryLogicalValue(wkb, nil, hexCfg))
+
+			b64Cfg := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeBase64))
+			require.Equal(t, map[string]any{
+				"wkb_b64": base64.StdEncoding.EncodeToString(wkb), "crs": "OGC:CRS84",
+			}, ConvertGeometryLogicalValue(wkb, nil, b64Cfg))
+
+			// And the rendering that places coordinates declines the same value, falling
+			// back to the hex substitute rather than to coordinates it cannot read.
+			geoJSON := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeGeoJSON))
+			require.Equal(t, hexSubstitute(wkb), ConvertGeometryLogicalValue(wkb, nil, geoJSON))
+		})
+	}
+}
+
+// hexEncode spells the WKB the hex mode emits.
+func hexEncode(b []byte) string {
+	return hex.EncodeToString(b)
+}
+
+// TestWKBGeometryType covers the one header reading this package exports, which the writer
+// uses to build the geometry type list. It reports the declared type, Z and M included,
+// since a dimension the coordinate readers cannot place is still a type the format defines.
+func TestWKBGeometryType(t *testing.T) {
+	tests := []struct {
+		name     string
+		wkb      []byte
+		wantType int32
+		wantOK   bool
+	}{
+		{"point", wkbHeader(1, WKBPoint, false), 1, true},
+		{"polygon big endian", wkbHeader(0, WKBPolygon, true), 3, true},
+		{"point Z", wkbHeader(1, 1001, false), 1001, true},
+		{"point ZM", wkbHeader(1, 3001, false), 3001, true},
+		// Recognized codes with no reader here still name a type the format defines, so the
+		// writer's type list keeps them rather than going unknown.
+		{"Triangle", wkbHeader(1, 17, false), 17, true},
+		{"TIN", wkbHeader(1, 16, false), 16, true},
+		{"base type 18", wkbHeader(1, 18, false), 0, false},
+		{"byte order 7", wkbHeader(7, WKBPoint, false), 0, false},
+		{"dimension above ZM", wkbHeader(1, 4001, false), 0, false},
+		{"EWKB SRID flag", wkbHeader(1, 0x20000001, false), 0, false},
+		{"not WKB", []byte("not-wkb"), 0, false},
+		{"empty", nil, 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gType, ok := WKBGeometryType(tt.wkb)
+			require.Equal(t, tt.wantOK, ok)
+			require.Equal(t, tt.wantType, gType)
+		})
+	}
+}

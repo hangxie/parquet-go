@@ -2,7 +2,9 @@ package layout
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -940,7 +942,8 @@ func TestExtractGeometryType(t *testing.T) {
 			0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x40, 0xcd, 0xcc, 0xcc,
 			0xcc, 0xcc, 0x4c, 0x34, 0x40,
 		}
-		geoType := extractGeometryType(wkb)
+		geoType, ok := extractGeometryType(wkb)
+		require.True(t, ok)
 		require.Equal(t, int32(1), geoType) // Point = 1
 	})
 
@@ -950,7 +953,8 @@ func TestExtractGeometryType(t *testing.T) {
 			0x00, 0x00, 0x00, 0x00, 0x01, 0x40, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00,
 			0x00, 0x40, 0x34, 0x4c, 0xcc, 0xcc, 0xcc, 0xcc, 0xcd,
 		}
-		geoType := extractGeometryType(wkb)
+		geoType, ok := extractGeometryType(wkb)
+		require.True(t, ok)
 		require.Equal(t, int32(1), geoType) // Point = 1
 	})
 
@@ -962,7 +966,8 @@ func TestExtractGeometryType(t *testing.T) {
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x40, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x24, 0x40,
 		}
-		geoType := extractGeometryType(wkb)
+		geoType, ok := extractGeometryType(wkb)
+		require.True(t, ok)
 		require.Equal(t, int32(2), geoType) // LineString = 2
 	})
 
@@ -974,26 +979,30 @@ func TestExtractGeometryType(t *testing.T) {
 			0x00, 0x40, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x24, 0x00,
 			0x00, 0x00, 0x00, 0x00, 0x00,
 		}
-		geoType := extractGeometryType(wkb)
+		geoType, ok := extractGeometryType(wkb)
+		require.True(t, ok)
 		require.Equal(t, int32(2), geoType) // LineString = 2
 	})
 
 	t.Run("empty_wkb", func(t *testing.T) {
 		wkb := []byte{}
-		geoType := extractGeometryType(wkb)
+		geoType, ok := extractGeometryType(wkb)
+		require.False(t, ok)
 		require.Equal(t, int32(0), geoType)
 	})
 
 	t.Run("too_short_wkb", func(t *testing.T) {
 		wkb := []byte{1, 2, 3} // Less than 5 bytes
-		geoType := extractGeometryType(wkb)
+		geoType, ok := extractGeometryType(wkb)
+		require.False(t, ok)
 		require.Equal(t, int32(0), geoType)
 	})
 
 	t.Run("polygon_type", func(t *testing.T) {
 		// Create minimal polygon WKB (just header for testing type extraction)
 		wkb := []byte{1, 3, 0, 0, 0} // little-endian, type 3 (Polygon)
-		geoType := extractGeometryType(wkb)
+		geoType, ok := extractGeometryType(wkb)
+		require.True(t, ok)
 		require.Equal(t, int32(3), geoType) // Polygon = 3
 	})
 }
@@ -1009,8 +1018,10 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{1}
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
+		require.False(t, boundsUnknown)
 		require.NotNil(t, bbox)
 		require.Equal(t, 10.5, bbox.Xmin)
 		require.Equal(t, 10.5, bbox.Xmax)
@@ -1041,8 +1052,10 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{1, 1, 1}
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
+		require.False(t, boundsUnknown)
 		require.NotNil(t, bbox)
 		require.Equal(t, 0.0, bbox.Xmin)
 		require.Equal(t, 15.0, bbox.Xmax) // From linestring endpoint
@@ -1066,8 +1079,10 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{0, 1, 0} // Only middle value is non-null
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
+		require.False(t, boundsUnknown)
 		require.NotNil(t, bbox)
 		require.Equal(t, 5.0, bbox.Xmin)
 		require.Equal(t, 5.0, bbox.Xmax)
@@ -1082,8 +1097,10 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{1}
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
+		require.False(t, boundsUnknown)
 		require.NotNil(t, bbox)
 		require.Equal(t, 15.5, bbox.Xmin)
 		require.Equal(t, 15.5, bbox.Xmax)
@@ -1097,10 +1114,14 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{}
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
 		require.Nil(t, bbox)
 		require.Nil(t, geoTypes)
+		// Nothing to measure is not the same as something that could not be measured:
+		// such a page leaves the chunk's box to the pages that do hold geometries.
+		require.False(t, boundsUnknown)
 	})
 
 	t.Run("all_null_values", func(t *testing.T) {
@@ -1108,10 +1129,12 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{0, 0} // All null
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
 		require.Nil(t, bbox)
 		require.Nil(t, geoTypes)
+		require.False(t, boundsUnknown)
 	})
 
 	t.Run("invalid_wkb_data", func(t *testing.T) {
@@ -1123,15 +1146,81 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{1, 1}
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
-		// Should only process the valid WKB
-		require.NotNil(t, bbox)
-		require.Equal(t, 10.0, bbox.Xmin)
-		require.Equal(t, 10.0, bbox.Xmax)
-		require.Equal(t, 20.0, bbox.Ymin)
-		require.Equal(t, 20.0, bbox.Ymax)
-		require.Equal(t, []int32{1}, geoTypes)
+		// A page carrying a value whose bounds cannot be read gets no bounding box: one
+		// built from the rest would not cover the page, and a reader pushing a spatial
+		// filter down to it would skip rows that match. Two bytes are no geometry type
+		// either, so the types go the same way and both are marked unknown.
+		require.Nil(t, bbox)
+		require.True(t, boundsUnknown)
+		require.True(t, stats.TypesUnknown)
+		require.Nil(t, geoTypes)
+	})
+
+	t.Run("page_mixing_2d_and_z_geometries", func(t *testing.T) {
+		// A POINT(10 20) the walk reads, and a POINT Z(100 200 9) outside its extent
+		// that it does not: a box around the first alone would not cover the page.
+		point2D := []byte{0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x24, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x34, 0x40}
+		pointZ := binary.LittleEndian.AppendUint32([]byte{1}, 1001)
+		for _, ordinate := range []float64{100, 200, 9} {
+			pointZ = binary.LittleEndian.AppendUint64(pointZ, math.Float64bits(ordinate))
+		}
+
+		values := []any{string(point2D), string(pointZ)}
+		definitionLevels := []int32{1, 1}
+		maxDefinitionLevel := int32(1)
+
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
+
+		require.Nil(t, bbox)
+		require.True(t, boundsUnknown)
+		// A Z geometry carries a type code the format defines, so the types survive
+		// where the bounds do not.
+		require.False(t, stats.TypesUnknown)
+		require.ElementsMatch(t, []int32{1, 1001}, geoTypes)
+	})
+
+	t.Run("page_with_bytes_that_are_not_wkb", func(t *testing.T) {
+		// "not-wkb" reads as geometry type 1999467631, which no reader recognises: the
+		// page reports no types rather than one the format does not define.
+		point2D := []byte{0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x24, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x34, 0x40}
+
+		values := []any{string(point2D), "not-wkb"}
+		definitionLevels := []int32{1, 1}
+		maxDefinitionLevel := int32(1)
+
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+
+		require.Nil(t, stats.BBox)
+		require.True(t, stats.BoundsUnknown)
+		require.True(t, stats.TypesUnknown)
+		require.Nil(t, stats.Types)
+	})
+
+	t.Run("page_with_ewkb_header", func(t *testing.T) {
+		// PostGIS EWKB sets flag bits above the type code, so 0x20000001 is a Point
+		// carrying an SRID. The format's own type codes stop at 3007, and a code no
+		// reader recognises is worse in geospatial_types than no list at all.
+		point2D := []byte{0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x24, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x34, 0x40}
+		ewkb := binary.LittleEndian.AppendUint32([]byte{1}, 0x20000001)
+		ewkb = binary.LittleEndian.AppendUint32(ewkb, 4326)
+		for _, ordinate := range []float64{1, 2} {
+			ewkb = binary.LittleEndian.AppendUint64(ewkb, math.Float64bits(ordinate))
+		}
+
+		values := []any{string(point2D), string(ewkb)}
+		definitionLevels := []int32{1, 1}
+		maxDefinitionLevel := int32(1)
+
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+
+		require.Nil(t, stats.BBox)
+		require.True(t, stats.BoundsUnknown)
+		require.True(t, stats.TypesUnknown)
+		require.Nil(t, stats.Types)
 	})
 
 	t.Run("unsupported_value_types", func(t *testing.T) {
@@ -1139,10 +1228,16 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{1, 1, 1}
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
 		require.Nil(t, bbox)
 		require.Nil(t, geoTypes)
+		// A geospatial column holding something that is not bytes holds a value with no
+		// coordinates to measure and no header to read, both of which the chunk has to
+		// treat as unknown.
+		require.True(t, boundsUnknown)
+		require.True(t, stats.TypesUnknown)
 	})
 
 	t.Run("definition_levels_shorter_than_values", func(t *testing.T) {
@@ -1153,9 +1248,11 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{1} // Shorter than values
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
 		// Should process both values: first one checks definition level, second one has no definition level so gets processed
+		require.False(t, boundsUnknown)
 		require.NotNil(t, bbox)
 		require.Equal(t, 1.0, bbox.Xmin)
 		require.Equal(t, 3.0, bbox.Xmax) // From second point
@@ -1174,8 +1271,10 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		definitionLevels := []int32{1, 1, 1}
 		maxDefinitionLevel := int32(1)
 
-		bbox, geoTypes := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
+		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
+		require.False(t, boundsUnknown)
 		require.NotNil(t, bbox)
 		require.Equal(t, 0.0, bbox.Xmin)
 		require.Equal(t, 10.0, bbox.Xmax)
@@ -1865,4 +1964,29 @@ func TestDataPageCompress_WithRepeatedValues(t *testing.T) {
 	data, err := page.dataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, data)
+}
+
+// TestPageGeospatialStatisticsKeepsTypesWithNoReader covers a recognized WKB geometry type
+// this library has no reader for, such as Triangle. The two halves part company: the
+// type list carries what the header declares, and the bounds withdraw because no reader
+// here can place the coordinates.
+func TestPageGeospatialStatisticsKeepsTypesWithNoReader(t *testing.T) {
+	// A Triangle (17) and a TIN (16), headers only: the coordinate readers never get past
+	// the type, so the body does not matter.
+	triangle := append([]byte{1}, 17, 0, 0, 0)
+	tin := append([]byte{1}, 16, 0, 0, 0)
+	point := []byte{
+		0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x40, 0xcd, 0xcc, 0xcc,
+		0xcc, 0xcc, 0x4c, 0x34, 0x40,
+	}
+
+	stats := computePageGeospatialStatistics(
+		[]any{string(point), string(triangle), string(tin)},
+		[]int32{1, 1, 1}, 1,
+	)
+
+	require.False(t, stats.TypesUnknown)
+	require.ElementsMatch(t, []int32{1, 16, 17}, stats.Types)
+	require.True(t, stats.BoundsUnknown)
+	require.Nil(t, stats.BBox)
 }
