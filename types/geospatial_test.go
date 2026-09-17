@@ -1580,12 +1580,10 @@ func TestBoundingBoxCalculator_AddWKB(t *testing.T) {
 		err := calc.AddWKB(wkb)
 
 		require.NoError(t, err)
-		minX, minY, maxX, maxY, ok := calc.GetBounds()
-		require.True(t, ok) // Should still work with valid geometry
-		require.Equal(t, 5.0, minX)
-		require.Equal(t, 10.0, minY)
-		require.Equal(t, 5.0, maxX)
-		require.Equal(t, 10.0, maxY)
+		// The collection holds a geometry whose coordinates the walk cannot read, so a
+		// box built from the rest would be smaller than the value it describes.
+		_, _, _, _, ok := calc.GetBounds()
+		require.False(t, ok)
 	})
 
 	t.Run("multipoint_mixed_endianness", func(t *testing.T) {
@@ -2200,13 +2198,10 @@ func TestBoundingBoxCalculator_AddWKB(t *testing.T) {
 		err = calc.AddWKB(buf)
 		require.NoError(t, err)
 
-		// Should still have bounds from the valid geometries
-		minX, minY, maxX, maxY, ok := calc.GetBounds()
-		require.True(t, ok)
-		require.Equal(t, 1.0, minX)
-		require.Equal(t, 2.0, minY)
-		require.Equal(t, 5.0, maxX)
-		require.Equal(t, 10.0, maxY)
+		// The truncated member withdraws the bounds the valid ones built: what it holds
+		// is unknown, and a box that leaves it out is one a spatial filter would trust.
+		_, _, _, _, ok := calc.GetBounds()
+		require.False(t, ok)
 	})
 
 	t.Run("point_coordinates_handling", func(t *testing.T) {

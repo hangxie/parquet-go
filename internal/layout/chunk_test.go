@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"encoding/binary"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -1548,4 +1550,109 @@ func TestPagesToChunk_NoDistinctCount(t *testing.T) {
 	chunk, err := PagesToChunk([]*Page{page})
 	require.NoError(t, err)
 	require.Nil(t, chunk.ChunkHeader.MetaData.Statistics.DistinctCount)
+}
+
+// TestAggregateGeospatialStatisticsUnknownBounds covers a chunk holding a page whose bounds
+// could not be read. Combining the pages that were read would publish a box smaller than
+// the chunk's data, and a reader pushing a spatial filter down to it would skip rows that
+// match, so the chunk reports no box; the geometry types come from WKB headers and survive.
+func TestAggregateGeospatialStatisticsUnknownBounds(t *testing.T) {
+	measured := &Page{
+		GeospatialBBox:  &parquet.BoundingBox{Xmin: 0, Xmax: 10, Ymin: 0, Ymax: 10},
+		GeospatialTypes: []int32{1},
+	}
+	unreadable := &Page{GeospatialTypes: []int32{1001}, GeospatialBoundsUnknown: true}
+	allNull := &Page{}
+
+	bbox, geoTypes := aggregateGeospatialStatistics([]*Page{measured, unreadable, allNull})
+	require.Nil(t, bbox)
+	require.ElementsMatch(t, []int32{1, 1001}, geoTypes)
+
+	// A page whose geometry types could not be read withholds the list as well: one
+	// built from the rest would say the chunk holds only those types. The format spells
+	// that as an empty list rather than a missing one.
+	unknownTypes := &Page{
+		GeospatialBBox:          &parquet.BoundingBox{Xmin: 0, Xmax: 1, Ymin: 0, Ymax: 1},
+		GeospatialBoundsUnknown: true,
+		GeospatialTypesUnknown:  true,
+	}
+	bbox, geoTypes = aggregateGeospatialStatistics([]*Page{measured, unknownTypes})
+	require.Nil(t, bbox)
+	require.Empty(t, geoTypes)
+	require.NotNil(t, geoTypes)
+
+	// Without that page the box comes back, and the page with nothing to measure does
+	// not withhold it.
+	bbox, geoTypes = aggregateGeospatialStatistics([]*Page{measured, allNull})
+	require.NotNil(t, bbox)
+	require.Equal(t, []float64{0, 10, 0, 10}, []float64{bbox.Xmin, bbox.Xmax, bbox.Ymin, bbox.Ymax})
+	require.Equal(t, []int32{1}, geoTypes)
+}
+
+// TestChunkGeospatialStatisticsUnknownBounds covers the same through PagesToChunk, which is
+// where the statistics reach the file: the chunk carries the geometry types it read and no
+// bounding box at all.
+func TestChunkGeospatialStatisticsUnknownBounds(t *testing.T) {
+	point := func(x, y float64) string {
+		b := binary.LittleEndian.AppendUint32([]byte{1}, 1)
+		b = binary.LittleEndian.AppendUint64(b, math.Float64bits(x))
+		return string(binary.LittleEndian.AppendUint64(b, math.Float64bits(y)))
+	}
+	pointZ := func(x, y, z float64) string {
+		b := binary.LittleEndian.AppendUint32([]byte{1}, 1001)
+		for _, ordinate := range []float64{x, y, z} {
+			b = binary.LittleEndian.AppendUint64(b, math.Float64bits(ordinate))
+		}
+		return string(b)
+	}
+
+	geospatialPage := func(values ...string) *Page {
+		table := &Table{
+			Schema: &parquet.SchemaElement{
+				Name:        "geom",
+				Type:        parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+				LogicalType: &parquet.LogicalType{GEOMETRY: parquet.NewGeometryType()},
+			},
+			Path:             []string{"parquet_go_root", "geom"},
+			Values:           make([]any, 0, len(values)),
+			DefinitionLevels: make([]int32, len(values)),
+			RepetitionLevels: make([]int32, len(values)),
+			Info:             &common.Tag{},
+		}
+		for _, v := range values {
+			table.Values = append(table.Values, v)
+		}
+		pages, _, err := TableToDataPagesWithOption(table, PageWriteOption{
+			PageSize:        1024,
+			CompressType:    parquet.CompressionCodec_UNCOMPRESSED,
+			DataPageVersion: 1,
+		})
+		require.NoError(t, err)
+		require.Len(t, pages, 1)
+		return pages[0]
+	}
+
+	twoD := geospatialPage(point(0, 0), point(10, 10))
+	withZ := geospatialPage(pointZ(100, 200, 9))
+
+	chunk, err := PagesToChunk([]*Page{twoD, withZ})
+	require.NoError(t, err)
+	stats := chunk.ChunkHeader.MetaData.GeospatialStatistics
+	require.NotNil(t, stats)
+	require.Nil(t, stats.Bbox)
+	require.ElementsMatch(t, []int32{1, 1001}, stats.GeospatialTypes)
+
+	chunk, err = PagesToChunk([]*Page{twoD})
+	require.NoError(t, err)
+	stats = chunk.ChunkHeader.MetaData.GeospatialStatistics
+	require.NotNil(t, stats)
+	require.NotNil(t, stats.Bbox)
+	require.Equal(t, 10.0, stats.Bbox.Xmax)
+
+	// Bytes that are not WKB read as a geometry type no reader recognises, so that page
+	// leaves the chunk with neither half and no statistics at all.
+	notWKB := geospatialPage(point(0, 0), "not-wkb")
+	chunk, err = PagesToChunk([]*Page{twoD, notWKB})
+	require.NoError(t, err)
+	require.Nil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics)
 }

@@ -20,8 +20,48 @@ func roundCoordinate(v float64, precision int) float64 {
 	return math.Round(v*pow) / pow
 }
 
-// wkbToGeoJSON converts WKB (2D Point/LineString/Polygon/Multi*) to a GeoJSON geometry map
-// Returns (geoJSON, true) on success; (nil, false) on failure
+// WKBGeometryType reads the geometry type a WKB value declares, reporting false when the
+// bytes do not open with a header the format defines.
+func WKBGeometryType(b []byte) (int32, bool) {
+	gType, _, ok := readWKBHeader(b)
+	if !ok {
+		return 0, false
+	}
+	return int32(gType), true
+}
+
+// readWKBHeader reads the byte order and geometry type a WKB value opens with.
+func readWKBHeader(b []byte) (gType uint32, bigEndian, ok bool) {
+	// Refused here is any header the format does not define: a byte order other than 0 or 1,
+	// a base type outside the standardized code space, or a dimension beyond ZM. Bytes that
+	// are not WKB read as a type number all the same, so every reader checks this before
+	// trusting what follows.
+	if len(b) < 5 {
+		return 0, false, false
+	}
+	switch b[0] {
+	case 0:
+		bigEndian = true
+	case 1:
+	default:
+		return 0, false, false
+	}
+	gType, _ = u32(b, 1, bigEndian)
+	base := gType % 1000
+	if base < 1 || base > wkbMaxGeometryType || gType-base > 3000 {
+		return 0, false, false
+	}
+	return gType, bigEndian, true
+}
+
+// wkbIs2D reports whether a geometry type carries plain 2D coordinates.
+func wkbIs2D(gType uint32) bool {
+	// ISO WKB adds 1000, 2000 or 3000 for Z, M and ZM. Every parser here reads two doubles
+	// per point, so a geometry carrying more ordinates would be read as coordinates it does
+	// not hold.
+	return gType < 1000
+}
+
 // readSubGeomHeader reads a sub-geometry's own byte order and type from the buffer.
 func readSubGeomHeader(b []byte, off int, expectedType uint32) (bool, int, bool) {
 	// Each member of a Multi* or collection carries its own byte order byte, so the type
@@ -150,19 +190,19 @@ func geometryCollectionToGeoJSON(b []byte, off int, be bool, precision int) (map
 	return map[string]any{"type": "GeometryCollection", "geometries": geometries}, true
 }
 
+// wkbToGeoJSON converts 2D WKB (Point, LineString, Polygon, Multi*, GeometryCollection)
+// to a GeoJSON geometry map, returning false for bytes it cannot read.
 func wkbToGeoJSON(b []byte, precision int) (map[string]any, bool) {
 	if len(b) < 5 {
 		return nil, false
 	}
-	be := b[0] == 0
-
-	gType, ok := u32(b, 1, be)
-	if !ok {
+	gType, be, ok := readWKBHeader(b)
+	if !ok || !wkbIs2D(gType) {
 		return nil, false
 	}
 	off := 5
 
-	switch gType % 1000 {
+	switch gType {
 	case WKBPoint:
 		coords, _, ok := parsePoint(b, be, off, precision)
 		if !ok {
@@ -364,12 +404,13 @@ func calculateWKBSize(b []byte) (int, bool) {
 		return 0, false
 	}
 
-	be := b[0] == 0
-	gType, _ := u32(b, 1, be)
+	gType, be, ok := readWKBHeader(b)
+	if !ok || !wkbIs2D(gType) {
+		return 0, false
+	}
 	off := 5 // byte order + type
 
-	// gType may contain extended wkbType (https://libgeos.org/specifications/wkb/#iso-wkb)
-	switch gType % 1000 {
+	switch gType {
 	case WKBPoint:
 		_, newOff, ok := parsePoint(b, be, off, -1)
 		if !ok {

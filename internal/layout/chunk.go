@@ -160,7 +160,9 @@ func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 	// Aggregate geospatial statistics from pages
 	if logT != nil && (logT.IsSetGEOMETRY() || logT.IsSetGEOGRAPHY()) {
 		bbox, geoTypes := aggregateGeospatialStatistics(pages)
-		if bbox != nil {
+		if bbox != nil || len(geoTypes) > 0 {
+			// Both halves are optional, so a chunk whose bounds are unknown still
+			// reports the geometry types it holds.
 			metaData.GeospatialStatistics = &parquet.GeospatialStatistics{
 				Bbox:            bbox,
 				GeospatialTypes: geoTypes,
@@ -267,7 +269,11 @@ func aggregateSizeStatistics(pages []*Page, statsStartIdx int) *parquet.SizeStat
 	return ss
 }
 
-// aggregateGeospatialStatistics combines geospatial statistics from multiple pages
+// aggregateGeospatialStatistics combines geospatial statistics from multiple pages. Either
+// half is withheld when a page could not read it: bounds around the pages that were read
+// would leave out a value the chunk holds, and a type list from them would say the chunk
+// holds only those types. The two are tracked apart, since a Z or M geometry carries a
+// readable type and coordinates this library cannot place.
 func aggregateGeospatialStatistics(pages []*Page) (*parquet.BoundingBox, []int32) {
 	if len(pages) == 0 {
 		return nil, nil
@@ -275,13 +281,25 @@ func aggregateGeospatialStatistics(pages []*Page) (*parquet.BoundingBox, []int32
 
 	var combinedBBox *parquet.BoundingBox
 	geoTypesMap := make(map[int32]bool)
+	boundsUnknown, typesUnknown := false, false
 
 	for _, page := range pages {
-		if page == nil || page.GeospatialBBox == nil {
+		if page == nil {
+			continue
+		}
+		if page.GeospatialBoundsUnknown {
+			boundsUnknown = true
+		}
+		if page.GeospatialTypesUnknown {
+			typesUnknown = true
+		}
+		for _, gType := range page.GeospatialTypes {
+			geoTypesMap[gType] = true
+		}
+		if page.GeospatialBBox == nil {
 			continue
 		}
 
-		// Combine bounding boxes
 		if combinedBBox == nil {
 			combinedBBox = &parquet.BoundingBox{
 				Xmin: page.GeospatialBBox.Xmin,
@@ -289,28 +307,25 @@ func aggregateGeospatialStatistics(pages []*Page) (*parquet.BoundingBox, []int32
 				Ymin: page.GeospatialBBox.Ymin,
 				Ymax: page.GeospatialBBox.Ymax,
 			}
-		} else {
-			combinedBBox.Xmin = min(combinedBBox.Xmin, page.GeospatialBBox.Xmin)
-			combinedBBox.Xmax = max(combinedBBox.Xmax, page.GeospatialBBox.Xmax)
-			combinedBBox.Ymin = min(combinedBBox.Ymin, page.GeospatialBBox.Ymin)
-			combinedBBox.Ymax = max(combinedBBox.Ymax, page.GeospatialBBox.Ymax)
+			continue
 		}
-
-		// Combine geometry types
-		for _, gType := range page.GeospatialTypes {
-			geoTypesMap[gType] = true
-		}
+		combinedBBox.Xmin = min(combinedBBox.Xmin, page.GeospatialBBox.Xmin)
+		combinedBBox.Xmax = max(combinedBBox.Xmax, page.GeospatialBBox.Xmax)
+		combinedBBox.Ymin = min(combinedBBox.Ymin, page.GeospatialBBox.Ymin)
+		combinedBBox.Ymax = max(combinedBBox.Ymax, page.GeospatialBBox.Ymax)
 	}
 
-	if combinedBBox == nil {
-		return nil, nil
+	if boundsUnknown {
+		combinedBBox = nil
+	}
+	if typesUnknown {
+		// The format spells an unknown type list as an empty one.
+		return combinedBBox, []int32{}
 	}
 
-	// Convert geometry types map to slice
 	var geoTypes []int32
 	for gType := range geoTypesMap {
 		geoTypes = append(geoTypes, gType)
 	}
-
 	return combinedBBox, geoTypes
 }
