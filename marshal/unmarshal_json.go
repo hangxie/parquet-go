@@ -286,9 +286,11 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 	if converter.geospatialConfig != nil {
 		typeOpts = append(typeOpts, types.WithGeospatialConfig(converter.geospatialConfig))
 	}
-	// The error is deliberately dropped: ConvertValue documents that it returns the
-	// substitution alongside it, which is what this path has always handed back, and
-	// making the reader report a value it cannot render is a change of its own.
-	converted, _ := types.ConvertValue(val.Interface(), schemaElement, typeOpts...)
+	// ConvertValue returns the substitute alongside the error; the conversion abandons it,
+	// so one value it cannot render costs the batch rather than hiding in it.
+	converted, err := types.ConvertValue(val.Interface(), schemaElement, typeOpts...)
+	if err != nil {
+		return nil, err
+	}
 	return converted, nil
 }
