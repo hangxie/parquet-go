@@ -1180,7 +1180,7 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		// A Z geometry carries a type code the format defines, so the types survive
 		// where the bounds do not.
 		require.False(t, stats.TypesUnknown)
-		require.ElementsMatch(t, []int32{1, 1001}, geoTypes)
+		require.Equal(t, []int32{1, 1001}, geoTypes)
 	})
 
 	t.Run("page_with_bytes_that_are_not_wkb", func(t *testing.T) {
@@ -1990,7 +1990,7 @@ func TestPageGeospatialStatisticsKeepsTypesWithNoReader(t *testing.T) {
 	)
 
 	require.False(t, stats.TypesUnknown)
-	require.ElementsMatch(t, []int32{1, 16, 17}, stats.Types)
+	require.Equal(t, []int32{1, 16, 17}, stats.Types)
 	require.True(t, stats.BoundsUnknown)
 	require.Nil(t, stats.BBox)
 }
@@ -2036,5 +2036,25 @@ func TestPageGeospatialStatisticsEmptyValue(t *testing.T) {
 			require.Equal(t, tt.wantTypes, stats.Types)
 			require.Equal(t, tt.wantBBox, stats.BBox)
 		})
+	}
+}
+
+// wkbHeaderOnly spells a little-endian WKB header, which is all a geometry type needs.
+func wkbHeaderOnly(gType uint32) string {
+	return string(binary.LittleEndian.AppendUint32([]byte{1}, gType))
+}
+
+// TestPageGeospatialTypesAreSorted pins the order of geospatial_types. The insertion order
+// is deliberately unsorted, and the loop makes an accidentally sorted iteration negligible.
+func TestPageGeospatialTypesAreSorted(t *testing.T) {
+	values := []any{
+		wkbHeaderOnly(7), wkbHeaderOnly(3), wkbHeaderOnly(1),
+		wkbHeaderOnly(6), wkbHeaderOnly(2), wkbHeaderOnly(4),
+	}
+	defLevels := []int32{1, 1, 1, 1, 1, 1}
+
+	for i := 0; i < 64; i++ {
+		stats := computePageGeospatialStatistics(values, defLevels, 1)
+		require.Equal(t, []int32{1, 2, 3, 4, 6, 7}, stats.Types, "run %d", i)
 	}
 }
