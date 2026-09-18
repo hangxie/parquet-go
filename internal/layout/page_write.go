@@ -105,25 +105,38 @@ func scanPageValues(table *Table, startIdx int, pageSize int32, omitStats bool, 
 	return r, nil
 }
 
-// setPageStats sets the statistics fields on a page based on the scan result and table schema.
-func setPageStats(page *Page, scan pageValueResult, omitStats bool, cT *parquet.ConvertedType, logT *parquet.LogicalType) {
+// pageStats is what a page builder measured about the values it is about to write. Both
+// builders hand one to setPageStats, so a column's statistics cannot depend on its encoding.
+type pageStats struct {
+	values      []any
+	defLevels   []int32
+	maxDefLevel int32
+	minVal      any
+	maxVal      any
+	nullCount   int64
+}
+
+// setPageStats sets the statistics fields on a page from what its builder measured.
+func setPageStats(page *Page, stats pageStats, omitStats bool, cT *parquet.ConvertedType, logT *parquet.LogicalType) {
 	if omitStats {
 		return
 	}
+	// Neither annotation has a sort order min/max could describe: the specification leaves
+	// INTERVAL's undefined, and a geometry's bounds are GeospatialStatistics' job.
 	isGeospatial := logT != nil && (logT.IsSetGEOMETRY() || logT.IsSetGEOGRAPHY())
 	isInterval := cT != nil && *cT == parquet.ConvertedType_INTERVAL
 	if !isGeospatial && !isInterval {
-		page.MaxVal = scan.maxVal
-		page.MinVal = scan.minVal
+		page.MaxVal = stats.maxVal
+		page.MinVal = stats.minVal
 	}
-	page.NullCount = &scan.nullCount
+	page.NullCount = &stats.nullCount
 
 	if isGeospatial {
-		stats := computePageGeospatialStatistics(page.DataTable.Values, page.DataTable.DefinitionLevels, page.DataTable.MaxDefinitionLevel)
-		page.GeospatialBBox = stats.BBox
-		page.GeospatialTypes = stats.Types
-		page.GeospatialBoundsUnknown = stats.BoundsUnknown
-		page.GeospatialTypesUnknown = stats.TypesUnknown
+		geo := computePageGeospatialStatistics(stats.values, stats.defLevels, stats.maxDefLevel)
+		page.GeospatialBBox = geo.BBox
+		page.GeospatialTypes = geo.Types
+		page.GeospatialBoundsUnknown = geo.BoundsUnknown
+		page.GeospatialTypesUnknown = geo.TypesUnknown
 	}
 }
 
@@ -178,7 +191,14 @@ func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int
 		page.DataTable.DefinitionLevels = table.DefinitionLevels[i:scan.endIdx]
 		page.DataTable.RepetitionLevels = table.RepetitionLevels[i:scan.endIdx]
 
-		setPageStats(page, scan, omitStats, cT, logT)
+		setPageStats(page, pageStats{
+			values:      page.DataTable.Values,
+			defLevels:   page.DataTable.DefinitionLevels,
+			maxDefLevel: page.DataTable.MaxDefinitionLevel,
+			minVal:      scan.minVal,
+			maxVal:      scan.maxVal,
+			nullCount:   scan.nullCount,
+		}, omitStats, cT, logT)
 
 		page.Schema = table.Schema
 		page.CompressType = opt.CompressType

@@ -263,11 +263,17 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, opt Page
 		// Values in DataTable of a DictPage is nil for optimization.
 		// page.DataTable.Values = values
 
-		if !omitStats {
-			page.MaxVal = scan.maxVal
-			page.MinVal = scan.minVal
-			page.NullCount = &scan.nullCount
-		}
+		// A dict page leaves DataTable.Values nil, so the values it measured come from the
+		// table directly. Everything else is the plain page's rule, applied by one function
+		// so a column's statistics do not depend on its encoding.
+		setPageStats(page, pageStats{
+			values:      table.Values[i:scan.endIdx],
+			defLevels:   table.DefinitionLevels[i:scan.endIdx],
+			maxDefLevel: table.MaxDefinitionLevel,
+			minVal:      scan.minVal,
+			maxVal:      scan.maxVal,
+			nullCount:   scan.nullCount,
+		}, omitStats, cT, logT)
 		page.Schema = table.Schema
 		page.CompressType = opt.CompressType
 		page.Path = table.Path
