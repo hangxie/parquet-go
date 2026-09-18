@@ -230,8 +230,8 @@ func aggregateSizeStatistics(pages []*Page, statsStartIdx int) *parquet.SizeStat
 	for i := statsStartIdx; i < len(pages); i++ {
 		p := pages[i]
 		if p == nil {
-			// The histograms below tolerate a missing page, but a byte-array total that
-			// leaves one out is understated rather than absent.
+			// A missing page understates the histograms below too; they are simply not
+			// guarded. The byte-array total is, because a reader sizes a buffer from it.
 			byteArrayBytesKnown = false
 			continue
 		}
@@ -338,5 +338,8 @@ func aggregateGeospatialStatistics(pages []*Page) (*parquet.BoundingBox, []int32
 	for gType := range geoTypesMap {
 		geoTypes = append(geoTypes, gType)
 	}
+	// Sorted for the same reason as ColumnMetaData.Encodings: map order is randomized, so
+	// identical input would otherwise produce byte-different files.
+	slices.Sort(geoTypes)
 	return combinedBBox, geoTypes
 }

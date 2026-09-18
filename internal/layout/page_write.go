@@ -3,6 +3,7 @@ package layout
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -291,6 +292,9 @@ func computePageGeospatialStatistics(values []any, definitionLevels []int32, max
 		for gType := range geoTypesMap {
 			stats.Types = append(stats.Types, gType)
 		}
+		// The chunk rebuilds and re-sorts this, so only its order reaches the file; this
+		// keeps the page's own list comparable.
+		slices.Sort(stats.Types)
 	}
 
 	// A page that holds a value it could not read reports no box of its own, rather than one

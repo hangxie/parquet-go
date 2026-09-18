@@ -3,8 +3,10 @@ package writer
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"testing"
 
@@ -860,4 +862,63 @@ func rowWithValue(obj any, value string) any {
 	row := reflect.New(reflect.TypeOf(obj).Elem()).Elem()
 	row.Field(0).SetString(value)
 	return row.Interface()
+}
+
+// TestWriteIsDeterministic requires identical input to produce identical bytes. It guards
+// the file rather than any one map-ordered field, so the next such field fails here too.
+func TestWriteIsDeterministic(t *testing.T) {
+	type GeometryEntry struct {
+		Geom string `parquet:"name=geom, type=BYTE_ARRAY, logicaltype=GEOMETRY"`
+	}
+
+	le := binary.LittleEndian
+	point := func(x, y float64) string {
+		b := le.AppendUint32([]byte{1}, 1)
+		b = le.AppendUint64(b, math.Float64bits(x))
+		return string(le.AppendUint64(b, math.Float64bits(y)))
+	}
+	lineString := func(pts ...[2]float64) string {
+		b := le.AppendUint32([]byte{1}, 2)
+		b = le.AppendUint32(b, uint32(len(pts)))
+		for _, p := range pts {
+			b = le.AppendUint64(b, math.Float64bits(p[0]))
+			b = le.AppendUint64(b, math.Float64bits(p[1]))
+		}
+		return string(b)
+	}
+	polygon := func(ring ...[2]float64) string {
+		b := le.AppendUint32([]byte{1}, 3)
+		b = le.AppendUint32(b, 1)
+		b = le.AppendUint32(b, uint32(len(ring)))
+		for _, p := range ring {
+			b = le.AppendUint64(b, math.Float64bits(p[0]))
+			b = le.AppendUint64(b, math.Float64bits(p[1]))
+		}
+		return string(b)
+	}
+
+	// Three geometry types, so the chunk's type list has more than one possible order.
+	entries := []GeometryEntry{
+		{Geom: polygon([2]float64{0, 0}, [2]float64{1, 0}, [2]float64{1, 1}, [2]float64{0, 0})},
+		{Geom: point(10.5, 20.3)},
+		{Geom: lineString([2]float64{-170, -80}, [2]float64{30, 40})},
+		{Geom: point(-1, -2)},
+	}
+
+	write := func() []byte {
+		pw, buf, err := createTestParquetWriter(new(GeometryEntry), WithNP(1))
+		require.NoError(t, err)
+		for _, e := range entries {
+			require.NoError(t, pw.Write(e))
+		}
+		require.NoError(t, pw.WriteStop())
+		return buf.Bytes()
+	}
+
+	first := write()
+	require.NotEmpty(t, first)
+	// One comparison catches a varying list; several make it near-certain.
+	for i := 1; i < 8; i++ {
+		require.Equal(t, first, write(), "run %d differs from the first", i)
+	}
 }

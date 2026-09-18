@@ -1566,7 +1566,7 @@ func TestAggregateGeospatialStatisticsUnknownBounds(t *testing.T) {
 
 	bbox, geoTypes := aggregateGeospatialStatistics([]*Page{measured, unreadable, allNull})
 	require.Nil(t, bbox)
-	require.ElementsMatch(t, []int32{1, 1001}, geoTypes)
+	require.Equal(t, []int32{1, 1001}, geoTypes)
 
 	// A page whose geometry types could not be read withholds the list as well: one
 	// built from the rest would say the chunk holds only those types. The format spells
@@ -1640,7 +1640,7 @@ func TestChunkGeospatialStatisticsUnknownBounds(t *testing.T) {
 	stats := chunk.ChunkHeader.MetaData.GeospatialStatistics
 	require.NotNil(t, stats)
 	require.Nil(t, stats.Bbox)
-	require.ElementsMatch(t, []int32{1, 1001}, stats.GeospatialTypes)
+	require.Equal(t, []int32{1, 1001}, stats.GeospatialTypes)
 
 	chunk, err = PagesToChunk([]*Page{twoD})
 	require.NoError(t, err)
@@ -1691,4 +1691,20 @@ func TestAggregateSizeStatisticsWithholdsPartialByteArrayTotal(t *testing.T) {
 	t.Run("a nil page", func(t *testing.T) {
 		require.Nil(t, aggregateSizeStatistics([]*Page{page(n(10)), nil, page(n(20))}, 0))
 	})
+}
+
+// TestAggregateGeospatialTypesAreSorted pins the same order in the chunk, whose own map is
+// what reaches the file.
+func TestAggregateGeospatialTypesAreSorted(t *testing.T) {
+	pageWithTypes := func(types ...int32) *Page {
+		p := NewDataPage()
+		p.GeospatialTypes = types
+		return p
+	}
+	pages := []*Page{pageWithTypes(7, 3), pageWithTypes(1, 6), pageWithTypes(2, 4)}
+
+	for i := 0; i < 64; i++ {
+		_, geoTypes := aggregateGeospatialStatistics(pages)
+		require.Equal(t, []int32{1, 2, 3, 4, 6, 7}, geoTypes, "run %d", i)
+	}
 }
