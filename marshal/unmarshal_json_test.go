@@ -1,6 +1,7 @@
 package marshal
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"math"
 	"reflect"
@@ -901,4 +902,106 @@ func TestLookupSchemaElement_NegativeIndex(t *testing.T) {
 
 	_, err = lookupSchemaElement(sh, "Day", &jsonConverter{})
 	require.ErrorContains(t, err, "schema handler is inconsistent")
+}
+
+// TestConvertToJSONFriendly_ReportsUnrenderable covers the read path's half of ConvertValue:
+// a value the column cannot render is reported rather than handed back as a substitute.
+func TestConvertToJSONFriendly_ReportsUnrenderable(t *testing.T) {
+	type GeomRow struct {
+		Geom string `parquet:"name=geom, type=BYTE_ARRAY, logicaltype=GEOMETRY"`
+	}
+	type BSONRow struct {
+		Doc string `parquet:"name=doc, type=BYTE_ARRAY, convertedtype=BSON"`
+	}
+	type UUIDRow struct {
+		ID string `parquet:"name=id, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID"`
+	}
+	handler := func(obj any) *schema.SchemaHandler {
+		sh, err := schema.NewSchemaHandlerFromStruct(obj)
+		require.NoError(t, err)
+		return sh
+	}
+	geoJSON := WithGeospatialConfig(types.NewGeospatialConfig(
+		types.WithGeometryJSONMode(types.GeospatialModeGeoJSON),
+	))
+
+	tests := []struct {
+		name   string
+		row    any
+		sh     *schema.SchemaHandler
+		column string
+	}{
+		{
+			name: "bytes that are not WKB",
+			row: struct {
+				Geom string `json:"geom"`
+			}{Geom: "not-wkb-at-all"},
+			sh:     handler(new(GeomRow)),
+			column: "Geom",
+		},
+		{
+			name: "a BSON document that does not parse",
+			row: struct {
+				Doc string `json:"doc"`
+			}{Doc: "not-a-bson-document"},
+			sh:     handler(new(BSONRow)),
+			column: "Doc",
+		},
+		{
+			name: "a UUID of the wrong width",
+			row: struct {
+				ID string `json:"id"`
+			}{ID: "short"},
+			sh:     handler(new(UUIDRow)),
+			column: "ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := ConvertToJSONFriendly(tt.row, tt.sh, geoJSON)
+
+			require.ErrorIs(t, err, types.ErrUnrenderable)
+			require.Nil(t, out, "the conversion abandons its output")
+			// The wrapper is what makes a report usable against a file, so pin it whole:
+			// the bare name passes on "UUID" for a field called ID.
+			require.ErrorContains(t, err, "convert field "+tt.column)
+		})
+	}
+
+	t.Run("a value the column can render", func(t *testing.T) {
+		row := struct {
+			Geom string `json:"geom"`
+		}{Geom: wkbPoint(10.5, 20.3)}
+		out, err := ConvertToJSONFriendly(row, handler(new(GeomRow)), geoJSON)
+
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"geom": map[string]any{
+				"type":       "Feature",
+				"geometry":   map[string]any{"type": "Point", "coordinates": []float64{10.5, 20.3}},
+				"properties": map[string]any{"crs": "OGC:CRS84"},
+			},
+		}, out)
+	})
+
+	t.Run("one bad value costs the batch", func(t *testing.T) {
+		type row struct {
+			Geom string `json:"geom"`
+		}
+		rows := []row{{Geom: wkbPoint(1, 2)}, {Geom: "not-wkb-at-all"}, {Geom: wkbPoint(3, 4)}}
+		out, err := ConvertToJSONFriendly(rows, handler(new(GeomRow)), geoJSON)
+
+		require.ErrorIs(t, err, types.ErrUnrenderable)
+		require.Nil(t, out, "the readable rows go with it")
+		// And says which row, which is what makes a batch failure actionable.
+		require.ErrorContains(t, err, "convert list element 1")
+	})
+}
+
+// wkbPoint spells a little-endian WKB point.
+func wkbPoint(x, y float64) string {
+	b := binary.LittleEndian.AppendUint32([]byte{1}, 1)
+	b = binary.LittleEndian.AppendUint64(b, math.Float64bits(x))
+	return string(binary.LittleEndian.AppendUint64(b, math.Float64bits(y)))
 }
