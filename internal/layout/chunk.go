@@ -225,10 +225,14 @@ func aggregateSizeStatistics(pages []*Page, statsStartIdx int) *parquet.SizeStat
 	var defHist []int64
 	var repHist []int64
 	var totalByteArrayBytes *int64
+	byteArrayBytesKnown := true
 
 	for i := statsStartIdx; i < len(pages); i++ {
 		p := pages[i]
 		if p == nil {
+			// The histograms below tolerate a missing page, but a byte-array total that
+			// leaves one out is understated rather than absent.
+			byteArrayBytesKnown = false
 			continue
 		}
 		// Aggregate definition level histograms.
@@ -250,12 +254,19 @@ func aggregateSizeStatistics(pages []*Page, statsStartIdx int) *parquet.SizeStat
 			}
 		}
 		// Aggregate unencoded byte array data bytes.
-		if p.UnencodedByteArrayDataBytes != nil {
-			if totalByteArrayBytes == nil {
-				totalByteArrayBytes = new(int64)
-			}
-			*totalByteArrayBytes += *p.UnencodedByteArrayDataBytes
+		if p.UnencodedByteArrayDataBytes == nil {
+			byteArrayBytesKnown = false
+			continue
 		}
+		if totalByteArrayBytes == nil {
+			totalByteArrayBytes = new(int64)
+		}
+		*totalByteArrayBytes += *p.UnencodedByteArrayDataBytes
+	}
+	// A sum over the pages that could be measured is understated and reads as exact, so a
+	// chunk reports this total only when every page contributed one.
+	if !byteArrayBytesKnown {
+		totalByteArrayBytes = nil
 	}
 
 	if defHist == nil && repHist == nil && totalByteArrayBytes == nil {

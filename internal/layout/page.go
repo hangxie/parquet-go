@@ -71,7 +71,9 @@ type Page struct {
 
 	// UnencodedByteArrayDataBytes tracks the total byte size of BYTE_ARRAY
 	// data values (excluding 4-byte length prefixes) for SizeStatistics.
-	// Only set for BYTE_ARRAY physical type columns; nil otherwise.
+	// Set only for a BYTE_ARRAY column whose values were measured; nil for
+	// any other type, and for a page whose values did not reach the count,
+	// which withholds the chunk's total rather than understating it.
 	UnencodedByteArrayDataBytes *int64
 
 	// dictionaryIndices are retained until row-group finalization.

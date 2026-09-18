@@ -73,11 +73,12 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 	}
 }
 
-// computeLevelHistograms builds definition and repetition level histograms
-// from the page's DataTable, and computes unencoded byte array data bytes
-// for BYTE_ARRAY columns. These survive DataTable being nilled out later
-// and are used when building ColumnIndex and SizeStatistics in the writer.
-func (page *Page) computeLevelHistograms() {
+// computeLevelHistograms builds the row count, level histograms and byte-array size, which
+// survive DataTable being nilled out later and feed ColumnIndex and SizeStatistics.
+//
+// values must be index-aligned with page.DataTable.DefinitionLevels and the same length; a
+// dictionary page carries them outside DataTable, so it passes the table slice it scanned.
+func (page *Page) computeLevelHistograms(values []any) {
 	if page.DataTable == nil {
 		return
 	}
@@ -108,9 +109,12 @@ func (page *Page) computeLevelHistograms() {
 	}
 	// Compute unencoded byte array data bytes for BYTE_ARRAY columns.
 	// Per the spec this is the total byte size excluding 4-byte length prefixes.
-	if page.Schema != nil && page.Schema.Type != nil && *page.Schema.Type == parquet.Type_BYTE_ARRAY {
+	// A caller that measures nothing must publish nothing: a zero here is a number a reader
+	// sizes a decompression buffer from, where a missing statistic is one it ignores.
+	if page.Schema != nil && page.Schema.Type != nil && *page.Schema.Type == parquet.Type_BYTE_ARRAY &&
+		len(values) == len(page.DataTable.DefinitionLevels) {
 		var totalBytes int64
-		for idx, v := range page.DataTable.Values {
+		for idx, v := range values {
 			if v == nil || page.DataTable.DefinitionLevels[idx] != page.DataTable.MaxDefinitionLevel {
 				continue
 			}

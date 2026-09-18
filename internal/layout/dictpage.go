@@ -266,8 +266,9 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, opt Page
 		// A dict page leaves DataTable.Values nil, so the values it measured come from the
 		// table directly. Everything else is the plain page's rule, applied by one function
 		// so a column's statistics do not depend on its encoding.
+		pageValues := table.Values[i:scan.endIdx]
 		setPageStats(page, pageStats{
-			values:      table.Values[i:scan.endIdx],
+			values:      pageValues,
 			defLevels:   table.DefinitionLevels[i:scan.endIdx],
 			maxDefLevel: table.MaxDefinitionLevel,
 			minVal:      scan.minVal,
@@ -279,7 +280,7 @@ func TableToDictDataPagesWithOption(dictRec *DictRecType, table *Table, opt Page
 		page.Path = table.Path
 		page.Info = table.Info
 
-		page.computeLevelHistograms()
+		page.computeLevelHistograms(pageValues)
 
 		bitWidth := int32(0)
 		if len(dictRec.DictSlice) > 1 {

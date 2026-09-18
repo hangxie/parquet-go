@@ -205,7 +205,7 @@ func TableToDataPagesWithOption(table *Table, opt PageWriteOption) ([]*Page, int
 		page.Path = table.Path
 		page.Info = table.Info
 
-		page.computeLevelHistograms()
+		page.computeLevelHistograms(page.DataTable.Values)
 
 		if err = compressAndSerializePage(page, opt); err != nil {
 			return nil, 0, fmt.Errorf("compress and serialize page at %d: %w", i, err)
