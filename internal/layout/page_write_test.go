@@ -1990,3 +1990,47 @@ func TestPageGeospatialStatisticsKeepsTypesWithNoReader(t *testing.T) {
 	require.True(t, stats.BoundsUnknown)
 	require.Nil(t, stats.BBox)
 }
+
+// TestPageGeospatialStatisticsEmptyValue pins that an empty value is read as one the column
+// holds and cannot be measured, not as an absent one.
+func TestPageGeospatialStatisticsEmptyValue(t *testing.T) {
+	point := string([]byte{
+		0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x40, 0xcd, 0xcc, 0xcc,
+		0xcc, 0xcc, 0x4c, 0x34, 0x40,
+	})
+
+	pointBBox := &parquet.BoundingBox{Xmin: 10.5, Xmax: 10.5, Ymin: 20.3, Ymax: 20.3}
+
+	tests := []struct {
+		name            string
+		values          []any
+		defLevels       []int32
+		wantBBox        *parquet.BoundingBox
+		wantTypes       []int32
+		wantBothUnknown bool
+	}{
+		// A null is absence, and the definition level carries it: the rest of the page
+		// still measures.
+		{"null alongside a point", []any{point, nil}, []int32{1, 0}, pointBBox, []int32{1}, false},
+		// An empty value is not absence. WKB has no zero-byte form, so the column holds
+		// something neither half can read, and a statistic over the rest would describe
+		// less than the page does.
+		{"empty string", []any{point, ""}, []int32{1, 1}, nil, nil, true},
+		{"empty bytes", []any{point, []byte{}}, []int32{1, 1}, nil, nil, true},
+		{"only an empty value", []any{""}, []int32{1}, nil, nil, true},
+		// Same for a value that is not bytes at all, which is the one input whose page
+		// statistics this changed: the box used to be drawn around the readable rest.
+		{"non-bytes alongside a point", []any{point, 42}, []int32{1, 1}, nil, nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stats := computePageGeospatialStatistics(tt.values, tt.defLevels, 1)
+
+			require.Equal(t, tt.wantBothUnknown, stats.BoundsUnknown)
+			require.Equal(t, tt.wantBothUnknown, stats.TypesUnknown)
+			require.Equal(t, tt.wantTypes, stats.Types)
+			require.Equal(t, tt.wantBBox, stats.BBox)
+		})
+	}
+}
