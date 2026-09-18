@@ -686,3 +686,147 @@ func TestDictPageIntervalHasNoMinMax(t *testing.T) {
 		require.NotNil(t, page.NullCount)
 	}
 }
+
+// byteArrayTable builds a flat BYTE_ARRAY column over values.
+func dictByteArrayTable(values []any) *Table {
+	defLevels := make([]int32, len(values))
+	for i, v := range values {
+		if v != nil {
+			defLevels[i] = 1
+		}
+	}
+	return &Table{
+		Schema:             &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_BYTE_ARRAY), Name: "s"},
+		Values:             values,
+		DefinitionLevels:   defLevels,
+		RepetitionLevels:   make([]int32, len(values)),
+		MaxDefinitionLevel: 1,
+		Info:               &common.Tag{},
+	}
+}
+
+func sumPageByteArrayBytes(t *testing.T, pages []*Page) int64 {
+	t.Helper()
+	var sum int64
+	for _, page := range pages {
+		require.NotNil(t, page.UnencodedByteArrayDataBytes, "every data page reports its own total")
+		sum += *page.UnencodedByteArrayDataBytes
+	}
+	return sum
+}
+
+// TestDictPageUnencodedByteArrayDataBytes covers the statistic a dictionary page used to
+// measure over a nil DataTable.Values and publish as a confident zero.
+func TestDictPageUnencodedByteArrayDataBytes(t *testing.T) {
+	tests := []struct {
+		name      string
+		values    []any
+		pageSize  int32
+		pageVer   int32
+		wantTotal int64
+	}{
+		// The spec's own example: the count is per occurrence, not per dictionary entry,
+		// so a repeated value is counted each time it appears.
+		{"repeated value", []any{"a", "a", "bc", "cde"}, 1024, 0, 7},
+		{"distinct values", []any{"aaaa", "bbbb", "cccc"}, 1024, 0, 12},
+		{"nulls are not counted", []any{"aaaa", nil, "bb"}, 1024, 0, 6},
+		// A one-byte budget ends every page after a value, so the slice offsets that
+		// attribute bytes to a page are exercised rather than assumed.
+		{"one value per page", []any{"a", "a", "bc", "cde"}, 1, 0, 7},
+		{"data page v2", []any{"a", "a", "bc", "cde"}, 1, 2, 7},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opt := PageWriteOption{PageSize: tt.pageSize, CompressType: parquet.CompressionCodec_UNCOMPRESSED, DataPageVersion: tt.pageVer}
+
+			dictPages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_BYTE_ARRAY), dictByteArrayTable(tt.values), opt)
+			require.NoError(t, err)
+			plainPages, _, err := TableToDataPagesWithOption(dictByteArrayTable(tt.values), opt)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantTotal, sumPageByteArrayBytes(t, plainPages))
+			require.Equal(t, tt.wantTotal, sumPageByteArrayBytes(t, dictPages))
+			// Only the chunk total reaches the file, but agreeing page by page is what
+			// shows the bytes are attributed to the page that holds them.
+			require.Equal(t, len(plainPages), len(dictPages))
+			for i := range dictPages {
+				require.Equal(t, *plainPages[i].UnencodedByteArrayDataBytes, *dictPages[i].UnencodedByteArrayDataBytes, "page %d", i)
+			}
+		})
+	}
+}
+
+// TestDictPageUnencodedByteArrayDataBytesInChunk asserts the field the reader actually sees,
+// which aggregateSizeStatistics builds a step after the per-page totals.
+func TestDictPageUnencodedByteArrayDataBytesInChunk(t *testing.T) {
+	values := []any{"a", "a", "bc", "cde"}
+	opt := PageWriteOption{PageSize: 1, CompressType: parquet.CompressionCodec_UNCOMPRESSED}
+
+	dictRec := NewDictRec(parquet.Type_BYTE_ARRAY)
+	dataPages, _, err := TableToDictDataPagesWithOption(dictRec, dictByteArrayTable(values), opt)
+	require.NoError(t, err)
+	require.Greater(t, len(dataPages), 1, "the page budget should have split the column")
+
+	dictPage, _, err := DictRecToDictPageWithOption(dictRec, opt)
+	require.NoError(t, err)
+
+	// The dictionary page carries no total of its own and sits outside the window the
+	// aggregation reads, so the chunk counts each value's bytes once, not the entries too.
+	require.Nil(t, dictPage.UnencodedByteArrayDataBytes)
+
+	chunk, err := PagesToDictChunk(append([]*Page{dictPage}, dataPages...))
+	require.NoError(t, err)
+
+	size := chunk.ChunkHeader.MetaData.SizeStatistics
+	require.NotNil(t, size)
+	require.NotNil(t, size.UnencodedByteArrayDataBytes)
+	require.Equal(t, int64(7), *size.UnencodedByteArrayDataBytes)
+}
+
+// TestDictPageUnencodedByteArrayDataBytesAcrossFallback covers the seam where the dictionary
+// fills part way through, so the chunk holds dictionary pages and then plain ones.
+func TestDictPageUnencodedByteArrayDataBytesAcrossFallback(t *testing.T) {
+	values := []any{"aaaa", "bbbb", "cccc"}
+	opt := PageWriteOption{PageSize: 1, CompressType: parquet.CompressionCodec_UNCOMPRESSED}
+
+	// One encoded value is 8 bytes, so the limit admits the first and refuses the second.
+	dictRec := NewDictRecWithLimit(parquet.Type_BYTE_ARRAY, 10)
+	pages, _, err := TableToDictDataPagesWithOption(dictRec, dictByteArrayTable(values), opt)
+	require.NoError(t, err)
+	require.True(t, dictRec.full, "the dictionary should have filled part way through")
+
+	require.Equal(t, int64(12), sumPageByteArrayBytes(t, pages))
+}
+
+// TestDictPageUnencodedByteArrayDataBytesRepeated covers a repeated column, where a page
+// runs on past its size budget to the next row boundary, so page ranges come out uneven and
+// the slice handed to the histogram has to follow them.
+func TestDictPageUnencodedByteArrayDataBytesRepeated(t *testing.T) {
+	// Two rows: ["a", "bc"] and ["cde"].
+	table := func() *Table {
+		return &Table{
+			Schema:             &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_BYTE_ARRAY), Name: "s"},
+			Values:             []any{"a", "bc", "cde"},
+			DefinitionLevels:   []int32{1, 1, 1},
+			RepetitionLevels:   []int32{0, 1, 0},
+			MaxDefinitionLevel: 1,
+			MaxRepetitionLevel: 1,
+			Info:               &common.Tag{},
+		}
+	}
+	opt := PageWriteOption{PageSize: 1, CompressType: parquet.CompressionCodec_UNCOMPRESSED}
+
+	dictPages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_BYTE_ARRAY), table(), opt)
+	require.NoError(t, err)
+	plainPages, _, err := TableToDataPagesWithOption(table(), opt)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(6), sumPageByteArrayBytes(t, plainPages))
+	require.Equal(t, int64(6), sumPageByteArrayBytes(t, dictPages))
+	require.Equal(t, len(plainPages), len(dictPages))
+	for i := range dictPages {
+		require.Equal(t, *plainPages[i].UnencodedByteArrayDataBytes, *dictPages[i].UnencodedByteArrayDataBytes, "page %d", i)
+		require.Equal(t, plainPages[i].NumRows, dictPages[i].NumRows, "page %d rows", i)
+	}
+}

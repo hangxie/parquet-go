@@ -55,7 +55,7 @@ func TestEncodingValues_ByteStreamSplit_UnsupportedType(t *testing.T) {
 
 func TestComputeLevelHistograms_NilDataTable(t *testing.T) {
 	page := &Page{}
-	page.computeLevelHistograms() // must not panic
+	page.computeLevelHistograms(nil) // must not panic
 	require.Nil(t, page.DefinitionLevelHistogram)
 	require.Nil(t, page.RepetitionLevelHistogram)
 }
@@ -72,7 +72,7 @@ func TestComputeLevelHistograms_DefinitionLevels(t *testing.T) {
 			Values:             []any{nil, "a", "b", nil, "c"},
 		},
 	}
-	page.computeLevelHistograms()
+	page.computeLevelHistograms(page.DataTable.Values)
 	require.Equal(t, []int64{2, 3}, page.DefinitionLevelHistogram)
 	require.Nil(t, page.RepetitionLevelHistogram)
 }
@@ -89,7 +89,7 @@ func TestComputeLevelHistograms_RepetitionLevels(t *testing.T) {
 			Values:             []any{nil, nil, nil},
 		},
 	}
-	page.computeLevelHistograms()
+	page.computeLevelHistograms(page.DataTable.Values)
 	require.Nil(t, page.DefinitionLevelHistogram)
 	require.Equal(t, []int64{2, 1}, page.RepetitionLevelHistogram)
 }
@@ -106,7 +106,7 @@ func TestComputeLevelHistograms_ByteArrayUnencodedBytes(t *testing.T) {
 			Values:             []any{"hello", "world", nil},
 		},
 	}
-	page.computeLevelHistograms()
+	page.computeLevelHistograms(page.DataTable.Values)
 	require.NotNil(t, page.UnencodedByteArrayDataBytes)
 	require.Equal(t, int64(10), *page.UnencodedByteArrayDataBytes) // "hello"=5 + "world"=5
 }
@@ -123,7 +123,7 @@ func TestComputeLevelHistograms_ByteArrayBytesValue(t *testing.T) {
 			Values:             []any{[]byte{0xAA, 0xBB, 0xCC}},
 		},
 	}
-	page.computeLevelHistograms()
+	page.computeLevelHistograms(page.DataTable.Values)
 	require.NotNil(t, page.UnencodedByteArrayDataBytes)
 	require.Equal(t, int64(3), *page.UnencodedByteArrayDataBytes)
 }
@@ -287,4 +287,37 @@ func TestSetPageStatistics_ByteArrayStripsLengthPrefix(t *testing.T) {
 	// BYTE_ARRAY: WritePlain adds 4-byte length prefix, setPageStatistics strips it
 	require.Equal(t, []byte("abc"), stats.MinValue)
 	require.Equal(t, []byte("xyz"), stats.MaxValue)
+}
+
+// TestComputeLevelHistogramsOmitsUnmeasuredByteArray pins that a caller which hands over
+// values that do not line up with the page's levels publishes no statistic, rather than the
+// plausible zero that a nil slice used to produce.
+func TestComputeLevelHistogramsOmitsUnmeasuredByteArray(t *testing.T) {
+	newPage := func() *Page {
+		page := NewDataPage()
+		page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_BYTE_ARRAY), Name: "s"}
+		page.DataTable = &Table{
+			Values:             []any{"aaaa", "bb"},
+			DefinitionLevels:   []int32{1, 1},
+			RepetitionLevels:   []int32{0, 0},
+			MaxDefinitionLevel: 1,
+		}
+		return page
+	}
+
+	measured := newPage()
+	measured.computeLevelHistograms(measured.DataTable.Values)
+	require.NotNil(t, measured.UnencodedByteArrayDataBytes)
+	require.Equal(t, int64(6), *measured.UnencodedByteArrayDataBytes)
+
+	for name, values := range map[string][]any{
+		"nil":   nil,
+		"short": {"aaaa"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			page := newPage()
+			page.computeLevelHistograms(values)
+			require.Nil(t, page.UnencodedByteArrayDataBytes)
+		})
+	}
 }

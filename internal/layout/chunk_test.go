@@ -1656,3 +1656,39 @@ func TestChunkGeospatialStatisticsUnknownBounds(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, chunk.ChunkHeader.MetaData.GeospatialStatistics)
 }
+
+// TestAggregateSizeStatisticsWithholdsPartialByteArrayTotal pins that a chunk reports the
+// byte-array total only when every page contributed one. Summing the pages that could be
+// measured publishes an understated number that reads as exact, which is the failure the
+// per-page count already refuses.
+func TestAggregateSizeStatisticsWithholdsPartialByteArrayTotal(t *testing.T) {
+	page := func(bytes *int64) *Page {
+		p := NewDataPage()
+		p.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_BYTE_ARRAY), Name: "s"}
+		p.UnencodedByteArrayDataBytes = bytes
+		return p
+	}
+	n := func(v int64) *int64 { return &v }
+
+	t.Run("every page measured", func(t *testing.T) {
+		stats := aggregateSizeStatistics([]*Page{page(n(10)), page(n(20))}, 0)
+		require.NotNil(t, stats.UnencodedByteArrayDataBytes)
+		require.Equal(t, int64(30), *stats.UnencodedByteArrayDataBytes)
+	})
+
+	// These pages carry no histograms either, so withholding the total leaves nothing to
+	// report and the whole SizeStatistics is omitted.
+	t.Run("one page unmeasured", func(t *testing.T) {
+		require.Nil(t, aggregateSizeStatistics([]*Page{page(n(10)), page(nil), page(n(20))}, 0))
+	})
+
+	// What a column of any other physical type looks like here: the aggregation never reads
+	// the schema, so a type that has no byte-array total is simply every page reporting none.
+	t.Run("no page measured", func(t *testing.T) {
+		require.Nil(t, aggregateSizeStatistics([]*Page{page(nil), page(nil)}, 0))
+	})
+
+	t.Run("a nil page", func(t *testing.T) {
+		require.Nil(t, aggregateSizeStatistics([]*Page{page(n(10)), nil, page(n(20))}, 0))
+	})
+}

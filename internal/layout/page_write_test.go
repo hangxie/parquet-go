@@ -1579,7 +1579,11 @@ func TestComputeLevelHistograms(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			tt.page.computeLevelHistograms()
+			var values []any
+			if tt.page.DataTable != nil {
+				values = tt.page.DataTable.Values
+			}
+			tt.page.computeLevelHistograms(values)
 			require.Equal(t, tt.wantDefHist, tt.page.DefinitionLevelHistogram)
 			require.Equal(t, tt.wantRepHist, tt.page.RepetitionLevelHistogram)
 			require.Equal(t, tt.wantNumRows, tt.page.NumRows)
