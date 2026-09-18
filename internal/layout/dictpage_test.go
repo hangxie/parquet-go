@@ -1,7 +1,9 @@
 package layout
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -545,5 +547,142 @@ func TestTableToDictDataPagesWithOption_FixedLenByteArrayWidth(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.errMsg)
 		})
+	}
+}
+
+// wkbPointAt spells a little-endian 2D WKB point.
+func wkbPointAt(x, y float64) string {
+	b := []byte{0x01}
+	b = binary.LittleEndian.AppendUint32(b, 1)
+	b = binary.LittleEndian.AppendUint64(b, math.Float64bits(x))
+	return string(binary.LittleEndian.AppendUint64(b, math.Float64bits(y)))
+}
+
+func geospatialTable(values []any) *Table {
+	defLevels := make([]int32, len(values))
+	repLevels := make([]int32, len(values))
+	for i := range defLevels {
+		defLevels[i] = 1
+	}
+	return &Table{
+		Schema: &parquet.SchemaElement{
+			Type:        common.ToPtr(parquet.Type_BYTE_ARRAY),
+			Name:        "geo",
+			LogicalType: &parquet.LogicalType{GEOMETRY: parquet.NewGeometryType()},
+		},
+		Values:             values,
+		DefinitionLevels:   defLevels,
+		RepetitionLevels:   repLevels,
+		MaxDefinitionLevel: 1,
+		Info:               &common.Tag{},
+	}
+}
+
+// TestDictPageGeospatialStatisticsMatchPlain pins that statistics do not depend on encoding.
+func TestDictPageGeospatialStatisticsMatchPlain(t *testing.T) {
+	// A dictionary page left DataTable.Values nil and never measured them, so this column
+	// carried no box and no type list, and min/max the plain path withholds.
+	values := []any{wkbPointAt(-170, -80), wkbPointAt(10.5, 20.3), wkbPointAt(30, 40)}
+	opt := PageWriteOption{PageSize: 1024, CompressType: parquet.CompressionCodec_UNCOMPRESSED}
+
+	dictPages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_BYTE_ARRAY), geospatialTable(values), opt)
+	require.NoError(t, err)
+	require.NotEmpty(t, dictPages)
+
+	plainPages, _, err := TableToDataPagesWithOption(geospatialTable(values), opt)
+	require.NoError(t, err)
+	require.NotEmpty(t, plainPages)
+
+	dictBBox, dictTypes := aggregateGeospatialStatistics(dictPages)
+	plainBBox, plainTypes := aggregateGeospatialStatistics(plainPages)
+
+	require.NotNil(t, dictBBox)
+	require.Equal(t, plainBBox, dictBBox)
+	require.Equal(t, plainTypes, dictTypes)
+	require.Equal(t, -170.0, dictBBox.Xmin)
+	require.Equal(t, 30.0, dictBBox.Xmax)
+
+	// A geospatial column carries no min/max, whichever encoding wrote it.
+	for _, page := range dictPages {
+		require.Nil(t, page.MinVal)
+		require.Nil(t, page.MaxVal)
+	}
+}
+
+// TestDictPageGeospatialUnreadableWithdrawsBounds covers a dictionary page holding a value
+// the walk cannot read. The rule #437 set for plain pages applies here too: the box is
+// withdrawn rather than drawn around the values that were readable.
+func TestDictPageGeospatialUnreadableWithdrawsBounds(t *testing.T) {
+	values := []any{wkbPointAt(-170, -80), "not-wkb-at-all"}
+	opt := PageWriteOption{PageSize: 1024, CompressType: parquet.CompressionCodec_UNCOMPRESSED}
+
+	pages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_BYTE_ARRAY), geospatialTable(values), opt)
+	require.NoError(t, err)
+	require.NotEmpty(t, pages)
+
+	bbox, _ := aggregateGeospatialStatistics(pages)
+	require.Nil(t, bbox)
+	for _, page := range pages {
+		require.True(t, page.GeospatialBoundsUnknown)
+	}
+}
+
+// TestDictPageGeospatialAcrossDictionaryFallback covers the transition #438 describes.
+func TestDictPageGeospatialAcrossDictionaryFallback(t *testing.T) {
+	// The dictionary fills part way through, so the chunk holds dictionary pages followed by
+	// the plain pages that took over, and only the plain ones used to measure their values.
+	// A far-away first point, so a box built from the rest would visibly exclude it.
+	values := []any{wkbPointAt(-170, -80), wkbPointAt(10.5, 20.3), wkbPointAt(30, 40)}
+
+	// One encoded value is 25 bytes, so the limit admits the first and refuses the second,
+	// and a one-byte page budget ends the page before that happens.
+	dictRec := NewDictRecWithLimit(parquet.Type_BYTE_ARRAY, 30)
+	opt := PageWriteOption{PageSize: 1, CompressType: parquet.CompressionCodec_UNCOMPRESSED}
+
+	pages, _, err := TableToDictDataPagesWithOption(dictRec, geospatialTable(values), opt)
+	require.NoError(t, err)
+	require.Greater(t, len(pages), 1, "expected a dictionary page and plain fallback pages")
+	require.True(t, dictRec.full, "the dictionary should have filled part way through")
+
+	bbox, geoTypes := aggregateGeospatialStatistics(pages)
+	require.NotNil(t, bbox)
+	require.Equal(t, []int32{1}, geoTypes)
+	require.Equal(t, -170.0, bbox.Xmin, "the box must cover the value on the dictionary page")
+	require.Equal(t, -80.0, bbox.Ymin)
+	require.Equal(t, 30.0, bbox.Xmax)
+	require.Equal(t, 40.0, bbox.Ymax)
+}
+
+// TestDictPageIntervalHasNoMinMax covers the other annotation setPageStats withholds min/max
+// for. The specification leaves INTERVAL's sort order undefined, so neither encoding writes
+// bounds for it; the dictionary path used to write them from the raw bytes.
+func TestDictPageIntervalHasNoMinMax(t *testing.T) {
+	interval := func(b ...byte) string {
+		v := make([]byte, 12)
+		copy(v, b)
+		return string(v)
+	}
+	table := &Table{
+		Schema: &parquet.SchemaElement{
+			Type:          common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+			TypeLength:    common.ToPtr(int32(12)),
+			Name:          "iv",
+			ConvertedType: common.ToPtr(parquet.ConvertedType_INTERVAL),
+		},
+		Values:             []any{interval(1), interval(2), interval(3)},
+		DefinitionLevels:   []int32{1, 1, 1},
+		RepetitionLevels:   []int32{0, 0, 0},
+		MaxDefinitionLevel: 1,
+		Info:               &common.Tag{},
+	}
+	opt := PageWriteOption{PageSize: 1024, CompressType: parquet.CompressionCodec_UNCOMPRESSED}
+
+	dictPages, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_FIXED_LEN_BYTE_ARRAY), table, opt)
+	require.NoError(t, err)
+	require.NotEmpty(t, dictPages)
+	for _, page := range dictPages {
+		require.Nil(t, page.MinVal)
+		require.Nil(t, page.MaxVal)
+		require.NotNil(t, page.NullCount)
 	}
 }
