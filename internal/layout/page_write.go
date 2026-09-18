@@ -266,6 +266,15 @@ func computePageGeospatialStatistics(values []any, definitionLevels []int32, max
 			continue
 		}
 
+		// An empty value is not an absent one: parquet spells absence with a null, which the
+		// definition level above already skipped, and WKB has no zero-byte form. So this is
+		// a value the column holds that nothing here can measure.
+		if len(wkbBytes) == 0 {
+			stats.BoundsUnknown = true
+			stats.TypesUnknown = true
+			continue
+		}
+
 		_ = calc.AddWKB(wkbBytes)
 
 		// The type comes from the WKB header, which a Z or M geometry carries as plainly
@@ -284,7 +293,9 @@ func computePageGeospatialStatistics(values []any, definitionLevels []int32, max
 		}
 	}
 
-	if minX, minY, maxX, maxY, ok := calc.GetBounds(); ok {
+	// A page that holds a value it could not read reports no box of its own, rather than one
+	// its own BoundsUnknown contradicts. The chunk withholds it either way.
+	if minX, minY, maxX, maxY, ok := calc.GetBounds(); ok && !stats.BoundsUnknown {
 		stats.BBox = &parquet.BoundingBox{Xmin: minX, Xmax: maxX, Ymin: minY, Ymax: maxY}
 	}
 	return stats
