@@ -133,7 +133,11 @@ func StrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, len
 		// A ConvertedType DECIMAL column carries its precision in the schema element
 		// rather than here, so the digit count goes unchecked on this path.
 		return strToDecimal(s, pT, 0, length, scale)
-	case parquet.ConvertedType_BSON, parquet.ConvertedType_JSON, parquet.ConvertedType_ENUM:
+	case parquet.ConvertedType_BSON:
+		// Not text on the wire, unlike the two below: the string is Extended JSON and
+		// the column holds the document it describes.
+		return strToBSON(s, pT)
+	case parquet.ConvertedType_JSON, parquet.ConvertedType_ENUM:
 		// These are BYTE_ARRAY types that should preserve the string value as-is
 		return s, nil
 	default:
@@ -203,8 +207,8 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 // StrToParquetTypeWithLogical scans a string to a parquet value, honoring the logical type.
 // The value mode picks the grammar: interpreted (the default) reads each logical type's
 // canonical text, raw reads the physical value as base64 where byte-backed. Interpreted
-// mode requires length 16 for UUID and 2 for FLOAT16, and refuses GEOMETRY, GEOGRAPHY and
-// BSON, which have no write form yet. See README's Value Modes for the full grammar.
+// mode requires length 16 for UUID and 2 for FLOAT16, and refuses GEOMETRY and GEOGRAPHY,
+// which have no write form yet. See README's Value Modes for the full grammar.
 func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int, opts ...ValueOption) (any, error) {
 	if pT == nil {
 		return nil, errNoPhysicalType(s)
@@ -225,6 +229,10 @@ func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.Convert
 	}
 	if typeName := interpretedWriteUnsupported(cT, lT); typeName != "" {
 		return nil, errInterpretedWrite(typeName)
+	}
+	// Ahead of both scanners below: either annotation spells the same Extended JSON.
+	if isBSONAnnotated(cT, lT) {
+		return strToBSON(s, pT)
 	}
 	if lT != nil {
 		if v, handled, err := strToLogicalType(s, lT, pT, length); handled {

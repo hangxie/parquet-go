@@ -443,8 +443,7 @@ func TestCSVJSONEquivalence(t *testing.T) {
 			// bson.Marshal(bson.D{{Key: "a", Value: int32(1)}}); the declared length is the
 			// document's own 12 bytes. It used to read 14, which no parser accepts, so
 			// this column was failing to render rather than failing to round trip.
-			values: []any{"\x0c\x00\x00\x00\x10a\x00\x01\x00\x00\x00\x00"},
-			issue:  "#417: BSON has no interpreted write form, the rendered document is not parsed back",
+			values: []any{"\x05\x00\x00\x00\x00", "\x0c\x00\x00\x00\x10a\x00\x01\x00\x00\x00\x00"},
 		},
 		{
 			name:   "GEOMETRY",
@@ -622,7 +621,8 @@ func textAnnotated(se *parquet.SchemaElement) bool {
 }
 
 // TestRawModeWritePath covers raw mode across both writers. Every column is handed the
-// lossless form of its physical value; BSON and geospatial can be written no other way.
+// lossless form of its physical value; geospatial can be written no other way, and BSON
+// only this way if the bytes have to survive exactly.
 func TestRawModeWritePath(t *testing.T) {
 	float16 := func(bits uint16) string {
 		return string([]byte{byte(bits), byte(bits >> 8)})
@@ -728,8 +728,8 @@ func TestRawModeWritePath(t *testing.T) {
 }
 
 // TestInterpretedModeRefusesUnsupported pins the other half of #418: the default mode
-// reports a geospatial or BSON value it cannot parse instead of storing the bytes of the
-// text it was given.
+// reports a geospatial value it cannot parse instead of storing the bytes of the text it
+// was given.
 func TestInterpretedModeRefusesUnsupported(t *testing.T) {
 	tests := map[string]struct {
 		tag   string
@@ -737,7 +737,6 @@ func TestInterpretedModeRefusesUnsupported(t *testing.T) {
 	}{
 		"GEOMETRY":  {"type=BYTE_ARRAY, logicaltype=GEOMETRY", "POINT (1 2)"},
 		"GEOGRAPHY": {"type=BYTE_ARRAY, logicaltype=GEOGRAPHY", "POINT (1 2)"},
-		"BSON":      {"type=BYTE_ARRAY, convertedtype=BSON", `{"a":1}`},
 	}
 
 	for name, tt := range tests {
@@ -752,6 +751,26 @@ func TestInterpretedModeRefusesUnsupported(t *testing.T) {
 			require.ErrorContains(t, err, name)
 		})
 	}
+}
+
+// TestBSONInterpretedWritePath pins #417: both writers read a BSON column's text as
+// Extended JSON. Up to v3.8.3 CSVWriter stored the characters, doubly base64-encoding.
+func TestBSONInterpretedWritePath(t *testing.T) {
+	tag := "name=" + csvJSONColumn + ", type=BYTE_ARRAY, convertedtype=BSON"
+	// bson.Marshal(bson.D{{Key: "i", Value: int32(1)}})
+	doc := string([]byte{0x0c, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x01, 0x00, 0x00, 0x00, 0x00})
+
+	fromCSV, err := writeCSVColumn(tag, []string{`{"i":1}`})
+	require.NoError(t, err)
+	fromJSON, err := writeJSONColumn(tag, []any{`{"i":{"$numberInt":"1"}}`})
+	require.NoError(t, err)
+	require.Equal(t, []any{doc}, fromCSV)
+	require.Equal(t, fromCSV, fromJSON)
+
+	_, err = writeCSVColumn(tag, []string{"not a document"})
+	require.ErrorContains(t, err, "parse BSON")
+	_, err = writeJSONColumn(tag, []any{"not a document"})
+	require.ErrorContains(t, err, "parse BSON")
 }
 
 // TestValueModeOptionValidation pins that a mode outside the two defined ones is reported

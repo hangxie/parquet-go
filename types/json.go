@@ -284,18 +284,18 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 		case reflect.Float32, reflect.Float64:
 			// For JSON numbers coming as floats, format with appropriate precision
 			s := fmt.Sprintf("%."+fmt.Sprintf("%d", scale)+"f", val.Float())
-			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale)
+			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale, opts...)
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			// For JSON numbers coming as integers
 			s := strconv.FormatInt(val.Int(), 10)
-			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale)
+			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale, opts...)
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			// For JSON numbers coming as unsigned integers
 			s := strconv.FormatUint(val.Uint(), 10)
-			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale)
+			return StrToParquetTypeWithLogical(s, pT, cT, lT, length, scale, opts...)
 		case reflect.String:
 			// For JSON numbers coming as strings (from json.Number when UseNumber is used)
-			return StrToParquetTypeWithLogical(val.String(), pT, cT, lT, length, scale)
+			return StrToParquetTypeWithLogical(val.String(), pT, cT, lT, length, scale, opts...)
 		}
 	}
 
@@ -305,7 +305,7 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	}
 
 	// Fallback to string-based conversion for complex/unusual types
-	return StrToParquetTypeWithLogical(jsonValueText(val), pT, cT, lT, length, scale)
+	return StrToParquetTypeWithLogical(jsonValueText(val), pT, cT, lT, length, scale, opts...)
 }
 
 // isTimeColumn reports whether either annotation marks the column as TIME.

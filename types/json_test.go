@@ -2652,14 +2652,30 @@ func TestJSONValueToParquetDirect_EdgeCases(t *testing.T) {
 			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
 			expected: "Hello",
 		},
-		// BSON has no interpreted write form yet, so the value is refused rather than
-		// stored as the bytes of its own text.
+		// A BSON column takes Extended JSON, so text that is not a document is refused
+		// rather than stored as the bytes it spells.
 		{
-			name:        "bson_ct_fallthrough",
+			name:        "bson_ct_not_extended_json",
 			value:       "somedata",
+			pT:          parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:          parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+			expectError: true,
+		},
+		// A BSON annotation on a column that cannot hold a document. Unreachable
+		// through either writer, but a hand-built schema element skips validation.
+		{
+			name:        "bson_ct_on_a_non_byte_array_column",
+			value:       `{"i":1}`,
 			pT:          parquet.TypePtr(parquet.Type_INT32),
 			cT:          parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
 			expectError: true,
+		},
+		{
+			name:     "bson_ct_relaxed_extended_json",
+			value:    `{"i":1}`,
+			pT:       parquet.TypePtr(parquet.Type_BYTE_ARRAY),
+			cT:       parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
+			expected: string([]byte{0x0c, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}),
 		},
 		// bool value for FLOAT type: getNumericValue returns (0,false),
 		// jsonPhysicalTypeDirect returns false, StrToParquetType fails to parse \"true\" as float.
@@ -3398,8 +3414,7 @@ func TestPhysicalRoundTrip(t *testing.T) {
 		{
 			name:   "BSON",
 			se:     roundTripSE(parquet.Type_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_BSON), bsonLT, 0),
-			values: []any{string(bsonDoc)},
-			issue:  "#417: BSON has no interpreted write form, the rendered document is not parsed back",
+			values: []any{string(bsonDoc), "\x05\x00\x00\x00\x00", string(mustRichBSON())},
 		},
 		{
 			name:   "GEOMETRY",

@@ -28,6 +28,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 - [Type System](#type-system)
   - [Reading Values](#reading-values)
   - [Value Modes](#value-modes)
+  - [BSON Values](#bson-values)
   - [TIMESTAMP Values](#timestamp-values)
 - [Encoding Support](#encoding-support)
 - [Compression Support](#compression-support)
@@ -336,12 +337,12 @@ jw, err := writer.NewJSONWriterWithContext(ctx, jsonSchema, fw,
 
 | Mode | Input grammar |
 | --- | --- |
-| `types.ValueModeInterpreted` (default) | The canonical text of the logical type: `550e8400-e29b-41d4-a716-446655440000` for `UUID`, `2023-12-25` for `DATE`, `2 mon 3 day 4.500 sec` for `INTERVAL`. `DATE`, `TIMESTAMP`, `TIME`, `INT96` and `INTERVAL` also still accept the bare number their column stores, which predates the mode. For `INT96` that number is the whole 96-bit value, not a day: its low eight bytes are nanoseconds within the day and its high four the Julian day, so `12345` is 12,345 nanoseconds on Julian day 0. |
+| `types.ValueModeInterpreted` (default) | The canonical text of the logical type: `550e8400-e29b-41d4-a716-446655440000` for `UUID`, `2023-12-25` for `DATE`, `2 mon 3 day 4.500 sec` for `INTERVAL`, Extended JSON for `BSON`. `DATE`, `TIMESTAMP`, `TIME`, `INT96` and `INTERVAL` also still accept the bare number their column stores, which predates the mode. For `INT96` that number is the whole 96-bit value, not a day: its low eight bytes are nanoseconds within the day and its high four the Julian day, so `12345` is 12,345 nanoseconds on Julian day 0. |
 | `types.ValueModeRaw` | The physical value: base64 for every byte-backed column, the underlying number for `INT32` and `INT64` backed ones. |
 
 Three rules hold in both modes. A column annotated `UTF8`, `ENUM`, or `JSON` is text and is stored verbatim, whether the annotation is the converted type or the logical type, since there is nothing to interpret; an unannotated `BYTE_ARRAY` or `FIXED_LEN_BYTE_ARRAY` is base64, matching what the read path renders for it; and `INT96` keeps its own timestamp form in interpreted mode and is base64 in raw mode.
 
-`GEOMETRY`, `GEOGRAPHY`, and `BSON` have no interpreted write form yet, so in the default mode a value for one of those columns fails with a `not supported yet` error. Raw mode writes them from base64. Up to v3.8.3 such a value fell through to the byte-array guess, so `POINT (1 2)` was stored as the eleven characters of that string claiming to be WKB.
+`GEOMETRY` and `GEOGRAPHY` have no interpreted write form yet, so in the default mode a value for one of those columns fails with a `not supported yet` error. Raw mode writes them from base64. Up to v3.8.3 such a value fell through to the byte-array guess, so `POINT (1 2)` was stored as the eleven characters of that string claiming to be WKB.
 
 Numbers are checked against the column rather than cast through it, in both modes. A value takes the whole field, surrounding whitespace aside, and anything else is reported:
 
@@ -362,9 +363,32 @@ A column whose value travels as text taken at face value — base64 for a byte-b
 
 The mode reaches the conversion helpers as `types.ValueOption`, which `types.StrToParquetTypeWithLogical` and `types.JSONTypeToParquetTypeWithLogical` accept as trailing arguments. `types.ValueConfig` and `types.ValueOption` are the former `types.JSONTypeConfig` and `types.JSONTypeOption`, which remain as deprecated aliases. `ParquetWriter` over structs and maps is unaffected: its values are already typed, so there is no text to read either way.
 
-`types.ConvertValue` takes the mode too, so a value reads back in the form it was written: raw rendering emits base64 for a byte-backed column and the underlying number otherwise, which is exactly what the raw write path takes. That symmetry is what lets `GEOMETRY`, `GEOGRAPHY` and `BSON` round trip through this library alone: raw mode could already write them, but nothing here produced the value to write, since their interpreted forms are still unimplemented.
+`types.ConvertValue` takes the mode too, so a value reads back in the form it was written: raw rendering emits base64 for a byte-backed column and the underlying number otherwise, which is exactly what the raw write path takes. That symmetry is what lets `GEOMETRY` and `GEOGRAPHY` round trip through this library alone: raw mode could already write them, but nothing here produced the value to write, since their interpreted forms are still unimplemented.
 
 `types.ConvertToJSONType` renders the interpreted form whatever mode it is given, which is what it did before the mode existed; use `ConvertValue` for raw.
+
+### BSON Values
+
+A `BSON` column is a `BYTE_ARRAY` holding a BSON document, and its Go representation is a `string` of those raw bytes. Its interpreted form on both sides is [canonical MongoDB Extended JSON](https://www.mongodb.com/docs/manual/reference/mongodb-extended-json/): `types.ConvertValue` renders a document as Extended JSON text, and `JSONWriter`, `CSVWriter`, and the `types.StrToParquetType` helpers read that text back. Canonical rather than relaxed, because the `{"$numberInt": "1"}` wrappers are what distinguish an `int32` from an `int64` and an `ObjectID` from a string; relaxed and hand-written JSON such as `{"i": 1}` is accepted on input as well.
+
+The text is a JSON string in JSON output, not a nested object, so the document's own field order survives: a Go map would have reordered the fields and written back a different document. A JSON object for a `BSON` column is therefore an error rather than an alternative spelling. Text that is not exactly one JSON document fails the write with a `parse BSON` error, trailing text included.
+
+Extended JSON is MongoDB's format and this library renders it as specified, including where the specification cannot express what BSON holds. A caller that needs the bytes themselves reads the column in raw mode, which is base64 of the document and lossless for everything below; a caller working in Extended JSON decides for itself what these mean:
+
+| Document | What Extended JSON does with it |
+| --- | --- |
+| A nested document whose keys spell a wrapper, such as `{"x": {"$numberInt": "1"}}` where `$numberInt` is an ordinary field | Indistinguishable from the `int32` 1; the specification requires it to be read as the type it names, and offers no escape |
+| A `double` holding a NaN whose sign or payload is not the driver's own | Every NaN is spelled `"NaN"`, so both are gone |
+| A key or string that is not valid UTF-8, which BSON requires both to be | Rendered as U+FFFD, as in any JSON |
+| A regular expression whose option letters are not in alphabetical order, which BSON also requires | Comes back sorted: the same expression, different bytes |
+| A malformed binary of the deprecated `0x02` subtype, missing the length prefix its payload carries | Gains that prefix on every pass through the rendering, rather than settling after one |
+| A document nested more than 200 levels deep | The driver's Extended JSON parser stops there, though its BSON decoder does not, so the text it renders will not parse again |
+
+Two of these fail louder than the rest, and a pipeline that reads a column and writes it back should expect it: where a wrapper-shaped document's value does not fit the type its key names — `{"$numberInt": "A"}`, or an `$oid` that is not hex — and where a document is nested past 200 levels, the rendering does not parse at all. Feeding such a rendering to a writer, or `marshal.ConvertToJSONFriendly` output straight into one, fails with a `parse BSON` error rather than storing a changed document.
+
+The write path has the same shape: the Extended JSON parser accepts a raw byte in a key that the rendering then spells U+FFFD, so text written and text read back can disagree. So a read-modify-write of one of these documents through the interpreted path changes it, without an error. That is a property of Extended JSON rather than of this library, and raw mode is the way around it. Rendering costs about 1.25 to 1.4 times the `map[string]any` conversion it replaces, and raw mode roughly 30 to 40 times less than either; `BenchmarkBSON` measures all three.
+
+Releases up to v3.8.3 rendered a document as a `map[string]any`, which cannot express `ObjectID`, `Decimal128`, dates, binary subtypes or integer widths, and only `JSONWriter` could write a valid document at all — it base64-decoded the string it was given through the byte-array guess, while `CSVWriter` stored the characters verbatim, so a `BSON` column written from CSV never held BSON and the reader base64-encoded that ASCII a second time on the way out. That rendering had ambiguities of its own, which this one removes: an `ObjectID` was indistinguishable from a string holding its hex, an `int32` from an `int64`, and field order was lost to Go's map. Removing the byte-array guess earlier in v3.9.0 left interpreted writes refused outright until this form arrived. Raw mode is unchanged throughout: base64 of the document bytes in both directions.
 
 ### UUID Values
 
