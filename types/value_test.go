@@ -463,16 +463,16 @@ func TestConvertToJSONTypeIgnoresMode(t *testing.T) {
 
 // TestConvertValueEmptyBSON covers a BSON column holding no bytes. bson.Unmarshal rejects
 // that as EOF, so it is not a valid empty document and the strict path says so; the empty
-// map stays as the value the deprecated path returns.
+// document stays as the value the deprecated path returns.
 func TestConvertValueEmptyBSON(t *testing.T) {
 	se := readSE(parquet.Type_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_BSON), nil, 0)
 
 	got, err := ConvertValue("", se)
 	require.ErrorContains(t, err, "document is empty")
-	require.Equal(t, map[string]any{}, got)
+	require.Equal(t, "{}", got)
 
 	//nolint:staticcheck // the substitution must survive
-	require.Equal(t, map[string]any{}, ConvertToJSONType("", se))
+	require.Equal(t, "{}", ConvertToJSONType("", se))
 }
 
 // TestConvertValueGeospatialNonBytes covers a geospatial column whose value is not bytes at

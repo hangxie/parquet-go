@@ -48,10 +48,6 @@ func interpretedWriteUnsupported(cT *parquet.ConvertedType, lT *parquet.LogicalT
 		return "GEOMETRY"
 	case lT != nil && lT.IsSetGEOGRAPHY():
 		return "GEOGRAPHY"
-	case lT != nil && lT.IsSetBSON():
-		return "BSON"
-	case cT != nil && *cT == parquet.ConvertedType_BSON:
-		return "BSON"
 	}
 	return ""
 }
@@ -131,14 +127,23 @@ func rawStrToParquetType(s string, pT *parquet.Type, cT *parquet.ConvertedType, 
 	return val, nil
 }
 
-// checkJSONStringColumn requires a JSON string where the column's text is face value.
+// checkJSONStringColumn requires a JSON string where the column's text is face value,
+// and for BSON, whose Extended JSON arrives as one but is parsed rather than stored.
 func checkJSONStringColumn(val reflect.Value, pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, mode ValueMode) error {
-	if !carriesTextVerbatim(pT, cT, lT, mode) || isJSONString(val) {
+	isBSON := isBSONAnnotated(cT, lT)
+	if !carriesTextVerbatim(pT, cT, lT, mode) && !isBSON {
+		return nil
+	}
+	if isJSONString(val) {
 		return nil
 	}
 	kind := val.Kind().String()
 	if val.Type() == jsonNumberType {
 		kind = "number"
+	}
+	if isBSON && mode == ValueModeInterpreted {
+		// Naming the grammar, since a JSON object is the shape a caller reaches for first.
+		return fmt.Errorf("BSON column takes Extended JSON in a JSON string, got %s", kind)
 	}
 	return fmt.Errorf("%v column takes a JSON string, got %s", pT, kind)
 }

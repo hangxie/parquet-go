@@ -384,18 +384,6 @@ func TestStrToParquetTypeWithLogical_InterpretedUnsupported(t *testing.T) {
 			pT:   parquet.Type_BYTE_ARRAY,
 			lT:   &parquet.LogicalType{GEOGRAPHY: parquet.NewGeographyType()},
 		},
-		{
-			name: "BSON logical type",
-			str:  `{"a": 1}`,
-			pT:   parquet.Type_BYTE_ARRAY,
-			lT:   &parquet.LogicalType{BSON: parquet.NewBsonType()},
-		},
-		{
-			name: "BSON converted type",
-			str:  `{"a": 1}`,
-			pT:   parquet.Type_BYTE_ARRAY,
-			cT:   parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
-		},
 	}
 
 	for _, tt := range tests {

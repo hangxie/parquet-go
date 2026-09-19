@@ -236,8 +236,8 @@ func TestStrToParquetType(t *testing.T) {
 		},
 		{
 			name:           "bson-converted",
-			inputStr:       "bson_data_as_string",
-			expectedGoData: string("bson_data_as_string"),
+			inputStr:       `{"i":1}`,
+			expectedGoData: string([]byte{0x0c, 0x00, 0x00, 0x00, 0x10, 'i', 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}),
 			parquetType:    parquet.TypePtr(parquet.Type_BYTE_ARRAY),
 			convertedType:  parquet.ConvertedTypePtr(parquet.ConvertedType_BSON),
 		},
