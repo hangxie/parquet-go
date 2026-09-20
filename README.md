@@ -29,6 +29,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
   - [Reading Values](#reading-values)
   - [Value Modes](#value-modes)
   - [BSON Values](#bson-values)
+  - [Geospatial Values](#geospatial-values)
   - [TIMESTAMP Values](#timestamp-values)
 - [Encoding Support](#encoding-support)
 - [Compression Support](#compression-support)
@@ -342,7 +343,7 @@ jw, err := writer.NewJSONWriterWithContext(ctx, jsonSchema, fw,
 
 Three rules hold in both modes. A column annotated `UTF8`, `ENUM`, or `JSON` is text and is stored verbatim, whether the annotation is the converted type or the logical type, since there is nothing to interpret; an unannotated `BYTE_ARRAY` or `FIXED_LEN_BYTE_ARRAY` is base64, matching what the read path renders for it; and `INT96` keeps its own timestamp form in interpreted mode and is base64 in raw mode.
 
-`GEOMETRY` and `GEOGRAPHY` have no interpreted write form yet, so in the default mode a value for one of those columns fails with a `not supported yet` error. Raw mode writes them from base64. Up to v3.8.3 such a value fell through to the byte-array guess, so `POINT (1 2)` was stored as the eleven characters of that string claiming to be WKB.
+`GEOMETRY` and `GEOGRAPHY` take the object their `GeospatialJSONMode` renders, described under [Geospatial Values](#geospatial-values). Up to v3.8.3 a value for one of those columns fell through to the byte-array guess, so `POINT (1 2)` was stored as the eleven characters of that string claiming to be WKB; WKT is still not a form any mode renders, so it is still refused, now with an error naming the form the column does take.
 
 Numbers are checked against the column rather than cast through it, in both modes. A value takes the whole field, surrounding whitespace aside, and anything else is reported:
 
@@ -363,7 +364,7 @@ A column whose value travels as text taken at face value — base64 for a byte-b
 
 The mode reaches the conversion helpers as `types.ValueOption`, which `types.StrToParquetTypeWithLogical` and `types.JSONTypeToParquetTypeWithLogical` accept as trailing arguments. `types.ValueConfig` and `types.ValueOption` are the former `types.JSONTypeConfig` and `types.JSONTypeOption`, which remain as deprecated aliases. `ParquetWriter` over structs and maps is unaffected: its values are already typed, so there is no text to read either way.
 
-`types.ConvertValue` takes the mode too, so a value reads back in the form it was written: raw rendering emits base64 for a byte-backed column and the underlying number otherwise, which is exactly what the raw write path takes. That symmetry is what lets `GEOMETRY` and `GEOGRAPHY` round trip through this library alone: raw mode could already write them, but nothing here produced the value to write, since their interpreted forms are still unimplemented.
+`types.ConvertValue` takes the mode too, so a value reads back in the form it was written: raw rendering emits base64 for a byte-backed column and the underlying number otherwise, which is exactly what the raw write path takes.
 
 `types.ConvertToJSONType` renders the interpreted form whatever mode it is given, which is what it did before the mode existed; use `ConvertValue` for raw.
 
@@ -389,6 +390,35 @@ Two of these fail louder than the rest, and a pipeline that reads a column and w
 The write path has the same shape: the Extended JSON parser accepts a raw byte in a key that the rendering then spells U+FFFD, so text written and text read back can disagree. So a read-modify-write of one of these documents through the interpreted path changes it, without an error. That is a property of Extended JSON rather than of this library, and raw mode is the way around it. Rendering costs about 1.25 to 1.4 times the `map[string]any` conversion it replaces, and raw mode roughly 30 to 40 times less than either; `BenchmarkBSON` measures all three.
 
 Releases up to v3.8.3 rendered a document as a `map[string]any`, which cannot express `ObjectID`, `Decimal128`, dates, binary subtypes or integer widths, and only `JSONWriter` could write a valid document at all — it base64-decoded the string it was given through the byte-array guess, while `CSVWriter` stored the characters verbatim, so a `BSON` column written from CSV never held BSON and the reader base64-encoded that ASCII a second time on the way out. That rendering had ambiguities of its own, which this one removes: an `ObjectID` was indistinguishable from a string holding its hex, an `int32` from an `int64`, and field order was lost to Go's map. Removing the byte-array guess earlier in v3.9.0 left interpreted writes refused outright until this form arrived. Raw mode is unchanged throughout: base64 of the document bytes in both directions.
+
+### Geospatial Values
+
+A `GEOMETRY` or `GEOGRAPHY` column is a `BYTE_ARRAY` holding WKB. Unlike every other logical type, its interpreted form is not one shape but four, chosen by `types.GeospatialJSONMode`, and the write path takes whichever one the same config renders. Symmetry is by mode rather than by shape: no sniffing, and nothing to guess.
+
+| Mode | Form, read and written | Round trips exactly |
+| --- | --- | --- |
+| `GeospatialModeHex` (the `GEOMETRY` default) | `{"wkb_hex": "0101…", "crs": "OGC:CRS84"}` | yes |
+| `GeospatialModeBase64` | `{"wkb_b64": "AQEA…", "crs": "OGC:CRS84"}` | yes |
+| `GeospatialModeHybrid` | both, plus `geojson`; the write path reads the WKB half | yes |
+| `GeospatialModeGeoJSON` (the `GEOGRAPHY` default) | a GeoJSON geometry, wrapped in a Feature unless `WithGeospatialGeoJSONAsFeature(false)` | no, see below |
+
+`JSONWriter` is handed the object itself, which is the one case where a primitive column takes a JSON object rather than a scalar. `CSVWriter` has no way to carry an object, so a geospatial cell is the JSON text of that same object.
+
+GeoJSON cannot always carry the bytes back, and every reason is a property of that form rather than of the column:
+
+| Limit | Consequence |
+| --- | --- |
+| `CoordPrecision` defaults to 6, so coordinates are rounded before they are rendered | `WithGeospatialCoordinatePrecision(-1)` turns rounding off and restores the exact round trip |
+| GeoJSON has no M ordinate, and Z is not read yet (#439) | a geometry carrying either is refused on read in GeoJSON and hybrid mode, so it never reaches the write path; hex and base64 carry it untouched in both directions |
+| `GeospatialReprojector` transforms to CRS84 one way, with no inverse | a reprojected rendering cannot be written back to its original CRS |
+
+So a read-modify-write in GeoJSON mode can move a coordinate, quietly, at the default precision. The three WKB-carrying modes have no such gap, and raw mode — base64 of the WKB, unchanged in both directions — costs a third to a fifth of what the others do, `BenchmarkGeospatial` measuring all five.
+
+Two edits the write path silently ignores, in any mode. The `crs` and `algorithm` fields a rendering carries are decoration on the way in: the column's own annotation decides them, so changing either and writing the value back does nothing and reports nothing. And in hybrid mode the WKB half is what is stored, so an edited `geojson` beside an unedited `wkb_hex` writes the original geometry — edit one or the other, not both.
+
+For geometries containing only the seven basic types, every mode checks that the bytes it ends up with are one whole WKB geometry and nothing more. That measurement reads structure rather than coordinates, so it covers Z, M and ZM as well as 2D: a `POINT Z` is carried through untouched, and a truncated one is refused. It also holds a container to the ISO rule that its members share its own dimension — a `MultiPointZ` holds `PointZ`, a plain `MultiPoint` holds plain `Point` — and to the OGC rule that a `MultiPoint` holds points and nothing else, which a `GeometryCollection` alone is exempt from. A standardized code above `GeometryCollection`, such as `CircularString` or `TIN`, has no body reader here. When encountered at the root or inside a nested collection, its header is checked and its bytes are preserved; validation stops there because the remaining members and trailing bytes cannot be located.
+
+The check is also the one way the reader can hand you a value it will not take back. Hex and base64 render bytes without parsing them, so a column holding something the check refuses reads back cleanly as `{"wkb_hex": …}` and then fails on the way in: a corrupt value, one written with EWKB's SRID flag, or a geometry whose members disagree with their container on dimension or type — well formed by every other measure, and malformed by the one above. Raw mode moves any of those without inspecting them in either direction.
 
 ### UUID Values
 
@@ -819,7 +849,7 @@ Overview:
 
 Z and M ordinates: the WKB reading here is 2D. From v3.9.0 an ISO geometry carrying Z or M ordinates is refused by the GeoJSON and hybrid modes and comes back as the `wkb_hex` substitute, rather than as coordinates the value does not hold. Up to v3.8.3 the extra ordinates were read as though the value were 2D. The same header check refuses two malformed shapes that used to render as 2D GeoJSON: a byte order byte other than 0 or 1, and a dimension above ZM, which is what an EWKB flag word such as PostGIS's `0x20000001` sets. The hex and base64 modes render any bytes and are unaffected.
 
-Geometry types with no reader here: the standardized WKB/SQL-MM type-code space extends through `Triangle` (17), and this library reads the seven basic geometries, `Point` through `GeometryCollection`. A value carrying another recognized code, such as `CircularString`, `PolyhedralSurface` or `TIN`, is treated like a Z or M geometry: it renders as the `wkb_hex` substitute and contributes no bounding box, while its declared type is retained, so a column chunk holding one still reports it in `geospatial_types`. Such a code is valid, but `geospatial_types` is borrowed from GeoParquet's `geometry_types`, which covers only the seven basic geometries, so a reader may have no branch for it.
+Geometry types with no reader here: the standardized WKB/SQL-MM type-code space extends through `Triangle` (17), and this library reads the seven basic geometries, `Point` through `GeometryCollection`. A value carrying another recognized code, such as `CircularString`, `PolyhedralSurface` or `TIN`, is treated like a Z or M geometry: it renders as the `wkb_hex` substitute and contributes no bounding box, while its declared type is retained, so a column chunk holding one still reports it in `geospatial_types`. Such a code is valid, but `geospatial_types` is borrowed from GeoParquet's `geometry_types`, which covers only the seven basic geometries, so a reader may have no branch for it. The write path preserves these bytes unchanged, including when the unsupported type occurs inside nested `GeometryCollection` members. It validates structure up to the unsupported body, then skips the remaining body and trailing-byte checks because their boundaries cannot be measured, so these geometries still round trip through the hex and base64 modes.
 
 Mixed byte orders: each member of a `MultiPoint`, `MultiLineString` or `MultiPolygon` carries its own byte order byte, which up to v3.8.3 was read but then ignored, the member's type being read with the outer geometry's byte order instead. A legal value mixing the two therefore failed to parse. From v3.9.0 it reads correctly, so such a value renders as GeoJSON and contributes to the bounding box rather than withdrawing it.
 
@@ -855,6 +885,8 @@ JSON output modes:
 
 Defaults are GeoJSON for `GEOGRAPHY` and hex for `GEOMETRY`.
 
+The geospatial conversion helper `JSONTypeToParquetTypeWithLogical` accepts `ConvertValue` output directly, including native typed coordinate and geometry slices in GeoJSON mode; JSON marshaling and unmarshaling are not required before writing it back.
+
 ```go
 cfg := types.NewGeospatialConfig(
     types.WithGeographyJSONMode(types.GeospatialModeGeoJSON),
@@ -870,13 +902,7 @@ cfg := types.NewGeospatialConfig(
 result := types.ConvertGeographyLogicalValue(wkbBytes, geogType, cfg)
 ```
 
-Supported WKB geometry types in the built-in converter:
-
-- Point (2D)
-- LineString (2D)
-- Polygon (2D)
-
-Other WKB types fall back to raw WKB. If WKB parsing fails, the converter also falls back to raw WKB with CRS or algorithm metadata when applicable.
+The built-in converter reads and writes the seven basic geometries — `Point`, `LineString`, `Polygon`, `MultiPoint`, `MultiLineString`, `MultiPolygon` and `GeometryCollection`, the last nesting to any depth — in their 2D form. A geometry carrying Z or M ordinates, or a type outside those seven, is not converted: it falls back to raw WKB, with CRS or algorithm metadata where applicable, as does any value whose WKB does not parse. The hex and base64 modes never parse at all, so they carry every one of those untouched. See [Geospatial Values](#geospatial-values) for the write side.
 
 ### Concurrency
 

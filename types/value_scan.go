@@ -40,9 +40,8 @@ func carriesTextVerbatim(pT parquet.Type, cT *parquet.ConvertedType, lT *parquet
 	return mode == ValueModeRaw || (cT == nil && lT == nil)
 }
 
-// interpretedWriteUnsupported names an annotation with no interpreted write form, or "".
-// Falling through to raw would store "POINT (1 2)" as the eleven bytes of its own text.
-func interpretedWriteUnsupported(cT *parquet.ConvertedType, lT *parquet.LogicalType) string {
+// geospatialAnnotation names the geospatial annotation on the column, or "".
+func geospatialAnnotation(lT *parquet.LogicalType) string {
 	switch {
 	case lT != nil && lT.IsSetGEOMETRY():
 		return "GEOMETRY"
@@ -50,11 +49,6 @@ func interpretedWriteUnsupported(cT *parquet.ConvertedType, lT *parquet.LogicalT
 		return "GEOGRAPHY"
 	}
 	return ""
-}
-
-// errInterpretedWrite reports an annotation that only raw mode can write today.
-func errInterpretedWrite(typeName string) error {
-	return fmt.Errorf("writing %s in interpreted mode is not supported yet, select raw mode (writer.WithValueMode for a writer, types.WithValueMode for the conversion helpers) and supply base64", typeName)
 }
 
 // base64ToBytes decodes a byte-backed value; a length above zero is the width it must

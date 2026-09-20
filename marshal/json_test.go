@@ -11,6 +11,38 @@ import (
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
+// TestMarshalJSONGeospatialObject covers the one primitive column the node walker lets a
+// JSON object reach: every geospatial rendering is an object, so refusing it the way
+// other primitives do would leave the reader's own output unwritable.
+func TestMarshalJSONGeospatialObject(t *testing.T) {
+	sch, err := schema.NewSchemaHandlerFromJSON(`{
+		"Tag": "name=parquet_go_root",
+		"Fields": [{"Tag": "name=geom, type=BYTE_ARRAY, logicaltype=GEOMETRY"}]
+	}`)
+	require.NoError(t, err)
+
+	// The hex rendering, which is the GEOMETRY default.
+	rec := `{"geom":{"wkb_hex":"0101000000000000000000f03f0000000000000040","crs":"OGC:CRS84"}}`
+	res, err := MarshalJSON([]any{rec}, sch)
+	require.NoError(t, err)
+
+	table := (*res)[common.PathToStr([]string{"Parquet_go_root", "Geom"})]
+	require.NotNil(t, table)
+	require.Len(t, table.Values, 1)
+	require.Equal(t,
+		"\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f\x00\x00\x00\x00\x00\x00\x00\x40",
+		table.Values[0])
+
+	// A non-geospatial primitive still refuses one, which is the rule the case narrows.
+	plain, err := schema.NewSchemaHandlerFromJSON(`{
+		"Tag": "name=parquet_go_root",
+		"Fields": [{"Tag": "name=s, type=BYTE_ARRAY, convertedtype=UTF8"}]
+	}`)
+	require.NoError(t, err)
+	_, err = MarshalJSON([]any{`{"s":{"a":1}}`}, plain)
+	require.ErrorContains(t, err, "is primitive and cannot take a JSON object")
+}
+
 func TestMarshalJSON(t *testing.T) {
 	tests := []struct {
 		name         string

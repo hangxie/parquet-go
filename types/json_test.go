@@ -3420,13 +3420,14 @@ func TestPhysicalRoundTrip(t *testing.T) {
 			name:   "GEOMETRY",
 			se:     roundTripSE(parquet.Type_BYTE_ARRAY, nil, createGeometryLogicalType("OGC:CRS84"), 0),
 			values: []any{string(createSimpleWKBPoint(1, 2, true))},
-			issue:  "#418: geospatial has no textual write form, GeoJSON output cannot be written back",
 		},
 		{
+			// GEOGRAPHY renders as GeoJSON by default, which rounds coordinates, so this
+			// round trips only because 1 and 2 survive it. TestGeospatialFormatLimits
+			// has the coordinate that does not.
 			name:   "GEOGRAPHY",
 			se:     roundTripSE(parquet.Type_BYTE_ARRAY, nil, createGeographyLogicalType("OGC:CRS84", parquet.EdgeInterpolationAlgorithm_SPHERICAL), 0),
 			values: []any{string(createSimpleWKBPoint(1, 2, true))},
-			issue:  "#418: geospatial has no textual write form, GeoJSON output cannot be written back",
 		},
 	}
 

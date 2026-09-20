@@ -361,37 +361,19 @@ func TestAnnotatedIntegerSignedness(t *testing.T) {
 	}
 }
 
-// TestStrToParquetTypeWithLogical_InterpretedUnsupported checks that annotations whose
-// interpreted form the write path cannot parse are refused rather than stored as their
-// own text, which is the silent corruption in #418.
-func TestStrToParquetTypeWithLogical_InterpretedUnsupported(t *testing.T) {
-	tests := []struct {
-		name string
-		str  string
-		pT   parquet.Type
-		cT   *parquet.ConvertedType
-		lT   *parquet.LogicalType
-	}{
-		{
-			name: "GEOMETRY",
-			str:  "POINT (1 2)",
-			pT:   parquet.Type_BYTE_ARRAY,
-			lT:   &parquet.LogicalType{GEOMETRY: parquet.NewGeometryType()},
-		},
-		{
-			name: "GEOGRAPHY",
-			str:  "POINT (1 2)",
-			pT:   parquet.Type_BYTE_ARRAY,
-			lT:   &parquet.LogicalType{GEOGRAPHY: parquet.NewGeographyType()},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := StrToParquetTypeWithLogical(tt.str, &tt.pT, tt.cT, tt.lT, 0, 0)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), "interpreted")
-			require.Contains(t, err.Error(), tt.name[:4])
+// TestStrToParquetTypeWithLogicalRefusesWKT keeps #418's damaging case refused. WKT is
+// not a form any mode renders, so it is not a form the write path takes; up to v3.8.3 it
+// was stored as the eleven bytes of its own text, claiming to be WKB.
+func TestStrToParquetTypeWithLogicalRefusesWKT(t *testing.T) {
+	pT := parquet.Type_BYTE_ARRAY
+	for name, lT := range map[string]*parquet.LogicalType{
+		"GEOMETRY":  {GEOMETRY: parquet.NewGeometryType()},
+		"GEOGRAPHY": {GEOGRAPHY: parquet.NewGeographyType()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := StrToParquetTypeWithLogical("POINT (1 2)", &pT, nil, lT, 0, 0)
+			require.ErrorContains(t, err, name)
+			require.ErrorContains(t, err, "JSON text of its rendering")
 		})
 	}
 }

@@ -449,7 +449,6 @@ func TestCSVJSONEquivalence(t *testing.T) {
 			name:   "GEOMETRY",
 			tag:    "type=BYTE_ARRAY, logicaltype=GEOMETRY, logicaltype.crs=OGC:CRS84",
 			values: []any{"\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f\x00\x00\x00\x00\x00\x00\x00\x40"},
-			issue:  "#418: geospatial has no textual write form, GeoJSON output cannot be written back",
 		},
 		{
 			name:   "UTF8",
@@ -621,8 +620,8 @@ func textAnnotated(se *parquet.SchemaElement) bool {
 }
 
 // TestRawModeWritePath covers raw mode across both writers. Every column is handed the
-// lossless form of its physical value; geospatial can be written no other way, and BSON
-// only this way if the bytes have to survive exactly.
+// lossless form of its physical value, which for geospatial and BSON is the only form
+// that survives exactly.
 func TestRawModeWritePath(t *testing.T) {
 	float16 := func(bits uint16) string {
 		return string([]byte{byte(bits), byte(bits >> 8)})
@@ -727,32 +726,6 @@ func TestRawModeWritePath(t *testing.T) {
 	}
 }
 
-// TestInterpretedModeRefusesUnsupported pins the other half of #418: the default mode
-// reports a geospatial value it cannot parse instead of storing the bytes of the text it
-// was given.
-func TestInterpretedModeRefusesUnsupported(t *testing.T) {
-	tests := map[string]struct {
-		tag   string
-		value string
-	}{
-		"GEOMETRY":  {"type=BYTE_ARRAY, logicaltype=GEOMETRY", "POINT (1 2)"},
-		"GEOGRAPHY": {"type=BYTE_ARRAY, logicaltype=GEOGRAPHY", "POINT (1 2)"},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			tag := "name=" + csvJSONColumn + ", " + tt.tag
-
-			_, err := writeCSVColumn(tag, []string{tt.value})
-			require.ErrorContains(t, err, name)
-			require.ErrorContains(t, err, "interpreted mode is not supported yet")
-
-			_, err = writeJSONColumn(tag, []any{tt.value})
-			require.ErrorContains(t, err, name)
-		})
-	}
-}
-
 // TestBSONInterpretedWritePath pins #417: both writers read a BSON column's text as
 // Extended JSON. Up to v3.8.3 CSVWriter stored the characters, doubly base64-encoding.
 func TestBSONInterpretedWritePath(t *testing.T) {
@@ -771,6 +744,24 @@ func TestBSONInterpretedWritePath(t *testing.T) {
 	require.ErrorContains(t, err, "parse BSON")
 	_, err = writeJSONColumn(tag, []any{"not a document"})
 	require.ErrorContains(t, err, "parse BSON")
+}
+
+// TestInterpretedModeRefusesWKT keeps #418's damaging case refused. WKT is not a form any
+// geospatial mode renders, so the write path does not take it; up to v3.8.3 it was stored
+// as the eleven bytes of its own text, in a column claiming to hold WKB.
+func TestInterpretedModeRefusesWKT(t *testing.T) {
+	for name, tag := range map[string]string{
+		"GEOMETRY":  "type=BYTE_ARRAY, logicaltype=GEOMETRY",
+		"GEOGRAPHY": "type=BYTE_ARRAY, logicaltype=GEOGRAPHY",
+	} {
+		t.Run(name, func(t *testing.T) {
+			full := "name=" + csvJSONColumn + ", " + tag
+			_, err := writeCSVColumn(full, []string{"POINT (1 2)"})
+			require.ErrorContains(t, err, name)
+			_, err = writeJSONColumn(full, []any{"POINT (1 2)"})
+			require.ErrorContains(t, err, name)
+		})
+	}
 }
 
 // TestValueModeOptionValidation pins that a mode outside the two defined ones is reported

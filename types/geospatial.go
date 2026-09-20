@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/binary"
+	"fmt"
 )
 
 // GeospatialJSONMode controls how GEOMETRY/GEOGRAPHY values are rendered to JSON
@@ -13,6 +14,22 @@ const (
 	GeospatialModeGeoJSON                           // GeoJSON geometry (fallback to hex on parse failure)
 	GeospatialModeHybrid                            // both: {geojson:..., wkb_hex/base64:..., crs, algorithm}
 )
+
+// String returns the mode's name, which the write path's errors name the form by.
+func (m GeospatialJSONMode) String() string {
+	switch m {
+	case GeospatialModeHex:
+		return "hex"
+	case GeospatialModeBase64:
+		return "base64"
+	case GeospatialModeGeoJSON:
+		return "GeoJSON"
+	case GeospatialModeHybrid:
+		return "hybrid"
+	default:
+		return fmt.Sprintf("GeospatialJSONMode(%d)", int(m))
+	}
+}
 
 // WKB geometry type constants
 const (
@@ -161,7 +178,7 @@ func (b *BoundingBoxCalculator) GetBounds() (minX, minY, maxX, maxY float64, ok 
 }
 
 func u32(b []byte, offset int, bigEndian bool) (uint32, bool) {
-	if offset+4 > len(b) {
+	if offset < 0 || offset+4 > len(b) {
 		return 0, false
 	}
 	if bigEndian {
