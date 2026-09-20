@@ -255,7 +255,8 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 		return nil, errNoPhysicalType(jsonValueText(val))
 	}
 
-	mode := resolveValueConfig(opts).Mode
+	cfg := resolveValueConfig(opts)
+	mode := cfg.Mode
 	if !mode.IsValid() {
 		return nil, fmt.Errorf("%w %d", ErrUnsupportedValueMode, int(mode))
 	}
@@ -266,8 +267,13 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 		return jsonRawValueToParquetType(val, pT, cT, lT, length)
 	}
 
-	if typeName := interpretedWriteUnsupported(cT, lT); typeName != "" {
-		return nil, errInterpretedWrite(typeName)
+	// Geospatial takes the object its mode renders, which arrives decoded rather than
+	// as text; marshal/json.go lets the node walker hand one to a primitive column.
+	if typeName := geospatialAnnotation(lT); typeName != "" {
+		if err := checkGeospatialColumn(typeName, *pT); err != nil {
+			return nil, err
+		}
+		return geospatialFromValue(val.Interface(), typeName, cfg.Geospatial)
 	}
 	if err := checkJSONStringColumn(val, *pT, cT, lT, ValueModeInterpreted); err != nil {
 		return nil, err

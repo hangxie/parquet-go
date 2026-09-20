@@ -207,14 +207,15 @@ func strToLogicalType(s string, lT *parquet.LogicalType, pT *parquet.Type, lengt
 // StrToParquetTypeWithLogical scans a string to a parquet value, honoring the logical type.
 // The value mode picks the grammar: interpreted (the default) reads each logical type's
 // canonical text, raw reads the physical value as base64 where byte-backed. Interpreted
-// mode requires length 16 for UUID and 2 for FLOAT16, and refuses GEOMETRY and GEOGRAPHY,
-// which have no write form yet. See README's Value Modes for the full grammar.
+// mode requires length 16 for UUID and 2 for FLOAT16, and reads GEOMETRY and GEOGRAPHY in
+// the form their GeospatialJSONMode renders. See README's Value Modes for the grammar.
 func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length, scale int, opts ...ValueOption) (any, error) {
 	if pT == nil {
 		return nil, errNoPhysicalType(s)
 	}
 
-	mode := resolveValueConfig(opts).Mode
+	cfg := resolveValueConfig(opts)
+	mode := cfg.Mode
 	if !mode.IsValid() {
 		return nil, fmt.Errorf("%w %d", ErrUnsupportedValueMode, int(mode))
 	}
@@ -227,8 +228,10 @@ func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.Convert
 	if isTextAnnotated(cT, lT) {
 		return s, nil
 	}
-	if typeName := interpretedWriteUnsupported(cT, lT); typeName != "" {
-		return nil, errInterpretedWrite(typeName)
+	// A geospatial cell is the JSON text of the object its mode renders; CSVWriter has
+	// no other way to carry one.
+	if typeName := geospatialAnnotation(lT); typeName != "" {
+		return strToGeospatial(s, typeName, *pT, cfg.Geospatial)
 	}
 	// Ahead of both scanners below: either annotation spells the same Extended JSON.
 	if isBSONAnnotated(cT, lT) {

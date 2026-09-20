@@ -206,6 +206,12 @@ func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *sc
 			return nil, fmt.Errorf("column %s is a LIST and cannot take a JSON object", pathStr)
 		case se.GetNumChildren() > 0:
 			stack = marshalJSONStruct(node, res, schemaHandler, nodeBuf, stack)
+		case se.LogicalType != nil && (se.LogicalType.IsSetGEOMETRY() || se.LogicalType.IsSetGEOGRAPHY()):
+			// The one primitive column whose value is an object: every geospatial
+			// rendering is one, so the converter takes it whole.
+			if err := marshalJSONPrimitive(node, se, res, opts); err != nil {
+				return nil, fmt.Errorf("marshal JSON primitive for %s: %w", pathStr, err)
+			}
 		default:
 			return nil, fmt.Errorf("column %s is primitive and cannot take a JSON object", pathStr)
 		}
