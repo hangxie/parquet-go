@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"reflect"
+	"unicode/utf8"
 
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
@@ -119,4 +121,63 @@ func rawRenderValue(val any, pT parquet.Type, cT *parquet.ConvertedType, lT *par
 		}
 		return val, nil
 	}
+}
+
+// validateTextUTF8 checks text-annotated values when UTF-8 enforcement is enabled.
+func (c ValueConfig) validateTextUTF8(val any, cT *parquet.ConvertedType, lT *parquet.LogicalType) error {
+	if !c.EnforceUTF8 || !isTextAnnotated(cT, lT) {
+		return nil
+	}
+	var valid bool
+	switch v := val.(type) {
+	case string:
+		valid = utf8.ValidString(v)
+	case []byte:
+		valid = utf8.Valid(v)
+	default:
+		rv := reflect.ValueOf(val)
+		switch {
+		case rv.Kind() == reflect.String:
+			valid = utf8.ValidString(rv.String())
+		case rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8:
+			valid = utf8.Valid(rv.Bytes())
+		default:
+			return errUnrenderable("text", "value is %T, not a string or bytes", val)
+		}
+	}
+	if !valid {
+		b := textValueBytes(val)
+		offset := firstInvalidUTF8(b)
+		const maxInvalidUTF8Context = 8
+		end := min(offset+maxInvalidUTF8Context, len(b))
+		return errUnrenderable("text", "invalid UTF-8 at byte %d near %x", offset, b[offset:end])
+	}
+	return nil
+}
+
+// textValueBytes returns bytes from a value validateTextUTF8 has established is text.
+func textValueBytes(val any) []byte {
+	switch v := val.(type) {
+	case string:
+		return []byte(v)
+	case []byte:
+		return v
+	}
+	rv := reflect.ValueOf(val)
+	if rv.Kind() == reflect.String {
+		return []byte(rv.String())
+	}
+	return rv.Bytes()
+}
+
+// firstInvalidUTF8 returns the byte offset at which UTF-8 decoding first fails.
+func firstInvalidUTF8(b []byte) int {
+	for offset := 0; offset < len(b); {
+		_, size := utf8.DecodeRune(b[offset:])
+		if size == 1 && b[offset] >= utf8.RuneSelf {
+			return offset
+		}
+		offset += size
+	}
+	return len(b)
 }

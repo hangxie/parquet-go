@@ -1049,3 +1049,26 @@ func TestStrToParquetType_FixedLenByteArrayWidth(t *testing.T) {
 		})
 	}
 }
+
+func TestStrToParquetTypeTextAllocations(t *testing.T) {
+	pT := parquet.Type_BYTE_ARRAY
+	cT := parquet.ConvertedType_UTF8
+	for _, tc := range []struct {
+		name string
+		opts []ValueOption
+		max  float64
+	}{
+		{"default", nil, 1}, {"explicit off", []ValueOption{WithEnforceUTF8(false)}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got any
+			var err error
+			allocations := testing.AllocsPerRun(100, func() {
+				got, err = StrToParquetTypeWithLogical("text", &pT, &cT, nil, 0, 0, tc.opts...)
+			})
+			require.NoError(t, err)
+			require.Equal(t, "text", got)
+			require.LessOrEqual(t, allocations, tc.max, "disabled validation must not allocate a boxed string")
+		})
+	}
+}

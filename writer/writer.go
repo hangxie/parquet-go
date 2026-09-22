@@ -113,6 +113,15 @@ func WithValueMode(m types.ValueMode) WriterOption {
 	})
 }
 
+// WithEnforceUTF8 enables UTF-8 validation in JSONWriter and CSVWriter value conversion.
+// JSONWriter validates the complete JSON document, including unmapped fields and object
+// names. Typed ParquetWriter input is unaffected and must be validated by its caller.
+func WithEnforceUTF8(enabled bool) WriterOption {
+	return writerOptionFunc(func(pw *ParquetWriter) {
+		pw.valueOptions = append(pw.valueOptions, types.WithEnforceUTF8(enabled))
+	})
+}
+
 // ParquetWriter writes parquet files.
 //
 // A ParquetWriter must not be used by multiple goroutines concurrently.

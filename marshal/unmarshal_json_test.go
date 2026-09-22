@@ -1005,3 +1005,144 @@ func wkbPoint(x, y float64) string {
 	b = binary.LittleEndian.AppendUint64(b, math.Float64bits(x))
 	return string(binary.LittleEndian.AppendUint64(b, math.Float64bits(y)))
 }
+
+func TestConvertToJSONFriendlyEnforceUTF8(t *testing.T) {
+	type MyString string
+	type Row struct {
+		Text MyString `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Row))
+	require.NoError(t, err)
+	for _, text := range []string{"你好", "", "A\xffB"} {
+		for _, enabled := range []bool{false, true} {
+			got, err := ConvertToJSONFriendly([]Row{{Text: MyString(text)}}, sh, WithEnforceUTF8(enabled))
+			if enabled && text == "A\xffB" {
+				require.ErrorIs(t, err, types.ErrUnrenderable)
+				require.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				before, err := ConvertToJSONFriendly([]Row{{Text: MyString(text)}}, sh)
+				require.NoError(t, err)
+				require.Equal(t, before, got)
+			}
+		}
+	}
+	got, err := ConvertToJSONFriendly(Row{Text: MyString("\xff")}, sh, WithEnforceUTF8(true), WithEnforceUTF8(false))
+	require.NoError(t, err)
+	require.NotNil(t, got)
+}
+
+func TestConvertToJSONFriendlyEnforceUTF8ByteSlices(t *testing.T) {
+	type MyBytes []byte
+	type bytesRow struct {
+		Text []byte `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	type namedBytesRow struct {
+		Text MyBytes `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	tests := []struct {
+		name   string
+		schema any
+		row    func([]byte) any
+	}{
+		{
+			name:   "byte array bytes",
+			schema: new(bytesRow),
+			row:    func(text []byte) any { return bytesRow{Text: text} },
+		},
+		{
+			name:   "byte array named bytes",
+			schema: new(namedBytesRow),
+			row:    func(text []byte) any { return namedBytesRow{Text: MyBytes(text)} },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sh, err := schema.NewSchemaHandlerFromStruct(tt.schema)
+			require.NoError(t, err)
+
+			for _, tc := range []struct {
+				name    string
+				text    []byte
+				invalid bool
+			}{
+				{name: "valid", text: []byte("你好")},
+				{name: "nil", text: nil},
+				{name: "empty", text: []byte{}},
+				{name: "invalid", text: []byte{0xff}, invalid: true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					got, err := ConvertToJSONFriendly(tt.row(tc.text), sh, WithEnforceUTF8(true))
+					if tc.invalid {
+						require.ErrorIs(t, err, types.ErrUnrenderable)
+						require.Nil(t, got)
+					} else {
+						require.NoError(t, err)
+						text := reflect.ValueOf(got.(map[string]any)["Text"])
+						require.Equal(t, reflect.Slice, text.Kind())
+						require.Equal(t, reflect.Uint8, text.Type().Elem().Kind())
+						require.Equal(t, tc.text, text.Bytes())
+					}
+
+					got, err = ConvertToJSONFriendly(tt.row(tc.text), sh, WithEnforceUTF8(false))
+					require.NoError(t, err)
+					want := make([]any, len(tc.text))
+					for i := range tc.text {
+						want[i] = tc.text[i]
+					}
+					require.Equal(t, want, got.(map[string]any)["Text"])
+				})
+			}
+		})
+	}
+}
+
+func TestConvertToJSONFriendlyByteSliceList(t *testing.T) {
+	type Row struct {
+		Values []byte `parquet:"name=values, type=LIST, valuetype=INT32"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Row))
+	require.NoError(t, err)
+
+	got, err := ConvertToJSONFriendly(Row{Values: []byte{1, 2}}, sh, WithEnforceUTF8(true))
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"Values": []any{uint8(1), uint8(2)}}, got)
+}
+
+func TestConvertToJSONFriendlyBinaryByteSlicesUnchanged(t *testing.T) {
+	type bytesRow struct {
+		Value []byte `parquet:"name=value, type=BYTE_ARRAY"`
+	}
+	type fixedRow struct {
+		Value []byte `parquet:"name=value, type=FIXED_LEN_BYTE_ARRAY, length=2"`
+	}
+
+	for _, tt := range []struct {
+		name   string
+		schema any
+		row    any
+	}{
+		{name: "byte array", schema: new(bytesRow), row: bytesRow{Value: []byte{1, 2}}},
+		{name: "fixed", schema: new(fixedRow), row: fixedRow{Value: []byte{1, 2}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			sh, err := schema.NewSchemaHandlerFromStruct(tt.schema)
+			require.NoError(t, err)
+			for _, tc := range []struct {
+				name string
+				opts []JSONConvertOption
+			}{
+				{name: "default"},
+				{name: "UTF-8 enforced", opts: []JSONConvertOption{WithEnforceUTF8(true)}},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					got, err := ConvertToJSONFriendly(tt.row, sh, tc.opts...)
+					require.NoError(t, err)
+					require.Equal(t, map[string]any{"Value": []any{uint8(1), uint8(2)}}, got)
+				})
+			}
+		})
+	}
+}

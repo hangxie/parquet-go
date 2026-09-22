@@ -793,3 +793,28 @@ func TestTextLogicalTypeStaysVerbatim(t *testing.T) {
 		})
 	}
 }
+
+func TestCSVWriterEnforceUTF8(t *testing.T) {
+	for _, annotation := range []string{"convertedtype=UTF8", "convertedtype=ENUM", "convertedtype=JSON", "logicaltype=STRING", "logicaltype=ENUM", "logicaltype=JSON"} {
+		for _, mode := range []types.ValueMode{types.ValueModeInterpreted, types.ValueModeRaw} {
+			t.Run(annotation+"/"+mode.String(), func(t *testing.T) {
+				tag := "name=" + csvJSONColumn + ", type=BYTE_ARRAY, " + annotation
+				for _, text := range []string{"你好", "", "A\xffB"} {
+					got, err := writeCSVColumn(tag, []string{text}, WithValueMode(mode))
+					require.NoError(t, err)
+					require.Equal(t, []any{text}, got)
+					got, err = writeCSVColumn(tag, []string{text}, WithValueMode(mode), WithEnforceUTF8(true))
+					if text == "A\xffB" {
+						require.ErrorIs(t, err, types.ErrUnrenderable)
+					} else {
+						require.NoError(t, err)
+						require.Equal(t, []any{text}, got)
+					}
+					got, err = writeCSVColumn(tag, []string{text}, WithValueMode(mode), WithEnforceUTF8(true), WithEnforceUTF8(false))
+					require.NoError(t, err)
+					require.Equal(t, []any{text}, got)
+				}
+			})
+		}
+	}
+}

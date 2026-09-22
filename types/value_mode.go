@@ -37,6 +37,8 @@ func (m ValueMode) String() string {
 type ValueConfig struct {
 	// Mode selects the interpreted (default) or raw representation.
 	Mode ValueMode
+	// EnforceUTF8 rejects invalid UTF-8 in text-annotated values; default is false.
+	EnforceUTF8 bool
 	// Geospatial configures GEOMETRY/GEOGRAPHY rendering; nil selects the defaults.
 	Geospatial *GeospatialConfig
 }
@@ -86,4 +88,9 @@ func WithValueMode(m ValueMode) ValueOption {
 // WithGeospatialConfig sets a custom GeospatialConfig for GEOMETRY/GEOGRAPHY rendering.
 func WithGeospatialConfig(cfg *GeospatialConfig) ValueOption {
 	return func(c *ValueConfig) { c.Geospatial = cfg }
+}
+
+// WithEnforceUTF8 enables UTF-8 validation for STRING, UTF8, JSON and ENUM values.
+func WithEnforceUTF8(enabled bool) ValueOption {
+	return func(c *ValueConfig) { c.EnforceUTF8 = enabled }
 }

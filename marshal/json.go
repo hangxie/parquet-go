@@ -1,11 +1,8 @@
 package marshal
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
@@ -238,6 +235,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler, opts ...types.Va
 	if err != nil {
 		return nil, fmt.Errorf("setup table map: %w", err)
 	}
+	decoder := jsonRowDecoder{enforceUTF8: types.NewValueConfig(opts...).EnforceUTF8}
 	pathMap := schemaHandler.PathMap
 	nodeBuf := NewNodeBuf(1)
 
@@ -246,16 +244,8 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler, opts ...types.Va
 		stack = stack[:0]
 		nodeBuf.Reset()
 
-		var d *json.Decoder
-		switch t := ss[i].(type) {
-		case string:
-			d = json.NewDecoder(strings.NewReader(t))
-		case []byte:
-			d = json.NewDecoder(bytes.NewReader(t))
-		}
-		d.UseNumber()
-		var ui any
-		if err := d.Decode(&ui); err != nil {
+		ui, err := decoder.decode(ss[i])
+		if err != nil {
 			return nil, fmt.Errorf("decode JSON row %d: %w", i, err)
 		}
 

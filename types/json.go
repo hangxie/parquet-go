@@ -23,7 +23,12 @@ import (
 // type_length, which a column annotated as text is the exception to, being carried verbatim
 // and measured in neither mode. The Reading Values section of the README has the rest.
 func ConvertValue(val any, se *parquet.SchemaElement, opts ...ValueOption) (any, error) {
-	return convertValue(val, se, resolveValueConfig(opts))
+	cfg := resolveValueConfig(opts)
+	rendered, err := convertValue(val, se, cfg)
+	if err == nil && cfg.EnforceUTF8 && val != nil {
+		err = cfg.validateTextUTF8(val, se.ConvertedType, se.LogicalType)
+	}
+	return rendered, err
 }
 
 // ConvertToJSONType converts a parquet value to its JSON-friendly representation.
@@ -31,6 +36,7 @@ func ConvertValue(val any, se *parquet.SchemaElement, opts ...ValueOption) (any,
 // Deprecated: use ConvertValue. This keeps the substitutions ConvertValue reports, so a
 // value the column cannot render is indistinguishable from one that did. It renders the
 // interpreted form whatever mode it is given; ConvertValue is where the mode is read.
+// WithEnforceUTF8 is ignored because this entry point cannot report validation errors.
 func ConvertToJSONType(val any, se *parquet.SchemaElement, opts ...ValueOption) any {
 	cfg := resolveValueConfig(opts)
 	cfg.Mode = ValueModeInterpreted
@@ -259,6 +265,11 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	mode := cfg.Mode
 	if !mode.IsValid() {
 		return nil, fmt.Errorf("%w %d", ErrUnsupportedValueMode, int(mode))
+	}
+	if cfg.EnforceUTF8 && isJSONString(val) {
+		if err := cfg.validateTextUTF8(val.String(), cT, lT); err != nil {
+			return nil, err
+		}
 	}
 	if mode == ValueModeRaw {
 		if err := checkJSONStringColumn(val, *pT, cT, lT, ValueModeRaw); err != nil {

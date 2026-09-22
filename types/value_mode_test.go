@@ -20,6 +20,7 @@ func TestNewValueConfig(t *testing.T) {
 		cfg := NewValueConfig()
 		require.Equal(t, ValueModeInterpreted, cfg.Mode)
 		require.Nil(t, cfg.Geospatial)
+		require.False(t, cfg.EnforceUTF8)
 	})
 
 	t.Run("options apply in order", func(t *testing.T) {
@@ -50,4 +51,9 @@ func TestValueModeUnsupported(t *testing.T) {
 	_, err = JSONTypeToParquetTypeWithLogical(reflect.ValueOf("aGk="), &byteArray, nil, nil, 0, 0, bogus)
 	require.ErrorIs(t, err, ErrUnsupportedValueMode)
 	require.ErrorContains(t, err, "unsupported value mode 7")
+}
+
+func TestWithEnforceUTF8(t *testing.T) {
+	require.True(t, NewValueConfig(WithEnforceUTF8(true)).EnforceUTF8)
+	require.False(t, NewValueConfig(WithEnforceUTF8(true), WithEnforceUTF8(false)).EnforceUTF8)
 }
