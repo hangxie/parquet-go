@@ -849,3 +849,23 @@ func TestConvertValueDecimalPrecisionUnchecked(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, json.Number("123"), rendered)
 }
+
+func TestValidateTextUTF8WrongType(t *testing.T) {
+	se := readSE(parquet.Type_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8), nil, 0)
+	_, err := ConvertValue(42, se, WithEnforceUTF8(true))
+	require.ErrorIs(t, err, ErrUnrenderable)
+	require.ErrorContains(t, err, "not a string or bytes")
+	// The deprecated entry point cannot report validation errors.
+	//nolint:staticcheck
+	got := ConvertToJSONType("\xff", se, WithEnforceUTF8(true))
+	require.Equal(t, "\xff", got)
+}
+
+func TestValidateTextUTF8ErrorContext(t *testing.T) {
+	se := readSE(parquet.Type_BYTE_ARRAY, parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8), nil, 0)
+	_, err := ConvertValue("valid-prefix-\xff-and-more-than-eight-bytes", se, WithEnforceUTF8(true))
+	require.ErrorIs(t, err, ErrUnrenderable)
+	require.ErrorContains(t, err, "invalid UTF-8 at byte 13 near ff2d616e642d6d6f")
+	require.NotContains(t, err.Error(), "re-than-eight")
+	require.Equal(t, len("valid UTF-8"), firstInvalidUTF8([]byte("valid UTF-8")))
+}

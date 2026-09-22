@@ -219,6 +219,11 @@ func StrToParquetTypeWithLogical(s string, pT *parquet.Type, cT *parquet.Convert
 	if !mode.IsValid() {
 		return nil, fmt.Errorf("%w %d", ErrUnsupportedValueMode, int(mode))
 	}
+	if cfg.EnforceUTF8 {
+		if err := cfg.validateTextUTF8(s, cT, lT); err != nil {
+			return nil, err
+		}
+	}
 	if mode == ValueModeRaw {
 		return rawStrToParquetType(s, pT, cT, lT, length)
 	}

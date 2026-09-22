@@ -16,6 +16,7 @@ require (
 	github.com/bobg/gcsobj v0.3.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
+	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.20.0
 	github.com/ncw/swift v1.0.53

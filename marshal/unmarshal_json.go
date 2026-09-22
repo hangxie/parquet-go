@@ -14,6 +14,7 @@ import (
 
 // jsonConverter holds configuration and caches for JSON conversion operations
 type jsonConverter struct {
+	enforceUTF8      bool
 	schemaCache      sync.Map                // map[string]*parquet.SchemaElement
 	fieldCache       sync.Map                // map[reflect.Type]map[string]fieldInfo
 	geospatialConfig *types.GeospatialConfig // nil means use default
@@ -26,6 +27,11 @@ type JSONConvertOption func(*jsonConverter)
 // If not provided or nil, the default config (Hex for GEOMETRY, GeoJSON for GEOGRAPHY) is used.
 func WithGeospatialConfig(cfg *types.GeospatialConfig) JSONConvertOption {
 	return func(converter *jsonConverter) { converter.geospatialConfig = cfg }
+}
+
+// WithEnforceUTF8 enables UTF-8 validation for STRING, UTF8, JSON and ENUM values.
+func WithEnforceUTF8(enabled bool) JSONConvertOption {
+	return func(converter *jsonConverter) { converter.enforceUTF8 = enabled }
 }
 
 type fieldInfo struct {
@@ -78,6 +84,13 @@ func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *sch
 		return convertValueToJSONFriendlyWithContext(val.Elem(), schemaHandler, pathPrefix, converter)
 
 	case reflect.Slice:
+		primitive, err := isTextByteSlice(val, schemaHandler, pathPrefix, converter)
+		if err != nil {
+			return nil, err
+		}
+		if primitive {
+			return convertPrimitiveToJSONFriendly(val, schemaHandler, pathPrefix, converter)
+		}
 		return convertSliceToJSONFriendly(val, schemaHandler, pathPrefix, converter)
 
 	case reflect.Map:
@@ -89,6 +102,32 @@ func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *sch
 	default:
 		return convertPrimitiveToJSONFriendly(val, schemaHandler, pathPrefix, converter)
 	}
+}
+
+// isTextByteSlice reports whether UTF-8 enforcement needs a byte slice treated as one text value.
+func isTextByteSlice(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (bool, error) {
+	if !converter.enforceUTF8 || pathPrefix == "" || val.Type().Elem().Kind() != reflect.Uint8 {
+		return false, nil
+	}
+	element, err := lookupSchemaElement(schemaHandler, pathPrefix, converter)
+	if err != nil || element == nil || element.Type == nil || element.GetNumChildren() != 0 ||
+		element.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED {
+		return false, err
+	}
+	if *element.Type != parquet.Type_BYTE_ARRAY && *element.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+		return false, nil
+	}
+	if logical := element.LogicalType; logical != nil &&
+		(logical.IsSetSTRING() || logical.IsSetJSON() || logical.IsSetENUM()) {
+		return true, nil
+	}
+	if converted := element.ConvertedType; converted != nil {
+		switch *converted {
+		case parquet.ConvertedType_UTF8, parquet.ConvertedType_JSON, parquet.ConvertedType_ENUM:
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // convertSliceToJSONFriendly optimized slice conversion
@@ -283,6 +322,9 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 	}
 
 	var typeOpts []types.ValueOption
+	if converter.enforceUTF8 {
+		typeOpts = append(typeOpts, types.WithEnforceUTF8(true))
+	}
 	if converter.geospatialConfig != nil {
 		typeOpts = append(typeOpts, types.WithGeospatialConfig(converter.geospatialConfig))
 	}

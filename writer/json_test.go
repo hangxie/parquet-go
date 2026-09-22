@@ -840,3 +840,36 @@ func TestJSONWriterRejectsMismatchedShape(t *testing.T) {
 		require.Equal(t, []any{"hi", "hello"}, values)
 	})
 }
+
+func TestJSONWriterEnforceUTF8(t *testing.T) {
+	tag := "name=" + csvJSONColumn + ", type=BYTE_ARRAY, convertedtype=UTF8"
+	schemaJSON := fmt.Sprintf(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":%q}]}`, tag)
+	for _, enabled := range []bool{false, true} {
+		for _, tc := range []struct {
+			name, text, want string
+			invalid          bool
+		}{
+			{"unicode", "你好", "你好", false},
+			{"invalid byte", "A\xffB", "A�B", true},
+			{"unpaired surrogate", `A\ud800B`, "A�B", true},
+			{"valid surrogate pair", `\ud83c\udf0d`, "🌍", false},
+			{"replacement", "A�B", "A�B", false},
+		} {
+			t.Run(fmt.Sprintf("%t/%s", enabled, tc.name), func(t *testing.T) {
+				var buf bytes.Buffer
+				jw, err := NewJSONWriterFromWriter(schemaJSON, &buf, WithNP(1), WithEnforceUTF8(enabled))
+				require.NoError(t, err)
+				require.NoError(t, jw.Write(`{"`+csvJSONColumn+`":"`+tc.text+`"}`))
+				err = jw.WriteStop()
+				if enabled && tc.invalid {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				got, err := readBackColumn(buf.Bytes(), 1)
+				require.NoError(t, err)
+				require.Equal(t, []any{tc.want}, got)
+			})
+		}
+	}
+}

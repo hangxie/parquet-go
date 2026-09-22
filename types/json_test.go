@@ -3448,3 +3448,120 @@ func TestPhysicalRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertValueEnforceUTF8(t *testing.T) {
+	type namedString string
+	type namedBytes []byte
+
+	schemas := map[string]*parquet.SchemaElement{
+		"UTF8":           {ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8)},
+		"converted ENUM": {ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_ENUM)},
+		"converted JSON": {ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_JSON)},
+		"STRING":         {LogicalType: &parquet.LogicalType{STRING: parquet.NewStringType()}},
+		"ENUM":           {LogicalType: &parquet.LogicalType{ENUM: parquet.NewEnumType()}},
+		"JSON":           {LogicalType: &parquet.LogicalType{JSON: parquet.NewJsonType()}},
+	}
+	values := []struct {
+		name, text string
+		invalid    bool
+	}{
+		{"empty", "", false},
+		{"ascii", "TEST", false},
+		{"unicode", "你好🌍", false},
+		{"replacement", "A�B", false},
+		{"nul", "A\x00B", false},
+		{"invalid byte", "A\xffB", true},
+		{"truncated", "\xe2\x82", true},
+		{"overlong", "\xc0\xaf", true},
+		{"surrogate", "\xed\xa0\x80", true},
+		{"outside unicode", "\xf4\x90\x80\x80", true},
+	}
+	for name, se := range schemas {
+		se.Type = parquet.TypePtr(parquet.Type_BYTE_ARRAY)
+		for _, mode := range []ValueMode{ValueModeInterpreted, ValueModeRaw} {
+			for _, tc := range values {
+				t.Run(name+"/"+mode.String()+"/"+tc.name, func(t *testing.T) {
+					for _, value := range []any{tc.text, []byte(tc.text), namedString(tc.text), namedBytes(tc.text)} {
+						before, err := ConvertValue(value, se, WithValueMode(mode))
+						require.NoError(t, err)
+						got, err := ConvertValue(value, se, WithValueMode(mode), WithEnforceUTF8(false))
+						require.NoError(t, err)
+						require.Equal(t, before, got)
+						got, err = ConvertValue(value, se, WithValueMode(mode), WithEnforceUTF8(true))
+						if tc.invalid {
+							require.ErrorIs(t, err, ErrUnrenderable)
+							require.ErrorContains(t, err, "invalid UTF-8")
+						} else {
+							require.NoError(t, err)
+							require.Equal(t, before, got)
+						}
+					}
+					for _, scan := range []func(...ValueOption) (any, error){
+						func(opts ...ValueOption) (any, error) {
+							return StrToParquetTypeWithLogical(tc.text, se.Type, se.ConvertedType, se.LogicalType, 0, 0, opts...)
+						},
+						func(opts ...ValueOption) (any, error) {
+							return JSONTypeToParquetTypeWithLogical(reflect.ValueOf(tc.text), se.Type, se.ConvertedType, se.LogicalType, 0, 0, opts...)
+						},
+					} {
+						got, err := scan(WithValueMode(mode))
+						require.NoError(t, err)
+						require.Equal(t, tc.text, got)
+						got, err = scan(WithValueMode(mode), WithEnforceUTF8(true))
+						if tc.invalid {
+							require.ErrorContains(t, err, "invalid UTF-8")
+							require.Nil(t, got)
+						} else {
+							require.NoError(t, err)
+							require.Equal(t, tc.text, got)
+						}
+					}
+				})
+			}
+		}
+	}
+	t.Run("nil is allowed", func(t *testing.T) {
+		got, err := ConvertValue(nil, schemas["UTF8"], WithEnforceUTF8(true))
+		require.NoError(t, err)
+		require.Nil(t, got)
+	})
+	t.Run("binary is unaffected", func(t *testing.T) {
+		se := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY)}
+		got, err := ConvertValue("\xff", se, WithEnforceUTF8(true))
+		require.NoError(t, err)
+		require.Equal(t, "/w==", got)
+		back, err := StrToParquetTypeWithLogical(got.(string), se.Type, nil, nil, 0, 0, WithEnforceUTF8(true))
+		require.NoError(t, err)
+		require.Equal(t, "\xff", back)
+	})
+	t.Run("number is unaffected", func(t *testing.T) {
+		se := &parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT64)}
+		got, err := ConvertValue(int64(42), se, WithEnforceUTF8(true))
+		require.NoError(t, err)
+		require.Equal(t, int64(42), got)
+	})
+}
+
+func TestJSONTypeToParquetTypeTextAllocations(t *testing.T) {
+	pT := parquet.Type_BYTE_ARRAY
+	cT := parquet.ConvertedType_UTF8
+	value := reflect.ValueOf("text")
+	for _, tc := range []struct {
+		name string
+		opts []ValueOption
+		max  float64
+	}{
+		{"default", nil, 1}, {"explicit off", []ValueOption{WithEnforceUTF8(false)}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got any
+			var err error
+			allocations := testing.AllocsPerRun(100, func() {
+				got, err = JSONTypeToParquetTypeWithLogical(value, &pT, &cT, nil, 0, 0, tc.opts...)
+			})
+			require.NoError(t, err)
+			require.Equal(t, "text", got)
+			require.LessOrEqual(t, allocations, tc.max, "disabled validation must not allocate a boxed string")
+		})
+	}
+}
