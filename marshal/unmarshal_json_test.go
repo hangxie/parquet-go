@@ -999,6 +999,44 @@ func TestConvertToJSONFriendly_ReportsUnrenderable(t *testing.T) {
 	})
 }
 
+func TestConvertToJSONFriendly_ReportsVariantErrors(t *testing.T) {
+	type row struct {
+		Value types.Variant `parquet:"name=value, type=VARIANT"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		variant types.Variant
+		errMsg  string
+	}{
+		{
+			name:    "invalid metadata",
+			variant: types.Variant{Metadata: []byte{0xff, 0xff}, Value: []byte{0x04}},
+			errMsg:  "decode metadata",
+		},
+		{
+			name: "invalid value",
+			variant: types.Variant{
+				Metadata: types.EncodeVariantMetadata([]string{}),
+				Value:    []byte{0x05},
+			},
+			errMsg: "decode value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := ConvertToJSONFriendly(row{Value: tt.variant}, sh)
+			require.ErrorIs(t, err, types.ErrUnrenderable)
+			require.ErrorContains(t, err, tt.errMsg)
+			require.ErrorContains(t, err, "convert field Value")
+			require.Nil(t, out)
+		})
+	}
+}
+
 // wkbPoint spells a little-endian WKB point.
 func wkbPoint(x, y float64) string {
 	b := binary.LittleEndian.AppendUint32([]byte{1}, 1)

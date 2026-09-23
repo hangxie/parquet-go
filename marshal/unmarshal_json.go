@@ -196,8 +196,7 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 		variant := val.Interface().(types.Variant)
 		decoded, err := types.ConvertVariantValue(variant)
 		if err != nil {
-			// On error, still return the decoded value (which will be base64 fallback)
-			return decoded, nil
+			return nil, err
 		}
 		return decoded, nil
 	}

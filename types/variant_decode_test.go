@@ -5,6 +5,8 @@ import (
 	"math"
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecodeVariantValue_Null(t *testing.T) {
@@ -306,16 +308,20 @@ func TestDecodeVariantValue_SimpleObject(t *testing.T) {
 }
 
 func TestConvertVariantValue_Empty(t *testing.T) {
-	v := Variant{
-		Metadata: []byte{},
-		Value:    []byte{},
+	tests := []struct {
+		name     string
+		metadata []byte
+	}{
+		{name: "empty metadata"},
+		{name: "malformed metadata", metadata: []byte{0xff}},
 	}
-	val, err := ConvertVariantValue(v)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if val != nil {
-		t.Errorf("expected nil, got %v", val)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, err := ConvertVariantValue(Variant{Metadata: tt.metadata})
+			require.NoError(t, err)
+			require.Nil(t, val)
+		})
 	}
 }
 
@@ -340,26 +346,14 @@ func TestConvertVariantValue_SimplePrimitive(t *testing.T) {
 }
 
 func TestConvertVariantValue_InvalidMetadata(t *testing.T) {
-	// Invalid metadata should return base64 fallback
 	v := Variant{
 		Metadata: []byte{0xFF, 0xFF}, // invalid
 		Value:    []byte{0x04},       // true
 	}
 	val, err := ConvertVariantValue(v)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should return a map with base64 encoded data
-	m, ok := val.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any fallback, got %T", val)
-	}
-	if _, exists := m["metadata"]; !exists {
-		t.Error("expected 'metadata' key in fallback")
-	}
-	if _, exists := m["value"]; !exists {
-		t.Error("expected 'value' key in fallback")
-	}
+	require.ErrorIs(t, err, ErrUnrenderable)
+	require.ErrorContains(t, err, "decode metadata")
+	require.Equal(t, map[string]any{"metadata": "//8=", "value": "BA=="}, val)
 }
 
 func TestDecodeVariantValue_Decimal4(t *testing.T) {
@@ -1080,20 +1074,9 @@ func TestConvertVariantValue_CorruptValue(t *testing.T) {
 		Value: []byte{0x05},
 	}
 	val, err := ConvertVariantValue(v)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should return base64 fallback map
-	m, ok := val.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any fallback, got %T", val)
-	}
-	if _, exists := m["metadata"]; !exists {
-		t.Error("expected 'metadata' key in fallback")
-	}
-	if _, exists := m["value"]; !exists {
-		t.Error("expected 'value' key in fallback")
-	}
+	require.ErrorIs(t, err, ErrUnrenderable)
+	require.ErrorContains(t, err, "decode value")
+	require.Equal(t, map[string]any{"metadata": "AQAA", "value": "BQ=="}, val)
 }
 
 // TestDecodePrimitiveTemporal_TruncatedTimestamp covers the not-enough-data path for timestamps.
