@@ -377,9 +377,9 @@ func decodeArrayValue(data []byte, offset int, valueHeader uint8, meta *variantM
 	return totalConsumed, result, nil
 }
 
-// ConvertVariantValue decodes a Variant struct to its JSON-friendly representation
+// ConvertVariantValue decodes a Variant, returning a base64 fallback with ErrUnrenderable for invalid data.
 func ConvertVariantValue(v Variant) (any, error) {
-	// Handle empty variant
+	// Preserve historical behavior for an empty value: return nil without validating metadata.
 	if len(v.Value) == 0 {
 		return nil, nil
 	}
@@ -387,22 +387,21 @@ func ConvertVariantValue(v Variant) (any, error) {
 	// Decode metadata
 	meta, err := decodeVariantMetadata(v.Metadata)
 	if err != nil {
-		// If metadata decode fails, return base64 encoded raw data
-		return map[string]any{
-			"metadata": base64.StdEncoding.EncodeToString(v.Metadata),
-			"value":    base64.StdEncoding.EncodeToString(v.Value),
-		}, nil
+		return variantFallback(v), errUnrenderableCause("VARIANT", fmt.Errorf("decode metadata: %w", err))
 	}
 
 	// Decode value
 	val, err := decodeVariantValue(v.Value, meta)
 	if err != nil {
-		// If value decode fails, return base64 encoded raw data
-		return map[string]any{
-			"metadata": base64.StdEncoding.EncodeToString(v.Metadata),
-			"value":    base64.StdEncoding.EncodeToString(v.Value),
-		}, nil
+		return variantFallback(v), errUnrenderableCause("VARIANT", fmt.Errorf("decode value: %w", err))
 	}
 
 	return val, nil
+}
+
+func variantFallback(v Variant) map[string]any {
+	return map[string]any{
+		"metadata": base64.StdEncoding.EncodeToString(v.Metadata),
+		"value":    base64.StdEncoding.EncodeToString(v.Value),
+	}
 }
