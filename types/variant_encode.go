@@ -165,7 +165,7 @@ func EncodeVariantObject(fieldIDs []int, values [][]byte) []byte {
 
 	numElements := len(fieldIDs)
 	if numElements == 0 {
-		return []byte{0x02, 0x00} // Empty object
+		return []byte{0x02, 0x00, 0x00} // Empty object with zero final offset
 	}
 
 	// Calculate total value size for offset sizing
@@ -244,7 +244,7 @@ func EncodeVariantObject(fieldIDs []int, values [][]byte) []byte {
 func EncodeVariantArray(elements [][]byte) []byte {
 	numElements := len(elements)
 	if numElements == 0 {
-		return []byte{0x03, 0x00} // Empty array
+		return []byte{0x03, 0x00, 0x00} // Empty array with zero final offset
 	}
 
 	// Calculate total element size
