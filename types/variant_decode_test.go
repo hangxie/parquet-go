@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -1077,6 +1078,162 @@ func TestConvertVariantValue_CorruptValue(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnrenderable)
 	require.ErrorContains(t, err, "decode value")
 	require.Equal(t, map[string]any{"metadata": "AQAA", "value": "BQ=="}, val)
+}
+
+func TestDecodeVariantValueConsumedLength(t *testing.T) {
+	longString := EncodeVariantString(strings.Repeat("x", 64))
+	tests := []struct {
+		name  string
+		value []byte
+	}{
+		{name: "null", value: EncodeVariantNull()},
+		{name: "boolean", value: EncodeVariantBool(true)},
+		{name: "fixed width primitive", value: EncodeVariantInt32(42)},
+		{name: "short string", value: EncodeVariantString("text")},
+		{name: "long string", value: longString},
+		{name: "legacy empty array", value: []byte{0x03, 0x00}},
+		{name: "spec empty array", value: []byte{0x03, 0x00, 0x00}},
+		{name: "array", value: EncodeVariantArray([][]byte{EncodeVariantBool(true)})},
+		{name: "legacy empty object", value: []byte{0x02, 0x00}},
+		{name: "spec empty object", value: []byte{0x02, 0x00, 0x00}},
+		{name: "object", value: EncodeVariantObject([]int{0}, [][]byte{EncodeVariantBool(true)})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			budget := 1024
+			consumed, _, err := decodeVariantValueAt(tt.value, 0, &variantMetadata{dictionary: []string{"x"}}, &budget)
+			require.NoError(t, err)
+			require.Equal(t, len(tt.value), consumed)
+		})
+	}
+}
+
+func TestDecodeVariantValueRejectsTrailingData(t *testing.T) {
+	tests := []struct {
+		name  string
+		value []byte
+	}{
+		{name: "null", value: EncodeVariantNull()},
+		{name: "boolean", value: EncodeVariantBool(true)},
+		{name: "fixed width primitive", value: EncodeVariantInt32(42)},
+		{name: "short string", value: EncodeVariantString("text")},
+		{name: "long string", value: EncodeVariantString(strings.Repeat("x", 64))},
+		{name: "legacy empty array", value: []byte{0x03, 0x00}},
+		{name: "array", value: EncodeVariantArray([][]byte{EncodeVariantBool(true)})},
+		{name: "legacy empty object", value: []byte{0x02, 0x00}},
+		{name: "object", value: EncodeVariantObject([]int{0}, [][]byte{EncodeVariantBool(true)})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value := append(append([]byte{}, tt.value...), 0xff)
+			_, err := decodeVariantValue(value, &variantMetadata{dictionary: []string{"x"}})
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestDecodeVariantValueRejectsMalformedContainerOffsets(t *testing.T) {
+	tests := []struct {
+		name  string
+		meta  *variantMetadata
+		value []byte
+	}{
+		{
+			name:  "trailing bytes in array element",
+			meta:  &variantMetadata{},
+			value: []byte{0x03, 0x01, 0x00, 0x02, 0x04, 0xff},
+		},
+		{
+			name:  "array first offset is not zero",
+			meta:  &variantMetadata{},
+			value: []byte{0x03, 0x01, 0x01, 0x02, 0xff, 0x04},
+		},
+		{
+			name:  "array offsets overlap",
+			meta:  &variantMetadata{},
+			value: []byte{0x03, 0x02, 0x00, 0x00, 0x01, 0x04},
+		},
+		{
+			name:  "trailing bytes in object field",
+			meta:  &variantMetadata{dictionary: []string{"x"}},
+			value: []byte{0x02, 0x01, 0x00, 0x00, 0x02, 0x04, 0xff},
+		},
+		{
+			name:  "object field offsets overlap",
+			meta:  &variantMetadata{dictionary: []string{"x", "y"}},
+			value: []byte{0x02, 0x02, 0x00, 0x01, 0x00, 0x00, 0x01, 0x04},
+		},
+		{
+			name:  "empty object has nonzero final offset",
+			meta:  &variantMetadata{},
+			value: []byte{0x02, 0x00, 0x01, 0xff},
+		},
+		{
+			name:  "object first sorted offset is not zero",
+			meta:  &variantMetadata{dictionary: []string{"x"}},
+			value: []byte{0x02, 0x01, 0x00, 0x01, 0x02, 0xff, 0x04},
+		},
+		{
+			name:  "object first physical offset is not zero",
+			meta:  &variantMetadata{dictionary: []string{"x", "y"}},
+			value: []byte{0x02, 0x02, 0x00, 0x01, 0x02, 0x01, 0x03, 0xff, 0x04, 0x08},
+		},
+		{
+			name:  "out-of-order object offsets overlap",
+			meta:  &variantMetadata{dictionary: []string{"x", "y"}},
+			value: []byte{0x02, 0x02, 0x00, 0x01, 0x01, 0x00, 0x01, 0x04},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := decodeVariantValue(tt.value, tt.meta)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestDecodeVariantValueRejectsNonLegacyEmptyContainersWithoutOffsets(t *testing.T) {
+	tests := []struct {
+		name  string
+		value []byte
+	}{
+		{name: "array with four-byte offsets", value: []byte{0x0f, 0x00}},
+		{name: "large array", value: []byte{0x13, 0x00, 0x00, 0x00, 0x00}},
+		{name: "object with two-byte field IDs", value: []byte{0x06, 0x00}},
+		{name: "object with two-byte offsets", value: []byte{0x12, 0x00}},
+		{name: "large object", value: []byte{0x42, 0x00, 0x00, 0x00, 0x00}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := decodeVariantValue(tt.value, &variantMetadata{})
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestDecodeVariantValueObjectOffsetsMayBeOutOfOrder(t *testing.T) {
+	value := []byte{
+		0x02, 0x02, // object, two fields
+		0x00, 0x01, // field IDs for a and b
+		0x01, 0x00, 0x02, // a starts second, b starts first, total length is two
+		0x08, 0x04, // false, true
+	}
+
+	got, err := decodeVariantValue(value, &variantMetadata{dictionary: []string{"a", "b"}})
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"a": true, "b": false}, got)
+}
+
+func TestConvertVariantValueTrailingData(t *testing.T) {
+	v := Variant{Metadata: EncodeVariantMetadata(nil), Value: []byte{0x04, 0xff}}
+	got, err := ConvertVariantValue(v)
+	require.ErrorIs(t, err, ErrUnrenderable)
+	require.ErrorContains(t, err, "decode value")
+	require.Equal(t, map[string]any{"metadata": "AQAA", "value": "BP8="}, got)
 }
 
 // TestDecodePrimitiveTemporal_TruncatedTimestamp covers the not-enough-data path for timestamps.

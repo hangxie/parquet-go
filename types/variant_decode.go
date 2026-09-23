@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"strings"
 )
 
@@ -48,15 +49,18 @@ func decodeVariantValue(data []byte, meta *variantMetadata) (any, error) {
 	if budget > 1_000_000 {
 		budget = 1_000_000
 	}
-	_, val, err := decodeVariantValueAt(data, 0, meta, &budget)
+	consumed, val, err := decodeVariantValueAt(data, 0, meta, &budget)
 	if err != nil {
 		return val, fmt.Errorf("decode variant value: %w", err)
+	}
+	if consumed != len(data) {
+		return val, fmt.Errorf("decode variant value: consumed %d of %d bytes", consumed, len(data))
 	}
 	return val, nil
 }
 
 // decodeVariantValueAt decodes a variant value starting at the given offset
-// Returns the number of bytes consumed and the decoded value
+// Returns the full encoded length, including the value metadata byte, and the decoded value.
 func decodeVariantValueAt(data []byte, offset int, meta *variantMetadata, budget *int) (int, any, error) {
 	if *budget <= 0 {
 		return 0, nil, fmt.Errorf("variant decode budget exceeded: too many nested values")
@@ -74,7 +78,11 @@ func decodeVariantValueAt(data []byte, offset int, meta *variantMetadata, budget
 
 	switch basicType {
 	case variantBasicTypePrimitive:
-		return decodePrimitiveValue(data, offset+1, valueHeader)
+		consumed, val, err := decodePrimitiveValue(data, offset+1, valueHeader)
+		if err != nil {
+			return 0, val, err
+		}
+		return 1 + consumed, val, nil
 
 	case variantBasicTypeShortString:
 		// Short string: value_header contains the length (0-63)
@@ -275,7 +283,8 @@ func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variant
 		pos++
 	}
 
-	if numElements == 0 {
+	// Historical parquet-go encodings omitted the required zero offset from empty containers.
+	if numElements == 0 && pos == len(data) && valueHeader == 0 {
 		return pos - offset, map[string]any{}, nil
 	}
 
@@ -301,6 +310,22 @@ func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variant
 
 	// Decode values
 	valuesStart := pos
+	valuesLength := fieldOffsets[numElements]
+	if valuesLength > len(data)-valuesStart {
+		return 0, nil, fmt.Errorf("object values exceed data")
+	}
+	if numElements == 0 {
+		if valuesLength != 0 {
+			return 0, nil, fmt.Errorf("empty object has nonzero final offset")
+		}
+		return valuesStart - offset, map[string]any{}, nil
+	}
+
+	ends, err := objectValueEnds(fieldOffsets)
+	if err != nil {
+		return 0, nil, err
+	}
+
 	result := make(map[string]any)
 	for i := range numElements {
 		fieldID := fieldIDs[i]
@@ -309,17 +334,60 @@ func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variant
 		}
 		fieldName := meta.dictionary[fieldID]
 
-		valueOffset := valuesStart + fieldOffsets[i]
-		_, val, err := decodeVariantValueAt(data, valueOffset, meta, budget)
+		start := fieldOffsets[i]
+		valueOffset := valuesStart + start
+		end := fieldOffsets[i+1]
+		if ends != nil {
+			end = ends[start]
+		}
+		valueEnd := valuesStart + end
+		consumed, val, err := decodeVariantValueAt(data[:valueEnd], valueOffset, meta, budget)
 		if err != nil {
 			return 0, nil, fmt.Errorf("decode object field %q: %w", fieldName, err)
+		}
+		if consumed != valueEnd-valueOffset {
+			return 0, nil, fmt.Errorf("decode object field %q: consumed %d of %d bytes", fieldName, consumed, valueEnd-valueOffset)
 		}
 		result[fieldName] = val
 	}
 
 	// Total consumed bytes
-	totalConsumed := valuesStart + fieldOffsets[numElements] - offset
+	totalConsumed := valuesStart + valuesLength - offset
 	return totalConsumed, result, nil
+}
+
+func objectValueEnds(offsets []int) (map[int]int, error) {
+	starts := offsets[:len(offsets)-1]
+	final := offsets[len(offsets)-1]
+	if slices.IsSorted(starts) {
+		if starts[0] != 0 {
+			return nil, fmt.Errorf("object first value offset is %d, must be 0", starts[0])
+		}
+		for i, start := range starts {
+			if start >= offsets[i+1] {
+				return nil, fmt.Errorf("object value offsets overlap at %d", start)
+			}
+		}
+		return nil, nil
+	}
+
+	physical := append([]int(nil), starts...)
+	slices.Sort(physical)
+	if physical[0] != 0 {
+		return nil, fmt.Errorf("object first value offset is %d, must be 0", physical[0])
+	}
+	ends := make(map[int]int, len(starts))
+	for i, start := range physical {
+		end := final
+		if i+1 < len(physical) {
+			end = physical[i+1]
+		}
+		if start >= end {
+			return nil, fmt.Errorf("object value offsets overlap at %d", start)
+		}
+		ends[start] = end
+	}
+	return ends, nil
 }
 
 // decodeArrayValue decodes a variant array value
@@ -346,7 +414,8 @@ func decodeArrayValue(data []byte, offset int, valueHeader uint8, meta *variantM
 		pos++
 	}
 
-	if numElements == 0 {
+	// Historical parquet-go encodings omitted the required zero offset from empty containers.
+	if numElements == 0 && pos == len(data) && valueHeader == 0 {
 		return pos - offset, []any{}, nil
 	}
 
@@ -362,18 +431,38 @@ func decodeArrayValue(data []byte, offset int, valueHeader uint8, meta *variantM
 
 	// Decode values
 	valuesStart := pos
+	valuesLength := elementOffsets[numElements]
+	if valuesLength > len(data)-valuesStart {
+		return 0, nil, fmt.Errorf("array values exceed data")
+	}
+	if elementOffsets[0] != 0 {
+		return 0, nil, fmt.Errorf("array first element offset is %d, must be 0", elementOffsets[0])
+	}
+	if numElements == 0 {
+		return valuesStart - offset, []any{}, nil
+	}
+	for i := range numElements {
+		if elementOffsets[i] >= elementOffsets[i+1] {
+			return 0, nil, fmt.Errorf("array element offsets overlap at %d", elementOffsets[i])
+		}
+	}
+
 	result := make([]any, numElements)
 	for i := range numElements {
 		valueOffset := valuesStart + elementOffsets[i]
-		_, val, err := decodeVariantValueAt(data, valueOffset, meta, budget)
+		valueEnd := valuesStart + elementOffsets[i+1]
+		consumed, val, err := decodeVariantValueAt(data[:valueEnd], valueOffset, meta, budget)
 		if err != nil {
 			return 0, nil, fmt.Errorf("decode array element %d: %w", i, err)
+		}
+		if consumed != valueEnd-valueOffset {
+			return 0, nil, fmt.Errorf("decode array element %d: consumed %d of %d bytes", i, consumed, valueEnd-valueOffset)
 		}
 		result[i] = val
 	}
 
 	// Total consumed bytes
-	totalConsumed := valuesStart + elementOffsets[numElements] - offset
+	totalConsumed := valuesStart + valuesLength - offset
 	return totalConsumed, result, nil
 }
 
