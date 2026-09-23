@@ -83,8 +83,32 @@ func TestParseINT96String(t *testing.T) {
 			input: "10000-01-01T00:00:00Z",
 		},
 		{
+			name:   "unpadded_year",
+			input:  "999-01-01T00:00:00Z",
+			errMsg: "cannot parse",
+		},
+		{
 			name:  "negative_year",
 			input: "-4713-11-24T00:00:00.000000000Z",
+		},
+		{
+			name:  "negative_year_with_leading_zero",
+			input: "-0123-01-01T00:00:00Z",
+		},
+		{
+			name:   "one_digit_negative_year",
+			input:  "-1-01-01T00:00:00Z",
+			errMsg: "cannot parse",
+		},
+		{
+			name:   "two_digit_negative_year",
+			input:  "-12-01-01T00:00:00Z",
+			errMsg: "cannot parse",
+		},
+		{
+			name:   "three_digit_negative_year",
+			input:  "-123-01-01T00:00:00Z",
+			errMsg: "cannot parse",
 		},
 		{
 			// Year 10000 is divisible by 400, so this day exists; the stand-in year the
@@ -230,6 +254,16 @@ func TestStrToINT96(t *testing.T) {
 		},
 		"negative_integer": {
 			"-1", "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff", "",
+		},
+		"largest_96_bit_integer": {
+			"79228162514264337593543950335",
+			StrIntToBinary("79228162514264337593543950335", "LittleEndian", int96ByteLength, true), "",
+		},
+		"integer_too_wide": {
+			"79228162514264337593543950336", "", "exceeds 12 bytes",
+		},
+		"negative_integer_too_wide": {
+			"-79228162514264337593543950336", "", "exceeds 12 bytes",
 		},
 		"day_past_the_range": {
 			"5874898-06-04T00:00:00.000000000Z", "", "is outside the range an INT96 can hold",

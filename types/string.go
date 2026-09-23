@@ -75,8 +75,12 @@ func strToINT96(s string) (string, error) {
 	// Anything that is not a bare integer is a real parse failure. The fallback used to
 	// swallow it, so a timestamp the parser rejected was stored as whatever leading digits
 	// it happened to start with: "5874898-06-04T00:00:00Z" became the number 5874898.
-	if _, ok := new(big.Int).SetString(s, 10); !ok {
+	num, ok := new(big.Int).SetString(s, 10)
+	if !ok {
 		return "", err
+	}
+	if num.BitLen() > int96ByteLength*8 {
+		return "", fmt.Errorf("INT96 %q exceeds %d bytes", s, int96ByteLength)
 	}
 	return StrIntToBinary(s, "LittleEndian", int96ByteLength, true), nil
 }

@@ -63,7 +63,7 @@ func parseWideYearRFC3339(s string) (time.Time, error) {
 	}
 	// The year ends at the first "-" after any leading sign.
 	sep := strings.IndexByte(s[1:], '-') + 1
-	if sep <= 0 || sep == 4 {
+	if sep <= 4 {
 		return time.Parse(time.RFC3339Nano, s)
 	}
 	year, err := strconv.Atoi(s[:sep])
