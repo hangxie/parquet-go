@@ -4,17 +4,19 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 
 	"github.com/hangxie/parquet-go/v3/common"
 )
 
 // ParseFloat16String parses a float string and returns 2-byte IEEE 754 half-precision binary
 func ParseFloat16String(s string) (string, error) {
-	var f32 float32
-	if _, err := fmt.Sscanf(s, "%f", &f32); err != nil {
-		return "", fmt.Errorf("invalid float16 value: %s", s)
+	f64, err := strconv.ParseFloat(strings.TrimSpace(s), 32)
+	if err != nil {
+		return "", fmt.Errorf("invalid float16 value %q: %w", s, err)
 	}
-	return Float32ToFloat16(f32), nil
+	return Float32ToFloat16(float32(f64)), nil
 }
 
 func Float32ToFloat16(f32 float32) string {

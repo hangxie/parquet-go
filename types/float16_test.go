@@ -49,8 +49,17 @@ func TestParseFloat16String(t *testing.T) {
 			input: "NaN",
 		},
 		{
+			name:  "surrounding_whitespace",
+			input: " 9.5 ",
+		},
+		{
 			name:   "invalid",
 			input:  "abc",
+			errMsg: "invalid float16 value",
+		},
+		{
+			name:   "trailing_garbage",
+			input:  "9.5abc",
 			errMsg: "invalid float16 value",
 		},
 	}
