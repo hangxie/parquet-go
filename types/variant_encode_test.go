@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeVariantMetadata_Empty(t *testing.T) {
@@ -253,6 +255,7 @@ func TestEncodeVariantString_Long(t *testing.T) {
 
 func TestEncodeVariantObject_Empty(t *testing.T) {
 	result := EncodeVariantObject([]int{}, [][]byte{})
+	require.Equal(t, []byte{0x02, 0x00, 0x00}, result)
 	meta := &variantMetadata{dictionary: []string{}}
 
 	val, err := decodeVariantValue(result, meta)
@@ -303,6 +306,7 @@ func TestEncodeVariantObject_Simple(t *testing.T) {
 
 func TestEncodeVariantArray_Empty(t *testing.T) {
 	result := EncodeVariantArray([][]byte{})
+	require.Equal(t, []byte{0x03, 0x00, 0x00}, result)
 	meta := &variantMetadata{dictionary: []string{}}
 
 	val, err := decodeVariantValue(result, meta)
