@@ -1818,3 +1818,119 @@ func TestChunkOmitsStats(t *testing.T) {
 		})
 	}
 }
+
+// TestOffsetIndex_UnencodedByteArrayDataBytes pins the per-page byte totals a reader sizes
+// one page's buffer from, rather than assuming the chunk total applies to every page.
+func TestOffsetIndex_UnencodedByteArrayDataBytes(t *testing.T) {
+	type row struct {
+		Text    string `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Dict    string `parquet:"name=dict, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+		Num     int64  `parquet:"name=num, type=INT64"`
+		Omitted string `parquet:"name=omitted, type=BYTE_ARRAY, convertedtype=UTF8, omitstats=true"`
+	}
+
+	// Lengths vary, so a byte counted against the wrong page shows up as a wrong entry
+	// instead of cancelling out in the total.
+	texts := make([]string, 64)
+	for i := range texts {
+		texts[i] = strings.Repeat("x", 1+(i*7)%23)
+	}
+
+	var out bytes.Buffer
+	pw, err := NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&out), new(row),
+		WithNP(1), WithPageSize(64), WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED))
+	require.NoError(t, err)
+	for i, text := range texts {
+		require.NoError(t, pw.WriteWithContext(context.Background(), row{Text: text, Dict: text, Num: int64(i), Omitted: text}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	pr, err := reader.NewParquetColumnReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(out.Bytes()), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStopWithContext(context.Background())) }()
+
+	columnOf := map[string]int{}
+	for i, column := range pr.Footer.RowGroups[0].Columns {
+		columnOf[column.MetaData.GetPathInSchema()[0]] = i
+	}
+
+	// Each page covers the rows from its own first_row_index up to the next page's, so the
+	// values it holds are known and its total can be predicted exactly.
+	assertPageTotals := func(t *testing.T, name string) {
+		t.Helper()
+		index, err := pr.ReadOffsetIndexWithContext(context.Background(), 0, columnOf[name])
+		require.NoError(t, err)
+		require.Greater(t, len(index.PageLocations), 1, "the test needs more than one page to be worth anything")
+		require.Len(t, index.UnencodedByteArrayDataBytes, len(index.PageLocations))
+
+		var total int64
+		for i, location := range index.PageLocations {
+			end := int64(len(texts))
+			if i+1 < len(index.PageLocations) {
+				end = index.PageLocations[i+1].FirstRowIndex
+			}
+			var want int64
+			for _, text := range texts[location.FirstRowIndex:end] {
+				want += int64(len(text))
+			}
+			require.Equal(t, want, index.UnencodedByteArrayDataBytes[i], "page %d", i)
+			total += want
+		}
+		// The chunk total is the same measurement summed, so the two must agree.
+		chunk := pr.Footer.RowGroups[0].Columns[columnOf[name]]
+		require.Equal(t, total, chunk.MetaData.SizeStatistics.GetUnencodedByteArrayDataBytes())
+	}
+
+	t.Run("a byte array column carries one total per page", func(t *testing.T) {
+		assertPageTotals(t, "text")
+	})
+
+	t.Run("a dictionary-encoded column measures its values too", func(t *testing.T) {
+		assertPageTotals(t, "dict")
+	})
+
+	t.Run("a column of another type carries none", func(t *testing.T) {
+		index, err := pr.ReadOffsetIndexWithContext(context.Background(), 0, columnOf["num"])
+		require.NoError(t, err)
+		require.NotEmpty(t, index.PageLocations)
+		require.Nil(t, index.UnencodedByteArrayDataBytes)
+	})
+
+	t.Run("omitstats carries none", func(t *testing.T) {
+		index, err := pr.ReadOffsetIndexWithContext(context.Background(), 0, columnOf["omitted"])
+		require.NoError(t, err)
+		require.NotEmpty(t, index.PageLocations, "the offset index itself is positional and stays")
+		require.Nil(t, index.UnencodedByteArrayDataBytes)
+	})
+}
+
+// TestOffsetIndex_UnencodedByteArrayDataBytes_NullPage covers a page holding no bytes at
+// all: zero is a measurement and keeps its slot, where an unmeasured page drops the list.
+func TestOffsetIndex_UnencodedByteArrayDataBytes_NullPage(t *testing.T) {
+	type row struct {
+		Text *string `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+
+	var out bytes.Buffer
+	pw, err := NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&out), new(row),
+		WithNP(1), WithPageSize(64), WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED))
+	require.NoError(t, err)
+	for i := range 128 {
+		value := row{}
+		if i < 48 {
+			text := strings.Repeat("y", 1+i%17)
+			value.Text = &text
+		}
+		require.NoError(t, pw.WriteWithContext(context.Background(), value))
+	}
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	pr, err := reader.NewParquetColumnReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(out.Bytes()), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStopWithContext(context.Background())) }()
+
+	index, err := pr.ReadOffsetIndexWithContext(context.Background(), 0, 0)
+	require.NoError(t, err)
+	require.Len(t, index.UnencodedByteArrayDataBytes, len(index.PageLocations))
+	require.Contains(t, index.UnencodedByteArrayDataBytes, int64(0), "an all-null page measures zero bytes and keeps its slot")
+}

@@ -296,6 +296,10 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 	pageLocation.FirstRowIndex = *firstRowIndex
 	pageLocation.CompressedPageSize = int32(len(page.RawData))
 	offsetIndex.PageLocations = append(offsetIndex.PageLocations, pageLocation)
+	// One total per page, so a reader sizes a buffer for the page it is about to read.
+	if page.UnencodedByteArrayDataBytes != nil {
+		offsetIndex.UnencodedByteArrayDataBytes = append(offsetIndex.UnencodedByteArrayDataBytes, *page.UnencodedByteArrayDataBytes)
+	}
 
 	// Advance by the row (record) count, not the leaf value count: per the
 	// Parquet spec first_row_index counts repetition-level-0 entries, which
@@ -392,6 +396,11 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 			return fmt.Errorf("write page data: %w", err)
 		}
 		pw.offset += int64(len(page.RawData))
+	}
+
+	// The field is per-page or absent, never partial.
+	if len(offsetIndex.UnencodedByteArrayDataBytes) != dataPageCount {
+		offsetIndex.UnencodedByteArrayDataBytes = nil
 	}
 
 	// Drop a ColumnIndex whose non-null pages lack valid min/max bounds (e.g. a
