@@ -1727,3 +1727,52 @@ func TestWKBGeometryType(t *testing.T) {
 		})
 	}
 }
+
+// TestCalculateWKBSize_MemberHeaders covers the member checks the size walk shares with the
+// other readers: a member whose type is not the one its container requires, a byte order byte
+// the format does not define, and a MultiPoint member that is not the fixed size a Point takes.
+func TestCalculateWKBSize_MemberHeaders(t *testing.T) {
+	multi := func(gType uint32, members ...[]byte) []byte {
+		out := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+		out = binary.LittleEndian.AppendUint32(out, uint32(len(members)))
+		for _, member := range members {
+			out = append(out, member...)
+		}
+		return out
+	}
+	point := wkbPoint(1, 1.0, 2.0)                                        // 21 bytes
+	line := wkbLineStringLE([][]float64{{3.0, 4.0}})                      // 25 bytes
+	poly := wkbPolygonLE([][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 0}}}) // 77 bytes
+	badOrder := append([]byte{2}, line[1:]...)
+	// A member carries its own byte order, so a big-endian one inside a little-endian
+	// container is legal and must measure the same as its little-endian twin.
+	lineBE := binary.BigEndian.AppendUint32([]byte{0}, WKBLineString)
+	lineBE = binary.BigEndian.AppendUint32(lineBE, 1)
+	lineBE = binary.BigEndian.AppendUint64(lineBE, math.Float64bits(3.0))
+	lineBE = binary.BigEndian.AppendUint64(lineBE, math.Float64bits(4.0))
+
+	tests := []struct {
+		name string
+		wkb  []byte
+		size int
+	}{
+		{"multipoint", multi(WKBMultiPoint, point, point), 9 + 21 + 21},
+		{"multipoint with line member", multi(WKBMultiPoint, point, line), 0},
+		{"multipoint with big-endian member", multi(WKBMultiPoint, point, wkbPoint(0, 3.0, 4.0)), 9 + 21 + 21},
+		{"multilinestring", multi(WKBMultiLineString, line, line), 9 + 25 + 25},
+		{"multilinestring with big-endian member", multi(WKBMultiLineString, line, lineBE), 9 + 25 + 25},
+		{"multilinestring with point member", multi(WKBMultiLineString, line, point), 0},
+		{"multilinestring with undefined byte order", multi(WKBMultiLineString, line, badOrder), 0},
+		{"multipolygon", multi(WKBMultiPolygon, poly), 9 + 77},
+		{"multipolygon with line member", multi(WKBMultiPolygon, poly, line), 0},
+		{"collection", multi(WKBGeometryCollection, point, line), 9 + 21 + 25},
+		{"collection with big-endian member", multi(WKBGeometryCollection, point, lineBE), 9 + 21 + 25},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			size, ok := calculateWKBSize(tt.wkb)
+			require.Equal(t, tt.size != 0, ok)
+			require.Equal(t, tt.size, size)
+		})
+	}
+}
