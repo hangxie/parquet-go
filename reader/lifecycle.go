@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // GetNumRows returns the number of rows declared by the file footer.
@@ -30,10 +28,10 @@ func (pr *ParquetReader) ResetWithContext(ctx context.Context) error {
 	}
 	var errs []error
 	for pathStr, cb := range pr.ColumnBuffers {
-		if cb == nil || cb.PFile == nil {
+		if cb == nil {
 			continue
 		}
-		if err := source.CloseWithContext(ctx, cb.PFile); err != nil {
+		if err := cb.closeFiles(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("close column buffer for path %s: %w", pathStr, err))
 		}
 	}
@@ -69,10 +67,10 @@ func (pr *ParquetReader) ReadStopWithContext(ctx context.Context) error {
 	}
 	var errs []error
 	for pathStr, cb := range pr.ColumnBuffers {
-		if cb == nil || cb.PFile == nil {
+		if cb == nil {
 			continue
 		}
-		if err := source.CloseWithContext(ctx, cb.PFile); err != nil {
+		if err := cb.closeFiles(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("close column buffer for path %s: %w", pathStr, err))
 		}
 	}

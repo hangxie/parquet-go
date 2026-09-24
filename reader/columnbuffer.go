@@ -29,6 +29,13 @@ type ColumnBufferType struct {
 
 	ChunkReadValues int64
 
+	// mainFile is this buffer's handle on the file the footer was read from, and
+	// externalFile the one opened for a chunk naming a file of its own; see
+	// columnbuffer_external.go.
+	mainFile     source.ParquetFileReader
+	externalFile source.ParquetFileReader
+	externalPath string
+
 	DictPage *layout.Page
 
 	DataTable        *layout.Table
@@ -94,6 +101,7 @@ func newColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	}
 	res := &ColumnBufferType{
 		PFile:            newPFile,
+		mainFile:         newPFile,
 		Footer:           footer,
 		SchemaHandler:    schemaHandler,
 		PathStr:          pathStr,
@@ -103,11 +111,9 @@ func newColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 	}
 
 	if err := res.NextRowGroup(); err != nil && err != io.EOF {
-		// res is discarded, so close its file handle to avoid leaking the clone
-		// (or an external reader NextRowGroup opened before failing).
-		if res.PFile != nil {
-			_ = res.PFile.Close()
-		}
+		// res is discarded, so close its handles to avoid leaking the clone (or an
+		// external reader NextRowGroup opened before failing).
+		_ = res.closeFiles(ctx)
 		return nil, fmt.Errorf("advance to first row group: %w", err)
 	}
 	return res, nil
@@ -167,17 +173,8 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 			return fmt.Errorf("configure page decryptor: %w", err)
 		}
 	}
-	if columnChunks[i].FilePath != nil {
-		// Open into a local variable and assign only on success; a failed Open
-		// returns a nil interface, which would otherwise clobber cbt.PFile and
-		// panic when ReadStop later calls Close on it. The previous handle is
-		// released only after the new one is opened.
-		pFile, err := source.OpenWithContext(cbt.context(), cbt.PFile, *columnChunks[i].FilePath)
-		if err != nil {
-			return fmt.Errorf("open file %s: %w", *columnChunks[i].FilePath, err)
-		}
-		_ = source.CloseWithContext(cbt.context(), cbt.PFile)
-		cbt.PFile = pFile
+	if err := cbt.selectChunkFile(columnChunks[i].FilePath); err != nil {
+		return err
 	}
 
 	// offset := columnChunks[i].FileOffset

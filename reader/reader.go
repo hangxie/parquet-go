@@ -170,7 +170,7 @@ func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, err
 	}
 	cb.Reader = pr
 	if err := pr.reconfigureOptionalDecryptorForBuffer(cb); err != nil {
-		_ = cb.PFile.Close()
+		_ = cb.closeFiles(pr.context())
 		return nil, fmt.Errorf("configure decryptor for %s: %w", pathStr, err)
 	}
 	return cb, nil

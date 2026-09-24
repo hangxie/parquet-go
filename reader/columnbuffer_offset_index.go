@@ -203,17 +203,17 @@ func (cbt *ColumnBufferType) seekToIndexedPage(target indexedSkipTarget, loadDic
 		cbt.PageReadOptions.Decryptor.PageOrdinal = int16(target.pageIndex)
 	}
 
-	oldFile := cbt.PFile
 	if cbt.ThriftReader != nil {
 		_ = cbt.ThriftReader.Close()
 	}
-	cbt.PFile = pageFile
+	// setChunkFile releases the handle it replaces only when that was a clone like this
+	// one, leaving the metadata and external files the buffer owns open.
+	cbt.setChunkFile(pageFile)
 	cbt.ThriftReader = transport
 	cbt.DictPage = dictionary
 	cbt.indexedPagesRemaining = target.pageCount
 	cbt.indexedDictionaryPending = dictionary == nil && cbt.ChunkHeader.MetaData.IsSetDictionaryPageOffset()
 	keepFile = true
-	_ = source.CloseWithContext(cbt.context(), oldFile)
 	return nil
 }
 
