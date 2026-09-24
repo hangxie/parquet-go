@@ -56,7 +56,7 @@ func TestGeoJSONToWKBRoundTrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gj := geoJSONOf(t, tt.gj)
-			wkb, err := geoJSONToWKB(gj)
+			wkb, err := geoJSONToWKB(gj, 0)
 			require.NoError(t, err)
 
 			// -1 disables rounding, so the reader returns what the encoder was given.
@@ -109,7 +109,7 @@ func TestGeoJSONToWKBRejects(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := geoJSONToWKB(geoJSONOf(t, tt.gj))
+			_, err := geoJSONToWKB(geoJSONOf(t, tt.gj), 0)
 			require.ErrorContains(t, err, tt.errMsg)
 		})
 	}
@@ -162,7 +162,7 @@ func TestGeoJSONToWKBRejectsNested(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := geoJSONToWKB(geoJSONOf(t, tt.gj))
+			_, err := geoJSONToWKB(geoJSONOf(t, tt.gj), 0)
 			require.ErrorContains(t, err, tt.errMsg)
 		})
 	}
@@ -204,4 +204,25 @@ func FuzzGeoJSONWriteBack(f *testing.F) {
 		require.NoError(t, err)
 		require.Equal(t, encoded, back)
 	})
+}
+
+func TestGeoJSONToWKB_NestingDepth(t *testing.T) {
+	testCases := []struct {
+		name   string
+		geo    func(int) map[string]any
+		nested func(int) []byte
+	}{
+		{"innermost collection holds a point", nestedCollectionGeoJSON, nestedCollectionWKB},
+		{"innermost collection is empty", nestedEmptyCollectionGeoJSON, nestedEmptyCollectionWKB},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := geoJSONToWKB(tc.geo(maxGeometryDepth), 0)
+			require.NoError(t, err)
+			require.Equal(t, tc.nested(maxGeometryDepth), encoded)
+
+			_, err = geoJSONToWKB(tc.geo(maxGeometryDepth+1), 0)
+			require.Error(t, err)
+		})
+	}
 }

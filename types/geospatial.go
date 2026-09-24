@@ -44,6 +44,10 @@ const (
 	// Codes above 7 have no reader here: their coordinates are declined, their declared
 	// type kept.
 	wkbMaxGeometryType uint32 = 17
+	// maxGeometryDepth caps nested GeometryCollections. Every walk over one recurses per
+	// level, and a level costs nine bytes, so a column value carries as many frames as it
+	// likes without it. No data nests anywhere near this deep.
+	maxGeometryDepth = 32
 )
 
 // GeospatialReprojector transforms a GeoJSON geometry from an input CRS to CRS84 (lon/lat degrees).
@@ -288,7 +292,7 @@ func (b *BoundingBoxCalculator) addMultiPolygonWKB(wkb []byte, off int, be bool)
 	b.mergeTempBounds(tempCalc)
 }
 
-func (b *BoundingBoxCalculator) addGeometryCollectionWKB(wkb []byte, off int, be bool) {
+func (b *BoundingBoxCalculator) addGeometryCollectionWKB(wkb []byte, off int, be bool, depth int) {
 	n, ok := u32(wkb, off, be)
 	if !ok {
 		b.markUnreadable()
@@ -306,13 +310,17 @@ func (b *BoundingBoxCalculator) addGeometryCollectionWKB(wkb []byte, off int, be
 			b.markUnreadable()
 			return
 		}
-		_ = b.AddWKB(wkb[off:geomEnd])
+		_ = b.addWKB(wkb[off:geomEnd], depth+1)
 		off = geomEnd
 	}
 }
 
 // AddWKB recursively processes WKB data to extract all coordinate points
 func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
+	return b.addWKB(wkb, 0)
+}
+
+func (b *BoundingBoxCalculator) addWKB(wkb []byte, depth int) error {
 	if len(wkb) < 5 {
 		b.markUnreadable()
 		return nil
@@ -358,7 +366,11 @@ func (b *BoundingBoxCalculator) AddWKB(wkb []byte) error {
 	case WKBMultiPolygon:
 		b.addMultiPolygonWKB(wkb, off, be)
 	case WKBGeometryCollection:
-		b.addGeometryCollectionWKB(wkb, off, be)
+		if depth >= maxGeometryDepth {
+			b.markUnreadable()
+			return nil
+		}
+		b.addGeometryCollectionWKB(wkb, off, be, depth)
 	default:
 		b.markUnreadable()
 	}

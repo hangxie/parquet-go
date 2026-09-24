@@ -119,7 +119,7 @@ func putHeader(b []byte, gType uint32) []byte {
 
 // geoJSONToWKB encodes a GeoJSON geometry as little-endian WKB, inverting wkbToGeoJSON
 // for the seven basic 2D geometries.
-func geoJSONToWKB(gj map[string]any) ([]byte, error) {
+func geoJSONToWKB(gj map[string]any, depth int) ([]byte, error) {
 	gTypeName, _ := gj["type"].(string)
 	gType, ok := map[string]uint32{
 		"Point": WKBPoint, "LineString": WKBLineString, "Polygon": WKBPolygon,
@@ -132,7 +132,10 @@ func geoJSONToWKB(gj map[string]any) ([]byte, error) {
 
 	b := putHeader(nil, gType)
 	if gType == WKBGeometryCollection {
-		return putCollection(b, gj)
+		if depth >= maxGeometryDepth {
+			return nil, fmt.Errorf("GeometryCollection nests deeper than %d levels", maxGeometryDepth)
+		}
+		return putCollection(b, gj, depth)
 	}
 	coords, present := gj["coordinates"]
 	if !present {
@@ -179,7 +182,7 @@ func putMulti(b []byte, gType uint32, coords any) ([]byte, error) {
 }
 
 // putCollection appends a GeometryCollection's members, each a whole geometry.
-func putCollection(b []byte, gj map[string]any) ([]byte, error) {
+func putCollection(b []byte, gj map[string]any, depth int) ([]byte, error) {
 	members, ok := geoSlice(gj["geometries"])
 	if !ok {
 		return nil, fmt.Errorf("GeometryCollection has no geometries array")
@@ -190,7 +193,7 @@ func putCollection(b []byte, gj map[string]any) ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("collection member is %T, not a geometry", m)
 		}
-		enc, err := geoJSONToWKB(sub)
+		enc, err := geoJSONToWKB(sub, depth+1)
 		if err != nil {
 			return nil, err
 		}

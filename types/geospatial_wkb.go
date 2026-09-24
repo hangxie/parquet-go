@@ -164,7 +164,7 @@ func multiPolygonToGeoJSON(b []byte, off int, be bool, precision int) (map[strin
 	return map[string]any{"type": "MultiPolygon", "coordinates": polygons}, true
 }
 
-func geometryCollectionToGeoJSON(b []byte, off int, be bool, precision int) (map[string]any, bool) {
+func geometryCollectionToGeoJSON(b []byte, off int, be bool, precision, depth int) (map[string]any, bool) {
 	n, ok := u32(b, off, be)
 	if !ok {
 		return nil, false
@@ -180,7 +180,7 @@ func geometryCollectionToGeoJSON(b []byte, off int, be bool, precision int) (map
 		if geomEnd > len(b) {
 			return nil, false
 		}
-		subGeom, ok := wkbToGeoJSON(b[off:geomEnd], precision)
+		subGeom, ok := wkbToGeoJSONAt(b[off:geomEnd], precision, depth+1)
 		if !ok {
 			return nil, false
 		}
@@ -193,6 +193,10 @@ func geometryCollectionToGeoJSON(b []byte, off int, be bool, precision int) (map
 // wkbToGeoJSON converts 2D WKB (Point, LineString, Polygon, Multi*, GeometryCollection)
 // to a GeoJSON geometry map, returning false for bytes it cannot read.
 func wkbToGeoJSON(b []byte, precision int) (map[string]any, bool) {
+	return wkbToGeoJSONAt(b, precision, 0)
+}
+
+func wkbToGeoJSONAt(b []byte, precision, depth int) (map[string]any, bool) {
 	if len(b) < 5 {
 		return nil, false
 	}
@@ -228,7 +232,10 @@ func wkbToGeoJSON(b []byte, precision int) (map[string]any, bool) {
 	case WKBMultiPolygon:
 		return multiPolygonToGeoJSON(b, off, be, precision)
 	case WKBGeometryCollection:
-		return geometryCollectionToGeoJSON(b, off, be, precision)
+		if depth >= maxGeometryDepth {
+			return nil, false
+		}
+		return geometryCollectionToGeoJSON(b, off, be, precision, depth)
 	default:
 		return nil, false
 	}
@@ -328,7 +335,7 @@ func calculateWKBSize(b []byte) (int, bool) {
 	// wkbEnd reads each member's own header and checks its type and dimension, where this
 	// walk assumed a fixed member size for MultiPoint and stepped over the other Multi*
 	// member headers unread.
-	end, gType, state := wkbEnd(b, 0)
+	end, gType, state := wkbEnd(b, 0, 0)
 	// It measures every dimension, and an opaque body not at all, while the callers here
 	// read two ordinates per point.
 	if state != wkbMeasured || !wkbIs2D(gType) {

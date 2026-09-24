@@ -75,7 +75,7 @@ const (
 )
 
 // wkbEnd measures structure in every dimension, or reports an invalid or opaque body.
-func wkbEnd(b []byte, off int) (int, uint32, wkbMeasure) {
+func wkbEnd(b []byte, off, depth int) (int, uint32, wkbMeasure) {
 	if off < 0 || off > len(b) {
 		return 0, 0, wkbInvalid
 	}
@@ -116,19 +116,25 @@ func wkbEnd(b []byte, off int) (int, uint32, wkbMeasure) {
 		}
 		return off, gType, wkbMeasured
 	case WKBMultiPoint:
-		return wkbMembers(b, off, be, gType, WKBPoint)
+		return wkbMembers(b, off, be, gType, WKBPoint, depth)
 	case WKBMultiLineString:
-		return wkbMembers(b, off, be, gType, WKBLineString)
+		return wkbMembers(b, off, be, gType, WKBLineString, depth)
 	case WKBMultiPolygon:
-		return wkbMembers(b, off, be, gType, WKBPolygon)
+		return wkbMembers(b, off, be, gType, WKBPolygon, depth)
 	case WKBGeometryCollection:
-		return wkbMembers(b, off, be, gType, 0)
+		// Descending into a collection is the only recursion here, so the cap is applied
+		// where that happens rather than on arrival: a leaf inside the deepest collection
+		// the cap allows is still measured, and an empty one counts like any other.
+		if depth >= maxGeometryDepth {
+			return 0, 0, wkbInvalid
+		}
+		return wkbMembers(b, off, be, gType, 0, depth+1)
 	}
 	return 0, gType, wkbOpaque
 }
 
 // wkbMembers checks member types and dimensions, propagating opaque bodies.
-func wkbMembers(b []byte, off int, be bool, gType, want uint32) (int, uint32, wkbMeasure) {
+func wkbMembers(b []byte, off int, be bool, gType, want uint32, depth int) (int, uint32, wkbMeasure) {
 	// Multi* members must match want; collections use zero to accept any base type.
 	// All members share the container's dimension but carry their own byte order.
 	dim := gType / 1000
@@ -142,12 +148,15 @@ func wkbMembers(b []byte, off int, be bool, gType, want uint32) (int, uint32, wk
 		return 0, 0, wkbInvalid
 	}
 	for range members {
-		var member uint32
-		var state wkbMeasure
-		if off, member, state = wkbEnd(b, off); state == wkbInvalid {
+		// The type is checked before the member is measured, not after: a Multi* member
+		// carries the container's depth, so a chain of them would otherwise recurse
+		// without bound and be refused only on the way back out.
+		member, _, ok := readWKBHeader(b[off:])
+		if !ok || member/1000 != dim || (want != 0 && member%1000 != want) {
 			return 0, 0, wkbInvalid
 		}
-		if member/1000 != dim || (want != 0 && member%1000 != want) {
+		var state wkbMeasure
+		if off, _, state = wkbEnd(b, off, depth); state == wkbInvalid {
 			return 0, 0, wkbInvalid
 		}
 		if state == wkbOpaque {
@@ -159,7 +168,7 @@ func wkbMembers(b []byte, off int, be bool, gType, want uint32) (int, uint32, wk
 
 // checkWKB validates measurable structure, preserving unsupported standardized bodies.
 func checkWKB(b []byte, typeName string) error {
-	end, _, state := wkbEnd(b, 0)
+	end, _, state := wkbEnd(b, 0, 0)
 	if state == wkbInvalid {
 		return fmt.Errorf("%s value is not WKB this library can read", typeName)
 	}
@@ -235,7 +244,7 @@ func geospatialFromValue(val any, typeName string, cfg *GeospatialConfig) (strin
 	// that back is what makes the reader's own output writable.
 	gjType, _ := m["type"].(string)
 	if mode == GeospatialModeGeoJSON && gjType != "" {
-		if b, err = geoJSONToWKB(geoJSONGeometry(m)); err != nil {
+		if b, err = geoJSONToWKB(geoJSONGeometry(m), 0); err != nil {
 			return "", fmt.Errorf("%s: %w", typeName, err)
 		}
 	} else if b, err = geospatialWKBFromMap(m, typeName, mode); err != nil {
