@@ -324,137 +324,17 @@ func parsePolygon(b []byte, be bool, off, precision int) ([][][]float64, int, bo
 }
 
 // calculateWKBSize determines the total byte size of a WKB geometry
-func calcMultiLineStringSize(b []byte, off int, be bool) (int, bool) {
-	numLines, ok := u32(b, off, be)
-	if !ok {
-		return 0, false
-	}
-	off += 4
-
-	for l := uint32(0); l < numLines; l++ {
-		if off+1+4+4 > len(b) {
-			return 0, false
-		}
-		lineBE := b[off] == 0
-		off += 1 + 4 // skip byte order + type
-		linePoints, ok := u32(b, off, lineBE)
-		if !ok {
-			return 0, false
-		}
-		off += 4 + int(linePoints)*16
-		if off > len(b) {
-			return 0, false
-		}
-	}
-	return off, true
-}
-
-func calcMultiPolygonSize(b []byte, off int, be bool) (int, bool) {
-	numPolys, ok := u32(b, off, be)
-	if !ok {
-		return 0, false
-	}
-	off += 4
-
-	for p := uint32(0); p < numPolys; p++ {
-		if off+1+4+4 > len(b) {
-			return 0, false
-		}
-		polyBE := b[off] == 0
-		off += 1 + 4 // skip byte order + type
-		numRings, ok := u32(b, off, polyBE)
-		if !ok {
-			return 0, false
-		}
-		off += 4
-
-		for r := uint32(0); r < numRings; r++ {
-			ringPoints, ok := u32(b, off, polyBE)
-			if !ok {
-				return 0, false
-			}
-			off += 4 + int(ringPoints)*16
-			if off > len(b) {
-				return 0, false
-			}
-		}
-	}
-	return off, true
-}
-
-func calcGeometryCollectionSize(b []byte, off int, be bool) (int, bool) {
-	numGeoms, ok := u32(b, off, be)
-	if !ok {
-		return 0, false
-	}
-	off += 4
-
-	for g := uint32(0); g < numGeoms; g++ {
-		subSize, ok := calculateWKBSize(b[off:])
-		if !ok {
-			return 0, false
-		}
-		off += subSize
-	}
-	return off, true
-}
-
 func calculateWKBSize(b []byte) (int, bool) {
-	if len(b) < 5 {
+	// wkbEnd reads each member's own header and checks its type and dimension, where this
+	// walk assumed a fixed member size for MultiPoint and stepped over the other Multi*
+	// member headers unread.
+	end, gType, state := wkbEnd(b, 0)
+	// It measures every dimension, and an opaque body not at all, while the callers here
+	// read two ordinates per point.
+	if state != wkbMeasured || !wkbIs2D(gType) {
 		return 0, false
 	}
-
-	gType, be, ok := readWKBHeader(b)
-	if !ok || !wkbIs2D(gType) {
-		return 0, false
-	}
-	off := 5 // byte order + type
-
-	switch gType {
-	case WKBPoint:
-		_, newOff, ok := parsePoint(b, be, off, -1)
-		if !ok {
-			return 0, false
-		}
-		return newOff, true
-
-	case WKBLineString:
-		_, newOff, ok := parseLineString(b, be, off, -1)
-		if !ok {
-			return 0, false
-		}
-		return newOff, true
-
-	case WKBPolygon:
-		_, newOff, ok := parsePolygon(b, be, off, -1)
-		if !ok {
-			return 0, false
-		}
-		return newOff, true
-
-	case WKBMultiPoint:
-		numPoints, ok := u32(b, off, be)
-		if !ok {
-			return 0, false
-		}
-		size := off + 4 + int(numPoints)*(1+4+16)
-		if size > len(b) {
-			return 0, false
-		}
-		return size, true
-
-	case WKBMultiLineString:
-		return calcMultiLineStringSize(b, off, be)
-
-	case WKBMultiPolygon:
-		return calcMultiPolygonSize(b, off, be)
-
-	case WKBGeometryCollection:
-		return calcGeometryCollectionSize(b, off, be)
-
-	default:
-		return 0, false
-	}
+	return end, true
 }
 
 func wrapGeoJSONHybrid(geo map[string]any, raw []byte, useBase64, include bool) map[string]any {
