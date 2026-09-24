@@ -11,7 +11,7 @@ import (
 
 func TestEncodeVariantMetadata_Empty(t *testing.T) {
 	result := EncodeVariantMetadata([]string{})
-	// Header byte layout: version (bits 0-3) | sorted (bit 4) | offset_size_minus_one (bits 5-6)
+	// header = version | sorted_strings << 4 | offset_size_minus_one << 6, bit 5 reserved
 	// 0x01 = version=1, sorted=0, offset_size=1
 	expected := []byte{0x01, 0x00, 0x00}
 	if !bytesEqual(result, expected) {
@@ -530,5 +530,47 @@ func TestEncodeVariantInt16(t *testing.T) {
 		if val != expected {
 			t.Errorf("expected %d, got %v (%T)", expected, val, val)
 		}
+	}
+}
+
+func TestEncodeVariantMetadata_OffsetSizeBits(t *testing.T) {
+	// header = version | sorted_strings << 4 | offset_size_minus_one << 6
+	testCases := []struct {
+		name       string
+		dictionary []string
+		header     byte
+	}{
+		{"one byte", []string{"beta", "alpha"}, 0x01},
+		{"two bytes", []string{strings.Repeat("b", 200), strings.Repeat("a", 200)}, 0x41},
+		{"four bytes", []string{strings.Repeat("b", 40000), strings.Repeat("a", 40000)}, 0xC1},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded := EncodeVariantMetadata(tc.dictionary)
+			require.Equal(t, tc.header, encoded[0])
+			meta, err := decodeVariantMetadata(encoded)
+			require.NoError(t, err)
+			require.Equal(t, tc.dictionary, meta.dictionary)
+		})
+	}
+}
+
+func TestEncodeVariantObject_SizeBits(t *testing.T) {
+	// object_header = is_large << 4 | field_id_size_minus_one << 2 | field_offset_size_minus_one
+	testCases := []struct {
+		name          string
+		fieldIDs      []int
+		values        [][]byte
+		valueMetadata byte
+	}{
+		{"one byte each", []int{0}, [][]byte{EncodeVariantInt8(1)}, 0x02},
+		{"two byte offsets", []int{0}, [][]byte{EncodeVariantString(strings.Repeat("x", 300))}, 0x06},
+		{"two byte field IDs", []int{300}, [][]byte{EncodeVariantInt8(1)}, 0x12},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded := EncodeVariantObject(tc.fieldIDs, tc.values)
+			require.Equal(t, tc.valueMetadata, encoded[0])
+		})
 	}
 }

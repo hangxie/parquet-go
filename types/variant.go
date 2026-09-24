@@ -96,20 +96,32 @@ func decodeVariantMetadata(data []byte) (*variantMetadata, error) {
 		return &variantMetadata{dictionary: []string{}}, nil
 	}
 
-	// Header byte layout (per Parquet Variant spec):
-	//   bits 0-3: version (must be 1)
-	//   bit 4: sorted_strings
-	//   bits 5-6: offset_size_minus_one
-	//   bit 7: unused
+	// header = version | sorted_strings << 4 | offset_size_minus_one << 6. Bit 5 is reserved
+	// and ignored here, as the format requires of a reader.
 	header := data[0]
 	version := header & 0x0F
 	if version != 1 {
 		return nil, fmt.Errorf("unsupported variant metadata version: %d", version)
 	}
 
-	sortedStrings := (header>>4)&1 == 1
-	offsetSize := int(((header >> 5) & 0x03) + 1)
+	meta, err := decodeVariantDictionary(data, int((header>>6)&0x03)+1)
+	if err == nil {
+		return meta, nil
+	}
+	// Releases up to v3.8.3 wrote the width in bits 5-6. Where those bits imply a different
+	// width, the dictionary they wrote is read once the conforming widths have failed to fit,
+	// so nothing about a conforming value turns on the reserved bit.
+	if legacy := int((header>>5)&0x03) + 1; legacy != int((header>>6)&0x03)+1 {
+		if legacyMeta, legacyErr := decodeVariantDictionary(data, legacy); legacyErr == nil {
+			return legacyMeta, nil
+		}
+	}
+	return nil, err
+}
 
+// decodeVariantDictionary reads a metadata dictionary written with the given offset width.
+func decodeVariantDictionary(data []byte, offsetSize int) (*variantMetadata, error) {
+	sortedStrings := (data[0]>>4)&1 == 1
 	pos := 1
 
 	// Read dictionary_size
@@ -129,6 +141,12 @@ func decodeVariantMetadata(data []byte) (*variantMetadata, error) {
 	for i := range numOffsets {
 		offsets[i] = readLittleEndianUint(data[pos:pos+offsetSize], offsetSize)
 		pos += offsetSize
+	}
+
+	// The dictionary is the last thing in metadata, so a reading that does not end where the
+	// metadata does is reading it with the wrong widths.
+	if uint64(pos)+offsets[numOffsets-1] != uint64(len(data)) {
+		return nil, fmt.Errorf("variant metadata dictionary ends at %d, value carries %d bytes", uint64(pos)+offsets[numOffsets-1], len(data))
 	}
 
 	// Read dictionary strings

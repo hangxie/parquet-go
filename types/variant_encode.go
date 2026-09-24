@@ -34,14 +34,10 @@ func EncodeVariantMetadata(dictionary []string) []byte {
 		offsetSize = 4
 	}
 
-	// Header byte layout (per Parquet Variant spec):
-	//   bits 0-3: version (must be 1)
-	//   bit 4: sorted_strings
-	//   bits 5-6: offset_size_minus_one
-	//   header := byte(0x01 | ((offsetSize - 1) << 5)) // version=1 in low nibble
-	header := byte(0x01 | ((offsetSize - 1) << 5)) // version=1 in low nibble
+	// header = version | sorted_strings << 4 | offset_size_minus_one << 6
+	header := byte(0x01 | ((offsetSize - 1) << 6))
 	if isSorted {
-		header |= 0x10 // Set sorted_strings bit (bit 4)
+		header |= 0x10
 	}
 
 	// Build metadata
@@ -200,8 +196,8 @@ func EncodeVariantObject(fieldIDs []int, values [][]byte) []byte {
 
 	isLarge := numElements > 255
 
-	// Object header: field_id_size_minus_one (2 bits) | field_offset_size_minus_one (2 bits) | is_large (1 bit)
-	valueHeader := byte((fieldIDSize - 1) | ((offsetSize - 1) << 2))
+	// object_header = is_large << 4 | field_id_size_minus_one << 2 | field_offset_size_minus_one
+	valueHeader := byte((offsetSize - 1) | ((fieldIDSize - 1) << 2))
 	if isLarge {
 		valueHeader |= 0x10
 	}
@@ -263,7 +259,7 @@ func EncodeVariantArray(elements [][]byte) []byte {
 
 	isLarge := numElements > 255
 
-	// Array header: element_offset_size_minus_one (2 bits) | is_large (1 bit)
+	// array_header = is_large << 2 | element_offset_size_minus_one
 	valueHeader := byte(offsetSize - 1)
 	if isLarge {
 		valueHeader |= 0x04

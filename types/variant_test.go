@@ -2,6 +2,8 @@ package types
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecodeVariantMetadata_Empty(t *testing.T) {
@@ -16,7 +18,7 @@ func TestDecodeVariantMetadata_Empty(t *testing.T) {
 
 func TestDecodeVariantMetadata_SingleEntry(t *testing.T) {
 	// Build metadata: version=1, sorted=0, offset_size=1 (offset_size_minus_one=0)
-	// Header byte layout: version (bits 0-3) | sorted (bit 4) | offset_size_minus_one (bits 5-6)
+	// header = version | sorted_strings << 4 | offset_size_minus_one << 6, bit 5 reserved
 	// 0x01 = version=1, sorted=0, offset_size=1
 	// dict_size: 1
 	// offsets: [0, 4]
@@ -42,7 +44,7 @@ func TestDecodeVariantMetadata_SingleEntry(t *testing.T) {
 }
 
 func TestDecodeVariantMetadata_MultipleEntries(t *testing.T) {
-	// Header byte layout: version (bits 0-3) | sorted (bit 4) | offset_size_minus_one (bits 5-6)
+	// header = version | sorted_strings << 4 | offset_size_minus_one << 6, bit 5 reserved
 	// version=1, sorted=1, offset_size=1 (offset_size_minus_one=0)
 	// 0x01 | 0x10 = 0x11
 	data := []byte{
@@ -123,6 +125,39 @@ func TestDecodeMetadata_TruncatedOffsets(t *testing.T) {
 	_, err := decodeVariantMetadata(data)
 	if err == nil {
 		t.Error("expected error for truncated offsets")
+	}
+}
+
+func TestDecodeVariantMetadata_OffsetSizeBits(t *testing.T) {
+	// header = version | sorted_strings << 4 | offset_size_minus_one << 6, bit 5 reserved.
+	metadata := func(header byte, width int) []byte {
+		out := []byte{header}
+		for _, v := range []uint64{2, 0, 3, 6} {
+			for i := range width {
+				out = append(out, byte(v>>(8*i)))
+			}
+		}
+		return append(out, "foobar"...)
+	}
+
+	testCases := []struct {
+		name string
+		data []byte
+	}{
+		{"one byte", metadata(0x01, 1)},
+		{"two bytes", metadata(0x41, 2)},
+		{"three bytes", metadata(0x81, 3)},
+		{"four bytes", metadata(0xC1, 4)},
+		{"reserved bit ignored", metadata(0x21, 1)},
+		{"legacy two bytes", metadata(0x21, 2)},
+		{"legacy four bytes", metadata(0x61, 4)},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			meta, err := decodeVariantMetadata(tc.data)
+			require.NoError(t, err)
+			require.Equal(t, []string{"foo", "bar"}, meta.dictionary)
+		})
 	}
 }
 

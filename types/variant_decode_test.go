@@ -252,7 +252,7 @@ func TestDecodeVariantValue_EmptyObject(t *testing.T) {
 func TestDecodeVariantValue_SimpleObject(t *testing.T) {
 	// Object with {"name": "test", "age": 42}
 	// Metadata dictionary: ["age", "name"] (sorted)
-	// Header byte layout: version (bits 0-3) | sorted (bit 4) | offset_size_minus_one (bits 5-6)
+	// header = version | sorted_strings << 4 | offset_size_minus_one << 6, bit 5 reserved
 	// 0x11 = version=1, sorted=1, offset_size=1
 	metaData := []byte{
 		0x11,          // header: version=1, sorted=1, offset_size=1
@@ -268,8 +268,8 @@ func TestDecodeVariantValue_SimpleObject(t *testing.T) {
 		t.Fatalf("decode metadata: %v", err)
 	}
 
-	// Object: field_id_size=1, field_offset_size=1, is_large=0
-	// value_header = 0 | (0 << 2) | (0 << 4) = 0
+	// object_header = is_large << 4 | field_id_size_minus_one << 2 | field_offset_size_minus_one
+	// field_id_size=1, field_offset_size=1, is_large=0, so object_header = 0
 	// value_metadata = 2 | (0 << 2) = 0x02
 	// num_elements = 2
 	// field_ids = [0 (age), 1 (name)]
@@ -843,8 +843,8 @@ func TestDecodeObjectValue_LargeObject(t *testing.T) {
 	metadata := EncodeVariantMetadata(dictionary)
 	meta, _ := decodeVariantMetadata(metadata)
 
-	// Object header: field_id_size=1, field_offset_size=1, is_large=1
-	// value_header = 0 | (0 << 2) | (1 << 4) = 0x10
+	// object_header = is_large << 4 | field_id_size_minus_one << 2 | field_offset_size_minus_one
+	// field_id_size=1, field_offset_size=1, is_large=1, so object_header = 0x10
 	// value_metadata = 2 | (0x10 << 2) = 0x42
 	data := []byte{
 		0x42,                   // object with is_large=1
@@ -1363,4 +1363,57 @@ func TestDecodeArrayValue_ElementDecodeError(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for corrupt array element value")
 	}
+}
+
+func TestDecodeObjectValue_SizeBits(t *testing.T) {
+	// object_header = is_large << 4 | field_id_size_minus_one << 2 | field_offset_size_minus_one.
+	// Both vectors hold {"a": int8(7), "b": int8(8)} with unequal widths.
+	wide := []byte{ // one-byte field IDs, two-byte offsets
+		0x06,       // object, object_header=0x01
+		0x02,       // num_elements=2
+		0x00, 0x01, // field IDs
+		0x00, 0x00, 0x02, 0x00, 0x04, 0x00, // offsets 0, 2, 4
+		0x0C, 0x07, 0x0C, 0x08, // int8(7), int8(8)
+	}
+	narrow := []byte{ // two-byte field IDs, one-byte offsets
+		0x12,                   // object, object_header=0x04
+		0x02,                   // num_elements=2
+		0x00, 0x00, 0x01, 0x00, // field IDs
+		0x00, 0x02, 0x04, // offsets 0, 2, 4
+		0x0C, 0x07, 0x0C, 0x08, // int8(7), int8(8)
+	}
+	// Releases up to v3.8.3 wrote the two widths in the opposite bit positions,
+	// so the same bodies carry the other header byte.
+	legacyWide := append([]byte{0x12}, wide[1:]...)
+	legacyNarrow := append([]byte{0x06}, narrow[1:]...)
+
+	meta := &variantMetadata{dictionary: []string{"a", "b"}}
+	testCases := []struct {
+		name string
+		data []byte
+	}{
+		{"two byte offsets", wide},
+		{"two byte field IDs", narrow},
+		{"legacy two byte offsets", legacyWide},
+		{"legacy two byte field IDs", legacyNarrow},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			val, err := decodeVariantValue(tc.data, meta)
+			require.NoError(t, err)
+			require.Equal(t, map[string]any{"a": int8(7), "b": int8(8)}, val)
+		})
+	}
+}
+
+func TestDecodeObjectValue_LegacyShortParse(t *testing.T) {
+	// The spec widths read this object as a one-byte empty string and stop after seven of
+	// its 264 bytes, so the older layout cannot be reached by waiting for an error.
+	value := EncodeVariantString(strings.Repeat("x", 252))
+	legacy := EncodeVariantObject([]int{0}, [][]byte{value})
+	legacy[0] = 0x12 // the widths as releases up to v3.8.3 wrote them
+
+	val, err := decodeVariantValue(legacy, &variantMetadata{dictionary: []string{"a"}})
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"a": strings.Repeat("x", 252)}, val)
 }
