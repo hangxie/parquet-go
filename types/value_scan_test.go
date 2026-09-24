@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -602,5 +603,80 @@ func TestDayCountsAreStrict(t *testing.T) {
 		// The DATE logical type shares the fallback.
 		_, err = StrToParquetTypeWithLogical(text, &int32T, nil, dateLT, 0, 0)
 		require.ErrorContains(t, err, "parse DATE", text)
+	}
+}
+
+// TestJSONScalarColumnMismatches pins which JSON forms a scalar column takes, including
+// the string forms the reader emits, which have to keep writing back.
+func TestJSONScalarColumnMismatches(t *testing.T) {
+	decode := func(t *testing.T, literal string) reflect.Value {
+		t.Helper()
+		var decoded any
+		d := json.NewDecoder(strings.NewReader(literal))
+		d.UseNumber()
+		require.NoError(t, d.Decode(&decoded))
+		return reflect.ValueOf(decoded)
+	}
+	decimalLT := parquet.NewLogicalType()
+	decimalLT.DECIMAL = &parquet.DecimalType{Scale: 2, Precision: 9}
+	integerLT := parquet.NewLogicalType()
+	integerLT.INTEGER = &parquet.IntType{BitWidth: 8, IsSigned: false}
+
+	testCases := []struct {
+		name    string
+		literal string
+		pT      parquet.Type
+		cT      *parquet.ConvertedType
+		lT      *parquet.LogicalType
+		want    any
+		errMsg  string
+	}{
+		{name: "int64 number", literal: `7`, pT: parquet.Type_INT64, want: int64(7)},
+		{name: "int64 string", literal: `"7"`, pT: parquet.Type_INT64, errMsg: "INT64 column takes a JSON number, got string"},
+		{name: "double number", literal: `1.5`, pT: parquet.Type_DOUBLE, want: 1.5},
+		{name: "double string", literal: `"1.5"`, pT: parquet.Type_DOUBLE, errMsg: "DOUBLE column takes a JSON number, got string"},
+		{name: "double NaN", literal: `"NaN"`, pT: parquet.Type_DOUBLE, want: math.NaN()},
+		{name: "double Infinity", literal: `"-Infinity"`, pT: parquet.Type_DOUBLE, want: math.Inf(-1)},
+		{name: "float NaN", literal: `"NaN"`, pT: parquet.Type_FLOAT, want: float32(math.NaN())},
+		{name: "boolean true", literal: `true`, pT: parquet.Type_BOOLEAN, want: true},
+		{name: "boolean number", literal: `1`, pT: parquet.Type_BOOLEAN, errMsg: "BOOLEAN column takes true or false, got number"},
+		{name: "boolean string", literal: `"true"`, pT: parquet.Type_BOOLEAN, errMsg: "BOOLEAN column takes true or false, got string"},
+		{
+			name: "unsigned string", literal: `"200"`, pT: parquet.Type_INT32,
+			cT: parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_8), lT: integerLT,
+			errMsg: "INT32 column takes a JSON number, got string",
+		},
+		{
+			name: "unsigned number", literal: `200`, pT: parquet.Type_INT32,
+			cT: parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_8), lT: integerLT, want: int32(200),
+		},
+		{
+			name: "date string", literal: `"2024-01-01"`, pT: parquet.Type_INT32,
+			cT: parquet.ConvertedTypePtr(parquet.ConvertedType_DATE), want: int32(19723),
+		},
+		{
+			name: "decimal string", literal: `"1.5"`, pT: parquet.Type_INT32,
+			cT: parquet.ConvertedTypePtr(parquet.ConvertedType_DECIMAL), lT: decimalLT, want: int32(150),
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pT := tc.pT
+			got, err := JSONTypeToParquetTypeWithLogical(decode(t, tc.literal), &pT, tc.cT, tc.lT, 0, 0)
+			if tc.errMsg != "" {
+				require.ErrorContains(t, err, tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			if f, ok := tc.want.(float64); ok && math.IsNaN(f) {
+				require.True(t, math.IsNaN(got.(float64)))
+				return
+			}
+			if f, ok := tc.want.(float32); ok && math.IsNaN(float64(f)) {
+				require.True(t, math.IsNaN(float64(got.(float32))))
+				return
+			}
+			require.Equal(t, tc.want, got)
+		})
 	}
 }

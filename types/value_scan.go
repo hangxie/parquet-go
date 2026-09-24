@@ -131,15 +131,62 @@ func checkJSONStringColumn(val reflect.Value, pT parquet.Type, cT *parquet.Conve
 	if isJSONString(val) {
 		return nil
 	}
-	kind := val.Kind().String()
-	if val.Type() == jsonNumberType {
-		kind = "number"
-	}
+	kind := jsonValueKind(val)
 	if isBSON && mode == ValueModeInterpreted {
 		// Naming the grammar, since a JSON object is the shape a caller reaches for first.
 		return fmt.Errorf("BSON column takes Extended JSON in a JSON string, got %s", kind)
 	}
 	return fmt.Errorf("%v column takes a JSON string, got %s", pT, kind)
+}
+
+// jsonValueKind names a decoded JSON value's form for an error message.
+func jsonValueKind(val reflect.Value) string {
+	if val.Type() == jsonNumberType {
+		return "number"
+	}
+	return val.Kind().String()
+}
+
+// jsonColumnTakesNumber reports whether the column's interpreted JSON form is a number.
+func jsonColumnTakesNumber(pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {
+	switch pT {
+	case parquet.Type_INT32, parquet.Type_INT64, parquet.Type_FLOAT, parquet.Type_DOUBLE:
+	default:
+		// BOOLEAN, INT96 and the byte-backed types each have a grammar of their own.
+		return false
+	}
+	// Only the integer annotations keep that form; DATE, TIME, TIMESTAMP and DECIMAL have
+	// a string one, which is what the reader emits and so what has to write back.
+	switch {
+	case cT == nil && lT == nil:
+		return true
+	case lT != nil:
+		return lT.IsSetINTEGER()
+	default:
+		return convertedIntegerType(*cT) != nil
+	}
+}
+
+// checkJSONScalarColumn requires the JSON form the column is written in.
+func checkJSONScalarColumn(val reflect.Value, pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType) error {
+	if pT == parquet.Type_BOOLEAN {
+		if val.Kind() == reflect.Bool {
+			return nil
+		}
+		// Anything ParseBool reads used to pass, so 1 and "true" both wrote true.
+		return fmt.Errorf("BOOLEAN column takes true or false, got %s", jsonValueKind(val))
+	}
+	if !jsonColumnTakesNumber(pT, cT, lT) || !isJSONString(val) {
+		return nil
+	}
+	// FLOAT and DOUBLE also take the non-finite values JSON has no number for.
+	if pT == parquet.Type_FLOAT || pT == parquet.Type_DOUBLE {
+		if f, err := strconv.ParseFloat(strings.TrimSpace(val.String()), 64); err == nil && (math.IsNaN(f) || math.IsInf(f, 0)) {
+			return nil
+		}
+	}
+	// A string here used to be parsed as though the file had asked for text, so "7" wrote 7.
+	return fmt.Errorf("%v column takes a JSON number, got string %q", pT, val.String())
 }
 
 // jsonValueText renders a value for the string scanners. Floats go out in plain decimal:
