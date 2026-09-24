@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/types"
 )
@@ -385,6 +386,8 @@ func TestConvertValueToJSONFriendlyWithContext(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := &jsonConverter{}
+	require.NoError(t, ctx.resolveRootPath(schemaHandler))
+	root := schemaHandler.GetRootInName()
 
 	tests := []struct {
 		name          string
@@ -459,7 +462,8 @@ func TestConvertValueToJSONFriendlyWithContext(t *testing.T) {
 				Name:  "test",
 				Value: 1234,
 			},
-			pathPrefix: "",
+			// A conversion path names the value from the root down.
+			pathPrefix: root,
 			expected: map[string]any{
 				"Name":  "test",
 				"Value": json.Number("12.34"), // Converted due to decimal type
@@ -704,9 +708,14 @@ func TestListElementPath(t *testing.T) {
 	sh, err := schema.NewSchemaHandlerFromStruct(new(PathStruct))
 	require.NoError(t, err)
 
+	converter := &jsonConverter{}
+	require.NoError(t, converter.resolveRootPath(sh))
+	root := sh.GetRootInName()
 	listPath := func(parts ...string) string {
 		return strings.Join(parts, common.ParGoPathDelimiter)
 	}
+	// A conversion path names the value from the root down.
+	fromRoot := func(name string) string { return listPath(root, name) }
 
 	tests := []struct {
 		name       string
@@ -720,29 +729,29 @@ func TestListElementPath(t *testing.T) {
 		},
 		{
 			name:       "three level list uses List/Element",
-			pathPrefix: "Ratios",
-			expected:   listPath("Ratios", "List", "Element"),
+			pathPrefix: fromRoot("Ratios"),
+			expected:   listPath(root, "Ratios", "List", "Element"),
 		},
 		{
 			name:       "legacy repeated column is its own element",
-			pathPrefix: "Scores",
-			expected:   "Scores",
+			pathPrefix: fromRoot("Scores"),
+			expected:   fromRoot("Scores"),
 		},
 		{
 			name:       "non-repeated path falls back to List/Element",
-			pathPrefix: "Nested",
-			expected:   listPath("Nested", "List", "Element"),
+			pathPrefix: fromRoot("Nested"),
+			expected:   listPath(root, "Nested", "List", "Element"),
 		},
 		{
 			name:       "unknown path falls back to List/Element",
-			pathPrefix: "Missing",
-			expected:   listPath("Missing", "List", "Element"),
+			pathPrefix: fromRoot("Missing"),
+			expected:   listPath(root, "Missing", "List", "Element"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			elementPath, err := listElementPath(sh, tt.pathPrefix, &jsonConverter{})
+			elementPath, err := listElementPath(sh, tt.pathPrefix, converter)
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, elementPath)
 		})
@@ -900,7 +909,7 @@ func TestLookupSchemaElement_NegativeIndex(t *testing.T) {
 	require.NoError(t, err)
 	sh.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"Day"] = -1
 
-	_, err = lookupSchemaElement(sh, "Day", &jsonConverter{})
+	_, err = lookupSchemaElement(sh, common.ParGoRootInName+common.ParGoPathDelimiter+"Day", &jsonConverter{})
 	require.ErrorContains(t, err, "schema handler is inconsistent")
 }
 
@@ -995,7 +1004,7 @@ func TestConvertToJSONFriendly_ReportsUnrenderable(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrUnrenderable)
 		require.Nil(t, out, "the readable rows go with it")
 		// And says which row, which is what makes a batch failure actionable.
-		require.ErrorContains(t, err, "convert list element 1")
+		require.ErrorContains(t, err, "convert row 1")
 	})
 }
 
@@ -1182,4 +1191,180 @@ func TestConvertToJSONFriendlyBinaryByteSlicesUnchanged(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestConvertToJSONFriendlyPartialRead pins that a partial read converts its logical values
+// once told which prefix its objects are rooted at, and passes them through without it.
+func TestConvertToJSONFriendlyPartialRead(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=nested", "Fields": [
+				{"Tag": "name=day, type=INT32, convertedtype=DATE"},
+				{"Tag": "name=score, type=DOUBLE"}
+			]}
+		]
+	}`
+	sh, err := schema.NewSchemaHandlerFromJSON(jsonSchema)
+	require.NoError(t, err)
+
+	// The shape ReadPartialByNumber returns for the "nested" subtree.
+	type nested struct {
+		Day   int32
+		Score float64
+	}
+	rows := []any{nested{Day: 19000, Score: math.NaN()}}
+	prefix := common.PathToStr([]string{"Parquet45go45root", "Nested"})
+
+	converted := []any{map[string]any{"Day": "2022-01-08", "Score": "NaN"}}
+
+	t.Run("without a prefix nothing resolves", func(t *testing.T) {
+		// The contract other callers rely on: an unknown path passes the value through.
+		got, err := ConvertToJSONFriendly(rows, sh)
+		require.NoError(t, err)
+		row := got.([]any)[0].(map[string]any)
+		require.Equal(t, int32(19000), row["Day"])
+		require.True(t, math.IsNaN(row["Score"].(float64)), "the raw NaN json.Marshal refuses")
+	})
+
+	t.Run("with the prefix the data is rooted at", func(t *testing.T) {
+		got, err := ConvertToJSONFriendly(rows, sh, WithPrefixPath(prefix))
+		require.NoError(t, err)
+		require.Equal(t, converted, got)
+	})
+
+	t.Run("the external names ReadPartial also takes", func(t *testing.T) {
+		got, err := ConvertToJSONFriendly(rows, sh, WithPrefixPath(common.PathToStr([]string{"parquet-go-root", "nested"})))
+		require.NoError(t, err)
+		require.Equal(t, converted, got)
+	})
+
+	t.Run("an unknown prefix is reported", func(t *testing.T) {
+		_, err := ConvertToJSONFriendly(rows, sh, WithPrefixPath(common.PathToStr([]string{"Parquet45go45root", "Missing"})))
+		require.Error(t, err)
+	})
+
+	t.Run("a value with no schema to consult is passed through", func(t *testing.T) {
+		// A nil handler describes nothing, so there is no root to name paths from.
+		got, err := ConvertToJSONFriendly([]any{int32(19000)}, nil)
+		require.NoError(t, err)
+		require.Equal(t, []any{int32(19000)}, got)
+	})
+
+	t.Run("a full read is unaffected", func(t *testing.T) {
+		type root struct {
+			Nested nested
+		}
+		got, err := ConvertToJSONFriendly([]any{root{Nested: nested{Day: 19000, Score: math.NaN()}}}, sh)
+		require.NoError(t, err)
+		require.Equal(t, []any{map[string]any{"Nested": map[string]any{"Day": "2022-01-08", "Score": "NaN"}}}, got)
+	})
+}
+
+// TestConvertToJSONFriendlyPartialReadRoots covers a prefix naming the value itself rather
+// than a group above it, which is what ReadPartialByNumber builds its result from.
+func TestConvertToJSONFriendlyPartialReadRoots(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=day, type=INT32, convertedtype=DATE"},
+			{"Tag": "name=days, type=LIST", "Fields": [{"Tag": "name=element, type=INT32, convertedtype=DATE"}]},
+			{"Tag": "name=scores, type=MAP", "Fields": [
+				{"Tag": "name=key, type=BYTE_ARRAY, convertedtype=UTF8"},
+				{"Tag": "name=value, type=INT32, convertedtype=DATE"}
+			]}
+		]
+	}`
+	sh, err := schema.NewSchemaHandlerFromJSON(jsonSchema)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name   string
+		prefix []string
+		rows   []any
+		want   any
+	}{
+		{
+			name:   "leaf",
+			prefix: []string{"Parquet45go45root", "Day"},
+			rows:   []any{int32(19000)},
+			want:   []any{"2022-01-08"},
+		},
+		{
+			name:   "list",
+			prefix: []string{"Parquet45go45root", "Days"},
+			rows:   []any{[]int32{19000, 19001}},
+			want:   []any{[]any{"2022-01-08", "2022-01-09"}},
+		},
+		{
+			name:   "map",
+			prefix: []string{"Parquet45go45root", "Scores"},
+			rows:   []any{map[string]int32{"a": 19000}},
+			want:   []any{map[string]any{"a": "2022-01-08"}},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ConvertToJSONFriendly(tc.rows, sh, WithPrefixPath(common.PathToStr(tc.prefix)))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	// The function takes one value as readily as a batch of them, and a LIST is the one
+	// root where both are slices: the batch holds a list each, the single value its
+	// elements.
+	t.Run("a list handed over as one value", func(t *testing.T) {
+		got, err := ConvertToJSONFriendly([]int32{19000, 19001}, sh,
+			WithPrefixPath(common.PathToStr([]string{"Parquet45go45root", "Days"})))
+		require.NoError(t, err)
+		require.Equal(t, []any{"2022-01-08", "2022-01-09"}, got)
+	})
+
+	t.Run("a batch of lists is still a batch", func(t *testing.T) {
+		got, err := ConvertToJSONFriendly([][]int32{{19000}, {19001}}, sh,
+			WithPrefixPath(common.PathToStr([]string{"Parquet45go45root", "Days"})))
+		require.NoError(t, err)
+		require.Equal(t, []any{[]any{"2022-01-08"}, []any{"2022-01-09"}}, got)
+	})
+}
+
+// TestIsListAnnotated covers the three spellings that make a value a list of its own, which
+// is what tells a batch of rows from one list handed over directly.
+func TestIsListAnnotated(t *testing.T) {
+	repeated := parquet.FieldRepetitionType_REPEATED
+	optional := parquet.FieldRepetitionType_OPTIONAL
+	logical := parquet.NewLogicalType()
+	logical.LIST = parquet.NewListType()
+
+	testCases := []struct {
+		name    string
+		element *parquet.SchemaElement
+		want    bool
+	}{
+		{"nil", nil, false},
+		{"legacy repeated", &parquet.SchemaElement{RepetitionType: &repeated}, true},
+		{"logical LIST", &parquet.SchemaElement{RepetitionType: &optional, LogicalType: logical}, true},
+		{"converted LIST", &parquet.SchemaElement{RepetitionType: &optional, ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_LIST)}, true},
+		{"plain group", &parquet.SchemaElement{RepetitionType: &optional}, false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isListAnnotated(tc.element))
+		})
+	}
+}
+
+// TestConvertToJSONFriendly_InconsistentRootReported covers the root lookup that decides
+// whether the data is a batch: a handler that cannot answer it is reported, not guessed at.
+func TestConvertToJSONFriendly_InconsistentRootReported(t *testing.T) {
+	type Row struct {
+		Day int32 `parquet:"name=day, type=INT32, convertedtype=DATE"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Row))
+	require.NoError(t, err)
+	sh.MapIndex[common.ParGoRootInName] = -1
+
+	_, err = ConvertToJSONFriendly([]any{Row{Day: 19000}}, sh)
+	require.ErrorContains(t, err, "schema handler is inconsistent")
 }

@@ -859,6 +859,15 @@ The infinity spelling is `"Infinity"` rather than Go's native `"+Inf"` because t
 
 Logical type conversion in `marshal.ConvertToJSONFriendly` follows the column's own schema path, so it covers legacy `REPEATED` columns, which repeat a value in place rather than wrapping it in a three-level `LIST` group. Those columns get the same treatment as `LIST` elements: `DATE`, `TIMESTAMP`, `DECIMAL`, and non-finite floats all render in their JSON form.
 
+A partial read needs to say where its data sits. `ReadPartial` and `ReadPartialByNumber` return objects rooted at the prefix they were given, while the reader's schema handler still describes the whole file, so every field resolves under the file root, where none of them exist. A path that resolves to nothing means "leave the value alone", which other callers rely on, so nothing is reported and no logical type is applied: a `DATE` comes back as its day count, and a `NaN` as the bare float that `json.Marshal` then refuses. From v3.9.0 pass the same prefix to the conversion:
+
+```go
+rows, err := pr.ReadPartialByNumber(1, prefixPath)
+friendly, err := marshal.ConvertToJSONFriendly(rows, pr.SchemaHandler, marshal.WithPrefixPath(prefixPath))
+```
+
+`WithPrefixPath` takes the path in either spelling `ReadPartial` accepts, internal or external names, and a prefix naming nothing in the schema is reported rather than silently converting nothing. It works wherever a partial read can be rooted: a group, a single column, or a `LIST` or `MAP` whose values carry a logical type. The data may be the rows a read returned or a single one of them, which only a `LIST` root leaves ambiguous, since both readings are slices: entries that are themselves slices are rows, and anything else is that list's own values. A full read needs no option.
+
 ### Non-finite Floating Point Statistics
 
 The Parquet specification treats the two kinds of non-finite value differently in `min`/`max` statistics. Infinities are ordinary values under the column's sort order and are stored as bounds like any other. `NaN` has no position in that ordering, so it is excluded: bounds are computed from non-NaN values only, and a column chunk or page whose non-null values are all `NaN` gets no bounds written at all. A page with no bounds also suppresses the `ColumnIndex` for its column chunk, since `min_values` and `max_values` are required there. This applies to `FLOAT`, `DOUBLE`, and `FLOAT16` columns.
