@@ -3565,3 +3565,50 @@ func TestJSONTypeToParquetTypeTextAllocations(t *testing.T) {
 		})
 	}
 }
+
+// TestConvertValue_TextBytesRenderAsString pins that a text column's value renders the
+// same whether it reaches the converter as a string or as the bytes behind one.
+func TestConvertValue_TextBytesRenderAsString(t *testing.T) {
+	byteArray := parquet.Type_BYTE_ARRAY
+	logical := func(set func(*parquet.LogicalType)) *parquet.LogicalType {
+		lT := parquet.NewLogicalType()
+		set(lT)
+		return lT
+	}
+	testCases := []struct {
+		name string
+		se   *parquet.SchemaElement
+	}{
+		{"converted UTF8", &parquet.SchemaElement{Type: &byteArray, ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_UTF8)}},
+		{"converted ENUM", &parquet.SchemaElement{Type: &byteArray, ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_ENUM)}},
+		{"converted JSON", &parquet.SchemaElement{Type: &byteArray, ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_JSON)}},
+		{"logical STRING", &parquet.SchemaElement{Type: &byteArray, LogicalType: logical(func(l *parquet.LogicalType) { l.STRING = parquet.NewStringType() })}},
+		{"logical ENUM", &parquet.SchemaElement{Type: &byteArray, LogicalType: logical(func(l *parquet.LogicalType) { l.ENUM = parquet.NewEnumType() })}},
+		{"logical JSON", &parquet.SchemaElement{Type: &byteArray, LogicalType: logical(func(l *parquet.LogicalType) { l.JSON = parquet.NewJsonType() })}},
+	}
+	// A named type defined from []byte holds the same text and renders the same way.
+	type namedBytes []byte
+	values := []struct {
+		name string
+		val  any
+	}{
+		{"string", "hello"},
+		{"bytes", []byte("hello")},
+		{"named bytes", namedBytes("hello")},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, value := range values {
+				t.Run(value.name, func(t *testing.T) {
+					for _, mode := range []ValueMode{ValueModeInterpreted, ValueModeRaw} {
+						rendered, err := ConvertValue(value.val, tc.se, WithValueMode(mode))
+						require.NoError(t, err)
+						require.Equal(t, "hello", rendered, mode)
+					}
+					// The deprecated wrapper renders the interpreted form and shares it.
+					require.Equal(t, "hello", ConvertToJSONType(value.val, tc.se))
+				})
+			}
+		})
+	}
+}

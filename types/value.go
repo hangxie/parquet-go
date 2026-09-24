@@ -79,19 +79,32 @@ func isTextAnnotated(cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {
 	return false
 }
 
+// textValueString renders a text column's bytes as the text they are.
+func textValueString(val any) any {
+	// Handing them back as bytes renders as base64 through a JSON encoder. In raw mode the
+	// write path would store that base64 verbatim, losing the round trip the mode promises;
+	// in interpreted mode it makes the rendering depend on the Go type the value arrived in.
+	switch v := val.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	}
+	// A named type defined from either one is the same text; validateTextUTF8 reads them
+	// the same way.
+	if rv := reflect.ValueOf(val); rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8 {
+		return string(rv.Bytes())
+	}
+	return val
+}
+
 // rawRenderValue renders the physical value a column stores, which is what raw mode carries
 // out of the file: base64 for a byte-backed column, the value itself otherwise.
 // rawStrToParquetType reads back exactly what this writes. The caller has already
 // returned for a nil value.
 func rawRenderValue(val any, pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType, length int) (any, error) {
 	if isTextAnnotated(cT, lT) {
-		// The bytes a text column holds are its text. Handing them back as []byte would
-		// render as base64 through a JSON encoder, which the raw write path would then
-		// store verbatim, so the value would not survive the round trip this mode promises.
-		if b, ok := val.([]byte); ok {
-			return string(b), nil
-		}
-		return val, nil
+		return textValueString(val), nil
 	}
 	switch pT {
 	case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY, parquet.Type_INT96:

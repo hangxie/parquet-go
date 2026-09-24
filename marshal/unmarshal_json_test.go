@@ -1117,11 +1117,10 @@ func TestConvertToJSONFriendlyEnforceUTF8ByteSlices(t *testing.T) {
 						require.ErrorIs(t, err, types.ErrUnrenderable)
 						require.Nil(t, got)
 					} else {
+						// A text column's bytes are its text, whether the field is
+						// []byte or a type defined from it, so both render as a string.
 						require.NoError(t, err)
-						text := reflect.ValueOf(got.(map[string]any)["Text"])
-						require.Equal(t, reflect.Slice, text.Kind())
-						require.Equal(t, reflect.Uint8, text.Type().Elem().Kind())
-						require.Equal(t, tc.text, text.Bytes())
+						require.Equal(t, string(tc.text), got.(map[string]any)["Text"])
 					}
 
 					got, err = ConvertToJSONFriendly(tt.row(tc.text), sh, WithEnforceUTF8(false))
