@@ -670,7 +670,7 @@ func TestSPHERICAL_GeoJSON_Encoding(t *testing.T) {
 func TestBoundingBoxCalculatorAddGeometryCollectionTruncatedCount(t *testing.T) {
 	calc := NewBoundingBoxCalculator()
 
-	calc.addGeometryCollectionWKB([]byte{1, 2, 3}, 0, false)
+	calc.addGeometryCollectionWKB([]byte{1, 2, 3}, 0, false, 0)
 
 	_, _, _, _, ok := calc.GetBounds()
 	require.False(t, ok)
@@ -2585,4 +2585,69 @@ func TestBoundingBoxCalculator_AddWKB(t *testing.T) {
 		_, _, _, _, ok := calc.GetBounds()
 		require.False(t, ok)
 	})
+}
+
+// nestedCollectionWKB wraps a Point in the given number of GeometryCollections.
+func nestedCollectionWKB(levels int) []byte {
+	b := wkbPoint(1, 1.0, 2.0)
+	for range levels {
+		head := binary.LittleEndian.AppendUint32([]byte{1}, WKBGeometryCollection)
+		head = binary.LittleEndian.AppendUint32(head, 1)
+		b = append(head, b...)
+	}
+	return b
+}
+
+// nestedCollectionGeoJSON wraps a Point in the given number of GeometryCollections.
+func nestedCollectionGeoJSON(levels int) map[string]any {
+	geometry := map[string]any{"type": "Point", "coordinates": []float64{1.0, 2.0}}
+	for range levels {
+		geometry = map[string]any{"type": "GeometryCollection", "geometries": []any{geometry}}
+	}
+	return geometry
+}
+
+// nestedEmptyCollectionWKB nests levels GeometryCollections, the innermost one empty.
+func nestedEmptyCollectionWKB(levels int) []byte {
+	b := binary.LittleEndian.AppendUint32([]byte{1}, WKBGeometryCollection)
+	b = binary.LittleEndian.AppendUint32(b, 0)
+	for range levels - 1 {
+		head := binary.LittleEndian.AppendUint32([]byte{1}, WKBGeometryCollection)
+		head = binary.LittleEndian.AppendUint32(head, 1)
+		b = append(head, b...)
+	}
+	return b
+}
+
+// nestedEmptyCollectionGeoJSON nests levels GeometryCollections, the innermost one empty.
+func nestedEmptyCollectionGeoJSON(levels int) map[string]any {
+	geometry := map[string]any{"type": "GeometryCollection", "geometries": []any{}}
+	for range levels - 1 {
+		geometry = map[string]any{"type": "GeometryCollection", "geometries": []any{geometry}}
+	}
+	return geometry
+}
+
+// nestedMultiPointWKB nests levels MultiPoints, each declaring one member.
+func nestedMultiPointWKB(levels int) []byte {
+	var b []byte
+	for range levels {
+		b = binary.LittleEndian.AppendUint32(append(b, 1), WKBMultiPoint)
+		b = binary.LittleEndian.AppendUint32(b, 1)
+	}
+	return append(b, wkbPoint(1, 1.0, 2.0)...)
+}
+
+func TestAddWKB_NestingDepth(t *testing.T) {
+	// An empty collection leaves nothing to measure, so what is asserted there is that the
+	// value was read at all rather than withdrawn as unreadable.
+	for _, nested := range []func(int) []byte{nestedCollectionWKB, nestedEmptyCollectionWKB} {
+		calc := NewBoundingBoxCalculator()
+		require.NoError(t, calc.AddWKB(nested(maxGeometryDepth)))
+		require.False(t, calc.BoundsUnknown())
+
+		calc = NewBoundingBoxCalculator()
+		require.NoError(t, calc.AddWKB(nested(maxGeometryDepth+1)))
+		require.True(t, calc.BoundsUnknown())
+	}
 }

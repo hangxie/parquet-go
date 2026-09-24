@@ -315,7 +315,7 @@ func multiPointZ() []byte {
 func TestWKBEndRejectsAnOffsetPastTheValue(t *testing.T) {
 	b := createSimpleWKBPoint(1, 2, true)
 	for _, off := range []int{-1, len(b) + 1} {
-		_, _, state := wkbEnd(b, off)
+		_, _, state := wkbEnd(b, off, 0)
 		require.Equal(t, wkbInvalid, state, "offset %d", off)
 	}
 }
@@ -434,7 +434,7 @@ func TestGeospatialFormatLimits(t *testing.T) {
 	t.Run("a third ordinate is refused rather than dropped", func(t *testing.T) {
 		_, err := geoJSONToWKB(map[string]any{
 			"type": "Point", "coordinates": []any{1.0, 2.0, 3.0},
-		})
+		}, 0)
 		require.ErrorContains(t, err, "only 2D is supported")
 	})
 }
@@ -644,4 +644,17 @@ func FuzzGeospatialWKBWriteBack(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestCheckWKB_NestingDepth(t *testing.T) {
+	for _, nested := range []func(int) []byte{nestedCollectionWKB, nestedEmptyCollectionWKB} {
+		require.NoError(t, checkWKB(nested(maxGeometryDepth), "GEOMETRY"))
+		require.Error(t, checkWKB(nested(maxGeometryDepth+1), "GEOMETRY"))
+	}
+}
+
+func TestCheckWKB_MultiMemberChain(t *testing.T) {
+	// A member's type is checked before it is measured, so a chain of Multi* members is
+	// refused where it starts rather than recursing to its end at an unchanging depth.
+	require.Error(t, checkWKB(nestedMultiPointWKB(100000), "GEOMETRY"))
 }

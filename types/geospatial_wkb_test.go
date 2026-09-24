@@ -1356,7 +1356,7 @@ func TestParsePolygon_MaximumCoverage(t *testing.T) {
 }
 
 func TestGeometryCollectionToGeoJSONTruncatedCount(t *testing.T) {
-	gj, ok := geometryCollectionToGeoJSON([]byte{1, 2, 3}, 0, false, 6)
+	gj, ok := geometryCollectionToGeoJSON([]byte{1, 2, 3}, 0, false, 6, 0)
 
 	require.False(t, ok)
 	require.Nil(t, gj)
@@ -1374,7 +1374,7 @@ func TestGeometryCollectionToGeoJSONInvalidSubGeometryBranches(t *testing.T) {
 		binary.LittleEndian.PutUint32(buf, 1)
 		wkb = append(wkb, buf...)
 
-		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6)
+		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6, 0)
 
 		require.False(t, ok)
 		require.Nil(t, gj)
@@ -1395,7 +1395,7 @@ func TestGeometryCollectionToGeoJSONInvalidSubGeometryBranches(t *testing.T) {
 		wkb = append(wkb, buf...)
 		wkb = append(wkb, make([]byte, 16)...)
 
-		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6)
+		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6, 0)
 
 		require.False(t, ok)
 		require.Nil(t, gj)
@@ -1773,6 +1773,33 @@ func TestCalculateWKBSize_MemberHeaders(t *testing.T) {
 			size, ok := calculateWKBSize(tt.wkb)
 			require.Equal(t, tt.size != 0, ok)
 			require.Equal(t, tt.size, size)
+		})
+	}
+}
+
+func TestWKBReaders_NestingDepth(t *testing.T) {
+	testCases := []struct {
+		name   string
+		nested func(int) []byte
+	}{
+		{"innermost collection holds a point", nestedCollectionWKB},
+		{"innermost collection is empty", nestedEmptyCollectionWKB},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			atLimit := tc.nested(maxGeometryDepth)
+			pastLimit := tc.nested(maxGeometryDepth + 1)
+
+			_, ok := wkbToGeoJSON(atLimit, -1)
+			require.True(t, ok)
+			_, ok = wkbToGeoJSON(pastLimit, -1)
+			require.False(t, ok)
+
+			size, ok := calculateWKBSize(atLimit)
+			require.True(t, ok)
+			require.Equal(t, len(atLimit), size)
+			_, ok = calculateWKBSize(pastLimit)
+			require.False(t, ok)
 		})
 	}
 }
