@@ -236,3 +236,33 @@ func TestIntervalRoundTrip(t *testing.T) {
 		require.Equal(t, want, []byte(got), "months=%d days=%d millis=%d", c[0], c[1], c[2])
 	}
 }
+
+// TestParseIntervalString_WholeComponent pins that each component is read over its whole field.
+func TestParseIntervalString_WholeComponent(t *testing.T) {
+	testCases := []struct {
+		name   string
+		input  string
+		errMsg string
+	}{
+		{name: "months with a remainder", input: "2abc mon", errMsg: "invalid months value: 2abc"},
+		{name: "days with a remainder", input: "3xyz day", errMsg: "invalid days value: 3xyz"},
+		{name: "seconds with a remainder", input: "4.5abc sec", errMsg: "invalid seconds value: 4.5abc"},
+		{name: "a later component with a remainder", input: "2 mon 3zzz day", errMsg: "invalid days value: 3zzz"},
+		{name: "months in hex", input: "0x10 mon", errMsg: "invalid months value: 0x10"},
+		{name: "months with a sign", input: "+2 mon", errMsg: "invalid months value: +2"},
+		{name: "months that overflow", input: "4294967296 mon", errMsg: "invalid months value: 4294967296"},
+		{name: "nothing but a unit", input: "mon", errMsg: "invalid interval format"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseIntervalString(tc.input)
+			require.ErrorContains(t, err, tc.errMsg)
+		})
+	}
+
+	// The forms the renderer emits, and the ones around them, still parse.
+	for _, valid := range []string{"2 mon 3 day 4.500 sec", "0.000 sec", "1e3 sec", " 2  mon ", ""} {
+		_, err := ParseIntervalString(valid)
+		require.NoError(t, err, valid)
+	}
+}
