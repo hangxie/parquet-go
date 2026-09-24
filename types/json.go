@@ -289,6 +289,9 @@ func JSONTypeToParquetTypeWithLogical(val reflect.Value, pT *parquet.Type, cT *p
 	if err := checkJSONStringColumn(val, *pT, cT, lT, ValueModeInterpreted); err != nil {
 		return nil, err
 	}
+	if err := checkJSONScalarColumn(val, *pT, cT, lT); err != nil {
+		return nil, err
+	}
 
 	// Handle decimal types specially to preserve precision from JSON numbers
 	isDecimal := (cT != nil && *cT == parquet.ConvertedType_DECIMAL) || (lT != nil && lT.IsSetDECIMAL())

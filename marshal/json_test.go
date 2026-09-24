@@ -430,14 +430,15 @@ func TestMarshalJSON_EdgeCases(t *testing.T) {
 		sch, err := schema.NewSchemaHandlerFromJSON(schemaString)
 		require.NoError(t, err)
 
-		// JSON with invalid type for INT32 field
+		// A JSON string is the wrong form for a numeric column whatever it holds, so the
+		// mismatch is reported before anything tries to parse the text.
 		invalidTypeJSON := []any{
 			`{"number": "not_a_number"}`,
 		}
 
 		_, err = MarshalJSON(invalidTypeJSON, sch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), `parse INT32 "not_a_number"`)
+		require.Contains(t, err.Error(), `INT32 column takes a JSON number, got string "not_a_number"`)
 	})
 
 	t.Run("empty_path_handling", func(t *testing.T) {
