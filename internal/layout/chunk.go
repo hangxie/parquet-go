@@ -87,10 +87,12 @@ func aggregatePageMetrics(pages []*Page, statsStartIdx int, funcTable common.Fun
 }
 
 func populateStatistics(metaData *parquet.ColumnMetaData, schema *parquet.SchemaElement, minVal, maxVal any, nullCount int64, omitStats bool) error {
-	metaData.Statistics = parquet.NewStatistics()
 	if omitStats {
+		// An empty Statistics is a statistic a reader still has to look at, and says the
+		// column has none of everything rather than saying nothing.
 		return nil
 	}
+	metaData.Statistics = parquet.NewStatistics()
 	pT := schema.Type
 	metaData.Statistics.NullCount = &nullCount
 	if maxVal == nil || minVal == nil {
@@ -171,7 +173,11 @@ func pagesToChunk(pages []*Page, hasDictPage bool) (*Chunk, error) {
 	}
 
 	// Aggregate SizeStatistics from per-page metrics.
-	metaData.SizeStatistics = aggregateSizeStatistics(pages, statsStartIdx)
+	if !omitStats {
+		// SizeStatistics is a statistic like any other, and its byte-array total is what
+		// the tag is reached for: it walks every value of a BYTE_ARRAY page.
+		metaData.SizeStatistics = aggregateSizeStatistics(pages, statsStartIdx)
+	}
 
 	chunk.ChunkHeader.MetaData = metaData
 	return chunk, nil

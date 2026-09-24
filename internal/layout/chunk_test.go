@@ -1531,7 +1531,13 @@ func TestPagesToDictChunk_DistinctCount(t *testing.T) {
 			chunk, err := PagesToDictChunk(tt.pages)
 			require.NoError(t, err)
 			require.NotNil(t, chunk)
-			require.Equal(t, tt.expected, chunk.ChunkHeader.MetaData.Statistics.DistinctCount)
+			stats := chunk.ChunkHeader.MetaData.Statistics
+			if stats == nil {
+				// omitstats leaves the whole statistic off, distinct count included.
+				require.Nil(t, tt.expected)
+				return
+			}
+			require.Equal(t, tt.expected, stats.DistinctCount)
 		})
 	}
 }
@@ -1707,4 +1713,42 @@ func TestAggregateGeospatialTypesAreSorted(t *testing.T) {
 		_, geoTypes := aggregateGeospatialStatistics(pages)
 		require.Equal(t, []int32{1, 2, 3, 4, 6, 7}, geoTypes, "run %d", i)
 	}
+}
+
+// TestPagesToChunk_OmitStats pins what the tag suppresses on a column chunk: min/max and
+// counts, and the size statistics whose byte-array total is the cost it exists to avoid.
+func TestPagesToChunk_OmitStats(t *testing.T) {
+	newPages := func(omitStats bool) []*Page {
+		schema := &parquet.SchemaElement{
+			Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
+			Name: "test_col",
+		}
+		info := &common.Tag{}
+		info.OmitStats = omitStats
+
+		page := NewDataPage()
+		page.Schema = schema
+		page.Info = info
+		page.MinVal, page.MaxVal = "a", "z"
+		page.NullCount = common.ToPtr(int64(0))
+		page.Header.DataPageHeader.NumValues = 2
+		page.DefinitionLevelHistogram = []int64{0, 2}
+		page.UnencodedByteArrayDataBytes = common.ToPtr(int64(12))
+		return []*Page{page}
+	}
+
+	t.Run("kept without the tag", func(t *testing.T) {
+		chunk, err := pagesToChunk(newPages(false), false)
+		require.NoError(t, err)
+		require.NotNil(t, chunk.ChunkHeader.MetaData.Statistics)
+		require.NotNil(t, chunk.ChunkHeader.MetaData.SizeStatistics)
+		require.Equal(t, int64(12), chunk.ChunkHeader.MetaData.SizeStatistics.GetUnencodedByteArrayDataBytes())
+	})
+
+	t.Run("suppressed by the tag", func(t *testing.T) {
+		chunk, err := pagesToChunk(newPages(true), false)
+		require.NoError(t, err)
+		require.Nil(t, chunk.ChunkHeader.MetaData.Statistics)
+		require.Nil(t, chunk.ChunkHeader.MetaData.SizeStatistics)
+	})
 }

@@ -193,7 +193,10 @@ func TestDictionaryDistinctCountStatistics(t *testing.T) {
 		}
 		require.NoError(t, pw.WriteStop())
 
-		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics.DistinctCount)
+		// omitstats leaves the whole statistic off, distinct count included, and the size
+		// statistics with it.
+		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics)
+		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].MetaData.SizeStatistics)
 	})
 }
 
