@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -56,22 +57,24 @@ func ParseIntervalString(s string) (string, error) {
 		value := parts[i]
 		unit := strings.ToLower(parts[i+1])
 
+		// Each component is read over its whole field. fmt.Sscanf took what it could and
+		// reported nothing for the rest, so "2abc mon" scanned as 2 and "0x10 mon" as 0.
 		switch {
 		case strings.HasPrefix(unit, "mon"):
-			var v uint32
-			if _, err := fmt.Sscanf(value, "%d", &v); err != nil {
+			v, err := strconv.ParseUint(value, 10, 32)
+			if err != nil {
 				return "", fmt.Errorf("invalid months value: %s", value)
 			}
-			months = v
+			months = uint32(v)
 		case strings.HasPrefix(unit, "day"):
-			var v uint32
-			if _, err := fmt.Sscanf(value, "%d", &v); err != nil {
+			v, err := strconv.ParseUint(value, 10, 32)
+			if err != nil {
 				return "", fmt.Errorf("invalid days value: %s", value)
 			}
-			days = v
+			days = uint32(v)
 		case strings.HasPrefix(unit, "sec"):
-			var v float64
-			if _, err := fmt.Sscanf(value, "%f", &v); err != nil {
+			v, err := strconv.ParseFloat(value, 64)
+			if err != nil {
 				return "", fmt.Errorf("invalid seconds value: %s", value)
 			}
 			// converting a negative, NaN or overflowing float to uint32 is undefined in Go
