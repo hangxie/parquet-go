@@ -258,29 +258,44 @@ func decodePrimitiveValue(data []byte, offset int, primitiveType uint8) (int, an
 	}
 }
 
-// decodeObjectValue decodes a variant object value
-func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variantMetadata, budget *int) (int, any, error) {
-	// Object header: field_id_size_minus_one (2 bits) | field_offset_size_minus_one (2 bits) | is_large (1 bit) | unused (1 bit)
-	fieldIDSize := int((valueHeader & 0x03) + 1)
-	fieldOffsetSize := int(((valueHeader >> 2) & 0x03) + 1)
-	isLarge := (valueHeader>>4)&1 == 1
-
-	pos := offset + 1
-
-	// Read num_elements
-	var numElements int
+// readContainerElementCount reads the element count following an object or array header.
+func readContainerElementCount(data []byte, pos int, isLarge bool, kind string) (int, int, error) {
 	if isLarge {
 		if pos+4 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for large object num_elements")
+			return 0, 0, fmt.Errorf("not enough data for large %s num_elements", kind)
 		}
-		numElements = int(binary.LittleEndian.Uint32(data[pos:]))
-		pos += 4
-	} else {
-		if pos >= len(data) {
-			return 0, nil, fmt.Errorf("not enough data for object num_elements")
+		return int(binary.LittleEndian.Uint32(data[pos:])), pos + 4, nil
+	}
+	if pos >= len(data) {
+		return 0, 0, fmt.Errorf("not enough data for %s num_elements", kind)
+	}
+	return int(data[pos]), pos + 1, nil
+}
+
+// decodeObjectValue decodes a variant object value
+func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variantMetadata, budget *int) (int, any, error) {
+	// object_header = is_large << 4 | field_id_size_minus_one << 2 | field_offset_size_minus_one
+	fieldIDSize := int((valueHeader>>2)&0x03) + 1
+	fieldOffsetSize := int(valueHeader&0x03) + 1
+
+	consumed, val, err := decodeObjectSized(data, offset, valueHeader, fieldIDSize, fieldOffsetSize, meta, budget)
+	if err != nil && fieldIDSize != fieldOffsetSize {
+		// Releases up to v3.8.3 wrote the two widths in the opposite bit positions. Nothing
+		// in the header tells the layouts apart, so the older reading is only tried once the
+		// conforming one has failed, which the span check above makes it do promptly.
+		if legacyConsumed, legacyVal, legacyErr := decodeObjectSized(data, offset, valueHeader, fieldOffsetSize, fieldIDSize, meta, budget); legacyErr == nil {
+			return legacyConsumed, legacyVal, nil
 		}
-		numElements = int(data[pos])
-		pos++
+	}
+	return consumed, val, err
+}
+
+// decodeObjectSized decodes a variant object value with the given header field widths.
+func decodeObjectSized(data []byte, offset int, valueHeader uint8, fieldIDSize, fieldOffsetSize int, meta *variantMetadata, budget *int) (int, any, error) {
+	isLarge := (valueHeader>>4)&1 == 1
+	numElements, pos, err := readContainerElementCount(data, offset+1, isLarge, "object")
+	if err != nil {
+		return 0, nil, err
 	}
 
 	// Historical parquet-go encodings omitted the required zero offset from empty containers.
@@ -311,8 +326,10 @@ func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variant
 	// Decode values
 	valuesStart := pos
 	valuesLength := fieldOffsets[numElements]
-	if valuesLength > len(data)-valuesStart {
-		return 0, nil, fmt.Errorf("object values exceed data")
+	// Every caller trims data to the end of this value, so an object that does not end where
+	// the data does has been read with the wrong widths, however well its parts parse.
+	if valuesStart+valuesLength != len(data) {
+		return 0, nil, fmt.Errorf("object is %d bytes, value carries %d", valuesStart+valuesLength-offset, len(data)-offset)
 	}
 	if numElements == 0 {
 		if valuesLength != 0 {
@@ -350,10 +367,7 @@ func decodeObjectValue(data []byte, offset int, valueHeader uint8, meta *variant
 		}
 		result[fieldName] = val
 	}
-
-	// Total consumed bytes
-	totalConsumed := valuesStart + valuesLength - offset
-	return totalConsumed, result, nil
+	return len(data) - offset, result, nil
 }
 
 func objectValueEnds(offsets []int) (map[int]int, error) {
@@ -392,26 +406,13 @@ func objectValueEnds(offsets []int) (map[int]int, error) {
 
 // decodeArrayValue decodes a variant array value
 func decodeArrayValue(data []byte, offset int, valueHeader uint8, meta *variantMetadata, budget *int) (int, any, error) {
-	// Array header: element_offset_size_minus_one (2 bits) | is_large (1 bit) | unused (3 bits)
+	// array_header = is_large << 2 | element_offset_size_minus_one
 	elementOffsetSize := int((valueHeader & 0x03) + 1)
 	isLarge := (valueHeader>>2)&1 == 1
 
-	pos := offset + 1
-
-	// Read num_elements
-	var numElements int
-	if isLarge {
-		if pos+4 > len(data) {
-			return 0, nil, fmt.Errorf("not enough data for large array num_elements")
-		}
-		numElements = int(binary.LittleEndian.Uint32(data[pos:]))
-		pos += 4
-	} else {
-		if pos >= len(data) {
-			return 0, nil, fmt.Errorf("not enough data for array num_elements")
-		}
-		numElements = int(data[pos])
-		pos++
+	numElements, pos, err := readContainerElementCount(data, offset+1, isLarge, "array")
+	if err != nil {
+		return 0, nil, err
 	}
 
 	// Historical parquet-go encodings omitted the required zero offset from empty containers.
