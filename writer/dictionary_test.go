@@ -197,6 +197,7 @@ func TestDictionaryDistinctCountStatistics(t *testing.T) {
 		// statistics with it.
 		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].MetaData.Statistics)
 		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].MetaData.SizeStatistics)
+		require.Nil(t, pw.Footer.RowGroups[0].Columns[0].ColumnIndexOffset)
 	})
 }
 

@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -1737,5 +1738,83 @@ func TestWriteCRC_DictEncoding_RoundTrip(t *testing.T) {
 	require.Len(t, results, 20)
 	for i, r := range results {
 		require.Equal(t, fmt.Sprintf("cat_%d", i%5), r.Category)
+	}
+}
+
+// TestOmitStats_SerializedMetadata pins what a written file carries for a column tagged
+// omitstats, on both encodings and whether or not its pages hold any value at all.
+func TestOmitStats_SerializedMetadata(t *testing.T) {
+	type row struct {
+		Plain  string  `parquet:"name=plain, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Text   string  `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8, omitstats=true"`
+		Dict   string  `parquet:"name=dict, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY, omitstats=true"`
+		AllNil *string `parquet:"name=allnil, type=BYTE_ARRAY, convertedtype=UTF8, omitstats=true"`
+		// All null and dictionary encoded: its chunk leads with a dictionary page, and
+		// all-null pages keep the bounds that would otherwise leave a column index behind.
+		DictNil *string `parquet:"name=dictnil, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY, omitstats=true"`
+	}
+
+	var out bytes.Buffer
+	pw, err := NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&out), new(row), WithNP(1))
+	require.NoError(t, err)
+	for i := range 8 {
+		value := fmt.Sprintf("value-%d", i)
+		require.NoError(t, pw.WriteWithContext(context.Background(), row{Plain: value, Text: value, Dict: "repeated"}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	pr, err := reader.NewParquetColumnReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(out.Bytes()), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStopWithContext(context.Background())) }()
+
+	columns := map[string]*parquet.ColumnChunk{}
+	for _, column := range pr.Footer.RowGroups[0].Columns {
+		columns[column.MetaData.GetPathInSchema()[0]] = column
+	}
+
+	plain := columns["plain"]
+	require.NotNil(t, plain.MetaData.Statistics)
+	require.NotNil(t, plain.MetaData.SizeStatistics)
+	require.NotNil(t, plain.ColumnIndexOffset)
+
+	for _, name := range []string{"text", "dict", "allnil", "dictnil"} {
+		column := columns[name]
+		require.NotNil(t, column, name)
+		require.Nil(t, column.MetaData.Statistics, name)
+		require.Nil(t, column.MetaData.SizeStatistics, name)
+		require.Nil(t, column.ColumnIndexOffset, name)
+		// The offset index is positional rather than statistical, so it stays.
+		require.NotNil(t, column.OffsetIndexOffset, name)
+	}
+}
+
+// TestChunkOmitsStats pins that the tag is read from a data page. A dictionary chunk leads
+// with a dictionary page the writer builds itself, which carries no tag of its own.
+func TestChunkOmitsStats(t *testing.T) {
+	newPage := func(pageType parquet.PageType, omitStats bool) *layout.Page {
+		page := layout.NewDataPage()
+		page.Header.Type = pageType
+		info := &common.Tag{}
+		info.OmitStats = omitStats
+		page.Info = info
+		return page
+	}
+	dictionaryPage := layout.NewDataPage()
+	dictionaryPage.Header.Type = parquet.PageType_DICTIONARY_PAGE
+
+	testCases := []struct {
+		name  string
+		pages []*layout.Page
+		want  bool
+	}{
+		{"data page alone", []*layout.Page{newPage(parquet.PageType_DATA_PAGE, true)}, true},
+		{"untagged data page", []*layout.Page{newPage(parquet.PageType_DATA_PAGE, false)}, false},
+		{"behind an untagged dictionary page", []*layout.Page{dictionaryPage, newPage(parquet.PageType_DATA_PAGE, true)}, true},
+		{"no pages", nil, false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, chunkOmitsStats(tc.pages))
+		})
 	}
 }
