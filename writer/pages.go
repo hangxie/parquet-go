@@ -304,6 +304,20 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 	return bounds, hasValidBounds, nil
 }
 
+// chunkOmitsStats reports whether the chunk's column is tagged to carry no statistics.
+func chunkOmitsStats(pages []*layout.Page) bool {
+	// Read from a data page: a dictionary chunk leads with a dictionary page the writer
+	// builds itself, which carries a default tag rather than the column's.
+	for _, page := range pages {
+		if page == nil || page.Info == nil || page.Header == nil ||
+			page.Header.Type == parquet.PageType_DICTIONARY_PAGE {
+			continue
+		}
+		return page.Info.OmitStats
+	}
+	return false
+}
+
 func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, columnOrdinal int16) error {
 	chunk.ChunkHeader.MetaData.DataPageOffset = -1
 	chunk.ChunkHeader.FileOffset = pw.offset
@@ -336,7 +350,10 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 
 	firstRowIndex := int64(0)
 	dataPageIdx := 0
-	columnIndexValid := true
+	// A column tagged omitstats carries no column index at all. Dropping it for want of
+	// bounds covers most such columns, but one whose pages are all null has bounds the
+	// spec calls valid, and its index would still publish level histograms.
+	columnIndexValid := !chunkOmitsStats(pages)
 	dataPageBounds := make([]pageBounds, 0, dataPageCount)
 	var dataPageSchema *parquet.SchemaElement
 
@@ -378,7 +395,7 @@ func (pw *ParquetWriter) writeChunkPages(chunk *layout.Chunk, rowGroupOrdinal, c
 	}
 
 	// Drop a ColumnIndex whose non-null pages lack valid min/max bounds (e.g. a
-	// column written with omitstats, or a type that carries no min/max). A nil
+	// type that carries no min/max), or that omitstats suppressed above. A nil
 	// slot signals writeColumnIndexes to leave this chunk's ColumnIndexOffset
 	// unset, which is spec-valid and keeps the per-chunk slot alignment intact.
 	if !columnIndexValid {
