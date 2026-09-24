@@ -320,6 +320,16 @@ rendered, err := types.ConvertValue(v, schemaElement)
 
 A value the column cannot render is reported rather than replaced, each error wrapping `types.ErrUnrenderable`: BSON that does not parse or is empty, bytes the requested geospatial rendering cannot be produced from, and a `UUID`, `FLOAT16`, `INTERVAL` or `INT96` whose width is not the one the format fixes. Only the geospatial renderings that read the bytes can fail that way, `GeospatialModeGeoJSON` and `GeospatialModeHybrid`, since `GeospatialModeHex` and `GeospatialModeBase64` render any bytes; a value that is not bytes at all is reported whichever of them is selected. The WKB reading is 2D, so an ISO geometry carrying Z or M ordinates is among the bytes those two cannot read. An integer outside the range its annotation declares is reported in both modes: raw mode cannot write it back, and interpreted mode renders it by wrapping it into the annotation's width, so a `UINT_8` column holding 256 reads as 0. Raw mode reports one more, since it promises the value writes back as it was read: a `FIXED_LEN_BYTE_ARRAY` whose width is not the schema element's `type_length`, where the interpreted path renders base64 or a decimal and says nothing. A column annotated as text is carried verbatim in both directions and measured in neither. A number-backed column given a value of the wrong Go type still passes it through, since only a corrupt reader produces one.
 
+Text columns render as text. `STRING`, `ENUM` and `JSON`, under either spelling of the annotation, render a `string` whatever Go type the value reaches the converter in:
+
+| Value | Up to v3.8.3 | From v3.9.0 |
+| --- | --- | --- |
+| `"hello"` | `"hello"` | `"hello"` |
+| `[]byte("hello")` | the `[]byte`, which a JSON encoder writes as `"aGVsbG8="` | `"hello"` |
+| a named type defined from `[]byte` | as for `[]byte` above | `"hello"` |
+
+Raw mode already normalized these, so the change is to the interpreted path, and `types.ConvertToJSONType` shares it. No read path in this module produces such a value, since `BYTE_ARRAY` decodes to `string`; it arises from handing bytes to the converter directly, as `marshal.ConvertToJSONFriendly` does for a `[]byte` struct field.
+
 A call the column cannot answer is reported separately: `types.ErrInvalidSchemaElement` for a nil schema element, or one carrying no physical type where the rendering needs one (raw mode, which is a reading of that type and nothing else, and the `DECIMAL` converter, the one interpreted converter that reads it), and `types.ErrUnsupportedValueMode` for a mode outside the two defined ones. A caller can tell the three apart with `errors.Is` rather than by matching on strings.
 
 On error the returned value is a rendering rather than nil, so a caller that wants to carry on with one can: the substitute `ConvertToJSONType` produces in interpreted mode, and in raw mode the base64 of the bytes for a byte-backed column of the wrong width, the value itself otherwise. `ConvertValue` also honours `WithValueMode`, which is how a value is read back in the raw form it was written; see [Value Modes](#value-modes).

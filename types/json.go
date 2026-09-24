@@ -72,6 +72,12 @@ func convertValue(val any, se *parquet.SchemaElement, cfg ValueConfig) (any, err
 		return nonFiniteFloatToJSONString(rendered), err
 	}
 
+	// A text column's bytes are its text in both modes, so the rendering below does not
+	// depend on which Go type the caller holds them in.
+	if isTextAnnotated(cT, lT) {
+		val = textValueString(val)
+	}
+
 	// Handle INT96 timestamp conversion (before checking logical/converted types)
 	if pT != nil && *pT == parquet.Type_INT96 {
 		return convertINT96Value(val)
