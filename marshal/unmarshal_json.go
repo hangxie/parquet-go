@@ -18,6 +18,8 @@ type jsonConverter struct {
 	schemaCache      sync.Map                // map[string]*parquet.SchemaElement
 	fieldCache       sync.Map                // map[reflect.Type]map[string]fieldInfo
 	geospatialConfig *types.GeospatialConfig // nil means use default
+	prefixPath       string                  // subtree the data is rooted at, "" for the file root
+	rootPath         string                  // prefixPath in in-path form, resolved once per call
 }
 
 // JSONConvertOption configures ConvertToJSONFriendly behavior.
@@ -27,6 +29,13 @@ type JSONConvertOption func(*jsonConverter)
 // If not provided or nil, the default config (Hex for GEOMETRY, GeoJSON for GEOGRAPHY) is used.
 func WithGeospatialConfig(cfg *types.GeospatialConfig) JSONConvertOption {
 	return func(converter *jsonConverter) { converter.geospatialConfig = cfg }
+}
+
+// WithPrefixPath names the subtree the data is rooted at, as passed to ReadPartial.
+func WithPrefixPath(prefixPath string) JSONConvertOption {
+	// Without it those objects are looked up under the file root, where they do not exist,
+	// and a path resolving to nothing means "pass the value through" rather than an error.
+	return func(converter *jsonConverter) { converter.prefixPath = prefixPath }
 }
 
 // WithEnforceUTF8 enables UTF-8 validation for STRING, UTF8, JSON and ENUM values.
@@ -46,7 +55,85 @@ func ConvertToJSONFriendly(data any, schemaHandler *schema.SchemaHandler, opts .
 	for _, opt := range opts {
 		opt(converter)
 	}
-	return convertValueToJSONFriendlyWithContext(reflect.ValueOf(data), schemaHandler, "", converter)
+	if err := converter.resolveRootPath(schemaHandler); err != nil {
+		return nil, err
+	}
+	val := reflect.ValueOf(data)
+	batch, err := converter.isRowBatch(val, schemaHandler)
+	if err != nil {
+		return nil, err
+	}
+	if batch {
+		rows := make([]any, val.Len())
+		for i := range val.Len() {
+			converted, err := convertValueToJSONFriendlyWithContext(val.Index(i), schemaHandler, converter.rootPath, converter)
+			if err != nil {
+				return nil, fmt.Errorf("convert row %d: %w", i, err)
+			}
+			rows[i] = converted
+		}
+		return rows, nil
+	}
+	return convertValueToJSONFriendlyWithContext(val, schemaHandler, converter.rootPath, converter)
+}
+
+// isRowBatch reports whether the value is the rows a read returns rather than one of them.
+func (converter *jsonConverter) isRowBatch(val reflect.Value, schemaHandler *schema.SchemaHandler) (bool, error) {
+	// Rows are a container, not a schema element, so each is one value at the root path.
+	// For a partial read that is the prefix itself: a group, a leaf, a LIST or a MAP.
+	if !val.IsValid() || (val.Kind() != reflect.Slice && val.Kind() != reflect.Array) {
+		return false, nil
+	}
+	if converter.rootPath == "" {
+		return true, nil
+	}
+	element, err := lookupSchemaElement(schemaHandler, converter.rootPath, converter)
+	if err != nil {
+		return false, err
+	}
+	if !isListAnnotated(element) {
+		return true, nil
+	}
+	// A LIST root is the one place both readings are slices. A batch holds a list each, so
+	// its entries are slices of their own; a single list holds that list's elements.
+	switch val.Type().Elem().Kind() {
+	case reflect.Slice, reflect.Array, reflect.Interface:
+		return true, nil
+	}
+	return false, nil
+}
+
+// isListAnnotated reports whether the element holds a list of values rather than one.
+func isListAnnotated(element *parquet.SchemaElement) bool {
+	switch {
+	case element == nil:
+		return false
+	case element.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED:
+		return true
+	case element.LogicalType != nil && element.LogicalType.IsSetLIST():
+		return true
+	default:
+		return element.ConvertedType != nil && *element.ConvertedType == parquet.ConvertedType_LIST
+	}
+}
+
+// resolveRootPath fixes the path every lookup hangs off, once per call.
+func (converter *jsonConverter) resolveRootPath(schemaHandler *schema.SchemaHandler) error {
+	if schemaHandler == nil {
+		return nil
+	}
+	if converter.prefixPath == "" {
+		converter.rootPath = schemaHandler.GetRootInName()
+		return nil
+	}
+	// Reported rather than left to miss: a prefix naming nothing would convert no value
+	// and read exactly like the bug this option exists to fix.
+	inPath, err := schemaHandler.ConvertToInPathStr(converter.prefixPath)
+	if err != nil {
+		return fmt.Errorf("convert prefix path: %w", err)
+	}
+	converter.rootPath = inPath
+	return nil
 }
 
 // getFieldNameFromTag extracts the name from JSON tag since the struct from parquet reading uses JSON tags
@@ -278,15 +365,10 @@ func listElementPath(schemaHandler *schema.SchemaHandler, pathPrefix string, con
 	return pathPrefix + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element", nil
 }
 
-// lookupSchemaElement resolves a conversion path against the schema. A nil element means the
-// path carries no schema-driven conversion, which is normal: values reached through a partial
-// read or a schema handler that does not describe them are passed through untouched. An error
-// means the schema handler itself is inconsistent. Results are cached on the converter.
+// lookupSchemaElement resolves a conversion path, named from the root the data sits at.
 func lookupSchemaElement(schemaHandler *schema.SchemaHandler, path string, converter *jsonConverter) (*parquet.SchemaElement, error) {
-	// paths are built from Go field names alone, so the root is always missing and never
-	// ambiguous: a top-level field may share the root's name without colliding with it
-	path = schemaHandler.GetRootInName() + common.ParGoPathDelimiter + path
-
+	// A nil element is normal: a handler that does not describe the value passes it
+	// through untouched, where an error means the handler itself is inconsistent.
 	if cached, ok := converter.schemaCache.Load(path); ok {
 		element, _ := cached.(*parquet.SchemaElement)
 		return element, nil
@@ -316,7 +398,8 @@ func convertPrimitiveToJSONFriendly(val reflect.Value, schemaHandler *schema.Sch
 	if err != nil {
 		return nil, err
 	}
-	if schemaElement == nil {
+	// A group has no physical type, and a value sits at one only when rooted there.
+	if schemaElement == nil || schemaElement.Type == nil {
 		return val.Interface(), nil
 	}
 
