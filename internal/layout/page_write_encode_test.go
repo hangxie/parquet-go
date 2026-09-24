@@ -321,3 +321,38 @@ func TestComputeLevelHistogramsOmitsUnmeasuredByteArray(t *testing.T) {
 		})
 	}
 }
+
+// TestComputeLevelHistograms_OmitStats pins which of these the tag skips: the byte-array
+// walk, and not the row count or the level histograms, which the offset index and the
+// all-null page detection read whether statistics are written or not.
+func TestComputeLevelHistograms_OmitStats(t *testing.T) {
+	byteArrayType := parquet.Type_BYTE_ARRAY
+	newPage := func(omitStats bool) *Page {
+		info := &common.Tag{}
+		info.OmitStats = omitStats
+		return &Page{
+			Schema: &parquet.SchemaElement{Type: &byteArrayType},
+			Info:   info,
+			DataTable: &Table{
+				MaxDefinitionLevel: 1,
+				MaxRepetitionLevel: 0,
+				DefinitionLevels:   []int32{1, 1, 0},
+				RepetitionLevels:   []int32{0, 0, 0},
+				Values:             []any{"ab", "cde", nil},
+			},
+		}
+	}
+
+	measured := newPage(false)
+	measured.computeLevelHistograms(measured.DataTable.Values)
+	require.NotNil(t, measured.UnencodedByteArrayDataBytes)
+	require.Equal(t, int64(5), *measured.UnencodedByteArrayDataBytes)
+	require.Equal(t, int64(3), measured.NumRows)
+	require.Equal(t, []int64{1, 2}, measured.DefinitionLevelHistogram)
+
+	omitted := newPage(true)
+	omitted.computeLevelHistograms(omitted.DataTable.Values)
+	require.Nil(t, omitted.UnencodedByteArrayDataBytes)
+	require.Equal(t, int64(3), omitted.NumRows, "the offset index counts rows either way")
+	require.Equal(t, []int64{1, 2}, omitted.DefinitionLevelHistogram, "all-null detection reads this")
+}
