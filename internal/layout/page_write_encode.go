@@ -107,10 +107,12 @@ func (page *Page) computeLevelHistograms(values []any) {
 			page.RepetitionLevelHistogram[rl]++
 		}
 	}
-	// Compute unencoded byte array data bytes for BYTE_ARRAY columns.
-	// Per the spec this is the total byte size excluding 4-byte length prefixes.
-	// A caller that measures nothing must publish nothing: a zero here is a number a reader
-	// sizes a decompression buffer from, where a missing statistic is one it ignores.
+	// The walk below is the cost omitstats is reached for; the counts above are not.
+	if page.Info != nil && page.Info.OmitStats {
+		return
+	}
+	// Per the spec this is the byte size excluding 4-byte length prefixes. A caller that
+	// measures nothing publishes nothing: a zero is a number a reader sizes a buffer from.
 	if page.Schema != nil && page.Schema.Type != nil && *page.Schema.Type == parquet.Type_BYTE_ARRAY &&
 		len(values) == len(page.DataTable.DefinitionLevels) {
 		var totalBytes int64
