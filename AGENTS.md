@@ -22,7 +22,7 @@ This document defines expectations for contributors to the parquet-go library pr
 - Use `context.Context` for cancellable operations.
 - Avoid leaking goroutines or unnecessary memory allocations.
 - Maintain clean public API surfaces; avoid exposing internal details.
-- Prefer non-test source files to stay under 300 LOC; they should never exceed 500 LOC.
+- Prefer non-test source files to stay under 300 LOC; they should never exceed 500 LOC. `make lint` enforces the 500 ceiling through revive's `file-length-limit`; the 300 preference is not checked, and test files are exempt from both.
 - Split larger files into cohesive units; test files may exceed these limits for comprehensive coverage.
 
 ---

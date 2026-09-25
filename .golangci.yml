@@ -1,0 +1,23 @@
+version: "2"
+
+linters:
+  enable:
+    - gocognit
+    - revive
+  settings:
+    revive:
+      # Only the rules named here run, so this does not pull in revive's defaults.
+      rules:
+        # AGENTS.md sets 500 lines as the ceiling a non-test source file must not cross.
+        - name: file-length-limit
+          arguments:
+            - max: 500
+              skip-comments: false
+              skip-blank-lines: false
+  exclusions:
+    rules:
+      # Test files are exempt from the ceiling: they carry table cases and fixtures, and
+      # the limit exists to keep the code under test readable.
+      - path: _test\.go
+        linters:
+          - revive
