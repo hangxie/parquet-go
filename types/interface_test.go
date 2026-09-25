@@ -264,3 +264,30 @@ func TestInterfaceToParquetType(t *testing.T) {
 		})
 	}
 }
+
+// TestInterfaceToParquetType_NamedByteSlice pins that a named []byte writes like a []byte.
+func TestInterfaceToParquetType_NamedByteSlice(t *testing.T) {
+	type namedBytes []byte
+	type namedString string
+	byteArray := parquet.Type_BYTE_ARRAY
+
+	testCases := []struct {
+		name  string
+		value any
+	}{
+		{"bytes", []byte("hi")},
+		{"named bytes", namedBytes("hi")},
+		{"string", "hi"},
+		{"named string", namedString("hi")},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := InterfaceToParquetType(tc.value, &byteArray)
+			require.NoError(t, err)
+			require.Equal(t, "hi", got)
+		})
+	}
+
+	_, err := InterfaceToParquetType(42, &byteArray)
+	require.ErrorContains(t, err, "convert int to string")
+}

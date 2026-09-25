@@ -65,11 +65,16 @@ func convertToString(src any) (any, error) {
 	if b, ok := src.([]byte); ok {
 		return string(b), nil
 	}
+	// A type defined from string or []byte holds the same bytes as the one it is defined from.
 	rv := reflect.ValueOf(src)
-	if !rv.IsValid() || rv.Kind() != reflect.String {
-		return nil, fmt.Errorf("convert %T to string", src)
+	switch {
+	case !rv.IsValid():
+	case rv.Kind() == reflect.String:
+		return rv.String(), nil
+	case rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8:
+		return string(rv.Bytes()), nil
 	}
-	return rv.String(), nil
+	return nil, fmt.Errorf("convert %T to string", src)
 }
 
 func InterfaceToParquetType(src any, pT *parquet.Type) (any, error) {

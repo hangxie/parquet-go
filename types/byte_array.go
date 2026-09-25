@@ -76,11 +76,8 @@ func convertBinaryValue(val any) any {
 		return nil
 	}
 
-	switch v := val.(type) {
-	case []byte:
-		return base64.StdEncoding.EncodeToString(v)
-	case string:
-		return base64.StdEncoding.EncodeToString([]byte(v))
+	if b, ok := valueBytes(val); ok {
+		return base64.StdEncoding.EncodeToString(b)
 	}
 
 	return val
