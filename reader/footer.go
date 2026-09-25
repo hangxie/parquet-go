@@ -2,7 +2,9 @@ package reader
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -10,6 +12,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 // InternalFooter returns a copy of Footer with schema names and column metadata
@@ -127,4 +130,116 @@ func renameFooterSchema(sh *schema.SchemaHandler, footer *parquet.FileMetaData, 
 			}
 		}
 	}
+}
+
+// Get the footer size
+//
+// Deprecated: use GetFooterSizeWithContext.
+func (pr *ParquetReader) GetFooterSize() (uint32, error) {
+	return pr.GetFooterSizeWithContext(pr.defaultContext())
+}
+
+// GetFooterSizeWithContext returns the footer size using ctx.
+func (pr *ParquetReader) GetFooterSizeWithContext(ctx context.Context) (uint32, error) {
+	if err := pr.setContext(ctx); err != nil {
+		return 0, err
+	}
+	if pr.PFile == nil {
+		return 0, fmt.Errorf("PFile is nil")
+	}
+
+	buf := make([]byte, 4)
+	if _, err := source.SeekWithContext(pr.context(), pr.PFile, -8, io.SeekEnd); err != nil {
+		return 0, fmt.Errorf("seek to footer size: %w", err)
+	}
+	if _, err := source.ReadFullWithContext(pr.context(), pr.PFile, buf); err != nil {
+		return 0, fmt.Errorf("read footer size: %w", err)
+	}
+	return binary.LittleEndian.Uint32(buf), nil
+}
+
+func (pr *ParquetReader) getFooterTail() (uint32, string, error) {
+	if pr.PFile == nil {
+		return 0, "", fmt.Errorf("PFile is nil")
+	}
+
+	buf := make([]byte, 8)
+	if _, err := source.SeekWithContext(pr.context(), pr.PFile, -8, io.SeekEnd); err != nil {
+		return 0, "", fmt.Errorf("seek to footer tail: %w", err)
+	}
+	if _, err := source.ReadFullWithContext(pr.context(), pr.PFile, buf); err != nil {
+		return 0, "", fmt.Errorf("read footer tail: %w", err)
+	}
+	return binary.LittleEndian.Uint32(buf[:4]), string(buf[4:]), nil
+}
+
+// ReadFooter reads and publishes the file footer once.
+//
+// After a successful read, the reader treats Footer as immutable. Repeated calls
+// return without reloading so internal caches remain tied to the same footer.
+//
+// Deprecated: use ReadFooterWithContext.
+func (pr *ParquetReader) ReadFooter() error {
+	return pr.ReadFooterWithContext(pr.defaultContext())
+}
+
+// ReadFooterWithContext reads and publishes the file footer once using ctx.
+func (pr *ParquetReader) ReadFooterWithContext(ctx context.Context) error {
+	if err := pr.setContext(ctx); err != nil {
+		return err
+	}
+	pr.footerMu.Lock()
+	defer pr.footerMu.Unlock()
+
+	if pr.footerLoaded {
+		return nil
+	}
+
+	size, magic, err := pr.getFooterTail()
+	if err != nil {
+		return fmt.Errorf("get footer tail: %w", err)
+	}
+	switch magic {
+	case common.MagicBytesEncrypted:
+		if err := pr.readEncryptedFooter(size); err != nil {
+			return fmt.Errorf("read encrypted footer: %w", err)
+		}
+	default:
+		if err := pr.readPlainFooter(size); err != nil {
+			return fmt.Errorf("read plain footer: %w", err)
+		}
+	}
+	if err := pr.decryptEncryptedColumnMetadata(); err != nil {
+		return fmt.Errorf("decrypt encrypted column metadata: %w", err)
+	}
+	pr.footerLoaded = true
+	return nil
+}
+
+func (pr *ParquetReader) readPlainFooter(size uint32) error {
+	if _, err := source.SeekWithContext(pr.context(), pr.PFile, -int64(8+size), io.SeekEnd); err != nil {
+		return fmt.Errorf("seek to footer: %w", err)
+	}
+	pr.Footer = parquet.NewFileMetaData()
+	pf := thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{})
+	thriftReader := thrift.NewStreamTransportR(source.ReaderWithContext{Ctx: pr.context(), Reader: pr.PFile})
+	bufferReader := thrift.NewTBufferedTransport(thriftReader, int(size))
+	protocol := pf.GetProtocol(bufferReader)
+	if err := pr.Footer.Read(pr.context(), protocol); err != nil {
+		return fmt.Errorf("read footer: %w", err)
+	}
+
+	if pr.Footer.IsSetEncryptionAlgorithm() {
+		if _, err := source.SeekWithContext(pr.context(), pr.PFile, -int64(8+size), io.SeekEnd); err != nil {
+			return fmt.Errorf("seek to plaintext footer section: %w", err)
+		}
+		section := make([]byte, size)
+		if _, err := source.ReadFullWithContext(pr.context(), pr.PFile, section); err != nil {
+			return fmt.Errorf("read plaintext footer section: %w", err)
+		}
+		if err := pr.verifyPlaintextFooter(section); err != nil {
+			return fmt.Errorf("verify plaintext footer: %w", err)
+		}
+	}
+	return nil
 }

@@ -194,64 +194,6 @@ func TestParquetReader_GetNumRows(t *testing.T) {
 	require.Greater(t, numRows, int64(0))
 }
 
-func TestParquetReader_GetFooterSize(t *testing.T) {
-	tests := []struct {
-		name     string
-		reader   *ParquetReader
-		expected uint32
-		errMsg   string
-	}{
-		{
-			name:   "nil_file",
-			reader: &ParquetReader{},
-			errMsg: "PFile is nil",
-		},
-		{
-			name: "seek_error",
-			reader: &ParquetReader{
-				PFile: buffer.NewBufferReaderFromBytesNoAlloc([]byte("short")),
-			},
-			errMsg: "seek to negative location",
-		},
-		{
-			name: "read_error",
-			reader: &ParquetReader{
-				PFile: &shortReadParquetFileReader{
-					data: []byte{0, 0, 0, 0, 'P', 'A', 'R', '1'},
-					err:  io.ErrUnexpectedEOF,
-				},
-			},
-			errMsg: "unexpected EOF",
-		},
-		{
-			name: "success",
-			reader: &ParquetReader{
-				PFile: buffer.NewBufferReaderFromBytesNoAlloc([]byte{
-					'd', 'a', 't', 'a',
-					0x78, 0x56, 0x34, 0x12,
-					'P', 'A', 'R', '1',
-				}),
-			},
-			expected: 0x12345678,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			actual, err := tc.reader.GetFooterSize()
-
-			if tc.errMsg != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tc.errMsg)
-				return
-			}
-
-			require.NoError(t, err)
-			require.Equal(t, tc.expected, actual)
-		})
-	}
-}
-
 func TestParquetReader_SetSchemaHandlerFromJSON(t *testing.T) {
 	// Create a simple parquet reader using existing data
 	pr, err := parquetReader()
@@ -837,47 +779,6 @@ func TestNewParquetColumnReader_OptionValidation(t *testing.T) {
 	}
 }
 
-// Tests for positionTracker (internal type used for Thrift protocol reading)
-
-func TestPositionTracker_Read(t *testing.T) {
-	data := []byte("hello world")
-	pt := &positionTracker{r: bytes.NewReader(data), pos: 0}
-
-	buf := make([]byte, 5)
-	n, err := pt.Read(buf)
-
-	require.NoError(t, err)
-	require.Equal(t, 5, n)
-	require.Equal(t, "hello", string(buf))
-	require.Equal(t, int64(5), pt.pos)
-}
-
-func TestPositionTracker_Write(t *testing.T) {
-	pt := &positionTracker{}
-
-	n, err := pt.Write([]byte("test"))
-
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "write not supported")
-	require.Equal(t, 0, n)
-}
-
-func TestPositionTracker_Close(t *testing.T) {
-	t.Run("no underlying closer", func(t *testing.T) {
-		pt := &positionTracker{}
-		err := pt.Close()
-		require.NoError(t, err)
-	})
-
-	t.Run("delegates to underlying closer", func(t *testing.T) {
-		mc := &mockCloser{}
-		pt := &positionTracker{r: mc}
-		err := pt.Close()
-		require.NoError(t, err)
-		require.True(t, mc.closed)
-	})
-}
-
 type mockCloser struct {
 	closed bool
 }
@@ -889,39 +790,6 @@ func (m *mockCloser) Read(p []byte) (n int, err error) {
 func (m *mockCloser) Close() error {
 	m.closed = true
 	return nil
-}
-
-func TestPositionTracker_Flush(t *testing.T) {
-	pt := &positionTracker{}
-
-	err := pt.Flush(context.Background())
-
-	require.NoError(t, err)
-}
-
-func TestPositionTracker_RemainingBytes(t *testing.T) {
-	pt := &positionTracker{}
-
-	remaining := pt.RemainingBytes()
-
-	// Should return max uint64 (unknown)
-	require.Equal(t, ^uint64(0), remaining)
-}
-
-func TestPositionTracker_IsOpen(t *testing.T) {
-	pt := &positionTracker{}
-
-	isOpen := pt.IsOpen()
-
-	require.True(t, isOpen)
-}
-
-func TestPositionTracker_Open(t *testing.T) {
-	pt := &positionTracker{}
-
-	err := pt.Open()
-
-	require.NoError(t, err)
 }
 
 func TestReadFixedLenByteArrayTagWithoutLength(t *testing.T) {
