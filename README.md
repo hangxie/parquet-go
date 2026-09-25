@@ -300,6 +300,21 @@ Schema notes:
 | `LIST` | - | slice |
 | `MAP` | - | map |
 
+### string versus []byte
+
+The Go type above is what a byte-backed column is *represented* as: every `BYTE_ARRAY` and `FIXED_LEN_BYTE_ARRAY` value decodes to a `string`, which holds arbitrary bytes and is not assumed to be text. A typed struct is freer, and which representation each API accepts or produces is fixed:
+
+| API | `string` | `[]byte` | Named type of either |
+| --- | --- | --- | --- |
+| Typed writer field | yes | yes | yes, from v3.9.0 for a named `[]byte` |
+| Typed reader destination | yes | yes | yes |
+| Schema-inferred row, column and dictionary inspection | produced | no | no |
+| Map key | yes | no, Go map keys must be comparable | a named `string` only |
+
+A `LIST` or repeated element follows its own column rather than the Go type carrying it. `marshal.ConvertToJSONFriendly` reads a `[]byte` as one value where the column is a byte-backed primitive, including each element of a legacy `repetitiontype=REPEATED` column, and as a list of elements where the column is a `LIST`; the typed writer takes a `LIST` only as a slice of its element type, so a `[]byte` cannot supply one. It renders by the column too: text-annotated columns as a string, unannotated byte-backed ones as base64, whichever of the four representations carried the value. Up to v3.8.3 a `[]byte` at a primitive column rendered as a JSON array of numbers, and whether it did depended on `WithEnforceUTF8`, which decides only whether invalid UTF-8 is reported.
+
+Writing a named `[]byte` failed up to v3.8.3, reporting `convert T to string`, while an ordinary `[]byte`, a named `string` and reading back into any of them all worked. Nothing else distinguished them, so the four now behave alike.
+
 `UUID`, `FLOAT16`, and `INTERVAL` have the column width fixed by the specification at 16, 2, and 12 bytes. A struct tag, CSV metadata entry, or JSON schema that annotates one of them may leave `length` out and get the fixed width filled in; declaring any other width is an error, including an explicit `length=0` in a written-out tag. Code that builds a `common.Tag` directly cannot express an explicit zero, since an unset `Length` and a deliberate `0` are the same value there, and both get the fixed width. `types.StrToParquetTypeWithLogical` and `types.JSONTypeToParquetTypeWithLogical` require the same width in their `length` argument for `UUID` and `FLOAT16`; releases up to v3.8.2 ignored that argument, so a direct caller that passed `0` has to pass the column width.
 
 An `INTERVAL` is written as `2 mon 3 day 4.500 sec`, the form the read path renders, and each component is read over its whole field. From v3.9.0 a component carrying anything the number does not account for is rejected, naming the component and the text supplied: `2abc mon`, `4.5abc sec`, and `0x10 mon`, which up to v3.8.3 stored 2 months, 4.5 seconds and a zero interval respectively, each because scanning took the digits it could read and reported nothing for what it left behind. Months and days are whole numbers with no sign, seconds a decimal the millisecond field can hold; the unit names match on their first three letters, so `mon`, `mons` and `month` are one unit. The type is annotated by converted type alone and no logical type for it is agreed across implementations, so this text is a parquet-go convention and round-tripping through this library is the fidelity it offers.
