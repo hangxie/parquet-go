@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -737,7 +738,7 @@ func TestParseLineString_ErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, ok := parseLineString(tt.buffer, tt.be, tt.off, 6)
+			_, _, ok := parseLineString(tt.buffer, tt.be, tt.off, 6, WKBLineString)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -784,7 +785,7 @@ func TestParsePolygon_ErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off, 6)
+			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off, 6, WKBPolygon)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -1154,14 +1155,14 @@ func TestParseGeometry_BoundaryConditions(t *testing.T) {
 	t.Run("parseLineString_point_count_at_boundary", func(t *testing.T) {
 		// Buffer with exactly enough space for point count but no coordinates
 		buffer := []byte{1, 0, 0, 0} // 1 point
-		_, _, ok := parseLineString(buffer, false, 0, 6)
+		_, _, ok := parseLineString(buffer, false, 0, 6, WKBLineString)
 		require.False(t, ok) // Should fail because no space for coordinates
 	})
 
 	t.Run("parsePolygon_ring_count_at_boundary", func(t *testing.T) {
 		// Buffer with exactly enough space for ring count but no ring data
 		buffer := []byte{1, 0, 0, 0} // 1 ring
-		_, _, ok := parsePolygon(buffer, false, 0, 6)
+		_, _, ok := parsePolygon(buffer, false, 0, 6, WKBPolygon)
 		require.False(t, ok) // Should fail because no space for ring data
 	})
 }
@@ -1200,7 +1201,7 @@ func TestParsePolygon_UncoveredPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off, 6)
+			_, _, ok := parsePolygon(tt.buffer, tt.be, tt.off, 6, WKBPolygon)
 			require.Equal(t, tt.expectOK, ok)
 		})
 	}
@@ -1339,8 +1340,8 @@ func TestParsePolygon_MaximumCoverage(t *testing.T) {
 		binary.BigEndian.PutUint32(buffer[4:8], 2) // numPoints = 2 (big-endian)
 		// Not enough coordinate data will cause failure
 
-		_, _, ok := parsePolygon(buffer, true, 0, 6) // be = true to trigger big-endian path
-		require.False(t, ok)                         // Should fail due to insufficient coordinate data
+		_, _, ok := parsePolygon(buffer, true, 0, 6, WKBPolygon) // be = true to trigger big-endian path
+		require.False(t, ok)                                     // Should fail due to insufficient coordinate data
 	})
 
 	t.Run("parsePolygon_little_endian_ring_point_count", func(t *testing.T) {
@@ -1350,13 +1351,13 @@ func TestParsePolygon_MaximumCoverage(t *testing.T) {
 		binary.LittleEndian.PutUint32(buffer[4:8], 2) // numPoints = 2 (little-endian)
 		// Not enough coordinate data will cause failure
 
-		_, _, ok := parsePolygon(buffer, false, 0, 6) // be = false to trigger little-endian path
-		require.False(t, ok)                          // Should fail due to insufficient coordinate data
+		_, _, ok := parsePolygon(buffer, false, 0, 6, WKBPolygon) // be = false to trigger little-endian path
+		require.False(t, ok)                                      // Should fail due to insufficient coordinate data
 	})
 }
 
 func TestGeometryCollectionToGeoJSONTruncatedCount(t *testing.T) {
-	gj, ok := geometryCollectionToGeoJSON([]byte{1, 2, 3}, 0, false, 6, 0)
+	gj, ok := geometryCollectionToGeoJSON([]byte{1, 2, 3}, 0, false, 6, 0, WKBGeometryCollection)
 
 	require.False(t, ok)
 	require.Nil(t, gj)
@@ -1374,7 +1375,7 @@ func TestGeometryCollectionToGeoJSONInvalidSubGeometryBranches(t *testing.T) {
 		binary.LittleEndian.PutUint32(buf, 1)
 		wkb = append(wkb, buf...)
 
-		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6, 0)
+		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6, 0, WKBGeometryCollection)
 
 		require.False(t, ok)
 		require.Nil(t, gj)
@@ -1395,7 +1396,7 @@ func TestGeometryCollectionToGeoJSONInvalidSubGeometryBranches(t *testing.T) {
 		wkb = append(wkb, buf...)
 		wkb = append(wkb, make([]byte, 16)...)
 
-		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6, 0)
+		gj, ok := geometryCollectionToGeoJSON(wkb, 1, false, 6, 0, WKBGeometryCollection)
 
 		require.False(t, ok)
 		require.Nil(t, gj)
@@ -1434,27 +1435,21 @@ func wkbWithOrdinates(gType uint32, counts []uint32, points [][]float64) []byte 
 	return buf
 }
 
-// TestWkbZAndMAreNotRead covers ISO geometries carrying Z, M or ZM coordinates. These
-// parsers read two doubles per point, so masking the dimension out of the type and reading
-// the body as 2D took the third ordinate of one point for the first of the next: a
-// LineString Z over (1,2,99) (3,4,98) (5,6,97) rendered as [[1,2],[99,3],[4,98]] and
-// reported success. A geometry this reader cannot read is reported instead.
-func TestWkbZAndMAreNotRead(t *testing.T) {
+// TestWkbMAndZMAreNotRendered covers a declared measure: not rendered, but measured.
+func TestWkbMAndZMAreNotRendered(t *testing.T) {
 	tests := []struct {
-		name  string
-		gType uint32
-		wkb   []byte
+		name string
+		wkb  []byte
 	}{
-		{"Point Z", 1001, wkbWithOrdinates(1001, nil, [][]float64{{1, 2, 99}})},
-		{"Point M", 2001, wkbWithOrdinates(2001, nil, [][]float64{{1, 2, 99}})},
-		{"Point ZM", 3001, wkbWithOrdinates(3001, nil, [][]float64{{1, 2, 99, 98}})},
+		{"Point M", wkbWithOrdinates(2001, nil, [][]float64{{1, 2, 99}})},
+		{"Point ZM", wkbWithOrdinates(3001, nil, [][]float64{{1, 2, 99, 98}})},
 		{
-			"LineString Z", 1002,
-			wkbWithOrdinates(1002, []uint32{3}, [][]float64{{1, 2, 99}, {3, 4, 98}, {5, 6, 97}}),
+			"LineString M",
+			wkbWithOrdinates(2002, []uint32{3}, [][]float64{{1, 2, 99}, {3, 4, 98}, {5, 6, 97}}),
 		},
 		{
-			"Polygon Z", 1003,
-			wkbWithOrdinates(1003, []uint32{1, 4}, [][]float64{{0, 0, 9}, {1, 0, 9}, {1, 1, 9}, {0, 0, 9}}),
+			"Polygon ZM",
+			wkbWithOrdinates(3003, []uint32{1, 4}, [][]float64{{0, 0, 9, 8}, {1, 0, 9, 8}, {1, 1, 9, 8}, {0, 0, 9, 8}}),
 		},
 	}
 
@@ -1466,9 +1461,6 @@ func TestWkbZAndMAreNotRead(t *testing.T) {
 			_, ok := wkbToGeoJSON(tt.wkb, 6)
 			require.False(t, ok)
 
-			_, ok = calculateWKBSize(tt.wkb)
-			require.False(t, ok)
-
 			// Both renderings that place coordinates fall back to the hex substitute;
 			// hybrid would otherwise pair the raw bytes with GeoJSON they do not hold.
 			for mode, cfg := range map[string]*GeospatialConfig{"geojson": geoJSON, "hybrid": hybrid} {
@@ -1477,12 +1469,16 @@ func TestWkbZAndMAreNotRead(t *testing.T) {
 				require.NotContains(t, rendered, "type", mode)
 			}
 
-			// Bounds are read the same way, so a geometry the readers cannot read
-			// contributes none rather than coordinates it does not hold.
+			// Measuring reads structure rather than coordinates, so it covers every
+			// dimension, and the bounding box takes the x and y it is defined over.
+			size, ok := calculateWKBSize(tt.wkb)
+			require.True(t, ok)
+			require.Equal(t, len(tt.wkb), size)
+
 			calc := NewBoundingBoxCalculator()
 			require.NoError(t, calc.AddWKB(tt.wkb))
 			_, _, _, _, ok = calc.GetBounds()
-			require.False(t, ok)
+			require.True(t, ok)
 		})
 	}
 }
@@ -1497,7 +1493,9 @@ func TestBoundingBoxWithdrawnForUnreadableGeometry(t *testing.T) {
 		b = binary.LittleEndian.AppendUint64(b, math.Float64bits(x))
 		return binary.LittleEndian.AppendUint64(b, math.Float64bits(y))
 	}
-	pointZ := wkbWithOrdinates(1001, nil, [][]float64{{100, 200, 9}})
+	// A byte order byte the format does not define: unreadable at any dimension.
+	unreadable := wkbWithOrdinates(1, nil, [][]float64{{100, 200}})
+	unreadable[0] = 2
 
 	// The readable values alone have bounds, and no doubt about them.
 	calc := NewBoundingBoxCalculator()
@@ -1512,10 +1510,10 @@ func TestBoundingBoxWithdrawnForUnreadableGeometry(t *testing.T) {
 	// chunk skips such a page rather than withholding its own box.
 	require.False(t, NewBoundingBoxCalculator().BoundsUnknown())
 
-	// A Z geometry outside their extent withdraws them, whichever order it arrives in.
+	// An unreadable geometry outside their extent withdraws them, in any order.
 	for _, values := range [][][]byte{
-		{twoD(1, 2), twoD(3, 4), pointZ},
-		{pointZ, twoD(1, 2), twoD(3, 4)},
+		{twoD(1, 2), twoD(3, 4), unreadable},
+		{unreadable, twoD(1, 2), twoD(3, 4)},
 		{twoD(1, 2), []byte{1, 2}, twoD(3, 4)},
 	} {
 		mixed := NewBoundingBoxCalculator()
@@ -1627,7 +1625,7 @@ func TestReadWKBHeader(t *testing.T) {
 			require.Equal(t, tt.wantType, gType)
 			require.Equal(t, tt.wantBE, bigEndian)
 			if ok {
-				require.Equal(t, tt.wantIs2D, wkbIs2D(gType))
+				require.Equal(t, !tt.wantIs2D, wkbHasZ(gType) || wkbHasM(gType))
 			}
 
 			// The rendering and the bounds read the same header, so a value this
@@ -1680,10 +1678,15 @@ func TestWkbZAndMSurviveByteModes(t *testing.T) {
 				"wkb_b64": base64.StdEncoding.EncodeToString(wkb), "crs": "OGC:CRS84",
 			}, ConvertGeometryLogicalValue(wkb, nil, b64Cfg))
 
-			// And the rendering that places coordinates declines the same value, falling
-			// back to the hex substitute rather than to coordinates it cannot read.
+			// The rendering that places coordinates reads Z and declines a measure, which
+			// a GeoJSON position has no element for.
 			geoJSON := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeGeoJSON))
-			require.Equal(t, hexSubstitute(wkb), ConvertGeometryLogicalValue(wkb, nil, geoJSON))
+			rendered := ConvertGeometryLogicalValue(wkb, nil, geoJSON)
+			if strings.Contains(name, "M") {
+				require.Equal(t, hexSubstitute(wkb), rendered)
+				return
+			}
+			require.Contains(t, rendered, "type")
 		})
 	}
 }
@@ -1802,4 +1805,164 @@ func TestWKBReaders_NestingDepth(t *testing.T) {
 			require.False(t, ok)
 		})
 	}
+}
+
+// TestWkbZIsRead covers ISO geometries carrying Z, which render with their elevation.
+func TestWkbZIsRead(t *testing.T) {
+	container := func(gType uint32, members ...[]byte) []byte {
+		out := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+		out = binary.LittleEndian.AppendUint32(out, uint32(len(members)))
+		for _, member := range members {
+			out = append(out, member...)
+		}
+		return out
+	}
+	pointZ := wkbWithOrdinates(1001, nil, [][]float64{{1, 2, 99}})
+	lineZ := wkbWithOrdinates(1002, []uint32{3}, [][]float64{{1, 2, 99}, {3, 4, 98}, {5, 6, 97}})
+	polygonZ := wkbWithOrdinates(1003, []uint32{1, 4}, [][]float64{{0, 0, 9}, {1, 0, 9}, {1, 1, 9}, {0, 0, 9}})
+
+	testCases := []struct {
+		name string
+		wkb  []byte
+		want map[string]any
+	}{
+		{"Point Z", pointZ, map[string]any{"type": "Point", "coordinates": []float64{1, 2, 99}}},
+		{
+			"LineString Z", lineZ,
+			map[string]any{"type": "LineString", "coordinates": [][]float64{{1, 2, 99}, {3, 4, 98}, {5, 6, 97}}},
+		},
+		{
+			"Polygon Z", polygonZ,
+			map[string]any{"type": "Polygon", "coordinates": [][][]float64{{{0, 0, 9}, {1, 0, 9}, {1, 1, 9}, {0, 0, 9}}}},
+		},
+		{
+			"MultiPoint Z", container(1004, pointZ),
+			map[string]any{"type": "MultiPoint", "coordinates": [][]float64{{1, 2, 99}}},
+		},
+		{
+			"MultiLineString Z", container(1005, lineZ),
+			map[string]any{"type": "MultiLineString", "coordinates": [][][]float64{{{1, 2, 99}, {3, 4, 98}, {5, 6, 97}}}},
+		},
+		{
+			"MultiPolygon Z", container(1006, polygonZ),
+			map[string]any{"type": "MultiPolygon", "coordinates": [][][][]float64{
+				{{{0, 0, 9}, {1, 0, 9}, {1, 1, 9}, {0, 0, 9}}},
+			}},
+		},
+		{
+			"GeometryCollection Z", container(1007, pointZ),
+			map[string]any{"type": "GeometryCollection", "geometries": []map[string]any{
+				{"type": "Point", "coordinates": []float64{1, 2, 99}},
+			}},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := wkbToGeoJSON(tc.wkb, 6)
+			require.True(t, ok)
+			require.Equal(t, tc.want, got)
+
+			size, ok := calculateWKBSize(tc.wkb)
+			require.True(t, ok)
+			require.Equal(t, len(tc.wkb), size)
+
+			// The Parquet bounding box is 2D, so a Z geometry contributes x and y.
+			calc := NewBoundingBoxCalculator()
+			require.NoError(t, calc.AddWKB(tc.wkb))
+			_, _, _, _, ok = calc.GetBounds()
+			require.True(t, ok)
+		})
+	}
+}
+
+// TestWkbEmptyZIsNotRendered covers a Z geometry carrying no position at all: its GeoJSON
+// is the same as an empty 2D one, so rendering it would write back as 2D and lose the
+// dimension the value declares.
+func TestWkbEmptyZIsNotRendered(t *testing.T) {
+	emptyLine := func(gType uint32) []byte {
+		b := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+		return binary.LittleEndian.AppendUint32(b, 0)
+	}
+	collection := func(gType uint32, member []byte) []byte {
+		b := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+		b = binary.LittleEndian.AppendUint32(b, 1)
+		return append(b, member...)
+	}
+	pointZ := wkbWithOrdinates(1001, nil, [][]float64{{1, 2, 99}})
+
+	t.Run("an empty Z geometry keeps its bytes", func(t *testing.T) {
+		for _, wkb := range [][]byte{emptyLine(1002), collection(1007, emptyLine(1002))} {
+			_, ok := wkbToGeoJSON(wkb, -1)
+			require.False(t, ok)
+
+			cfg := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeGeoJSON))
+			require.Contains(t, ConvertGeometryLogicalValue(wkb, nil, cfg), "wkb_hex")
+
+			// Measuring reads structure rather than positions, so it is unaffected.
+			size, ok := calculateWKBSize(wkb)
+			require.True(t, ok)
+			require.Equal(t, len(wkb), size)
+		}
+	})
+
+	t.Run("an empty 2D geometry renders, having no dimension to lose", func(t *testing.T) {
+		got, ok := wkbToGeoJSON(emptyLine(WKBLineString), -1)
+		require.True(t, ok)
+		require.Equal(t, map[string]any{"type": "LineString", "coordinates": [][]float64{}}, got)
+	})
+
+	t.Run("one position is enough to keep the dimension", func(t *testing.T) {
+		wkb := collection(1007, pointZ)
+		got, ok := wkbToGeoJSON(wkb, -1)
+		require.True(t, ok)
+		back, err := geoJSONToWKB(got, 0)
+		require.NoError(t, err)
+		require.Equal(t, wkb, back)
+	})
+}
+
+// TestWkbCollectionMemberDimension covers a GeometryCollection whose member declares
+// another dimension. One dimension covers a geometry and every part of it, which is what
+// the size walk and the write path already require, so the rendering requires it too.
+func TestWkbCollectionMemberDimension(t *testing.T) {
+	collection := func(gType uint32, members ...[]byte) []byte {
+		b := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+		b = binary.LittleEndian.AppendUint32(b, uint32(len(members)))
+		for _, member := range members {
+			b = append(b, member...)
+		}
+		return b
+	}
+	pointZ := wkbWithOrdinates(1001, nil, [][]float64{{1, 2, 99}})
+	point2D := wkbWithOrdinates(1, nil, [][]float64{{3, 4}})
+
+	testCases := []struct {
+		name string
+		wkb  []byte
+	}{
+		{"a 2D member of a Z collection", collection(1007, pointZ, point2D)},
+		{"a Z member of a 2D collection", collection(WKBGeometryCollection, point2D, pointZ)},
+		{"through a nested collection", collection(1007, collection(WKBGeometryCollection, point2D))},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := wkbToGeoJSON(tc.wkb, -1)
+			require.False(t, ok)
+
+			cfg := NewGeospatialConfig(WithGeometryJSONMode(GeospatialModeGeoJSON))
+			require.Contains(t, ConvertGeometryLogicalValue(tc.wkb, nil, cfg), "wkb_hex")
+
+			// The size walk and the write path refuse it, which is what the rendering
+			// now agrees with.
+			_, ok = calculateWKBSize(tc.wkb)
+			require.False(t, ok)
+			require.Error(t, checkWKB(tc.wkb, "GEOMETRY"))
+		})
+	}
+
+	t.Run("members of the collection's own dimension render", func(t *testing.T) {
+		wkb := collection(1007, pointZ, wkbWithOrdinates(1001, nil, [][]float64{{5, 6, 7}}))
+		_, ok := wkbToGeoJSON(wkb, -1)
+		require.True(t, ok)
+	})
 }

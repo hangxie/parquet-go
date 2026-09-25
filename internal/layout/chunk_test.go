@@ -1596,8 +1596,7 @@ func TestAggregateGeospatialStatisticsUnknownBounds(t *testing.T) {
 }
 
 // TestChunkGeospatialStatisticsUnknownBounds covers the same through PagesToChunk, which is
-// where the statistics reach the file: the chunk carries the geometry types it read and no
-// bounding box at all.
+// where the statistics reach the file.
 func TestChunkGeospatialStatisticsUnknownBounds(t *testing.T) {
 	point := func(x, y float64) string {
 		b := binary.LittleEndian.AppendUint32([]byte{1}, 1)
@@ -1641,11 +1640,14 @@ func TestChunkGeospatialStatisticsUnknownBounds(t *testing.T) {
 	twoD := geospatialPage(point(0, 0), point(10, 10))
 	withZ := geospatialPage(pointZ(100, 200, 9))
 
+	// The box is x and y at any dimension, so a Z geometry widens it like any other.
 	chunk, err := PagesToChunk([]*Page{twoD, withZ})
 	require.NoError(t, err)
 	stats := chunk.ChunkHeader.MetaData.GeospatialStatistics
 	require.NotNil(t, stats)
-	require.Nil(t, stats.Bbox)
+	require.NotNil(t, stats.Bbox)
+	require.Equal(t, 100.0, stats.Bbox.Xmax)
+	require.Equal(t, 200.0, stats.Bbox.Ymax)
 	require.Equal(t, []int32{1, 1001}, stats.GeospatialTypes)
 
 	chunk, err = PagesToChunk([]*Page{twoD})

@@ -133,8 +133,8 @@ var defaultGeospatialConfig = DefaultGeospatialConfig()
 type BoundingBoxCalculator struct {
 	minX, minY, maxX, maxY float64
 	initialized            bool
-	// unreadable records a value whose coordinates this walk could not read: a geometry
-	// carrying Z or M ordinates, or bytes that are not WKB it understands.
+	// unreadable records a value whose coordinates this walk could not read: bytes that
+	// are not WKB it understands, or a geometry type it has no reader for.
 	unreadable bool
 }
 
@@ -193,8 +193,9 @@ func u32(b []byte, offset int, bigEndian bool) (uint32, bool) {
 
 // addPointsFromCoords adds all coordinate pairs to the calculator.
 func (b *BoundingBoxCalculator) addPointsFromCoords(coords [][]float64) {
+	// A position carries an elevation where the type declares Z, and the box is x and y.
 	for _, point := range coords {
-		if len(point) == 2 {
+		if len(point) >= 2 {
 			b.AddPoint(point[0], point[1])
 		}
 	}
@@ -215,7 +216,7 @@ func (b *BoundingBoxCalculator) mergeTempBounds(temp *BoundingBoxCalculator) {
 	}
 }
 
-func (b *BoundingBoxCalculator) addMultiPointWKB(wkb []byte, off int, be bool) {
+func (b *BoundingBoxCalculator) addMultiPointWKB(wkb []byte, off int, be bool, gType uint32) {
 	tempCalc := NewBoundingBoxCalculator()
 	n, ok := u32(wkb, off, be)
 	if !ok {
@@ -224,17 +225,17 @@ func (b *BoundingBoxCalculator) addMultiPointWKB(wkb []byte, off int, be bool) {
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
-		pointBE, newOff, ok := readSubGeomHeader(wkb, off, WKBPoint)
+		pointBE, newOff, ok := readSubGeomHeader(wkb, off, wkbMemberType(gType, WKBPoint))
 		if !ok {
 			b.markUnreadable()
 			return
 		}
-		coords, ptOff, ok := parsePoint(wkb, pointBE, newOff, -1)
+		coords, ptOff, ok := parsePoint(wkb, pointBE, newOff, -1, gType)
 		if !ok {
 			b.markUnreadable()
 			return
 		}
-		if len(coords) == 2 {
+		if len(coords) >= 2 {
 			tempCalc.AddPoint(coords[0], coords[1])
 		}
 		off = ptOff
@@ -242,7 +243,7 @@ func (b *BoundingBoxCalculator) addMultiPointWKB(wkb []byte, off int, be bool) {
 	b.mergeTempBounds(tempCalc)
 }
 
-func (b *BoundingBoxCalculator) addMultiLineStringWKB(wkb []byte, off int, be bool) {
+func (b *BoundingBoxCalculator) addMultiLineStringWKB(wkb []byte, off int, be bool, gType uint32) {
 	tempCalc := NewBoundingBoxCalculator()
 	n, ok := u32(wkb, off, be)
 	if !ok {
@@ -251,12 +252,12 @@ func (b *BoundingBoxCalculator) addMultiLineStringWKB(wkb []byte, off int, be bo
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
-		lineBE, newOff, ok := readSubGeomHeader(wkb, off, WKBLineString)
+		lineBE, newOff, ok := readSubGeomHeader(wkb, off, wkbMemberType(gType, WKBLineString))
 		if !ok {
 			b.markUnreadable()
 			return
 		}
-		coords, lineOff, ok := parseLineString(wkb, lineBE, newOff, -1)
+		coords, lineOff, ok := parseLineString(wkb, lineBE, newOff, -1, gType)
 		if !ok {
 			b.markUnreadable()
 			return
@@ -267,7 +268,7 @@ func (b *BoundingBoxCalculator) addMultiLineStringWKB(wkb []byte, off int, be bo
 	b.mergeTempBounds(tempCalc)
 }
 
-func (b *BoundingBoxCalculator) addMultiPolygonWKB(wkb []byte, off int, be bool) {
+func (b *BoundingBoxCalculator) addMultiPolygonWKB(wkb []byte, off int, be bool, gType uint32) {
 	tempCalc := NewBoundingBoxCalculator()
 	n, ok := u32(wkb, off, be)
 	if !ok {
@@ -276,12 +277,12 @@ func (b *BoundingBoxCalculator) addMultiPolygonWKB(wkb []byte, off int, be bool)
 	}
 	off += 4
 	for i := uint32(0); i < n; i++ {
-		polyBE, newOff, ok := readSubGeomHeader(wkb, off, WKBPolygon)
+		polyBE, newOff, ok := readSubGeomHeader(wkb, off, wkbMemberType(gType, WKBPolygon))
 		if !ok {
 			b.markUnreadable()
 			return
 		}
-		rings, polyOff, ok := parsePolygon(wkb, polyBE, newOff, -1)
+		rings, polyOff, ok := parsePolygon(wkb, polyBE, newOff, -1, gType)
 		if !ok {
 			b.markUnreadable()
 			return
@@ -327,44 +328,44 @@ func (b *BoundingBoxCalculator) addWKB(wkb []byte, depth int) error {
 	}
 
 	gType, be, ok := readWKBHeader(wkb)
-	if !ok || !wkbIs2D(gType) {
-		// Bounds read two doubles per point as the renderers do, so a Z or M geometry
-		// carries ordinates this walk cannot place, and a header the format does not
-		// define says nothing about what the bytes after it are.
+	if !ok {
+		// A header the format does not define says nothing about what follows it.
 		b.markUnreadable()
 		return nil
 	}
 	off := 5
 
+	// The Parquet bounding box is x and y, so any dimension contributes its first two
+	// ordinates and the rest are stepped over.
 	const noRound = -1
-	switch gType {
+	switch gType % 1000 {
 	case WKBPoint:
-		coords, _, ok := parsePoint(wkb, be, off, noRound)
-		if !ok || len(coords) != 2 {
+		coords, _, ok := parsePoint(wkb, be, off, noRound, gType)
+		if !ok || len(coords) < 2 {
 			b.markUnreadable()
 			return nil
 		}
 		b.AddPoint(coords[0], coords[1])
 	case WKBLineString:
-		coords, _, ok := parseLineString(wkb, be, off, noRound)
+		coords, _, ok := parseLineString(wkb, be, off, noRound, gType)
 		if !ok {
 			b.markUnreadable()
 			return nil
 		}
 		b.addPointsFromCoords(coords)
 	case WKBPolygon:
-		coords, _, ok := parsePolygon(wkb, be, off, noRound)
+		coords, _, ok := parsePolygon(wkb, be, off, noRound, gType)
 		if !ok {
 			b.markUnreadable()
 			return nil
 		}
 		b.addPointsFromRings(coords)
 	case WKBMultiPoint:
-		b.addMultiPointWKB(wkb, off, be)
+		b.addMultiPointWKB(wkb, off, be, gType)
 	case WKBMultiLineString:
-		b.addMultiLineStringWKB(wkb, off, be)
+		b.addMultiLineStringWKB(wkb, off, be, gType)
 	case WKBMultiPolygon:
-		b.addMultiPolygonWKB(wkb, off, be)
+		b.addMultiPolygonWKB(wkb, off, be, gType)
 	case WKBGeometryCollection:
 		if depth >= maxGeometryDepth {
 			b.markUnreadable()
