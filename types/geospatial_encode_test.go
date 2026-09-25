@@ -1,7 +1,9 @@
 package types
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 
@@ -90,8 +92,9 @@ func TestGeoJSONToWKBRejects(t *testing.T) {
 		{"unknown type", `{"type":"Circle","coordinates":[1,2]}`, "not one this library writes"},
 		{"no type", `{"coordinates":[1,2]}`, "not one this library writes"},
 		{"no coordinates", `{"type":"Point"}`, "has no coordinates"},
-		{"one ordinate", `{"type":"Point","coordinates":[1]}`, "need 2"},
-		{"three ordinates", `{"type":"Point","coordinates":[1,2,3]}`, "only 2D is supported"},
+		{"one ordinate", `{"type":"Point","coordinates":[1]}`, "need 2 or 3"},
+		{"four ordinates", `{"type":"Point","coordinates":[1,2,3,4]}`, "need 2 or 3"},
+		{"mixed dimensions", `{"type":"LineString","coordinates":[[1,2,3],[4,5]]}`, "ordinates"},
 		{"ordinate not a number", `{"type":"Point","coordinates":["a","b"]}`, "not a number"},
 		{"coordinates not an array", `{"type":"LineString","coordinates":5}`, "not an array"},
 		{"position not an array", `{"type":"Point","coordinates":5}`, "position is"},
@@ -225,4 +228,104 @@ func TestGeoJSONToWKB_NestingDepth(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// TestGeoJSONToWKB_Z covers the round trip the Z rendering needs: a geometry read to GeoJSON
+// with elevations must write back to the bytes it came from.
+func TestGeoJSONToWKB_Z(t *testing.T) {
+	container := func(gType uint32, members ...[]byte) []byte {
+		out := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+		out = binary.LittleEndian.AppendUint32(out, uint32(len(members)))
+		for _, member := range members {
+			out = append(out, member...)
+		}
+		return out
+	}
+	ordinates := func(gType uint32, counts []uint32, points [][]float64) []byte {
+		buf := binary.LittleEndian.AppendUint32([]byte{1}, gType)
+		for _, c := range counts {
+			buf = binary.LittleEndian.AppendUint32(buf, c)
+		}
+		for _, p := range points {
+			for _, o := range p {
+				buf = binary.LittleEndian.AppendUint64(buf, math.Float64bits(o))
+			}
+		}
+		return buf
+	}
+	pointZ := ordinates(1001, nil, [][]float64{{1, 2, 99}})
+	lineZ := ordinates(1002, []uint32{2}, [][]float64{{1, 2, 99}, {3, 4, 98}})
+	polygonZ := ordinates(1003, []uint32{1, 4}, [][]float64{{0, 0, 9}, {1, 0, 9}, {1, 1, 9}, {0, 0, 9}})
+
+	testCases := []struct {
+		name string
+		wkb  []byte
+	}{
+		{"Point Z", pointZ},
+		{"LineString Z", lineZ},
+		{"Polygon Z", polygonZ},
+		{"MultiPoint Z", container(1004, pointZ)},
+		{"MultiLineString Z", container(1005, lineZ)},
+		{"MultiPolygon Z", container(1006, polygonZ)},
+		{"GeometryCollection Z", container(1007, pointZ)},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			geo, ok := wkbToGeoJSON(tc.wkb, -1)
+			require.True(t, ok)
+			back, err := geoJSONToWKB(geo, 0)
+			require.NoError(t, err)
+			require.Equal(t, tc.wkb, back)
+		})
+	}
+
+	t.Run("an empty member does not settle the dimension", func(t *testing.T) {
+		// The first member carries no position, so the dimension is the next one's.
+		geo := map[string]any{"type": "MultiLineString", "coordinates": []any{
+			[]any{},
+			[]any{[]float64{1, 2, 99}, []float64{3, 4, 98}},
+		}}
+		encoded, err := geoJSONToWKB(geo, 0)
+		require.NoError(t, err)
+		gType, _, ok := readWKBHeader(encoded)
+		require.True(t, ok)
+		require.Equal(t, uint32(1005), gType)
+
+		back, ok := wkbToGeoJSON(encoded, -1)
+		require.True(t, ok)
+		require.Equal(t, [][][]float64{{}, {{1, 2, 99}, {3, 4, 98}}}, back["coordinates"])
+	})
+
+	t.Run("an empty collection member takes the dimension too", func(t *testing.T) {
+		// An empty LineString Z carries no position of its own, so its dimension is the
+		// one the collection's other members declare.
+		emptyLineZ := binary.LittleEndian.AppendUint32([]byte{1}, 1002)
+		emptyLineZ = binary.LittleEndian.AppendUint32(emptyLineZ, 0)
+		wkb := container(1007, emptyLineZ, pointZ)
+
+		geo, ok := wkbToGeoJSON(wkb, -1)
+		require.True(t, ok)
+		back, err := geoJSONToWKB(geo, 0)
+		require.NoError(t, err)
+		require.Equal(t, wkb, back)
+	})
+
+	t.Run("collection members of one dimension", func(t *testing.T) {
+		_, err := geoJSONToWKB(map[string]any{
+			"type": "GeometryCollection", "geometries": []any{
+				map[string]any{"type": "Point", "coordinates": []float64{1, 2, 3}},
+				map[string]any{"type": "Point", "coordinates": []float64{4, 5}},
+			},
+		}, 0)
+		// The collection settles one dimension and the member that disagrees is reported
+		// where its position is written, as a Multi* member would be.
+		require.ErrorContains(t, err, "geometry declares 3")
+	})
+
+	t.Run("positions of one dimension", func(t *testing.T) {
+		_, err := geoJSONToWKB(map[string]any{
+			"type": "LineString", "coordinates": []any{[]float64{1, 2, 3}, []float64{4, 5}},
+		}, 0)
+		require.ErrorContains(t, err, "ordinates")
+	})
 }

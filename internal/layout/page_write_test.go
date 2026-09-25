@@ -1160,8 +1160,7 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 	})
 
 	t.Run("page_mixing_2d_and_z_geometries", func(t *testing.T) {
-		// A POINT(10 20) the walk reads, and a POINT Z(100 200 9) outside its extent
-		// that it does not: a box around the first alone would not cover the page.
+		// The box is x and y whatever the dimension, so the Z value widens it.
 		point2D := []byte{0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x24, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x34, 0x40}
 		pointZ := binary.LittleEndian.AppendUint32([]byte{1}, 1001)
 		for _, ordinate := range []float64{100, 200, 9} {
@@ -1175,10 +1174,10 @@ func TestComputePageGeospatialStatistics(t *testing.T) {
 		stats := computePageGeospatialStatistics(values, definitionLevels, maxDefinitionLevel)
 		bbox, geoTypes, boundsUnknown := stats.BBox, stats.Types, stats.BoundsUnknown
 
-		require.Nil(t, bbox)
-		require.True(t, boundsUnknown)
-		// A Z geometry carries a type code the format defines, so the types survive
-		// where the bounds do not.
+		require.NotNil(t, bbox)
+		require.False(t, boundsUnknown)
+		require.Equal(t, 100.0, bbox.Xmax)
+		require.Equal(t, 200.0, bbox.Ymax)
 		require.False(t, stats.TypesUnknown)
 		require.Equal(t, []int32{1, 1001}, geoTypes)
 	})

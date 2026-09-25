@@ -34,6 +34,15 @@ func FuzzWkbToGeoJSON(f *testing.F) {
 	// unknown geometry type
 	f.Add([]byte{0x01, 0xFF, 0xFF, 0xFF, 0xFF})
 
+	// Dimensions the parsers size their positions by: Z is read, M and ZM are refused,
+	// and an empty one declares a dimension it carries no position to show.
+	f.Add(wkbWithOrdinates(1001, nil, [][]float64{{1, 2, 99}}))
+	f.Add(wkbWithOrdinates(2001, nil, [][]float64{{1, 2, 99}}))
+	f.Add(wkbWithOrdinates(3001, nil, [][]float64{{1, 2, 99, 98}}))
+	f.Add(wkbWithOrdinates(1002, []uint32{2}, [][]float64{{1, 2, 9}, {3, 4, 8}}))
+	f.Add(wkbWithOrdinates(1002, []uint32{0}, nil))
+	f.Add(wkbWithOrdinates(1003, []uint32{1, 4}, [][]float64{{0, 0, 9}, {1, 0, 9}, {1, 1, 9}, {0, 0, 9}}))
+
 	f.Fuzz(func(t *testing.T, b []byte) {
 		wkbToGeoJSON(b, 6)
 	})

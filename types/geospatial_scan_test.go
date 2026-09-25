@@ -287,6 +287,16 @@ func multiOf(container uint32, member []byte) []byte {
 	return append(b, member...)
 }
 
+// membersOf spells a container of any number of members, where multiOf spells one.
+func membersOf(container uint32, members ...[]byte) []byte {
+	b := binary.LittleEndian.AppendUint32([]byte{1}, container)
+	b = binary.LittleEndian.AppendUint32(b, uint32(len(members)))
+	for _, member := range members {
+		b = append(b, member...)
+	}
+	return b
+}
+
 // bigEndianPoint is POINT(1 2) with the byte order flag and every field reversed.
 func bigEndianPoint() []byte {
 	b := []byte{0x00}
@@ -345,9 +355,10 @@ func TestGeospatialCarriesRecognizedTypes(t *testing.T) {
 
 // TestGeospatialGeoJSONFallback checks that the renderer's hex fallback remains writable.
 func TestGeospatialGeoJSONFallback(t *testing.T) {
-	// A Z geometry, which the GeoJSON rendering refuses and falls back to hex for.
+	// An M geometry, whose measure a GeoJSON position has no place for, so the rendering
+	// refuses it and falls back to hex.
 	wkb := []byte{0x01}
-	wkb = binary.LittleEndian.AppendUint32(wkb, 1001)
+	wkb = binary.LittleEndian.AppendUint32(wkb, 2001)
 	for _, o := range []float64{1, 2, 3} {
 		wkb = binary.LittleEndian.AppendUint64(wkb, math.Float64bits(o))
 	}
@@ -431,11 +442,19 @@ func TestGeospatialFormatLimits(t *testing.T) {
 		require.Equal(t, string(wkb), fromJSON)
 	})
 
-	t.Run("a third ordinate is refused rather than dropped", func(t *testing.T) {
-		_, err := geoJSONToWKB(map[string]any{
+	t.Run("a third ordinate is an elevation, a fourth is refused", func(t *testing.T) {
+		encoded, err := geoJSONToWKB(map[string]any{
 			"type": "Point", "coordinates": []any{1.0, 2.0, 3.0},
 		}, 0)
-		require.ErrorContains(t, err, "only 2D is supported")
+		require.NoError(t, err)
+		gType, _, ok := readWKBHeader(encoded)
+		require.True(t, ok)
+		require.Equal(t, uint32(1001), gType)
+
+		_, err = geoJSONToWKB(map[string]any{
+			"type": "Point", "coordinates": []any{1.0, 2.0, 3.0, 4.0},
+		}, 0)
+		require.ErrorContains(t, err, "need 2 or 3")
 	})
 }
 
@@ -618,6 +637,14 @@ func FuzzGeospatialWKBWriteBack(f *testing.F) {
 		multiOf(WKBGeometryCollection, multiOf(WKBGeometryCollection, isoWKB(8))),
 		wkbWithOrdinates(2, []uint32{2}, [][]float64{{0, 0}, {1, 1}}),
 		append(isoWKB(2), 0xff, 0xff, 0xff, 0xff),
+		// Dimensions the GeoJSON rendering treats differently: Z carried through, a
+		// measure refused, and the empty shapes that declare a dimension they cannot show.
+		wkbWithOrdinates(1002, []uint32{2}, [][]float64{{1, 2, 9}, {3, 4, 8}}),
+		wkbWithOrdinates(1002, []uint32{0}, nil),
+		multiOf(1007, wkbWithOrdinates(1002, []uint32{0}, nil)),
+		membersOf(1007, isoWKB(1001, 1, 2, 3), isoWKB(1, 3, 4)),
+		membersOf(1005, wkbWithOrdinates(1002, []uint32{0}, nil), wkbWithOrdinates(1002, []uint32{1}, [][]float64{{1, 2, 9}})),
+		membersOf(1007, wkbWithOrdinates(1002, []uint32{0}, nil), isoWKB(1001, 1, 2, 3)),
 	} {
 		f.Add(b)
 	}
@@ -643,6 +670,42 @@ func FuzzGeospatialWKBWriteBack(f *testing.F) {
 				require.Equal(t, native, fromText)
 			}
 		}
+
+		// GeoJSON is the one mode that reads the geometry rather than carrying its bytes,
+		// so a value it renders must write back to the bytes it was rendered from. A value
+		// it cannot render keeps the substitute, which the byte modes above cover.
+		geoOpt := WithGeospatialConfig(NewGeospatialConfig(
+			WithGeometryJSONMode(GeospatialModeGeoJSON), WithGeospatialCoordinatePrecision(-1),
+		))
+		rendered, err := ConvertValue(string(b), se, geoOpt)
+		if err != nil {
+			return
+		}
+		if geo, ok := rendered.(map[string]any); !ok || geo["wkb_hex"] != nil {
+			return
+		}
+		back, err := JSONTypeToParquetTypeWithLogical(reflect.ValueOf(rendered), se.Type, nil, lT, 0, 0, geoOpt)
+		require.NoError(t, err, "a rendering GeoJSON accepted must write back")
+
+		// The writer spells every value little-endian, so the bytes of a big-endian one
+		// legitimately differ. What must survive is the type code, dimension included,
+		// and the geometry it renders as.
+		written, ok := back.(string)
+		require.True(t, ok)
+		writtenType, _, ok := readWKBHeader([]byte(written))
+		require.True(t, ok)
+		originalType, _, ok := readWKBHeader(b)
+		require.True(t, ok)
+		require.Equal(t, originalType, writtenType)
+
+		// The rendering itself is not compared: a coordinate may be NaN, which is never
+		// equal to itself. Writing it a second time must reach the same bytes, which says
+		// the rendering carries everything the writer needs.
+		reRendered, err := ConvertValue(written, se, geoOpt)
+		require.NoError(t, err)
+		rewritten, err := JSONTypeToParquetTypeWithLogical(reflect.ValueOf(reRendered), se.Type, nil, lT, 0, 0, geoOpt)
+		require.NoError(t, err)
+		require.Equal(t, written, rewritten)
 	})
 }
 
