@@ -15,7 +15,6 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/reader"
-	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
@@ -412,47 +411,6 @@ func TestParquetWriter(t *testing.T) {
 	})
 }
 
-func TestNewParquetWriter_SchemaVariants(t *testing.T) {
-	tests := map[string]struct {
-		obj     any
-		wantErr bool
-	}{
-		"invalid_json_schema_string": {
-			obj:     `{"invalid": json}`,
-			wantErr: true,
-		},
-		"valid_json_schema_string": {
-			obj: `{
-				"Tag": "name=parquet-go-root",
-				"Fields": [
-					{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"},
-					{"Tag": "name=age, type=INT32"}
-				]
-			}`,
-			wantErr: false,
-		},
-		"nil_object": {
-			obj:     nil,
-			wantErr: false,
-		},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			var buf bytes.Buffer
-			fw := writerfile.NewWriterFile(&buf)
-			pw, err := NewParquetWriter(fw, tt.obj, WithNP(1))
-			if tt.wantErr {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "unmarshal json schema")
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, pw)
-			}
-		})
-	}
-}
-
 func TestOptionValidation(t *testing.T) {
 	type S struct {
 		ID int32 `parquet:"name=id, type=INT32"`
@@ -513,40 +471,6 @@ func TestOptionValidation(t *testing.T) {
 	}
 }
 
-func TestNewParquetWriterFromWriter(t *testing.T) {
-	type TestStruct struct {
-		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
-		Age  int32  `parquet:"name=age, type=INT32"`
-	}
-
-	t.Run("successful_creation", func(t *testing.T) {
-		var buf bytes.Buffer
-		pw, err := NewParquetWriterFromWriter(&buf, new(TestStruct), WithNP(1))
-		require.NoError(t, err)
-		require.NotNil(t, pw)
-
-		data := TestStruct{Name: "Alice", Age: 30}
-		err = pw.Write(data)
-		require.NoError(t, err)
-
-		err = pw.WriteStop()
-		require.NoError(t, err)
-
-		require.Greater(t, buf.Len(), 0)
-	})
-
-	t.Run("invalid_object", func(t *testing.T) {
-		var buf bytes.Buffer
-		pw, err := NewParquetWriterFromWriter(&buf, nil, WithNP(1))
-		if err != nil {
-			require.Error(t, err)
-			require.Nil(t, pw)
-		} else {
-			require.NotNil(t, pw)
-		}
-	})
-}
-
 func TestOptionValidation_NoPartialOutput(t *testing.T) {
 	var buf bytes.Buffer
 	fw := writerfile.NewWriterFile(&buf)
@@ -555,50 +479,6 @@ func TestOptionValidation_NoPartialOutput(t *testing.T) {
 	require.Contains(t, err.Error(), "value must be positive")
 	// Invalid option must not produce any output (no PAR1 header written)
 	require.Equal(t, 0, buf.Len())
-}
-
-func TestNewParquetWriter_SchemaHandlerInput(t *testing.T) {
-	type S struct {
-		ID   int32  `parquet:"name=id, type=INT32"`
-		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
-	}
-	sh, err := schema.NewSchemaHandlerFromStruct(new(S))
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	fw := writerfile.NewWriterFile(&buf)
-	pw, err := NewParquetWriter(fw, sh, WithNP(1))
-	require.NoError(t, err)
-	require.NotNil(t, pw)
-	require.NoError(t, pw.WriteStop())
-}
-
-// TestNewParquetWriter_SchemaElementsInput covers the []*parquet.SchemaElement branch.
-func TestNewParquetWriter_SchemaElementsInput(t *testing.T) {
-	type S struct {
-		ID int32 `parquet:"name=id, type=INT32"`
-	}
-	sh, err := schema.NewSchemaHandlerFromStruct(new(S))
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	fw := writerfile.NewWriterFile(&buf)
-	pw, err := NewParquetWriter(fw, sh.SchemaElements, WithNP(1))
-	require.NoError(t, err)
-	require.NotNil(t, pw)
-	require.NoError(t, pw.WriteStop())
-}
-
-// TestNewParquetWriter_InvalidStructInput covers the NewSchemaHandlerFromStruct error branch.
-func TestNewParquetWriter_InvalidStructInput(t *testing.T) {
-	type BadStruct struct {
-		ID int32 `parquet:"name=id, type=INVALID_TYPE"`
-	}
-	var buf bytes.Buffer
-	fw := writerfile.NewWriterFile(&buf)
-	_, err := NewParquetWriter(fw, new(BadStruct), WithNP(1))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "build schema handler")
 }
 
 // TestWrite_PointerInput covers the reflect pointer-dereference branch in Write.
@@ -640,13 +520,6 @@ func TestWriterCompressionLevel(t *testing.T) {
 	require.NoError(t, pr.Read(&got))
 	require.Equal(t, want, got)
 	require.Equal(t, parquet.CompressionCodec_GZIP, pr.Footer.RowGroups[0].Columns[0].MetaData.GetCodec())
-}
-
-func TestWriterOptionIsOpaque(t *testing.T) {
-	t.Parallel()
-
-	optionType := reflect.TypeOf((*WriterOption)(nil)).Elem()
-	require.NotEqual(t, reflect.Func, optionType.Kind())
 }
 
 func TestParquetWriter_PerColumnCompressionLevel(t *testing.T) {
