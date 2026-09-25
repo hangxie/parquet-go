@@ -1052,6 +1052,7 @@ go build -tags example ./example/all_types
 | [column_read](example/column_read) | Read raw column data |
 | [type](example/type) | Type examples |
 | [type_alias](example/type_alias) | Type alias examples |
+| [byte_representation](example/byte_representation) | `string` versus `[]byte` on byte-backed columns |
 | [new_logical](example/new_logical) | New logical types including FLOAT16 and INTEGER |
 | [unknown_type](example/unknown_type) | UNKNOWN logical type (always-null columns) |
 | [geospatial](example/geospatial) | GEOMETRY and GEOGRAPHY examples |
