@@ -1,8 +1,10 @@
 package marshal
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -1132,13 +1134,11 @@ func TestConvertToJSONFriendlyEnforceUTF8ByteSlices(t *testing.T) {
 						require.Equal(t, string(tc.text), got.(map[string]any)["Text"])
 					}
 
+					// The rendering is the column's, so enforcement only decides whether
+					// invalid UTF-8 is reported, not what a valid value comes back as.
 					got, err = ConvertToJSONFriendly(tt.row(tc.text), sh, WithEnforceUTF8(false))
 					require.NoError(t, err)
-					want := make([]any, len(tc.text))
-					for i := range tc.text {
-						want[i] = tc.text[i]
-					}
-					require.Equal(t, want, got.(map[string]any)["Text"])
+					require.Equal(t, string(tc.text), got.(map[string]any)["Text"])
 				})
 			}
 		})
@@ -1157,7 +1157,8 @@ func TestConvertToJSONFriendlyByteSliceList(t *testing.T) {
 	require.Equal(t, map[string]any{"Values": []any{uint8(1), uint8(2)}}, got)
 }
 
-func TestConvertToJSONFriendlyBinaryByteSlicesUnchanged(t *testing.T) {
+// TestConvertToJSONFriendlyBinaryByteSlices pins base64 for an unannotated byte-backed column.
+func TestConvertToJSONFriendlyBinaryByteSlices(t *testing.T) {
 	type bytesRow struct {
 		Value []byte `parquet:"name=value, type=BYTE_ARRAY"`
 	}
@@ -1186,7 +1187,7 @@ func TestConvertToJSONFriendlyBinaryByteSlicesUnchanged(t *testing.T) {
 				t.Run(tc.name, func(t *testing.T) {
 					got, err := ConvertToJSONFriendly(tt.row, sh, tc.opts...)
 					require.NoError(t, err)
-					require.Equal(t, map[string]any{"Value": []any{uint8(1), uint8(2)}}, got)
+					require.Equal(t, map[string]any{"Value": base64.StdEncoding.EncodeToString([]byte{1, 2})}, got)
 				})
 			}
 		})
@@ -1367,4 +1368,76 @@ func TestConvertToJSONFriendly_InconsistentRootReported(t *testing.T) {
 
 	_, err = ConvertToJSONFriendly([]any{Row{Day: 19000}}, sh)
 	require.ErrorContains(t, err, "schema handler is inconsistent")
+}
+
+// TestConvertToJSONFriendlyPrimitiveByteSlice pins a []byte at a primitive column as one value.
+func TestConvertToJSONFriendlyPrimitiveByteSlice(t *testing.T) {
+	type row struct {
+		Text   []byte `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Binary []byte `parquet:"name=binary, type=BYTE_ARRAY"`
+		List   []byte `parquet:"name=list, type=LIST, valuetype=INT32"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+
+	for _, enforceUTF8 := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enforceUTF8=%v", enforceUTF8), func(t *testing.T) {
+			got, err := ConvertToJSONFriendly(
+				[]any{row{Text: []byte("hi"), Binary: []byte{1, 2}, List: []byte{1, 2}}},
+				sh, WithEnforceUTF8(enforceUTF8),
+			)
+			require.NoError(t, err)
+			require.Equal(t, []any{map[string]any{
+				"Text":   "hi",
+				"Binary": base64.StdEncoding.EncodeToString([]byte{1, 2}),
+				// A LIST column keeps its elements, whatever Go type carries them.
+				"List": []any{uint8(1), uint8(2)},
+			}}, got)
+		})
+	}
+}
+
+// TestConvertToJSONFriendlyRepeatedByteArray covers the legacy repeated primitive, whose
+// column and values share one schema path.
+func TestConvertToJSONFriendlyRepeatedByteArray(t *testing.T) {
+	type row struct {
+		Bin  [][]byte `parquet:"name=bin, type=BYTE_ARRAY, repetitiontype=REPEATED"`
+		Text [][]byte `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=REPEATED"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+
+	got, err := ConvertToJSONFriendly(row{
+		Bin:  [][]byte{{1, 2}, {3, 4}},
+		Text: [][]byte{[]byte("hi"), []byte("yo")},
+	}, sh)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"Bin": []any{
+			base64.StdEncoding.EncodeToString([]byte{1, 2}),
+			base64.StdEncoding.EncodeToString([]byte{3, 4}),
+		},
+		"Text": []any{"hi", "yo"},
+	}, got)
+}
+
+// TestConvertToJSONFriendlyNamedByteSlice covers a type defined from []byte at the converters.
+func TestConvertToJSONFriendlyNamedByteSlice(t *testing.T) {
+	type namedBytes []byte
+	type row struct {
+		Bin  namedBytes `parquet:"name=bin, type=BYTE_ARRAY"`
+		Text namedBytes `parquet:"name=text, type=BYTE_ARRAY, convertedtype=UTF8"`
+		UUID namedBytes `parquet:"name=uuid, type=FIXED_LEN_BYTE_ARRAY, logicaltype=UUID, length=16"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+
+	uuid := namedBytes{0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4, 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00}
+	got, err := ConvertToJSONFriendly(row{Bin: namedBytes{1, 2}, Text: namedBytes("hi"), UUID: uuid}, sh)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"Bin":  base64.StdEncoding.EncodeToString([]byte{1, 2}),
+		"Text": "hi",
+		"UUID": "550e8400-e29b-41d4-a716-446655440000",
+	}, got)
 }

@@ -171,7 +171,7 @@ func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *sch
 		return convertValueToJSONFriendlyWithContext(val.Elem(), schemaHandler, pathPrefix, converter)
 
 	case reflect.Slice:
-		primitive, err := isTextByteSlice(val, schemaHandler, pathPrefix, converter)
+		primitive, err := isPrimitiveByteSlice(val, schemaHandler, pathPrefix, converter)
 		if err != nil {
 			return nil, err
 		}
@@ -191,30 +191,18 @@ func convertValueToJSONFriendlyWithContext(val reflect.Value, schemaHandler *sch
 	}
 }
 
-// isTextByteSlice reports whether UTF-8 enforcement needs a byte slice treated as one text value.
-func isTextByteSlice(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (bool, error) {
-	if !converter.enforceUTF8 || pathPrefix == "" || val.Type().Elem().Kind() != reflect.Uint8 {
+// isPrimitiveByteSlice reports whether a byte slice is one column value rather than a list.
+func isPrimitiveByteSlice(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (bool, error) {
+	if pathPrefix == "" || val.Type().Elem().Kind() != reflect.Uint8 {
 		return false, nil
 	}
 	element, err := lookupSchemaElement(schemaHandler, pathPrefix, converter)
-	if err != nil || element == nil || element.Type == nil || element.GetNumChildren() != 0 ||
-		element.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED {
+	if err != nil || element == nil || element.Type == nil || element.GetNumChildren() != 0 {
 		return false, err
 	}
-	if *element.Type != parquet.Type_BYTE_ARRAY && *element.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
-		return false, nil
-	}
-	if logical := element.LogicalType; logical != nil &&
-		(logical.IsSetSTRING() || logical.IsSetJSON() || logical.IsSetENUM()) {
-		return true, nil
-	}
-	if converted := element.ConvertedType; converted != nil {
-		switch *converted {
-		case parquet.ConvertedType_UTF8, parquet.ConvertedType_JSON, parquet.ConvertedType_ENUM:
-			return true, nil
-		}
-	}
-	return false, nil
+	// The column decides, not the Go type: a LIST carried in a []byte is still a list, and
+	// a repeated primitive names one path for the column ([][]byte) and for its values.
+	return *element.Type == parquet.Type_BYTE_ARRAY || *element.Type == parquet.Type_FIXED_LEN_BYTE_ARRAY, nil
 }
 
 // convertSliceToJSONFriendly optimized slice conversion
