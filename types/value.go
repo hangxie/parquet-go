@@ -60,6 +60,15 @@ func valueBytes(val any) ([]byte, bool) {
 	case string:
 		return []byte(v), true
 	}
+	// A type defined from either holds the same bytes as the one it is defined from.
+	rv := reflect.ValueOf(val)
+	switch {
+	case !rv.IsValid():
+	case rv.Kind() == reflect.String:
+		return []byte(rv.String()), true
+	case rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8:
+		return rv.Bytes(), true
+	}
 	return nil, false
 }
 

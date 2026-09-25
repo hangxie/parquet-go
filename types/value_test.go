@@ -869,3 +869,30 @@ func TestValidateTextUTF8ErrorContext(t *testing.T) {
 	require.NotContains(t, err.Error(), "re-than-eight")
 	require.Equal(t, len("valid UTF-8"), firstInvalidUTF8([]byte("valid UTF-8")))
 }
+
+// TestValueBytes covers the representations a byte-backed column accepts.
+func TestValueBytes(t *testing.T) {
+	type namedBytes []byte
+	type namedString string
+
+	testCases := []struct {
+		name  string
+		value any
+		want  []byte
+		ok    bool
+	}{
+		{name: "bytes", value: []byte("hi"), want: []byte("hi"), ok: true},
+		{name: "string", value: "hi", want: []byte("hi"), ok: true},
+		{name: "named bytes", value: namedBytes("hi"), want: []byte("hi"), ok: true},
+		{name: "named string", value: namedString("hi"), want: []byte("hi"), ok: true},
+		{name: "a number is not bytes", value: 42},
+		{name: "nil is not bytes", value: nil},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := valueBytes(tc.value)
+			require.Equal(t, tc.ok, ok)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
