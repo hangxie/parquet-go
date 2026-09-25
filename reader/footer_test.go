@@ -2,6 +2,7 @@ package reader
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -283,4 +284,62 @@ func writeFooterRenamedColumnParquet(t *testing.T) []byte {
 	require.NoError(t, pw.WriteStop())
 
 	return buf.Bytes()
+}
+
+func TestParquetReader_GetFooterSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		reader   *ParquetReader
+		expected uint32
+		errMsg   string
+	}{
+		{
+			name:   "nil_file",
+			reader: &ParquetReader{},
+			errMsg: "PFile is nil",
+		},
+		{
+			name: "seek_error",
+			reader: &ParquetReader{
+				PFile: buffer.NewBufferReaderFromBytesNoAlloc([]byte("short")),
+			},
+			errMsg: "seek to negative location",
+		},
+		{
+			name: "read_error",
+			reader: &ParquetReader{
+				PFile: &shortReadParquetFileReader{
+					data: []byte{0, 0, 0, 0, 'P', 'A', 'R', '1'},
+					err:  io.ErrUnexpectedEOF,
+				},
+			},
+			errMsg: "unexpected EOF",
+		},
+		{
+			name: "success",
+			reader: &ParquetReader{
+				PFile: buffer.NewBufferReaderFromBytesNoAlloc([]byte{
+					'd', 'a', 't', 'a',
+					0x78, 0x56, 0x34, 0x12,
+					'P', 'A', 'R', '1',
+				}),
+			},
+			expected: 0x12345678,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			actual, err := tc.reader.GetFooterSize()
+
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, actual)
+		})
+	}
 }
