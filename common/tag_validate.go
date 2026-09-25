@@ -1,0 +1,213 @@
+package common
+
+import (
+	"fmt"
+
+	"github.com/hangxie/parquet-go/v3/parquet"
+)
+
+// ValidateTagAnnotations validates converted and logical type annotations supplied on tags.
+func ValidateTagAnnotations(info *Tag) error {
+	if info.convertedType != "" {
+		if _, err := parquet.ConvertedTypeFromString(info.convertedType); err != nil {
+			return fmt.Errorf("field [%s] with convertedtype [%s]: %w", info.InName, info.convertedType, err)
+		}
+	}
+	if len(info.logicalTypeFields) > 0 {
+		if _, err := newLogicalTypeFromFieldsMap(info.logicalTypeFields); err != nil {
+			return fmt.Errorf("create logicaltype from field map: %w", err)
+		}
+	}
+	return nil
+}
+
+// ValidateSchemaElement checks if the ConvertedType and LogicalType are compatible with the physical Type.
+func validateLogicalTime(lt *parquet.LogicalType, pT *parquet.Type) error {
+	if lt.TIME == nil {
+		return nil
+	}
+	if lt.TIME.Unit.MILLIS != nil {
+		if *pT != parquet.Type_INT32 {
+			return fmt.Errorf("LogicalType TIME(MILLIS) can only be used with INT32")
+		}
+	} else {
+		if *pT != parquet.Type_INT64 {
+			return fmt.Errorf("LogicalType TIME(MICROS/NANOS) can only be used with INT64")
+		}
+	}
+	return nil
+}
+
+func validateLogicalInteger(lt *parquet.LogicalType, pT *parquet.Type) error {
+	if lt.INTEGER == nil {
+		return nil
+	}
+	if lt.INTEGER.BitWidth <= 32 {
+		if *pT != parquet.Type_INT32 {
+			return fmt.Errorf("LogicalType INTEGER(bitwidth<=32) can only be used with INT32")
+		}
+	} else {
+		if *pT != parquet.Type_INT64 {
+			return fmt.Errorf("LogicalType INTEGER(bitwidth=64) can only be used with INT64")
+		}
+	}
+	return nil
+}
+
+func validateLogicalBinaryTypes(lt *parquet.LogicalType, pT *parquet.Type, typeLength *int32) error {
+	if (lt.STRING != nil || lt.JSON != nil || lt.BSON != nil || lt.ENUM != nil) && *pT != parquet.Type_BYTE_ARRAY {
+		return fmt.Errorf("LogicalType STRING/JSON/BSON/ENUM can only be used with BYTE_ARRAY")
+	}
+	if lt.UUID != nil {
+		if *pT != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			return fmt.Errorf("LogicalType UUID can only be used with FIXED_LEN_BYTE_ARRAY")
+		}
+		if typeLength == nil || *typeLength != UUIDByteLen {
+			return fmt.Errorf("LogicalType UUID requires FIXED_LEN_BYTE_ARRAY with length %d", UUIDByteLen)
+		}
+	}
+	if lt.FLOAT16 != nil {
+		if *pT != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			return fmt.Errorf("LogicalType FLOAT16 can only be used with FIXED_LEN_BYTE_ARRAY")
+		}
+		if typeLength == nil || *typeLength != Float16ByteLen {
+			return fmt.Errorf("LogicalType FLOAT16 requires FIXED_LEN_BYTE_ARRAY with length %d", Float16ByteLen)
+		}
+	}
+	if (lt.GEOMETRY != nil || lt.GEOGRAPHY != nil) && *pT != parquet.Type_BYTE_ARRAY {
+		return fmt.Errorf("LogicalType GEOMETRY/GEOGRAPHY can only be used with BYTE_ARRAY")
+	}
+	return nil
+}
+
+func validateLogicalDecimal(lt *parquet.LogicalType, pT *parquet.Type) error {
+	if lt.DECIMAL == nil {
+		return nil
+	}
+	switch *pT {
+	case parquet.Type_INT32, parquet.Type_INT64, parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		return nil
+	default:
+		return fmt.Errorf("LogicalType DECIMAL can only be used with INT32, INT64, BYTE_ARRAY, or FIXED_LEN_BYTE_ARRAY")
+	}
+}
+
+func validateLogicalDateTimestamp(lt *parquet.LogicalType, pT *parquet.Type) error {
+	if lt.DATE != nil && *pT != parquet.Type_INT32 {
+		return fmt.Errorf("LogicalType DATE can only be used with INT32")
+	}
+	if lt.TIMESTAMP != nil && *pT != parquet.Type_INT64 {
+		return fmt.Errorf("LogicalType TIMESTAMP can only be used with INT64")
+	}
+	return nil
+}
+
+func validateLogicalType(schema *parquet.SchemaElement) error {
+	if schema.LogicalType == nil {
+		return nil
+	}
+	lt := schema.LogicalType
+	if lt.UNKNOWN != nil {
+		if schema.Type == nil || *schema.Type != parquet.Type_INT32 {
+			return fmt.Errorf("LogicalType UNKNOWN can only be used with INT32")
+		}
+		if schema.RepetitionType == nil || *schema.RepetitionType != parquet.FieldRepetitionType_OPTIONAL {
+			return fmt.Errorf("LogicalType UNKNOWN requires OPTIONAL repetition type")
+		}
+		return nil
+	}
+	if err := validateLogicalBinaryTypes(lt, schema.Type, schema.TypeLength); err != nil {
+		return err
+	}
+	if err := validateLogicalDecimal(lt, schema.Type); err != nil {
+		return err
+	}
+	if err := validateLogicalDateTimestamp(lt, schema.Type); err != nil {
+		return err
+	}
+	if err := validateLogicalTime(lt, schema.Type); err != nil {
+		return fmt.Errorf("validate logical TIME: %w", err)
+	}
+	return validateLogicalInteger(lt, schema.Type)
+}
+
+func validateConvertedType(schema *parquet.SchemaElement) error {
+	if schema.ConvertedType == nil {
+		return nil
+	}
+	ct := *schema.ConvertedType
+	switch ct {
+	case parquet.ConvertedType_UTF8, parquet.ConvertedType_JSON, parquet.ConvertedType_BSON, parquet.ConvertedType_ENUM:
+		if *schema.Type != parquet.Type_BYTE_ARRAY {
+			return fmt.Errorf("ConvertedType %s can only be used with BYTE_ARRAY", ct)
+		}
+	case parquet.ConvertedType_DATE, parquet.ConvertedType_TIME_MILLIS,
+		parquet.ConvertedType_INT_8, parquet.ConvertedType_INT_16, parquet.ConvertedType_INT_32,
+		parquet.ConvertedType_UINT_8, parquet.ConvertedType_UINT_16, parquet.ConvertedType_UINT_32:
+		if *schema.Type != parquet.Type_INT32 {
+			return fmt.Errorf("ConvertedType %s can only be used with INT32", ct)
+		}
+	case parquet.ConvertedType_INT_64, parquet.ConvertedType_UINT_64,
+		parquet.ConvertedType_TIME_MICROS, parquet.ConvertedType_TIMESTAMP_MILLIS, parquet.ConvertedType_TIMESTAMP_MICROS:
+		if *schema.Type != parquet.Type_INT64 {
+			return fmt.Errorf("ConvertedType %s can only be used with INT64", ct)
+		}
+	case parquet.ConvertedType_DECIMAL:
+		switch *schema.Type {
+		case parquet.Type_INT32, parquet.Type_INT64, parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		default:
+			return fmt.Errorf("ConvertedType DECIMAL can only be used with INT32, INT64, BYTE_ARRAY, or FIXED_LEN_BYTE_ARRAY")
+		}
+	case parquet.ConvertedType_INTERVAL:
+		if *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			return fmt.Errorf("ConvertedType %s can only be used with FIXED_LEN_BYTE_ARRAY", ct)
+		}
+		if schema.TypeLength == nil || *schema.TypeLength != IntervalByteLen {
+			return fmt.Errorf("ConvertedType %s requires FIXED_LEN_BYTE_ARRAY with length %d", ct, IntervalByteLen)
+		}
+	}
+	return nil
+}
+
+func ValidateSchemaElement(schema *parquet.SchemaElement) error {
+	if schema.Type == nil {
+		return nil
+	}
+
+	if err := validateLogicalType(schema); err != nil {
+		return fmt.Errorf("validate logical type: %w", err)
+	}
+
+	if err := validateConvertedType(schema); err != nil {
+		return fmt.Errorf("validate converted type: %w", err)
+	}
+
+	// Checked after the annotations so that a UUID, FLOAT16, or INTERVAL column
+	// reports the width its annotation fixes rather than this generic message. The
+	// width is what a FIXED_LEN_BYTE_ARRAY column is decoded and encoded with, so a
+	// zero-width declaration is unusable in either direction: values written to it
+	// come back empty, and reading a file through it decodes every value as empty.
+	if *schema.Type == parquet.Type_FIXED_LEN_BYTE_ARRAY && schema.GetTypeLength() <= 0 {
+		return fmt.Errorf("field [%s]: FIXED_LEN_BYTE_ARRAY requires a positive length, got %d", schema.Name, schema.GetTypeLength())
+	}
+
+	return nil
+}
+
+// ValidateEncodingForDataPageVersion checks if an encoding is valid for a given data page version.
+// Returns an error if the encoding is not compatible with the version.
+func ValidateEncodingForDataPageVersion(fieldName string, encoding parquet.Encoding, version int32) error {
+	switch encoding {
+	case parquet.Encoding_PLAIN_DICTIONARY:
+		// PLAIN_DICTIONARY is deprecated in Parquet 2.0+, only valid for v1 data pages
+		if version != 1 {
+			return fmt.Errorf("field [%s]: PLAIN_DICTIONARY encoding is deprecated and only valid for data page v1, use RLE_DICTIONARY for v2", fieldName)
+		}
+	case parquet.Encoding_DELTA_BINARY_PACKED, parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
+		// Delta encodings are for v2 data pages only
+		if version == 1 {
+			return fmt.Errorf("field [%s]: %v encoding is only supported for data page v2, not v1", fieldName, encoding)
+		}
+	}
+	return nil
+}
