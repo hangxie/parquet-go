@@ -15,11 +15,14 @@ import (
 type (
 	NameString string
 	AgeInt     int32
+	// A type defined from []byte writes and reads like the []byte it is defined from.
+	BadgeBytes []byte
 )
 
 type Student struct {
-	Name NameString `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-	Age  AgeInt     `parquet:"name=age, type=INT32, encoding=PLAIN"`
+	Name  NameString `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	Age   AgeInt     `parquet:"name=age, type=INT32, encoding=PLAIN"`
+	Badge BadgeBytes `parquet:"name=badge, type=BYTE_ARRAY"`
 }
 
 func main() {
@@ -44,8 +47,9 @@ func main() {
 	num := 10
 	for i := range num {
 		stu := Student{
-			Name: "StudentName",
-			Age:  AgeInt(20 + i%5),
+			Name:  "StudentName",
+			Age:   AgeInt(20 + i%5),
+			Badge: BadgeBytes{byte(i), 0xff},
 		}
 		if err = pw.Write(stu); err != nil {
 			log.Println("Write error", err)
