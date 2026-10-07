@@ -54,6 +54,9 @@ func NewJSONWriterWithContext(ctx context.Context, jsonSchema string, pfile sour
 		return nil, fmt.Errorf("create schema from JSON: %w", err)
 	}
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
+	if err = res.validateDictionaryEncodings(); err != nil {
+		return nil, fmt.Errorf("validate dictionary encodings: %w", err)
+	}
 	res.marshalFunc = func(src []any, sh *schema.SchemaHandler) (*map[string]*layout.Table, error) {
 		return marshal.MarshalJSON(src, sh, res.valueOptions...)
 	}

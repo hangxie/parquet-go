@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -181,4 +182,90 @@ func TestValidateSchemaForWrite_ColumnPathFallback(t *testing.T) {
 	err := pw.validateSchemaForWrite()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "column [V]: FIXED_LEN_BYTE_ARRAY requires a positive length, got 0")
+}
+
+func TestValidateDictionaryEncodings(t *testing.T) {
+	type boolDict struct {
+		Value bool `parquet:"name=value, type=BOOLEAN, encoding=RLE_DICTIONARY"`
+	}
+	type int32Dict struct {
+		Value int32 `parquet:"name=value, type=INT32, encoding=RLE_DICTIONARY"`
+	}
+	jsonSchema := func(tag string) string {
+		return `{"Tag": "name=parquet_go_root", "Fields": [{"Tag": "` + tag + `"}]}`
+	}
+
+	testCases := map[string]struct {
+		newWriter func(w io.Writer) error
+		errMsg    string
+	}{
+		"struct-rle-dictionary": {
+			newWriter: func(w io.Writer) error {
+				_, err := NewParquetWriterFromWriter(w, new(boolDict), WithNP(1))
+				return err
+			},
+			errMsg: "column [Parquet_go_root.Value]: dictionary encoding is not supported for BOOLEAN",
+		},
+		"struct-int32-dictionary-allowed": {
+			newWriter: func(w io.Writer) error {
+				_, err := NewParquetWriterFromWriter(w, new(int32Dict), WithNP(1))
+				return err
+			},
+		},
+		"json-schema-string-plain-dictionary": {
+			newWriter: func(w io.Writer) error {
+				_, err := NewParquetWriterFromWriter(w, jsonSchema("name=value, type=BOOLEAN, encoding=PLAIN_DICTIONARY"), WithNP(1))
+				return err
+			},
+			errMsg: "dictionary encoding is not supported for BOOLEAN",
+		},
+		"json-writer": {
+			newWriter: func(w io.Writer) error {
+				_, err := NewJSONWriterFromWriter(jsonSchema("name=value, type=BOOLEAN, encoding=RLE_DICTIONARY"), w, WithNP(1))
+				return err
+			},
+			errMsg: "dictionary encoding is not supported for BOOLEAN",
+		},
+		"csv-writer": {
+			newWriter: func(w io.Writer) error {
+				_, err := NewCSVWriterFromWriter([]string{"name=value, type=BOOLEAN, encoding=RLE_DICTIONARY"}, w, WithNP(1))
+				return err
+			},
+			errMsg: "dictionary encoding is not supported for BOOLEAN",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := tc.newWriter(&buf)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.errMsg)
+			require.Zero(t, buf.Len())
+		})
+	}
+}
+
+func TestValidateDictionaryEncodings_SetSchemaHandlerFromJSON(t *testing.T) {
+	pw := &ParquetWriter{Footer: parquet.NewFileMetaData()}
+	err := pw.SetSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": [{"Tag": "name=value, type=BOOLEAN, encoding=RLE_DICTIONARY"}]}`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "dictionary encoding is not supported for BOOLEAN")
+}
+
+func TestValidateDictionaryEncodings_MissingInfos(t *testing.T) {
+	elements := []*parquet.SchemaElement{
+		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(2))},
+		{Name: "a", Type: common.ToPtr(parquet.Type_BOOLEAN)},
+		{Name: "b", Type: common.ToPtr(parquet.Type_BOOLEAN)},
+	}
+	pw := &ParquetWriter{SchemaHandler: &schema.SchemaHandler{
+		SchemaElements: elements,
+		Infos:          []*common.Tag{{}, nil},
+	}}
+	require.NoError(t, pw.validateDictionaryEncodings())
 }
