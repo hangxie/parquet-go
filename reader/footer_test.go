@@ -2,9 +2,12 @@ package reader
 
 import (
 	"bytes"
+	"context"
+	"encoding/binary"
 	"io"
 	"testing"
 
+	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -340,6 +343,59 @@ func TestParquetReader_GetFooterSize(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func rewriteFooter(t *testing.T, data []byte, mutate func(*parquet.FileMetaData)) []byte {
+	t.Helper()
+
+	size := int(binary.LittleEndian.Uint32(data[len(data)-8:]))
+	start := len(data) - 8 - size
+	deserializer := thrift.NewTDeserializer()
+	deserializer.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(deserializer.Transport)
+	footer := parquet.NewFileMetaData()
+	require.NoError(t, deserializer.Read(context.Background(), footer, data[start:len(data)-8]))
+	mutate(footer)
+
+	footerBytes := serializeThrift(t, footer)
+	out := append([]byte(nil), data[:start]...)
+	out = append(out, footerBytes...)
+	out = binary.LittleEndian.AppendUint32(out, uint32(len(footerBytes)))
+	return append(out, common.MagicBytes...)
+}
+
+func TestReadFooterRejectsMalformedTail(t *testing.T) {
+	valid := writeFooterRenamedColumnParquet(t)
+
+	tests := map[string]struct {
+		data   []byte
+		errMsg string
+	}{
+		"bad-magic": {
+			data:   append(append([]byte(nil), valid[:len(valid)-4]...), "BAD!"...),
+			errMsg: `invalid footer magic "BAD!"`,
+		},
+		"negative-file-rows": {
+			data:   rewriteFooter(t, valid, func(f *parquet.FileMetaData) { f.NumRows = -1 }),
+			errMsg: "file num_rows -1 is negative",
+		},
+		"negative-row-group-rows": {
+			data:   rewriteFooter(t, valid, func(f *parquet.FileMetaData) { f.RowGroups[0].NumRows = -1 }),
+			errMsg: "row group 0 num_rows -1 is negative",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			pf := buffer.NewBufferReaderFromBytesNoAlloc(tc.data)
+			_, err := NewParquetReader(pf, new(footerRenamedColumnRecord), WithNP(1))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.errMsg)
+
+			_, err = NewParquetColumnReader(buffer.NewBufferReaderFromBytesNoAlloc(tc.data), WithNP(1))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.errMsg)
 		})
 	}
 }

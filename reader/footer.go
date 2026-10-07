@@ -204,15 +204,32 @@ func (pr *ParquetReader) ReadFooterWithContext(ctx context.Context) error {
 		if err := pr.readEncryptedFooter(size); err != nil {
 			return fmt.Errorf("read encrypted footer: %w", err)
 		}
-	default:
+	case common.MagicBytes:
 		if err := pr.readPlainFooter(size); err != nil {
 			return fmt.Errorf("read plain footer: %w", err)
 		}
+	default:
+		return fmt.Errorf("invalid footer magic %q", magic)
 	}
 	if err := pr.decryptEncryptedColumnMetadata(); err != nil {
 		return fmt.Errorf("decrypt encrypted column metadata: %w", err)
 	}
+	if err := validateRowCounts(pr.Footer); err != nil {
+		return err
+	}
 	pr.footerLoaded = true
+	return nil
+}
+
+func validateRowCounts(footer *parquet.FileMetaData) error {
+	if footer.NumRows < 0 {
+		return fmt.Errorf("file num_rows %d is negative", footer.NumRows)
+	}
+	for i, rowGroup := range footer.RowGroups {
+		if rowGroup != nil && rowGroup.NumRows < 0 {
+			return fmt.Errorf("row group %d num_rows %d is negative", i, rowGroup.NumRows)
+		}
+	}
 	return nil
 }
 
