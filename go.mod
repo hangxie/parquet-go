@@ -18,7 +18,7 @@ require (
 	github.com/colinmarc/hdfs/v2 v2.4.0
 	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875
 	github.com/google/uuid v1.6.0
-	github.com/klauspost/compress v1.20.0
+	github.com/klauspost/compress v1.20.1
 	github.com/ncw/swift v1.0.53
 	github.com/pierrec/lz4/v4 v4.1.30
 	github.com/spf13/afero v1.15.0
