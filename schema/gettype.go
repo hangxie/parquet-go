@@ -286,6 +286,10 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 			idx := stack[curlen][0]
 			elem := sh.SchemaElements[idx]
 			pT, cT, rT := elem.Type, elem.ConvertedType, elem.RepetitionType
+			if idx == 0 {
+				// The root is the row container; a repetition marker some writers set on it must not reshape rows
+				rT = nil
+			}
 
 			if elem.GetNumChildren() == 0 {
 				elementTypes[idx] = resolveLeafType(pT, rT)

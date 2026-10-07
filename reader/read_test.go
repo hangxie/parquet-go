@@ -857,3 +857,31 @@ func TestLegacyRepeatedJSONRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `[{"scores":["NaN","Infinity",1.5],"days":["2022-01-08"],"groups":[{"value":"-Infinity"}]}]`, string(marshaled))
 }
+
+func TestReadInferredRowsIgnoreRootRepetition(t *testing.T) {
+	type row struct {
+		V int32 `parquet:"name=v, type=INT32"`
+	}
+	var buf bytes.Buffer
+	pw, err := writer.NewParquetWriterFromWriterWithContext(context.Background(), &buf, new(row), writer.WithNP(1))
+	require.NoError(t, err)
+	for _, v := range []int32{1, 2, 3} {
+		require.NoError(t, pw.WriteWithContext(context.Background(), row{V: v}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	for _, rt := range []parquet.FieldRepetitionType{parquet.FieldRepetitionType_REPEATED, parquet.FieldRepetitionType_OPTIONAL} {
+		t.Run(rt.String(), func(t *testing.T) {
+			data := rewriteFooter(t, buf.Bytes(), func(f *parquet.FileMetaData) { f.Schema[0].RepetitionType = &rt })
+			pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), nil, WithNP(1))
+			require.NoError(t, err)
+			defer func() { _ = pr.ReadStop() }()
+
+			rows, err := pr.ReadByNumberWithContext(context.Background(), 3)
+			require.NoError(t, err)
+			got, err := json.Marshal(rows)
+			require.NoError(t, err)
+			require.JSONEq(t, `[{"v":1},{"v":2},{"v":3}]`, string(got))
+		})
+	}
+}
