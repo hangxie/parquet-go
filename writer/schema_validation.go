@@ -17,6 +17,9 @@ func (pw *ParquetWriter) validateSchemaForWrite() error {
 	if pw.SchemaHandler == nil {
 		return nil
 	}
+	if err := pw.SchemaHandler.ValidateUniqueNames(); err != nil {
+		return err
+	}
 	if err := pw.validateDictionaryEncodings(); err != nil {
 		return err
 	}

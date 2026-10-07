@@ -186,8 +186,8 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 		{
 			name: "map_good",
 			structDef: new(struct {
-				MapField1 map[string]*int32  `parquet:"name=map, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
-				MapField2 *map[*string]int32 `parquet:"name=map, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+				MapField1 map[string]*int32  `parquet:"name=map1, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+				MapField2 *map[*string]int32 `parquet:"name=map2, type=MAP, convertedtype=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
 			}),
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 9, len(schema.SchemaElements))
@@ -248,8 +248,8 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 		{
 			name: "list_good",
 			structDef: new(struct {
-				ListField1 *[]string `parquet:"name=list, type=LIST, convertedtype=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
-				ListField2 []*string `parquet:"name=list, type=LIST, convertedtype=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+				ListField1 *[]string `parquet:"name=list1, type=LIST, convertedtype=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+				ListField2 []*string `parquet:"name=list2, type=LIST, convertedtype=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
 			}),
 			validateSchema: func(t *testing.T, schema *SchemaHandler) {
 				require.Equal(t, 7, len(schema.SchemaElements))

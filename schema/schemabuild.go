@@ -108,6 +108,9 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 	res.setVariantSchemas()
 
 	res.CreateInExMap()
+	if err := res.ValidateUniqueNames(); err != nil {
+		return nil, fmt.Errorf("validate column names: %w", err)
+	}
 	return res, nil
 }
 

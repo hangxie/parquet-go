@@ -249,7 +249,7 @@ schema := arrow.NewSchema(
 Schema notes:
 
 - `InName` is the Go field name. `ExName` is the Parquet field name.
-- Avoid field names that differ only by first-letter case.
+- Avoid field names that differ only by first-letter case. Sibling fields must have distinct names: schema construction rejects two siblings sharing a Parquet name, or names that map to the same Go name, while the same name under different parent groups is allowed.
 - `PARGO_PREFIX_` is reserved and should not be used as a field prefix.
 - Column paths separate their components with `common.ParGoPathDelimiter` (`\x01`); build a path with `common.PathToStr`. `.` is an ordinary character in a field name, never a separator, so a name may contain `.` (it stays a single path component). This applies to every path-taking API, including `ParquetReader.ReadPartial`, `ReadColumnByPath`, `SkipRowsByPath`, `BloomFilterCheck`, `BloomFilterSize`, `reader.WithColumnKey`, and `writer.WithColumnEncrypted`.
 - Arrow `Float16` fields are written as `FIXED_LEN_BYTE_ARRAY` with `length=2` and `logicaltype=FLOAT16`; generic Parquet reads expose them as raw two-byte strings. Use `types.ConvertFloat16LogicalValue` when a `float32` value is needed. FLOAT16 statistics and column indexes use the Parquet FLOAT16 total ordering.

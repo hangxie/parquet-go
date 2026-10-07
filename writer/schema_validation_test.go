@@ -269,3 +269,30 @@ func TestValidateDictionaryEncodings_MissingInfos(t *testing.T) {
 	}}
 	require.NoError(t, pw.validateDictionaryEncodings())
 }
+
+func TestValidateSchemaForWrite_DuplicateColumnNames(t *testing.T) {
+	type row struct {
+		A int64  `parquet:"name=value, type=INT64"`
+		B string `parquet:"name=value, type=BYTE_ARRAY"`
+	}
+	schemaList := []*parquet.SchemaElement{
+		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(2))},
+		{Name: "value", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+		{Name: "value", Type: common.ToPtr(parquet.Type_INT64), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
+	}
+
+	testCases := map[string]any{
+		"struct":         new(row),
+		"schema-list":    schemaList,
+		"schema-handler": schema.NewSchemaHandlerFromSchemaList(schemaList),
+	}
+	for name, obj := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			_, err := NewParquetWriter(writerfile.NewWriterFile(&buf), obj, WithNP(1))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), `duplicate column name "value"`)
+			require.Zero(t, buf.Len())
+		})
+	}
+}
