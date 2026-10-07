@@ -131,8 +131,8 @@ func TestNewParquetColumnReader(t *testing.T) {
 			name: "invalid_footer_data",
 			setupReader: func() source.ParquetFileReader {
 				invalidData := make([]byte, 100)
-				// Fill with invalid parquet footer data
-				copy(invalidData[len(invalidData)-4:], []byte{0, 0, 0, 0}) // Invalid length
+				// Zero-length footer behind a valid magic
+				copy(invalidData[len(invalidData)-4:], common.MagicBytes)
 				return newMockParquetFileReader(invalidData)
 			},
 			opts:   []ReaderOption{WithNP(1)},
