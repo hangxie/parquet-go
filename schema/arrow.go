@@ -141,6 +141,9 @@ func NewSchemaHandlerFromArrow(arrowSchema *arrow.Schema) (
 	res := NewSchemaHandlerFromSchemaList(schemaList)
 	res.Infos = infos
 	res.CreateInExMap()
+	if err := res.ValidateUniqueNames(); err != nil {
+		return nil, fmt.Errorf("validate column names: %w", err)
+	}
 
 	return res, nil
 }
