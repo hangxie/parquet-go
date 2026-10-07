@@ -54,6 +54,9 @@ func NewCSVWriterWithContext(ctx context.Context, md []string, pfile source.Parq
 		return nil, fmt.Errorf("create schema from metadata: %w", err)
 	}
 	res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
+	if err = res.validateDictionaryEncodings(); err != nil {
+		return nil, fmt.Errorf("validate dictionary encodings: %w", err)
+	}
 	res.marshalFunc = marshal.MarshalCSV
 	if err = res.validateSortingColumns(); err != nil {
 		return nil, fmt.Errorf("validate sorting columns: %w", err)

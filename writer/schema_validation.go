@@ -17,6 +17,9 @@ func (pw *ParquetWriter) validateSchemaForWrite() error {
 	if pw.SchemaHandler == nil {
 		return nil
 	}
+	if err := pw.validateDictionaryEncodings(); err != nil {
+		return err
+	}
 	for idx, se := range pw.SchemaHandler.SchemaElements {
 		if se == nil || se.Type == nil || *se.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
 			continue
@@ -38,4 +41,22 @@ func (pw *ParquetWriter) columnPath(idx int) string {
 		return strings.Join(common.StrToPath(path), ".")
 	}
 	return pw.SchemaHandler.SchemaElements[idx].Name
+}
+
+// validateDictionaryEncodings rejects BOOLEAN dictionary columns, which Arrow and other readers cannot decode.
+func (pw *ParquetWriter) validateDictionaryEncodings() error {
+	// Readers still accept the tag so files written before this check stay readable.
+	for idx, se := range pw.SchemaHandler.SchemaElements {
+		if se == nil || se.Type == nil || *se.Type != parquet.Type_BOOLEAN || idx >= len(pw.SchemaHandler.Infos) {
+			continue
+		}
+		info := pw.SchemaHandler.Infos[idx]
+		if info == nil {
+			continue
+		}
+		if info.Encoding == parquet.Encoding_PLAIN_DICTIONARY || info.Encoding == parquet.Encoding_RLE_DICTIONARY {
+			return fmt.Errorf("column [%s]: dictionary encoding is not supported for BOOLEAN", pw.columnPath(idx))
+		}
+	}
+	return nil
 }

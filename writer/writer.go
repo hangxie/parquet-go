@@ -112,6 +112,9 @@ func (pw *ParquetWriter) SetSchemaHandlerFromJSON(jsonSchema string) error {
 	}
 	pw.Footer.Schema = pw.Footer.Schema[:0]
 	pw.Footer.Schema = append(pw.Footer.Schema, pw.SchemaHandler.SchemaElements...)
+	if err := pw.validateDictionaryEncodings(); err != nil {
+		return fmt.Errorf("validate dictionary encodings: %w", err)
+	}
 	if err := pw.buildColumnCompressors(); err != nil {
 		return fmt.Errorf("build column compressors: %w", err)
 	}

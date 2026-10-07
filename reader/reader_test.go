@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"reflect"
 	"runtime"
 	"strconv"
 	"sync"
@@ -823,4 +824,59 @@ func TestReadFixedLenByteArrayTagWithoutLength(t *testing.T) {
 	rows := make([]writeRow, 1)
 	require.NoError(t, pr.ReadWithContext(context.Background(), &rows))
 	require.Equal(t, "abcd", rows[0].V)
+}
+
+type boolDictRecord struct {
+	Value bool `parquet:"name=value, type=BOOLEAN, encoding=RLE_DICTIONARY"`
+}
+
+// writeLegacyBoolDictParquet writes a BOOLEAN dictionary column, as releases before
+// the writer rejected that encoding did, by setting it after construction.
+func writeLegacyBoolDictParquet(t *testing.T) []byte {
+	t.Helper()
+
+	type plainBool struct {
+		Value bool `parquet:"name=value, type=BOOLEAN"`
+	}
+	var buf bytes.Buffer
+	pw, err := writer.NewParquetWriterFromWriterWithContext(context.Background(), &buf, new(plainBool), writer.WithNP(1))
+	require.NoError(t, err)
+	pw.SchemaHandler.Infos[1].Encoding = parquet.Encoding_RLE_DICTIONARY
+	for _, v := range []bool{true, false, true} {
+		require.NoError(t, pw.WriteWithContext(context.Background(), plainBool{Value: v}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	data := buf.Bytes()
+	pr, err := NewParquetColumnReader(buffer.NewBufferReaderFromBytesNoAlloc(data), WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStop() }()
+	require.Contains(t, pr.Footer.RowGroups[0].Columns[0].MetaData.Encodings, parquet.Encoding_RLE_DICTIONARY)
+	return data
+}
+
+func TestReadLegacyBooleanDictionary(t *testing.T) {
+	data := writeLegacyBoolDictParquet(t)
+
+	testCases := map[string]any{
+		"struct-tagged-dictionary": new(boolDictRecord),
+		"json-schema-dictionary":   `{"Tag": "name=parquet_go_root", "Fields": [{"Tag": "name=value, type=BOOLEAN, encoding=RLE_DICTIONARY"}]}`,
+		"schema-inference":         nil,
+	}
+	for name, obj := range testCases {
+		t.Run(name, func(t *testing.T) {
+			pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), obj, WithNP(1))
+			require.NoError(t, err)
+			defer func() { _ = pr.ReadStop() }()
+
+			rows, err := pr.ReadByNumberWithContext(context.Background(), 3)
+			require.NoError(t, err)
+			require.Len(t, rows, 3)
+			got := make([]bool, len(rows))
+			for i, row := range rows {
+				got[i] = reflect.ValueOf(row).FieldByName("Value").Bool()
+			}
+			require.Equal(t, []bool{true, false, true}, got)
+		})
+	}
 }
