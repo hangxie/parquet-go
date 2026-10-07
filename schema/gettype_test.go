@@ -574,6 +574,48 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			},
 		},
 		{
+			name: "repeated_root_stays_struct",
+			setupHandler: func() *SchemaHandler {
+				return NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+					{
+						Name:           "root",
+						NumChildren:    common.ToPtr(int32(1)),
+						RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED),
+					},
+					{
+						Name:           "v",
+						Type:           common.ToPtr(parquet.Type_INT32),
+						RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+					},
+				})
+			},
+			expectedCount: 2,
+			validateTypes: func(t *testing.T, types []reflect.Type) {
+				require.Equal(t, reflect.Struct, types[0].Kind())
+			},
+		},
+		{
+			name: "optional_root_stays_struct",
+			setupHandler: func() *SchemaHandler {
+				return NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+					{
+						Name:           "root",
+						NumChildren:    common.ToPtr(int32(1)),
+						RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
+					},
+					{
+						Name:           "v",
+						Type:           common.ToPtr(parquet.Type_INT32),
+						RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+					},
+				})
+			},
+			expectedCount: 2,
+			validateTypes: func(t *testing.T, types []reflect.Type) {
+				require.Equal(t, reflect.Struct, types[0].Kind())
+			},
+		},
+		{
 			name: "empty_schema",
 			setupHandler: func() *SchemaHandler {
 				return &SchemaHandler{
