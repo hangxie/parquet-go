@@ -55,13 +55,10 @@ deps:  ## Install prerequisite for build
 	@go mod tidy
 
 .PHONY: tools
-# golangci-lint is pinned because @latest broke CI the day v2.13 raised its Go
-# floor. No single version spans the build matrix: v2.12 cannot analyse 1.27 and
-# v2.13 cannot be built on 1.25, so lint runs on one recent Go instead.
 tools:  ## Install build tools
 	@echo "==> Installing build tools"
 	@(cd /tmp; \
-		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1; \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0; \
 		go install mvdan.cc/gofumpt@latest; \
 		go install golang.org/x/tools/cmd/goimports@latest; \
 	)
