@@ -16,6 +16,7 @@ COLLECT_ARGS ?=
 TESTDATA_DIR     = $(BUILD_DIR)/testdata
 PARQUET_TESTING  = https://raw.githubusercontent.com/apache/parquet-testing/master/data
 TESTDATA_FILES   = $(TESTDATA_DIR)/datapage_v1-uncompressed-checksum.parquet \
+                   $(TESTDATA_DIR)/old_list_structure.parquet \
                    $(TESTDATA_DIR)/datapage_v1-corrupt-checksum.parquet \
                    $(TESTDATA_DIR)/encrypt_columns_and_footer.parquet.encrypted \
                    $(TESTDATA_DIR)/encrypt_columns_and_footer_ctr.parquet.encrypted \

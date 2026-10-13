@@ -13,32 +13,69 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/types"
 )
 
 func TestConvertToJSONFriendly_OldListFormat(t *testing.T) {
-	// Struct with single exported "Array" field of slice type simulates old list format
-	type OldList struct {
+	type inner struct {
 		Array []int32 `json:"array"`
 	}
+	type row struct {
+		Array []inner `json:"array"`
+	}
+	input := row{Array: []inner{{Array: []int32{1, 2}}, {Array: []int32{3}}}}
 
-	sh, err := schema.NewSchemaHandlerFromStruct(new(struct {
-		Name string `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
-	}))
+	testCases := map[string]struct {
+		convertedType *parquet.ConvertedType
+		logicalType   *parquet.LogicalType
+		expected      string
+	}{
+		"converted-type": {common.ToPtr(parquet.ConvertedType_LIST), nil, `{"array":[[1,2],[3]]}`},
+		"logical-type":   {nil, &parquet.LogicalType{LIST: parquet.NewListType()}, `{"array":[[1,2],[3]]}`},
+		"no-annotation":  {nil, nil, `{"array":[{"array":[1,2]},{"array":[3]}]}`},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+				{Name: common.ParGoRootInName, NumChildren: common.ToPtr(int32(1))},
+				{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), ConvertedType: tc.convertedType, LogicalType: tc.logicalType, NumChildren: common.ToPtr(int32(1))},
+				{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), Type: common.ToPtr(parquet.Type_INT32)},
+			})
+			result, err := ConvertToJSONFriendly(input, sh)
+			require.NoError(t, err)
+			raw, err := json.Marshal(result)
+			require.NoError(t, err)
+			require.JSONEq(t, tc.expected, string(raw))
+		})
+	}
+}
+
+// A LIST whose two-level repeated group is itself a two-level list, as in parquet-testing's old_list_structure.
+func TestConvertToJSONFriendly_NestedOldListFormat(t *testing.T) {
+	type inner struct {
+		Array []int32 `json:"array"`
+	}
+	type outer struct {
+		Array []inner `json:"array"`
+	}
+	type row struct {
+		A outer `json:"a"`
+	}
+	sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{Name: common.ParGoRootInName, NumChildren: common.ToPtr(int32(1))},
+		{Name: "a", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED), ConvertedType: common.ToPtr(parquet.ConvertedType_LIST), NumChildren: common.ToPtr(int32(1))},
+		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), ConvertedType: common.ToPtr(parquet.ConvertedType_LIST), NumChildren: common.ToPtr(int32(1))},
+		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), Type: common.ToPtr(parquet.Type_INT32)},
+	})
+
+	result, err := ConvertToJSONFriendly(row{A: outer{Array: []inner{{Array: []int32{1, 2}}, {Array: []int32{3, 4}}}}}, sh)
 	require.NoError(t, err)
-
-	input := OldList{Array: []int32{1, 2, 3}}
-	result, err := ConvertToJSONFriendly(input, sh)
+	raw, err := json.Marshal(result)
 	require.NoError(t, err)
-
-	// Should unwrap to a slice, not a map
-	slice, ok := result.([]any)
-	require.True(t, ok)
-	require.Equal(t, 3, len(slice))
-	require.Equal(t, int32(1), slice[0])
-	require.Equal(t, int32(2), slice[1])
-	require.Equal(t, int32(3), slice[2])
+	require.JSONEq(t, `{"a":[[1,2],[3,4]]}`, string(raw))
 }
 
 func TestConvertToJSONFriendly_UnexportedFields(t *testing.T) {

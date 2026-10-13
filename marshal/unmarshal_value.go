@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
@@ -28,12 +27,17 @@ func setByteSliceValue(po reflect.Value, val any) (bool, error) {
 	return true, nil
 }
 
+// isOldListFormat reports a parquet-mr two-level list: a LIST-annotated "array" group holding a repeated "array" leaf.
 func isOldListFormat(path []string, index int, schemaIndexs []int, sh *schema.SchemaHandler) bool {
-	return len(path) >= 2 &&
-		index < len(path) && strings.EqualFold(path[index], "array") &&
-		index > 0 && strings.EqualFold(path[index-1], "array") &&
-		index < len(sh.SchemaElements) &&
-		sh.SchemaElements[schemaIndexs[index]].Type != nil
+	if index <= 0 || index >= len(path) || index >= len(schemaIndexs) {
+		return false
+	}
+	if !strings.EqualFold(path[index], "array") || !strings.EqualFold(path[index-1], "array") {
+		return false
+	}
+	// Without the LIST annotation this is just a nested repeated field that happens to be named array.
+	parent, leaf := sh.SchemaElements[schemaIndexs[index-1]], sh.SchemaElements[schemaIndexs[index]]
+	return isListColumn(parent) && leaf.Type != nil
 }
 
 func shouldIncrementSlice(isOldList bool, sliceRec *SliceRecord, rl, repetitionLevel int32) bool {
@@ -84,8 +88,7 @@ func (s *unmarshalState) handleSlice(po reflect.Value, tc *tableContext, index i
 		return po, index, done, err
 	}
 
-	cT := s.schemaHandler.SchemaElements[tc.schemaIndexs[index]].ConvertedType
-	cTIsList := cT != nil && *cT == parquet.ConvertedType_LIST
+	isList := isListColumn(s.schemaHandler.SchemaElements[tc.schemaIndexs[index]])
 
 	if po.IsNil() {
 		po.Set(reflect.MakeSlice(poType, 0, 0))
@@ -93,7 +96,7 @@ func (s *unmarshalState) handleSlice(po reflect.Value, tc *tableContext, index i
 
 	sliceRec := s.getSliceRecord(po)
 
-	if cTIsList {
+	if isList {
 		index++
 		if tc.definitionLevels[index] > dl {
 			return po, index, true, nil
@@ -114,7 +117,7 @@ func (s *unmarshalState) handleSlice(po reflect.Value, tc *tableContext, index i
 		handleOldListLeaf(po, val)
 	}
 
-	if cTIsList {
+	if isList {
 		index++
 		if index < len(tc.definitionLevels) && tc.definitionLevels[index] > dl {
 			return po, index, true, nil
