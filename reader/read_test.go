@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"testing"
 
@@ -884,4 +885,113 @@ func TestReadInferredRowsIgnoreRootRepetition(t *testing.T) {
 			require.JSONEq(t, `[{"v":1},{"v":2},{"v":3}]`, string(got))
 		})
 	}
+}
+
+type nestedArrayInner struct {
+	Array []int32 `parquet:"name=array, type=INT32, repetitiontype=REPEATED"`
+}
+
+type nestedArrayRow struct {
+	Array []nestedArrayInner `parquet:"name=array, repetitiontype=REPEATED"`
+}
+
+// A repeated group and leaf both named array, with no LIST annotation, are plain nested lists.
+func TestRoundTrip_NestedRepeatedNamedArray(t *testing.T) {
+	ctx := context.Background()
+	src := []nestedArrayRow{
+		{Array: []nestedArrayInner{{Array: []int32{1, 2}}, {Array: []int32{3, 4}}}},
+		{Array: []nestedArrayInner{{Array: []int32{5}}, {}, {Array: []int32{6, 7, 8}}}},
+	}
+	fw := buffer.NewBufferWriter()
+	pw, err := writer.NewParquetWriterWithContext(ctx, fw, new(nestedArrayRow))
+	require.NoError(t, err)
+	for _, row := range src {
+		require.NoError(t, pw.WriteWithContext(ctx, row))
+	}
+	require.NoError(t, pw.WriteStopWithContext(ctx))
+
+	t.Run("typed", func(t *testing.T) {
+		pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(fw.Bytes()), new(nestedArrayRow))
+		require.NoError(t, err)
+		got := make([]nestedArrayRow, len(src))
+		require.NoError(t, pr.ReadWithContext(ctx, &got))
+		require.Equal(t, src, got)
+	})
+
+	t.Run("schema-less", func(t *testing.T) {
+		pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(fw.Bytes()), nil)
+		require.NoError(t, err)
+		got, err := pr.ReadByNumberWithContext(ctx, len(src))
+		require.NoError(t, err)
+		raw, err := json.Marshal(got)
+		require.NoError(t, err)
+		require.JSONEq(t, `[{"array":[{"array":[1,2]},{"array":[3,4]}]},{"array":[{"array":[5]},{"array":null},{"array":[6,7,8]}]}]`, string(raw))
+
+		friendly, err := marshal.ConvertToJSONFriendly(got, pr.SchemaHandler)
+		require.NoError(t, err)
+		raw, err = json.Marshal(friendly)
+		require.NoError(t, err)
+		require.JSONEq(t, `[{"array":[{"array":[1,2]},{"array":[3,4]}]},{"array":[{"array":[5]},{"array":[]},{"array":[6,7,8]}]}]`, string(raw))
+	})
+}
+
+// A LIST-annotated repeated group of a repeated leaf, both named array, is a parquet-mr two-level list.
+func TestRoundTrip_TwoLevelList(t *testing.T) {
+	ctx := context.Background()
+	src := []nestedArrayRow{
+		{Array: []nestedArrayInner{{Array: []int32{1, 2}}, {Array: []int32{3, 4}}}},
+		{Array: []nestedArrayInner{{Array: []int32{5}}, {Array: []int32{6, 7, 8}}}},
+	}
+
+	testCases := map[string]func(*parquet.SchemaElement){
+		"converted-type": func(e *parquet.SchemaElement) { e.ConvertedType = common.ToPtr(parquet.ConvertedType_LIST) },
+		"logical-type":   func(e *parquet.SchemaElement) { e.LogicalType = &parquet.LogicalType{LIST: parquet.NewListType()} },
+	}
+
+	for name, annotate := range testCases {
+		t.Run(name, func(t *testing.T) {
+			fw := buffer.NewBufferWriter()
+			pw, err := writer.NewParquetWriterWithContext(ctx, fw, new(nestedArrayRow))
+			require.NoError(t, err)
+			for _, row := range src {
+				require.NoError(t, pw.WriteWithContext(ctx, row))
+			}
+			// Two-level levels match the unannotated nesting, so only the footer needs the annotation.
+			group := *pw.Footer.Schema[1]
+			annotate(&group)
+			pw.Footer.Schema[1] = &group
+			require.NoError(t, pw.WriteStopWithContext(ctx))
+
+			pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(fw.Bytes()), nil)
+			require.NoError(t, err)
+			got, err := pr.ReadByNumberWithContext(ctx, len(src))
+			require.NoError(t, err)
+			friendly, err := marshal.ConvertToJSONFriendly(got, pr.SchemaHandler)
+			require.NoError(t, err)
+			raw, err := json.Marshal(friendly)
+			require.NoError(t, err)
+			require.JSONEq(t, `[{"array":[[1,2],[3,4]]},{"array":[[5],[6,7,8]]}]`, string(raw))
+		})
+	}
+}
+
+// parquet-testing's LIST<LIST<int32>> written by parquet-mr with nested two-level lists.
+func TestRead_OldListStructure(t *testing.T) {
+	const oldListFile = "../build/testdata/old_list_structure.parquet"
+	data, err := os.ReadFile(oldListFile)
+	if os.IsNotExist(err) {
+		t.Skip("test data not available, run 'make testdata' first")
+	}
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(data), nil)
+	require.NoError(t, err)
+	got, err := pr.ReadByNumberWithContext(ctx, int(pr.GetNumRows()))
+	require.NoError(t, err)
+	friendly, err := marshal.ConvertToJSONFriendly(got, pr.SchemaHandler)
+	require.NoError(t, err)
+	raw, err := json.Marshal(friendly)
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"a":[[1,2],[3,4]]}]`, string(raw))
 }

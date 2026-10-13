@@ -43,10 +43,8 @@ func isListAnnotated(element *parquet.SchemaElement) bool {
 		return false
 	case element.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED:
 		return true
-	case element.LogicalType != nil && element.LogicalType.IsSetLIST():
-		return true
 	default:
-		return element.ConvertedType != nil && *element.ConvertedType == parquet.ConvertedType_LIST
+		return isListColumn(element)
 	}
 }
 
@@ -138,4 +136,23 @@ func lookupSchemaElement(schemaHandler *schema.SchemaHandler, path string, conve
 	}
 	converter.schemaCache.Store(path, element)
 	return element, nil
+}
+
+// isOldListStruct reports whether a struct is a LIST-annotated group around a repeated array child, as parquet-mr writes two-level lists.
+func isOldListStruct(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (bool, error) {
+	if pathPrefix == "" || val.NumField() != 1 {
+		return false, nil
+	}
+	field := val.Type().Field(0)
+	if !strings.EqualFold(field.Name, "array") || field.Type.Kind() != reflect.Slice {
+		return false, nil
+	}
+	// The name alone also matches a plain nested repeated field, which must keep its key.
+	group, err := lookupSchemaElement(schemaHandler, pathPrefix, converter)
+	if err != nil || group == nil || !isListColumn(group) {
+		return false, err
+	}
+	// The child may be a leaf or, for a list of lists, a two-level group of its own.
+	child, err := lookupSchemaElement(schemaHandler, pathPrefix+common.ParGoPathDelimiter+field.Name, converter)
+	return err == nil && child != nil && child.GetRepetitionType() == parquet.FieldRepetitionType_REPEATED, err
 }

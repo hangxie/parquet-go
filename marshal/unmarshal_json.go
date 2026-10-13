@@ -187,15 +187,13 @@ func convertStructToJSONFriendly(val reflect.Value, schemaHandler *schema.Schema
 		return decoded, nil
 	}
 
-	// Special handling for old list format: if struct has single "array" field with slice data,
-	// return the slice directly instead of wrapping in map
-	if val.NumField() == 1 &&
-		strings.EqualFold(valType.Field(0).Name, "array") &&
-		valType.Field(0).Type.Kind() == reflect.Slice {
-		fieldPath := valType.Field(0).Name
-		if pathPrefix != "" {
-			fieldPath = pathPrefix + common.ParGoPathDelimiter + fieldPath
-		}
+	// A two-level list group renders as its values, not as an object wrapping them.
+	oldList, err := isOldListStruct(val, schemaHandler, pathPrefix, converter)
+	if err != nil {
+		return nil, err
+	}
+	if oldList {
+		fieldPath := pathPrefix + common.ParGoPathDelimiter + valType.Field(0).Name
 		return convertValueToJSONFriendlyWithContext(val.Field(0), schemaHandler, fieldPath, converter)
 	}
 

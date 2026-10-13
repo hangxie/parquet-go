@@ -519,22 +519,6 @@ func TestOldStyleList(t *testing.T) {
 		require.Len(t, result, 3)
 	})
 
-	t.Run("convertStructToJSONFriendly_old_list_format", func(t *testing.T) {
-		val := reflect.ValueOf(OldListTestStruct{Array: []int32{1, 2, 3}})
-		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(OldListTestStruct))
-		require.NoError(t, err)
-
-		ctx := createConversionContext()
-
-		result, err := convertStructToJSONFriendly(val, schemaHandler, "", ctx)
-		require.NoError(t, err)
-
-		// Should return the slice content directly, not wrapped in a map
-		sliceResult, ok := result.([]interface{})
-		require.True(t, ok)
-		require.Len(t, sliceResult, 3)
-	})
-
 	t.Run("convertStructToJSONFriendly_with_path_prefix", func(t *testing.T) {
 		val := reflect.ValueOf(OldListTestStruct{Array: []int32{42}})
 		schemaHandler, err := schema.NewSchemaHandlerFromStruct(new(OldListTestStruct))
@@ -645,4 +629,47 @@ func TestUnmarshal_ByteSlice(t *testing.T) {
 
 	require.Len(t, dst, 1)
 	require.Equal(t, []byte("hello"), dst[0].Data)
+}
+
+// Nested repeated fields named Array without a LIST annotation are plain nested slices, not legacy lists.
+func TestUnmarshal_NestedRepeatedWithoutListAnnotation(t *testing.T) {
+	type inner struct {
+		Array []int32 `parquet:"name=array, type=INT32, repetitiontype=REPEATED"`
+	}
+	type row struct {
+		Array []inner `parquet:"name=array, repetitiontype=REPEATED"`
+	}
+	src := []any{
+		row{Array: []inner{{Array: []int32{1, 2}}, {Array: []int32{3, 4}}}},
+		row{Array: []inner{{Array: []int32{5}}, {}, {Array: []int32{6, 7, 8}}}},
+	}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+	tmap, err := Marshal(src, sh)
+	require.NoError(t, err)
+
+	dst := []row{}
+	require.NoError(t, Unmarshal(tmap, 0, len(src), &dst, sh, ""))
+	require.Equal(t, []row{src[0].(row), src[1].(row)}, dst)
+}
+
+// A three-level list annotated only with the LIST logical type reads like one carrying the converted type.
+func TestUnmarshal_LogicalTypeOnlyList(t *testing.T) {
+	type row struct {
+		Values []int32 `parquet:"name=values, type=LIST, valuetype=INT32"`
+	}
+	src := []any{row{Values: []int32{1, 2, 3}}, row{Values: []int32{4}}}
+
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+	list := sh.SchemaElements[sh.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"Values"]]
+	list.ConvertedType = nil
+	list.LogicalType = &parquet.LogicalType{LIST: parquet.NewListType()}
+	tmap, err := Marshal(src, sh)
+	require.NoError(t, err)
+
+	dst := []row{}
+	require.NoError(t, Unmarshal(tmap, 0, len(src), &dst, sh, ""))
+	require.Equal(t, []row{src[0].(row), src[1].(row)}, dst)
 }

@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
@@ -99,4 +101,35 @@ func TestSetPrimitiveValue_Errors(t *testing.T) {
 	err = setPrimitiveValue(v2, "not a bool")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot convert value of type")
+}
+
+func TestIsOldListFormat(t *testing.T) {
+	listGroup := &parquet.SchemaElement{Name: "array", ConvertedType: common.ToPtr(parquet.ConvertedType_LIST)}
+	logicalGroup := &parquet.SchemaElement{Name: "array", LogicalType: &parquet.LogicalType{LIST: parquet.NewListType()}}
+	plainGroup := &parquet.SchemaElement{Name: "array"}
+	leaf := &parquet.SchemaElement{Name: "array", Type: common.ToPtr(parquet.Type_INT32)}
+	path := []string{common.ParGoRootInName, "array", "array"}
+
+	testCases := map[string]struct {
+		path     []string
+		index    int
+		elements []*parquet.SchemaElement
+		expected bool
+	}{
+		"list-annotated":   {path, 2, []*parquet.SchemaElement{{}, listGroup, leaf}, true},
+		"logical-type":     {path, 2, []*parquet.SchemaElement{{}, logicalGroup, leaf}, true},
+		"no-annotation":    {path, 2, []*parquet.SchemaElement{{}, plainGroup, leaf}, false},
+		"inner-not-leaf":   {path, 2, []*parquet.SchemaElement{{}, listGroup, plainGroup}, false},
+		"other-names":      {[]string{common.ParGoRootInName, "array", "item"}, 2, []*parquet.SchemaElement{{}, listGroup, leaf}, false},
+		"case-insensitive": {[]string{common.ParGoRootInName, "Array", "ARRAY"}, 2, []*parquet.SchemaElement{{}, listGroup, leaf}, true},
+		"index-zero":       {path, 0, []*parquet.SchemaElement{{}, listGroup, leaf}, false},
+		"index-past-path":  {path, 3, []*parquet.SchemaElement{{}, listGroup, leaf}, false},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			sh := &schema.SchemaHandler{SchemaElements: tc.elements}
+			require.Equal(t, tc.expected, isOldListFormat(tc.path, tc.index, []int{0, 1, 2}, sh))
+		})
+	}
 }
