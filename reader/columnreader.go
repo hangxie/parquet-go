@@ -58,6 +58,10 @@ func (pr *ParquetReader) SkipRowsWithContext(ctx context.Context, num int64) err
 	if num <= 0 {
 		return nil
 	}
+	if len(pr.SchemaHandler.ValueColumns) == 0 {
+		pr.noColumnRowsRead += min(num, pr.noColumnRowsLeft())
+		return nil
+	}
 
 	for _, pathStr := range pr.SchemaHandler.ValueColumns {
 		if _, ok := pr.ColumnBuffers[pathStr]; !ok {
