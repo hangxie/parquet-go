@@ -62,7 +62,7 @@ func processNode(node *Node, res map[string]*layout.Table, schemaHandler *schema
 
 	// Validate group nodes before primitive dispatch: an absent value back-fills
 	// the subtree as a missing group; a present non-group value is a mismatch.
-	if se.GetNumChildren() > 0 {
+	if isGroup(schemaHandler, schemaIndex) {
 		if !node.Val.IsValid() {
 			appendNilToChildren(node, res, schemaHandler)
 			return stack, nil
@@ -104,6 +104,11 @@ func processNode(node *Node, res map[string]*layout.Table, schemaHandler *schema
 		appendNilToChildren(node, res, schemaHandler)
 	}
 	return stack, nil
+}
+
+// isGroup reports whether element idx holds children; the root is a group even when it has none.
+func isGroup(schemaHandler *schema.SchemaHandler, idx int32) bool {
+	return idx == 0 || schemaHandler.SchemaElements[idx].GetNumChildren() > 0
 }
 
 func Marshal(srcInterface []any, schemaHandler *schema.SchemaHandler) (tb *map[string]*layout.Table, err error) {
@@ -151,8 +156,7 @@ func setupTableMap(schemaHandler *schema.SchemaHandler, numElements int) (map[st
 	for i := range len(schemaHandler.SchemaElements) {
 		schema := schemaHandler.SchemaElements[i]
 		pathStr := schemaHandler.IndexMap[int32(i)]
-		numChildren := schema.GetNumChildren()
-		if numChildren == 0 {
+		if !isGroup(schemaHandler, int32(i)) {
 			table := layout.NewEmptyTable()
 			table.Path = common.StrToPath(pathStr)
 			var err error

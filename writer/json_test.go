@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -872,4 +873,21 @@ func TestJSONWriterEnforceUTF8(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestJSONWriterSchemaWithoutColumns(t *testing.T) {
+	var buf bytes.Buffer
+	jw, err := NewJSONWriterFromWriter(`{"Tag": "name=parquet_go_root", "Fields": []}`, &buf, WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, jw.Write(`{}`))
+	require.NoError(t, jw.Write(`{"ignored": 1}`))
+	require.NoError(t, jw.WriteStop())
+
+	pr, err := reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), nil, reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithContext(context.Background()) }()
+	require.Equal(t, int64(2), pr.GetNumRows())
+	rows, err := pr.ReadByNumberWithContext(context.Background(), 3)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
 }
