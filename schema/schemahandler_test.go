@@ -277,6 +277,16 @@ func TestSchemaHandler_SetValueColumns_BoundsChecking(t *testing.T) {
 			expected: []string{},
 		},
 		{
+			name: "root_without_children",
+			handler: &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "root", NumChildren: &[]int32{0}[0]},
+				},
+				IndexMap: map[int32]string{0: "root"},
+			},
+			expected: []string{},
+		},
+		{
 			name: "nil_index_map",
 			handler: &SchemaHandler{
 				SchemaElements: []*parquet.SchemaElement{

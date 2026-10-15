@@ -526,7 +526,7 @@ func TestParquetReader_SkipRowsByIndex_NilChecks(t *testing.T) {
 			},
 			index:       0,
 			expectError: true,
-			errMsg:      "ValueColumns is nil",
+			errMsg:      "out of range",
 		},
 		{
 			name: "index_out_of_bounds",
@@ -879,4 +879,60 @@ func TestReadLegacyBooleanDictionary(t *testing.T) {
 			require.Equal(t, []bool{true, false, true}, got)
 		})
 	}
+}
+
+func TestReadEmptySchema(t *testing.T) {
+	valid := writeFooterRenamedColumnParquet(t)
+	emptyRoot := []*parquet.SchemaElement{{Name: "schema", NumChildren: common.ToPtr(int32(0))}}
+	testCases := map[string]struct {
+		schema    []*parquet.SchemaElement
+		rowGroups []*parquet.RowGroup
+		errMsg    string
+	}{
+		"no-row-groups":     {schema: emptyRoot, rowGroups: []*parquet.RowGroup{}},
+		"empty-row-group":   {schema: emptyRoot, rowGroups: []*parquet.RowGroup{{Columns: []*parquet.ColumnChunk{}}}},
+		"column-no-chunk":   {rowGroups: []*parquet.RowGroup{{Columns: []*parquet.ColumnChunk{}}}, errMsg: "Column not found"},
+		"column-no-row-grp": {rowGroups: []*parquet.RowGroup{}},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			data := rewriteFooter(t, valid, func(footer *parquet.FileMetaData) {
+				if tc.schema != nil {
+					footer.Schema = tc.schema
+				}
+				footer.RowGroups = tc.rowGroups
+				footer.NumRows = 0
+			})
+
+			pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), nil, WithNP(1))
+			if tc.errMsg != "" {
+				require.ErrorContains(t, err, tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			defer func() { _ = pr.ReadStop() }()
+			for range 2 {
+				rows, err := pr.ReadByNumberWithContext(context.Background(), 1)
+				require.NoError(t, err)
+				require.Empty(t, rows)
+			}
+
+			if tc.schema == nil {
+				return
+			}
+			cr, err := NewParquetColumnReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), WithNP(1))
+			require.NoError(t, err)
+			defer func() { _ = cr.ReadStop() }()
+			require.Empty(t, cr.SchemaHandler.ValueColumns)
+			_, _, _, err = cr.ReadColumnByIndex(0, 1)
+			require.ErrorContains(t, err, "out of range")
+			require.ErrorContains(t, cr.SkipRowsByIndex(0, 1), "out of range")
+		})
+	}
+}
+
+func TestSetSchemaHandlerFromJSONEmptySchema(t *testing.T) {
+	pr := &ParquetReader{ColumnBuffers: map[string]*ColumnBufferType{}}
+	require.NoError(t, pr.SetSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": []}`))
+	require.Empty(t, pr.ColumnBuffers)
 }

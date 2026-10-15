@@ -164,11 +164,8 @@ func (pr *ParquetReader) SkipRowsByIndexWithContext(ctx context.Context, index, 
 	if pr.SchemaHandler == nil {
 		return fmt.Errorf("SchemaHandler is nil")
 	}
-	if pr.SchemaHandler.ValueColumns == nil {
-		return fmt.Errorf("ValueColumns is nil")
-	}
-	if index >= int64(len(pr.SchemaHandler.ValueColumns)) {
-		return fmt.Errorf("index %d out of range (max: %d)", index, len(pr.SchemaHandler.ValueColumns)-1)
+	if index < 0 || index >= int64(len(pr.SchemaHandler.ValueColumns)) {
+		return fmt.Errorf("index %d out of range [0, %d)", index, len(pr.SchemaHandler.ValueColumns))
 	}
 	pathStr := pr.SchemaHandler.ValueColumns[index]
 	if err := pr.SkipRowsByPathWithContext(ctx, pathStr, num); err != nil {
