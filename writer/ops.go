@@ -165,7 +165,8 @@ func (pw *ParquetWriter) WriteWithContext(ctx context.Context, src any) error {
 	pw.objsSize += pw.objSize
 	pw.objs = append(pw.objs, src)
 
-	criSize := pw.np * pw.pageSize * pw.SchemaHandler.GetColumnNum()
+	// Without columns the threshold would be zero and every row would flush
+	criSize := pw.np * pw.pageSize * max(pw.SchemaHandler.GetColumnNum(), 1)
 
 	if pw.objsSize >= criSize {
 		err = pw.FlushWithContext(ctx, false)
@@ -249,7 +250,15 @@ func (pw *ParquetWriter) FlushWithContext(ctx context.Context, flag bool) error 
 		return fmt.Errorf("flush objects during flush: %w", err)
 	}
 
-	if (pw.size+pw.objsSize >= pw.rowGroupSize || flag) && len(pw.pagesMapBuf) > 0 {
+	// A schema without columns produces no pages, so its buffered rows alone make a row
+	// group, and their estimated size stands in for page bytes against rowGroupSize
+	noColumns := pw.SchemaHandler.GetColumnNum() == 0
+	if noColumns {
+		pw.size += pw.objsSize
+		pw.objsSize = 0
+	}
+	hasRows := len(pw.pagesMapBuf) > 0 || (noColumns && pw.numRows > 0)
+	if (pw.size+pw.objsSize >= pw.rowGroupSize || flag) && hasRows {
 		chunkMap, err := pw.buildChunkMap()
 		if err != nil {
 			return fmt.Errorf("build chunk map: %w", err)

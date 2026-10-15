@@ -32,9 +32,7 @@ func marshalPrimitiveValue(node *Node, res map[string]*layout.Table, schemaHandl
 
 func appendNilToChildren(node *Node, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler) {
 	path := node.PathMap.Path
-	index := schemaHandler.MapIndex[path]
-	numChildren := schemaHandler.SchemaElements[index].GetNumChildren()
-	if numChildren > 0 {
+	if isGroup(schemaHandler, schemaHandler.MapIndex[path]) {
 		for key, table := range res {
 			if common.IsChildPath(path, key) {
 				table.Values = append(table.Values, nil)

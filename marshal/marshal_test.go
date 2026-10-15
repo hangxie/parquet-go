@@ -170,3 +170,28 @@ func TestMarshalEmptyContainer(t *testing.T) {
 		}
 	}
 }
+
+func TestMarshalSchemaWithoutColumns(t *testing.T) {
+	sch, err := schema.NewSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": []}`)
+	require.NoError(t, err)
+
+	tests := map[string]struct {
+		row    any
+		errMsg string
+	}{
+		"struct": {row: struct{}{}},
+		"map":    {row: map[string]any{"ignored": 1}},
+		"scalar": {row: int32(1), errMsg: "expected a group"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			tables, err := Marshal([]any{tt.row}, sch)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Empty(t, *tables)
+		})
+	}
+}

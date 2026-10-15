@@ -1201,3 +1201,29 @@ func TestMarshalJSON_ListAndMapLogicalSpelling(t *testing.T) {
 		})
 	}
 }
+
+func TestMarshalJSONSchemaWithoutColumns(t *testing.T) {
+	sch, err := schema.NewSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": []}`)
+	require.NoError(t, err)
+
+	tests := map[string]struct {
+		row    string
+		errMsg string
+	}{
+		"empty-object":   {row: `{}`},
+		"unknown-fields": {row: `{"x": 1}`},
+		"array":          {row: `[]`, errMsg: "cannot take a JSON array"},
+		"scalar":         {row: `5`, errMsg: "without a physical type"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			tables, err := MarshalJSON([]any{tt.row}, sch)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Empty(t, *tables)
+		})
+	}
+}

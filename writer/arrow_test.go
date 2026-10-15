@@ -1060,3 +1060,24 @@ func TestArrowWriter(t *testing.T) {
 		require.Nil(t, err)
 	})
 }
+
+func TestWriteArrowWithoutColumns(t *testing.T) {
+	schema := arrow.NewSchema(nil, nil)
+	var buf bytes.Buffer
+	aw, err := NewArrowWriter(schema, writerfile.NewWriterFile(&buf), WithNP(1))
+	require.NoError(t, err)
+	for _, numRows := range []int64{3, 0, 2} {
+		record := array.NewRecordBatch(schema, nil, numRows)
+		require.NoError(t, aw.WriteArrow(record))
+		record.Release()
+	}
+	require.NoError(t, aw.WriteStop())
+
+	pr, err := reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), nil, reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithContext(context.Background()) }()
+	require.Equal(t, int64(5), pr.GetNumRows())
+	rows, err := pr.ReadByNumberWithContext(context.Background(), 10)
+	require.NoError(t, err)
+	require.Len(t, rows, 5)
+}

@@ -201,7 +201,7 @@ func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *sc
 			stack = marshalJSONRealMap(node, pathStr, res, schemaHandler, nodeBuf, stack)
 		case isListColumn(se):
 			return nil, fmt.Errorf("column %s is a LIST and cannot take a JSON object", pathStr)
-		case se.GetNumChildren() > 0:
+		case isGroup(schemaHandler, schemaIndex):
 			stack = marshalJSONStruct(node, res, schemaHandler, nodeBuf, stack)
 		case se.LogicalType != nil && (se.LogicalType.IsSetGEOMETRY() || se.LogicalType.IsSetGEOGRAPHY()):
 			// The one primitive column whose value is an object: every geospatial

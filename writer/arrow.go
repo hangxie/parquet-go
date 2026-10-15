@@ -106,6 +106,13 @@ func (w *ArrowWriter) WriteArrowWithContext(ctx context.Context, batch arrow.Rec
 		}
 	}
 	transposedTable := common.TransposeTable(table)
+	if batch.NumCols() == 0 {
+		// Transposing no columns yields no rows, so the batch's row count is the only record of them
+		transposedTable = make([][]any, batch.NumRows())
+		for i := range transposedTable {
+			transposedTable[i] = []any{}
+		}
+	}
 	for _, row := range transposedTable {
 		if err := w.WriteWithContext(ctx, row); err != nil {
 			return fmt.Errorf("write row: %w", err)

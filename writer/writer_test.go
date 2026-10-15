@@ -795,3 +795,50 @@ func TestWriteIsDeterministic(t *testing.T) {
 		require.Equal(t, first, write(), "run %d differs from the first", i)
 	}
 }
+
+func TestWriteSchemaWithoutColumns(t *testing.T) {
+	type empty struct{}
+	testCases := map[string]struct {
+		numRows      int
+		flushEvery   int
+		np           int64
+		opts         []WriterOption
+		rowGroupRows []int64
+	}{
+		"no-rows":           {numRows: 0, np: 1, rowGroupRows: []int64{}},
+		"single-row-group":  {numRows: 5, np: 2, rowGroupRows: []int64{5}},
+		"explicit-flushes":  {numRows: 5, np: 1, flushEvery: 2, rowGroupRows: []int64{2, 2, 1}},
+		"flush-on-boundary": {numRows: 4, np: 3, flushEvery: 2, rowGroupRows: []int64{2, 2}},
+		// Each empty row is estimated at one byte, so 4-byte pages flush every 4 rows
+		// and an 8-byte row group takes two of those flushes
+		"row-group-size": {numRows: 20, np: 1, opts: []WriterOption{WithPageSize(4), WithRowGroupSize(8)}, rowGroupRows: []int64{8, 8, 4}},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			pw, err := NewParquetWriter(writerfile.NewWriterFile(&buf), new(empty), append(tc.opts, WithNP(tc.np))...)
+			require.NoError(t, err)
+			for i := range tc.numRows {
+				require.NoError(t, pw.WriteWithContext(context.Background(), empty{}))
+				if tc.flushEvery > 0 && (i+1)%tc.flushEvery == 0 {
+					require.NoError(t, pw.FlushWithContext(context.Background(), true))
+				}
+			}
+			require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+			pr, err := reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), nil, reader.WithNP(1))
+			require.NoError(t, err)
+			defer func() { _ = pr.ReadStopWithContext(context.Background()) }()
+			require.Equal(t, int64(tc.numRows), pr.GetNumRows())
+			rowGroupRows := []int64{}
+			for _, rg := range pr.Footer.RowGroups {
+				require.Empty(t, rg.Columns)
+				rowGroupRows = append(rowGroupRows, rg.NumRows)
+			}
+			require.Equal(t, tc.rowGroupRows, rowGroupRows)
+			rows, err := pr.ReadByNumberWithContext(context.Background(), tc.numRows+1)
+			require.NoError(t, err)
+			require.Len(t, rows, tc.numRows)
+		})
+	}
+}
