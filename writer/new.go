@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"reflect"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
@@ -213,6 +214,9 @@ func NewParquetWriterWithContext(ctx context.Context, pFile source.ParquetFileWr
 			} else {
 				if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
 					return nil, fmt.Errorf("build schema handler: %w", err)
+				}
+				if err = validateOptionalFields(reflect.TypeOf(obj), nil); err != nil {
+					return nil, fmt.Errorf("validate schema: %w", err)
 				}
 			}
 			res.Footer.Schema = append(res.Footer.Schema, res.SchemaHandler.SchemaElements...)
