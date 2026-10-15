@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,17 +67,8 @@ func retrieveEncryptionKey(keyMetadata []byte) ([]byte, error) {
 	return key, nil
 }
 
-func encryptedTestdataAvailable(t *testing.T) {
-	t.Helper()
-	if _, err := os.Stat(encryptedFooterFile); os.IsNotExist(err) {
-		t.Skip("encrypted test data not available, run 'make testdata' first")
-	}
-}
-
 func TestInteropEncryptedFooter(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(encryptedFooterFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -95,8 +85,6 @@ func TestInteropEncryptedFooter(t *testing.T) {
 
 func TestInteropEncryptedFooter_WrongKey(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(encryptedFooterFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -108,8 +96,6 @@ func TestInteropEncryptedFooter_WrongKey(t *testing.T) {
 
 func TestInteropPlaintextFooter(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(plaintextFooterFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -131,8 +117,6 @@ func TestInteropPlaintextFooter(t *testing.T) {
 
 func TestInteropPlaintextFooter_NoKey_OpensWithSchema(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(plaintextFooterFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -147,8 +131,6 @@ func TestInteropPlaintextFooter_NoKey_OpensWithSchema(t *testing.T) {
 
 func TestInteropPlaintextFooter_NoKey_PartialColumnRead(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(plaintextFooterFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -171,8 +153,6 @@ func TestInteropPlaintextFooter_NoKey_PartialColumnRead(t *testing.T) {
 
 func TestInteropPlaintextFooter_WrongFooterKey(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(plaintextFooterFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -189,8 +169,6 @@ func TestInteropPlaintextFooter_WrongFooterKey(t *testing.T) {
 
 func TestInteropAADPrefix(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(aadDisabledFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -211,8 +189,6 @@ func TestInteropAADPrefix(t *testing.T) {
 
 func TestInteropAADPrefix_MissingAAD(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(aadDisabledFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -223,8 +199,6 @@ func TestInteropAADPrefix_MissingAAD(t *testing.T) {
 
 func TestInteropCTRMode(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(ctrFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -241,8 +215,6 @@ func TestInteropCTRMode(t *testing.T) {
 
 func TestInteropUniformEncryption_KeyRetriever(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(uniformEncryptedFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
@@ -259,8 +231,6 @@ func TestInteropUniformEncryption_KeyRetriever(t *testing.T) {
 
 func TestInteropUniformEncryption_FooterKey(t *testing.T) {
 	t.Parallel()
-	encryptedTestdataAvailable(t)
-
 	pf, err := local.NewLocalFileReader(uniformEncryptedFile)
 	require.NoError(t, err)
 	defer func() { _ = pf.Close() }()
