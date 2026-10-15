@@ -536,6 +536,8 @@ Releases up to v3.8.3 converted through a nanosecond offset from the Unix epoch,
 | `OPTIONAL` | `V1 *int32` with tag `parquet:"name=v1, type=INT32"` | Use a pointer for optional fields |
 | `REPEATED` | `V1 []int32` with tag `parquet:"name=v1, type=INT32, repetitiontype=REPEATED"` | Use a slice with `repetitiontype=REPEATED` |
 
+An `OPTIONAL` field must be a pointer, including `[]byte`, LIST, MAP, and struct fields; that is the only way the writer can tell a present value from a null. The one exception is a `VARIANT` column, which may also be an interface such as `any`. From v3.9.2 a writer created from a Go struct rejects any other `OPTIONAL` field; up to v3.9.1 it accepted them and wrote every value as null. A writer created from a JSON schema, a `*schema.SchemaHandler`, or a `[]*parquet.SchemaElement` has no Go type to check, so structs written through it must follow the same rule themselves. Readers still accept non-pointer `OPTIONAL` fields and read a null as the zero value.
+
 LIST and REPEATED are different in the Parquet format. Prefer LIST for list data. Standard and non-standard LIST/MAP layouts are both supported.
 
 ## Encoding Support

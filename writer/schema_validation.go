@@ -2,6 +2,7 @@ package writer
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -59,6 +60,45 @@ func (pw *ParquetWriter) validateDictionaryEncodings() error {
 		}
 		if info.Encoding == parquet.Encoding_PLAIN_DICTIONARY || info.Encoding == parquet.Encoding_RLE_DICTIONARY {
 			return fmt.Errorf("column [%s]: dictionary encoding is not supported for BOOLEAN", pw.columnPath(idx))
+		}
+	}
+	return nil
+}
+
+// validateOptionalFields rejects OPTIONAL struct fields that cannot hold a null.
+func validateOptionalFields(t reflect.Type, path []string) error {
+	// Marshal only raises the definition level through a pointer, or an interface on
+	// a VARIANT column, so any other OPTIONAL field is written as null whatever it
+	// holds. Readers fill nulls with zero values, so only writers check.
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Map:
+		return validateOptionalFields(t.Elem(), path)
+	case reflect.Struct:
+	default:
+		return nil
+	}
+	for i := range t.NumField() {
+		f := t.Field(i)
+		tagStr := f.Tag.Get("parquet")
+		if tagStr == "" {
+			continue
+		}
+		tag, err := common.StringToTag(tagStr)
+		if err != nil {
+			return fmt.Errorf("parse tag for field %s: %w", f.Name, err)
+		}
+		fieldPath := append(path[:len(path):len(path)], tag.ExName)
+		if tag.RepetitionType == parquet.FieldRepetitionType_OPTIONAL &&
+			f.Type.Kind() != reflect.Pointer &&
+			(f.Type.Kind() != reflect.Interface || tag.Type != "VARIANT") {
+			return fmt.Errorf("field [%s]: OPTIONAL requires a pointer, got %s",
+				strings.Join(fieldPath, "."), f.Type)
+		}
+		if err := validateOptionalFields(f.Type, fieldPath); err != nil {
+			return err
 		}
 	}
 	return nil

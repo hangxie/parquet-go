@@ -2,14 +2,19 @@ package writer
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"io"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/parquet"
+	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/schema"
+	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
 
@@ -295,4 +300,138 @@ func TestValidateSchemaForWrite_DuplicateColumnNames(t *testing.T) {
 			require.Zero(t, buf.Len())
 		})
 	}
+}
+
+func TestValidateOptionalFields(t *testing.T) {
+	type inner struct {
+		V string `parquet:"name=v, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+	}
+	type innerOK struct {
+		V *string `parquet:"name=v, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+	}
+
+	testCases := map[string]struct {
+		obj    any
+		errMsg string
+	}{
+		"string": {new(struct {
+			V string `parquet:"name=v, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got string"},
+		"bool": {new(struct {
+			V bool `parquet:"name=v, type=BOOLEAN, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got bool"},
+		"int64": {new(struct {
+			V int64 `parquet:"name=v, type=INT64, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got int64"},
+		"byte-slice": {new(struct {
+			V []byte `parquet:"name=v, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got []uint8"},
+		"json-raw-message": {new(struct {
+			V json.RawMessage `parquet:"name=v, type=BYTE_ARRAY, convertedtype=JSON, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer"},
+		"list": {new(struct {
+			V []*string `parquet:"name=v, type=LIST, valuetype=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got []*string"},
+		"map": {new(struct {
+			V map[string]int32 `parquet:"name=v, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got map[string]int32"},
+		"struct": {new(struct {
+			V innerOK `parquet:"name=v, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got writer.innerOK"},
+		"interface-scalar": {new(struct {
+			V any `parquet:"name=v, type=INT32, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got interface {}"},
+		"interface-byte-array": {new(struct {
+			V any `parquet:"name=v, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+		}), "field [v]: OPTIONAL requires a pointer, got interface {}"},
+		"nested-in-pointer-struct": {new(struct {
+			S *inner `parquet:"name=s"`
+		}), "field [s.v]: OPTIONAL requires a pointer"},
+		"nested-in-list": {new(struct {
+			L []inner `parquet:"name=l, type=LIST"`
+		}), "field [l.v]: OPTIONAL requires a pointer"},
+		"nested-in-repeated": {new(struct {
+			L []inner `parquet:"name=l, repetitiontype=REPEATED"`
+		}), "field [l.v]: OPTIONAL requires a pointer"},
+		"nested-in-map-value": {new(struct {
+			M map[string]inner `parquet:"name=m, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
+		}), "field [m.v]: OPTIONAL requires a pointer"},
+		"pointers": {new(struct {
+			S  *string           `parquet:"name=s, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+			B  *[]byte           `parquet:"name=b, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+			L  *[]*string        `parquet:"name=l, type=LIST, valuetype=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+			In *innerOK          `parquet:"name=in"`
+			LS []innerOK         `parquet:"name=ls, type=LIST"`
+			M  map[string]*int32 `parquet:"name=m, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+		}), ""},
+		"variant-interface": {new(struct {
+			V    any `parquet:"name=v, type=VARIANT, repetitiontype=OPTIONAL"`
+			Skip string
+		}), ""},
+		"required-and-repeated": {new(struct {
+			R  string   `parquet:"name=r, type=BYTE_ARRAY, convertedtype=UTF8"`
+			RP []string `parquet:"name=rp, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=REPEATED"`
+			I  int32    `parquet:"name=i, type=INT32"`
+		}), ""},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			_, err := NewParquetWriter(writerfile.NewWriterFile(&buf), tc.obj, WithNP(1))
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.errMsg)
+			require.Zero(t, buf.Len())
+		})
+	}
+}
+
+func TestValidateOptionalFields_BadTag(t *testing.T) {
+	type row struct {
+		V *int32 `parquet:"name=v, type=INT32, repetitiontype=SOMETIMES"`
+	}
+	err := validateOptionalFields(reflect.TypeOf(new(row)), nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "parse tag for field V")
+}
+
+func TestValidateOptionalFields_AcceptedRoundTrip(t *testing.T) {
+	type inner struct {
+		A int32 `parquet:"name=a, type=INT32"`
+	}
+	type row struct {
+		B *[]byte           `parquet:"name=b, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		J *json.RawMessage  `parquet:"name=j, type=BYTE_ARRAY, convertedtype=JSON, repetitiontype=OPTIONAL"`
+		L *[]*string        `parquet:"name=l, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8, repetitiontype=OPTIONAL"`
+		M *map[string]int32 `parquet:"name=m, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32, repetitiontype=OPTIONAL"`
+		S *inner            `parquet:"name=s, repetitiontype=OPTIONAL"`
+		V any               `parquet:"name=v, type=VARIANT, repetitiontype=OPTIONAL"`
+	}
+	b, j, h := []byte("blob"), json.RawMessage(`{"k":1}`), "hello"
+	l, m := []*string{&h, nil}, map[string]int32{"k": 3}
+	eb, ej, el, em := []byte{}, json.RawMessage{}, []*string{}, map[string]int32{}
+	in := []row{
+		{B: &b, J: &j, L: &l, M: &m, S: &inner{A: 4}, V: "v"},
+		{B: &eb, J: &ej, L: &el, M: &em, S: &inner{}},
+		{},
+	}
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	pw, err := NewParquetWriterWithContext(ctx, writerfile.NewWriterFile(&buf), new(row), WithNP(1))
+	require.NoError(t, err)
+	for _, r := range in {
+		require.NoError(t, pw.WriteWithContext(ctx, r))
+	}
+	require.NoError(t, pw.WriteStopWithContext(ctx))
+
+	pr, err := reader.NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(buf.Bytes()), new(row), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithContext(ctx) }()
+	rows := make([]row, len(in))
+	require.NoError(t, pr.ReadWithContext(ctx, &rows))
+	require.Equal(t, in, rows)
 }
