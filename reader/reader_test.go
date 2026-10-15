@@ -931,6 +931,76 @@ func TestReadEmptySchema(t *testing.T) {
 	}
 }
 
+func TestReadEmptySchemaRows(t *testing.T) {
+	newReader := func(t *testing.T, numRows int64, obj any) *ParquetReader {
+		t.Helper()
+		data := rewriteFooter(t, writeFooterRenamedColumnParquet(t), func(footer *parquet.FileMetaData) {
+			footer.Schema = []*parquet.SchemaElement{{Name: "schema", NumChildren: common.ToPtr(int32(0))}}
+			footer.RowGroups = []*parquet.RowGroup{{NumRows: numRows, Columns: []*parquet.ColumnChunk{}}}
+			footer.NumRows = numRows
+		})
+		pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), obj, WithNP(2))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = pr.ReadStop() })
+		return pr
+	}
+	readLen := func(t *testing.T, pr *ParquetReader, n int) int {
+		t.Helper()
+		rows, err := pr.ReadByNumberWithContext(context.Background(), n)
+		require.NoError(t, err)
+		return len(rows)
+	}
+
+	t.Run("read-and-skip", func(t *testing.T) {
+		pr := newReader(t, 5, nil)
+		require.Equal(t, 2, readLen(t, pr, 2))
+		require.NoError(t, pr.SkipRowsWithContext(context.Background(), 1))
+		require.Equal(t, 2, readLen(t, pr, 5))
+		require.Zero(t, readLen(t, pr, 1))
+		require.NoError(t, pr.SkipRowsWithContext(context.Background(), 1))
+	})
+
+	t.Run("reset", func(t *testing.T) {
+		pr := newReader(t, 3, nil)
+		require.Equal(t, 3, readLen(t, pr, 10))
+		require.NoError(t, pr.ResetWithContext(context.Background()))
+		require.Equal(t, 3, readLen(t, pr, 10))
+	})
+
+	t.Run("skip-past-end", func(t *testing.T) {
+		pr := newReader(t, 3, nil)
+		require.NoError(t, pr.SkipRowsWithContext(context.Background(), 10))
+		require.Zero(t, readLen(t, pr, 1))
+		require.NoError(t, pr.ResetWithContext(context.Background()))
+		require.Equal(t, 3, readLen(t, pr, 10))
+	})
+
+	t.Run("prefilled-destination-is-zeroed", func(t *testing.T) {
+		type filled struct{ V int }
+		pr := newReader(t, 2, nil)
+		dst := []filled{{1}, {2}, {3}}
+		require.NoError(t, pr.ReadWithContext(context.Background(), &dst))
+		require.Equal(t, []filled{{}, {}}, dst)
+	})
+
+	t.Run("footer-altered-after-load", func(t *testing.T) {
+		pr := newReader(t, 2, nil)
+		require.Equal(t, 1, readLen(t, pr, 1))
+		pr.Footer.NumRows = -1
+		require.NoError(t, pr.SkipRowsWithContext(context.Background(), 1))
+		require.Zero(t, readLen(t, pr, 1))
+		pr.Footer.NumRows = 2
+		require.Equal(t, 1, readLen(t, pr, 5))
+	})
+
+	t.Run("typed-read", func(t *testing.T) {
+		pr := newReader(t, 2, new(struct{}))
+		dst := make([]struct{}, 3)
+		require.NoError(t, pr.ReadWithContext(context.Background(), &dst))
+		require.Len(t, dst, 2)
+	})
+}
+
 func TestSetSchemaHandlerFromJSONEmptySchema(t *testing.T) {
 	pr := &ParquetReader{ColumnBuffers: map[string]*ColumnBufferType{}}
 	require.NoError(t, pr.SetSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": []}`))

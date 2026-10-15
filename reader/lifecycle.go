@@ -43,6 +43,7 @@ func (pr *ParquetReader) ResetWithContext(ctx context.Context) error {
 	if err := pr.setContext(ctx); err != nil {
 		return err
 	}
+	pr.noColumnRowsRead = 0
 	for pathStr := range pr.ColumnBuffers {
 		newCB, err := pr.newColumnBuffer(pathStr)
 		if err != nil {

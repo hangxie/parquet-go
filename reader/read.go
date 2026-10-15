@@ -139,10 +139,30 @@ func (pr *ParquetReader) read(dstInterface any, prefixPath string) error {
 	if num <= 0 {
 		return nil
 	}
+	if len(pr.SchemaHandler.ValueColumns) == 0 {
+		pr.readNoColumnRows(reflect.ValueOf(dstInterface).Elem())
+		return nil
+	}
 	if err := pr.fetchColumnData(num, prefixPath, tmap); err != nil {
 		return fmt.Errorf("fetch column data: %w", err)
 	}
 	return pr.unmarshalToResult(num, tmap, dstInterface, prefixPath)
+}
+
+// readNoColumnRows fills dst with empty rows, since a schema without columns
+// records its rows only in the footer's row count.
+func (pr *ParquetReader) readNoColumnRows(dst reflect.Value) {
+	n := min(int64(dst.Len()), pr.noColumnRowsLeft())
+	pr.noColumnRowsRead += n
+	dst.SetLen(int(n))
+	for i := range dst.Len() {
+		dst.Index(i).SetZero()
+	}
+}
+
+// noColumnRowsLeft is clamped at zero because Footer is exported and may have been altered after validation.
+func (pr *ParquetReader) noColumnRowsLeft() int64 {
+	return max(pr.GetNumRows()-pr.noColumnRowsRead, 0)
 }
 
 func (pr *ParquetReader) fetchColumnData(num int, prefixPath string, tmap map[string]*layout.Table) error {

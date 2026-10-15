@@ -53,6 +53,7 @@ type ParquetReader struct {
 	footerLoaded       bool
 	defaultCtx         context.Context
 	ctx                context.Context
+	noColumnRowsRead   int64 // row cursor for a schema without columns
 
 	// encryptedPageOffsets is populated once from the immutable footer and then
 	// treated as read-only. It tracks every per-column offset that belongs to an
