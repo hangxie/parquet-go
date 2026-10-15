@@ -498,8 +498,6 @@ func TestDecodeDictionaryPage_NegativeCases(t *testing.T) {
 }
 
 func TestCRCValidation_ValidFile(t *testing.T) {
-	testdataAvailable(t)
-
 	testCases := map[string]struct {
 		mode common.CRCMode
 	}{
@@ -529,8 +527,6 @@ func TestCRCValidation_ValidFile(t *testing.T) {
 }
 
 func TestCRCValidation_CorruptFile(t *testing.T) {
-	testdataAvailable(t)
-
 	testCases := map[string]struct {
 		mode   common.CRCMode
 		errMsg string

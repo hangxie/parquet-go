@@ -979,9 +979,6 @@ func TestRoundTrip_TwoLevelList(t *testing.T) {
 func TestRead_OldListStructure(t *testing.T) {
 	const oldListFile = "../build/testdata/old_list_structure.parquet"
 	data, err := os.ReadFile(oldListFile)
-	if os.IsNotExist(err) {
-		t.Skip("test data not available, run 'make testdata' first")
-	}
 	require.NoError(t, err)
 
 	ctx := context.Background()

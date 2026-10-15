@@ -417,13 +417,6 @@ func TestReadFirstDataPageHeader_NegativeCases(t *testing.T) {
 	})
 }
 
-func testdataAvailable(t *testing.T) {
-	t.Helper()
-	if _, err := os.Stat(validCRCFile); os.IsNotExist(err) {
-		t.Skip("test data not available, run 'make testdata' first")
-	}
-}
-
 func TestReadAllPageHeaders_NilMetadata(t *testing.T) {
 	// Test readAllPageHeaders with nil metadata returns error
 	buf := buffer.NewBufferReaderFromBytesNoAlloc(bytes.Repeat([]byte{0}, 100))
