@@ -506,6 +506,19 @@ func TestSchemaHandler_GetType(t *testing.T) {
 			path:          "Root",
 			expectedError: "empty field name",
 		},
+		{
+			name: "root_without_children",
+			setupHandler: func() *SchemaHandler {
+				return NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+					{Name: "schema"},
+				})
+			},
+			path: "Schema",
+			validateType: func(t *testing.T, resultType reflect.Type) {
+				require.Equal(t, reflect.Struct, resultType.Kind())
+				require.Zero(t, resultType.NumField())
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -613,6 +626,19 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			expectedCount: 2,
 			validateTypes: func(t *testing.T, types []reflect.Type) {
 				require.Equal(t, reflect.Struct, types[0].Kind())
+			},
+		},
+		{
+			name: "root_without_children_stays_struct",
+			setupHandler: func() *SchemaHandler {
+				return NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+					{Name: "schema", NumChildren: common.ToPtr(int32(0))},
+				})
+			},
+			expectedCount: 1,
+			validateTypes: func(t *testing.T, types []reflect.Type) {
+				require.Equal(t, reflect.Struct, types[0].Kind())
+				require.Zero(t, types[0].NumField())
 			},
 		},
 		{
@@ -974,7 +1000,7 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			},
 		},
 		{
-			name: "single_field",
+			name: "typed_root_stays_struct",
 			setupHandler: func() *SchemaHandler {
 				return &SchemaHandler{
 					SchemaElements: []*parquet.SchemaElement{
@@ -992,7 +1018,8 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			},
 			expectedCount: 1,
 			validateTypes: func(t *testing.T, types []reflect.Type) {
-				require.Equal(t, reflect.Bool, types[0].Kind())
+				// The root is the row container, so a physical type on it does not make it a column
+				require.Equal(t, reflect.Struct, types[0].Kind())
 			},
 		},
 		{

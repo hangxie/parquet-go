@@ -118,17 +118,9 @@ func NewParquetReaderWithContext(ctx context.Context, pFile source.ParquetFileRe
 	if err = res.validateColumnKeyPaths(); err != nil {
 		return res, err
 	}
-	for i := range len(res.SchemaHandler.SchemaElements) {
-		schema := res.SchemaHandler.SchemaElements[i]
-		if schema == nil {
-			continue
-		}
-		if schema.GetNumChildren() == 0 {
-			if pathStr, exists := res.SchemaHandler.IndexMap[int32(i)]; exists {
-				if res.ColumnBuffers[pathStr], err = res.newColumnBuffer(pathStr); err != nil {
-					return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
-				}
-			}
+	for _, pathStr := range res.SchemaHandler.ValueColumns {
+		if res.ColumnBuffers[pathStr], err = res.newColumnBuffer(pathStr); err != nil {
+			return res, fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 		}
 	}
 
@@ -146,13 +138,9 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 		return err
 	}
 
-	for i := range len(pr.SchemaHandler.SchemaElements) {
-		schemaElement := pr.SchemaHandler.SchemaElements[i]
-		if schemaElement.GetNumChildren() == 0 {
-			pathStr := pr.SchemaHandler.IndexMap[int32(i)]
-			if pr.ColumnBuffers[pathStr], err = pr.newColumnBuffer(pathStr); err != nil {
-				return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
-			}
+	for _, pathStr := range pr.SchemaHandler.ValueColumns {
+		if pr.ColumnBuffers[pathStr], err = pr.newColumnBuffer(pathStr); err != nil {
+			return fmt.Errorf("init column buffer for %s: %w", pathStr, err)
 		}
 	}
 	return nil

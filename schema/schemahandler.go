@@ -71,13 +71,17 @@ func (sh *SchemaHandler) setValueColumns() {
 		if schema == nil {
 			continue
 		}
-		numChildren := schema.GetNumChildren()
-		if numChildren == 0 {
+		if sh.isLeaf(int32(i)) {
 			if pathStr, exists := sh.IndexMap[int32(i)]; exists {
 				sh.ValueColumns = append(sh.ValueColumns, pathStr)
 			}
 		}
 	}
+}
+
+// isLeaf reports whether element i is a column; the root is a group even when it has no children.
+func (sh *SchemaHandler) isLeaf(i int32) bool {
+	return i > 0 && sh.SchemaElements[i].GetNumChildren() == 0
 }
 
 func (sh *SchemaHandler) GetColumnNum() int64 {
@@ -106,9 +110,7 @@ func (sh *SchemaHandler) ValidateEncodingsForDataPageVersion(version int32) erro
 func (sh *SchemaHandler) setPathMap() {
 	sh.PathMap = NewPathMap(sh.GetRootInName())
 	for i := range len(sh.SchemaElements) {
-		schema := sh.SchemaElements[i]
-		numChildren := schema.GetNumChildren()
-		if numChildren == 0 {
+		if sh.isLeaf(int32(i)) {
 			pathStr := sh.IndexMap[int32(i)]
 			sh.PathMap.Add(common.StrToPath(pathStr))
 		}

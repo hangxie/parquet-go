@@ -291,7 +291,7 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 				rT = nil
 			}
 
-			if elem.GetNumChildren() == 0 {
+			if sh.isLeaf(idx) {
 				elementTypes[idx] = resolveLeafType(pT, rT)
 			} else {
 				elementTypes[idx] = sh.resolveGroupType(idx, elements, elementTypes, cT, rT)
@@ -325,7 +325,7 @@ func (sh *SchemaHandler) GetType(prefixPath string) (reflect.Type, error) {
 		cur := toVisit[len(toVisit)-1]
 		toVisit = toVisit[:len(toVisit)-1]
 
-		if sh.SchemaElements[cur].GetNumChildren() == 0 {
+		if sh.isLeaf(cur) {
 			elem := sh.SchemaElements[cur]
 			path := sh.IndexMap[cur]
 			if elem.LogicalType != nil && elem.LogicalType.UNKNOWN != nil {

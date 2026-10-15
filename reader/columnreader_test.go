@@ -457,7 +457,19 @@ func TestParquetReader_SkipRowsByIndex(t *testing.T) {
 				}
 			},
 			index:  0,
-			errMsg: "ValueColumns is nil",
+			errMsg: "index 0 out of range [0, 0)",
+		},
+		{
+			name: "negative_index",
+			setupReader: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						ValueColumns: []string{"column1"},
+					},
+				}
+			},
+			index:  -1,
+			errMsg: "index -1 out of range [0, 1)",
 		},
 	}
 
@@ -536,11 +548,11 @@ func TestParquetReader_SkipRowsByIndex_Success(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "SchemaHandler is nil")
 
-	// Test with nil ValueColumns - should return error
+	// Nil ValueColumns is an empty schema, so any index is out of range
 	emptyReader.SchemaHandler = &schema.SchemaHandler{ValueColumns: nil}
 	err = emptyReader.SkipRowsByIndex(0, 5)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "ValueColumns is nil")
+	require.Contains(t, err.Error(), "out of range")
 }
 
 func TestParquetReader_ReadColumnByPath_WithValidData(t *testing.T) {
