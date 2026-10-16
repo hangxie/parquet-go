@@ -1,6 +1,6 @@
 module github.com/hangxie/parquet-go/v3
 
-go 1.25.0
+go 1.26.0
 
 require (
 	cloud.google.com/go/storage v1.68.0
@@ -25,7 +25,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	go.mongodb.org/mongo-driver/v2 v2.9.1
 	gocloud.dev v0.46.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.24.0
 	google.golang.org/api v0.298.0
 )
 
