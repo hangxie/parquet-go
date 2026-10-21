@@ -178,7 +178,7 @@ type listWrapperRecord struct {
 	N []listWrapperItem `parquet:"name=n, type=LIST"`
 }
 
-// writeListWrapperParquet writes rows and applies mutate to the footer.
+// writeListWrapperParquet writes each row as its own row group and applies mutate to the footer.
 func writeListWrapperParquet(t *testing.T, rows []listWrapperRecord, mutate func(*parquet.FileMetaData)) []byte {
 	t.Helper()
 
@@ -187,6 +187,7 @@ func writeListWrapperParquet(t *testing.T, rows []listWrapperRecord, mutate func
 	require.NoError(t, err)
 	for _, row := range rows {
 		require.NoError(t, pw.WriteWithContext(context.Background(), row))
+		require.NoError(t, pw.FlushWithContext(context.Background(), true))
 	}
 	require.NoError(t, pw.WriteStopWithContext(context.Background()))
 	return rewriteFooter(t, buf.Bytes(), mutate)

@@ -58,7 +58,7 @@ type ColumnBufferType struct {
 // common.PathToStr); "." is an ordinary character in a name, not a separator.
 func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions) (*ColumnBufferType, error) {
 	fileSchema := sync.OnceValue(func() *schema.SchemaHandler {
-		return schema.NewSchemaHandlerFromSchemaList(footer.GetSchema())
+		return newFileSchemaHandler(footer)
 	})
 	return newColumnBuffer(pFile, footer, schemaHandler, fileSchema, pathStr, opts, false)
 }

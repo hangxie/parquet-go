@@ -189,6 +189,17 @@ func TestParquetReaderFileSchemaHandlerWithoutFooter(t *testing.T) {
 	require.Nil(t, (&ParquetReader{}).fileSchemaHandler())
 }
 
+func TestNewFileSchemaHandler(t *testing.T) {
+	footer := &parquet.FileMetaData{Schema: []*parquet.SchemaElement{{Name: "root", NumChildren: common.ToPtr(int32(1))}, {Name: "v", Type: common.ToPtr(parquet.Type_INT32)}}}
+	sh := newFileSchemaHandler(footer)
+	// Renaming the footer in place, as RenameSchema does, must not reach the handler.
+	footer.Schema[1].Name = "V"
+	require.Equal(t, "v", sh.SchemaElements[1].GetName())
+
+	footer.Schema[1] = nil
+	require.Nil(t, newFileSchemaHandler(footer))
+}
+
 func TestParquetReader_GetNumRows(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)

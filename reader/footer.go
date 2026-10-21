@@ -28,7 +28,7 @@ func (pr *ParquetReader) InternalFooter() (*parquet.FileMetaData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("clone footer: %w", err)
 	}
-	renameFooterSchema(pr.SchemaHandler, footer, pr.caseInsensitive)
+	renameFooterSchema(pr.SchemaHandler, pr.fileSchemaHandler, footer, pr.caseInsensitive)
 	return footer, nil
 }
 
@@ -69,7 +69,7 @@ func (pr *ParquetReader) RenameSchema() {
 	if pr == nil {
 		return
 	}
-	renameFooterSchema(pr.SchemaHandler, pr.Footer, pr.caseInsensitive)
+	renameFooterSchema(pr.SchemaHandler, pr.fileSchemaHandler, pr.Footer, pr.caseInsensitive)
 }
 
 func cloneFileMetaData(footer *parquet.FileMetaData) (*parquet.FileMetaData, error) {
@@ -85,17 +85,22 @@ func cloneFileMetaData(footer *parquet.FileMetaData) (*parquet.FileMetaData, err
 	return readFileMetaDataFromBytes(context.Background(), buf)
 }
 
-func renameFooterSchema(sh *schema.SchemaHandler, footer *parquet.FileMetaData, caseInsensitive bool) {
+func renameFooterSchema(sh *schema.SchemaHandler, fileSchema func() *schema.SchemaHandler, footer *parquet.FileMetaData, caseInsensitive bool) {
 	if sh == nil || sh.Infos == nil || footer == nil || footer.Schema == nil {
 		return
 	}
 
+	// Paths go first: the file schema behind list aliases may be built lazily
+	// from footer, which must still hold the file's own names then.
+	renameFooterColumnPaths(sh, fileSchema, footer, caseInsensitive)
 	for i := range len(sh.Infos) {
 		if i < len(footer.Schema) && footer.Schema[i] != nil && sh.Infos[i] != nil {
 			footer.Schema[i].Name = sh.Infos[i].InName
 		}
 	}
+}
 
+func renameFooterColumnPaths(sh *schema.SchemaHandler, fileSchema func() *schema.SchemaHandler, footer *parquet.FileMetaData, caseInsensitive bool) {
 	exPathToInPath := make(map[string]string)
 	if caseInsensitive {
 		for exPath, inPath := range sh.ExPathToInPath {
@@ -105,12 +110,8 @@ func renameFooterSchema(sh *schema.SchemaHandler, footer *parquet.FileMetaData, 
 		exPathToInPath = sh.ExPathToInPath
 	}
 
-	if footer.RowGroups == nil {
-		return
-	}
-
 	for _, rowGroup := range footer.RowGroups {
-		if rowGroup == nil || rowGroup.Columns == nil {
+		if rowGroup == nil {
 			continue
 		}
 		for _, chunk := range rowGroup.Columns {
@@ -124,9 +125,12 @@ func renameFooterSchema(sh *schema.SchemaHandler, footer *parquet.FileMetaData, 
 				exPathStr = strings.ToLower(exPathStr)
 			}
 
-			if inPathStr, exists := exPathToInPath[exPathStr]; exists {
-				inPath := common.StrToPath(inPathStr)[1:]
-				chunk.MetaData.PathInSchema = inPath
+			inPathStr, exists := exPathToInPath[exPathStr]
+			if !exists {
+				inPathStr, exists = listAliasInPath(sh, fileSchema(), sh.GetRootInName(), sh.GetRootExName(), chunk.MetaData.GetPathInSchema(), caseInsensitive)
+			}
+			if exists {
+				chunk.MetaData.PathInSchema = common.StrToPath(inPathStr)[1:]
 			}
 		}
 	}

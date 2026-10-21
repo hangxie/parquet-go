@@ -168,7 +168,21 @@ func (pr *ParquetReader) fileSchemaHandler() *schema.SchemaHandler {
 		return nil
 	}
 	pr.fileSchemaOnce.Do(func() {
-		pr.fileSchema = schema.NewSchemaHandlerFromSchemaList(pr.Footer.GetSchema())
+		pr.fileSchema = newFileSchemaHandler(pr.Footer)
 	})
 	return pr.fileSchema
+}
+
+// newFileSchemaHandler builds a handler over a copy of the footer schema, or nil if it has nil elements.
+func newFileSchemaHandler(footer *parquet.FileMetaData) *schema.SchemaHandler {
+	// The copy keeps RenameSchema, which rewrites Footer names in place, from changing it.
+	elements := make([]*parquet.SchemaElement, len(footer.GetSchema()))
+	for i, element := range footer.GetSchema() {
+		if element == nil {
+			return nil
+		}
+		clone := *element
+		elements[i] = &clone
+	}
+	return schema.NewSchemaHandlerFromSchemaList(elements)
 }

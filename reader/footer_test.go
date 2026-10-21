@@ -99,6 +99,21 @@ func TestParquetReader_RenameSchema_NilChecks(t *testing.T) {
 			},
 		},
 		{
+			name: "nil_row_group",
+			setup: func() *ParquetReader {
+				return &ParquetReader{
+					SchemaHandler: &schema.SchemaHandler{
+						Infos:          []*common.Tag{{InName: "test"}},
+						ExPathToInPath: map[string]string{"test": "test"},
+					},
+					Footer: &parquet.FileMetaData{
+						Schema:    []*parquet.SchemaElement{{Name: "old_name"}},
+						RowGroups: []*parquet.RowGroup{nil},
+					},
+				}
+			},
+		},
+		{
 			name: "nil_row_group_columns",
 			setup: func() *ParquetReader {
 				return &ParquetReader{
@@ -192,6 +207,65 @@ func TestParquetReaderInternalFooter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.Equal(t, "value", rows[0].(footerRenamedColumnRecord).ColL1)
+}
+
+func TestFooterConversionListWrapperAliases(t *testing.T) {
+	rows := []listWrapperRecord{
+		{V: []int32{4, 5}, N: []listWrapperItem{{X: []int32{6}}}},
+		{V: []int32{7}, N: []listWrapperItem{{X: []int32{8, 9}}, {X: []int32{}}}},
+	}
+	data := writeListWrapperParquet(t, rows, renameListWrappers)
+	wantPaths := [][]string{{"V", "List", "Element"}, {"N", "List", "Element", "X", "List", "Element"}}
+
+	requireInternalPaths := func(t *testing.T, sh *schema.SchemaHandler, footer *parquet.FileMetaData) {
+		t.Helper()
+		require.Len(t, footer.RowGroups, len(rows))
+		for _, rowGroup := range footer.RowGroups {
+			for i, column := range rowGroup.Columns {
+				path := column.MetaData.GetPathInSchema()
+				require.Equal(t, wantPaths[i], path)
+				require.Contains(t, sh.MapIndex, common.PathToStr(append([]string{sh.GetRootInName()}, path...)))
+			}
+		}
+	}
+
+	t.Run("internal_footer", func(t *testing.T) {
+		pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(data), new(listWrapperRecord), WithNP(1))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pr.ReadStop()) }()
+
+		internalFooter, err := pr.InternalFooter()
+		require.NoError(t, err)
+		requireInternalPaths(t, pr.SchemaHandler, internalFooter)
+		require.Equal(t, []string{"v", "bag", "array_element"}, pr.Footer.RowGroups[0].Columns[0].MetaData.GetPathInSchema())
+	})
+
+	t.Run("internal_footer_case_insensitive", func(t *testing.T) {
+		pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(data), new(listWrapperRecord), WithNP(1), WithCaseInsensitive(true))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pr.ReadStop()) }()
+
+		internalFooter, err := pr.InternalFooter()
+		require.NoError(t, err)
+		requireInternalPaths(t, pr.SchemaHandler, internalFooter)
+	})
+
+	t.Run("rename_schema", func(t *testing.T) {
+		pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(data), new(listWrapperRecord), WithNP(1))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pr.ReadStop()) }()
+
+		// A second call must leave the already internal footer as it is.
+		for range 2 {
+			//nolint:staticcheck
+			pr.RenameSchema()
+			requireInternalPaths(t, pr.SchemaHandler, pr.Footer)
+		}
+
+		got := make([]listWrapperRecord, len(rows))
+		require.NoError(t, pr.ReadWithContext(context.Background(), &got))
+		require.Equal(t, rows, got)
+	})
 }
 
 func TestParquetColumnReaderInternalFooter(t *testing.T) {
