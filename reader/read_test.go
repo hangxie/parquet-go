@@ -1027,3 +1027,33 @@ func TestReadListWithRepeatedElementField(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `[{"v":{"list":[{"element":[1,2]}]}}]`, string(jsonBytes))
 }
+
+func TestReadMapAnnotatedByLogicalTypeOnly(t *testing.T) {
+	type record struct {
+		M map[string]int32 `parquet:"name=m, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+	}
+	var buf bytes.Buffer
+	pw, err := writer.NewParquetWriterFromWriterWithContext(context.Background(), &buf, new(record), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.WriteWithContext(context.Background(), record{M: map[string]int32{"a": 1}}))
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	// converted_type is optional, so a writer may annotate the MAP with only its logical type.
+	data := rewriteFooter(t, buf.Bytes(), func(footer *parquet.FileMetaData) {
+		for _, element := range footer.Schema {
+			if element.GetConvertedType() == parquet.ConvertedType_MAP {
+				element.ConvertedType = nil
+				element.LogicalType = &parquet.LogicalType{MAP: parquet.NewMapType()}
+			}
+		}
+	})
+
+	pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(data), nil, WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+	got, err := pr.ReadByNumberWithContext(context.Background(), 1)
+	require.NoError(t, err)
+	jsonBytes, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"m":{"a":1}}]`, string(jsonBytes))
+}

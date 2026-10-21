@@ -602,6 +602,28 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 			},
 		},
 		{
+			// converted_type is optional, so a MAP may carry only the logical annotation.
+			name: "map_logical_type_only",
+			setupHandler: func() *SchemaHandler {
+				return NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+					{Name: "root", NumChildren: common.ToPtr(int32(1))},
+					{
+						Name:           "m",
+						RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+						LogicalType:    &parquet.LogicalType{MAP: parquet.NewMapType()},
+						NumChildren:    common.ToPtr(int32(1)),
+					},
+					{Name: "key_value", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), NumChildren: common.ToPtr(int32(2))},
+					{Name: "key", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED), Type: common.ToPtr(parquet.Type_INT32)},
+					{Name: "value", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED), Type: common.ToPtr(parquet.Type_INT64)},
+				})
+			},
+			expectedCount: 5,
+			validateTypes: func(t *testing.T, types []reflect.Type) {
+				require.Equal(t, reflect.TypeFor[map[int32]int64](), types[1])
+			},
+		},
+		{
 			name: "list_standard_names",
 			setupHandler: func() *SchemaHandler {
 				return NewSchemaHandlerFromSchemaList(standardNamedList(parquet.FieldRepetitionType_REQUIRED))

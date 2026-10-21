@@ -540,7 +540,19 @@ An `OPTIONAL` field must be a pointer, including `[]byte`, LIST, MAP, and struct
 
 LIST and REPEATED are different in the Parquet format. Prefer LIST for list data. Standard and non-standard LIST/MAP layouts are both supported.
 
-A three-level LIST is recognized by its structure rather than by its wrapper names, so a file whose repeated group and element are not named `list` and `element`, such as Athena's `bag` and `array_element`, reads into a Go slice declared with `type=LIST` and infers as a slice when no schema is given. A repeated group whose only field is itself repeated, or that is named `array` or `<list>_tuple`, keeps its legacy meaning as the element itself whatever the names, so a typed read never skips it as a wrapper; up to v3.9.2 one named `list` holding a repeated `element` inferred as a nested list. Up to v3.9.2 such a file failed a typed read with `Column not found` and inferred as nested structs of the wrappers. A group counts as a LIST when either its logical type or its converted type says so; up to v3.9.2 one carrying only the logical type also inferred as nested structs.
+The reader recognizes LIST and MAP groups by their annotation and structure, not by their names:
+
+- A group is a LIST or MAP if its logical type or its converted type says so. Either one is enough.
+- A three-level LIST can use any names for its repeated group and element. For example, Athena writes `bag` and `array_element` instead of `list` and `element`. Such a file reads into a Go slice declared with `type=LIST`. Without a schema, it infers as a slice.
+- Some repeated groups are the list element itself, not a wrapper, whatever they are named. This applies when the group's only field is itself repeated, or when the group is named `array` or `<list>_tuple`. This is the Parquet spec's legacy rule, and a typed read never skips such a group as a wrapper.
+
+Up to v3.9.2, the reader behaved differently:
+
+| File | Up to v3.9.2 | Now |
+| --- | --- | --- |
+| LIST with names other than `list` and `element` | Typed read failed with `Column not found`; inferred as nested structs of the wrappers | Reads and infers as a slice |
+| LIST or MAP with only the logical type set | Inferred as nested structs | Infers as a slice or map |
+| Repeated group named `list` whose only field is a repeated `element` | Inferred as a nested list | The `list` group is the element, so it infers as a list of structs, each holding an `element` slice |
 
 ## Encoding Support
 

@@ -205,8 +205,13 @@ func (sh *SchemaHandler) isListSchema(idx int32, elements [][]int32) bool {
 		sh.GetInName(int(elements[wrapperIdx][0])) == "Element"
 }
 
-func (sh *SchemaHandler) isMapSchema(idx int32, elements [][]int32, cT *parquet.ConvertedType) bool {
-	return cT != nil && *cT == parquet.ConvertedType_MAP &&
+// isMapAnnotated reports whether elem carries the MAP annotation in either spelling.
+func isMapAnnotated(elem *parquet.SchemaElement) bool {
+	return elem.GetConvertedType() == parquet.ConvertedType_MAP || (elem.LogicalType != nil && elem.LogicalType.IsSetMAP())
+}
+
+func (sh *SchemaHandler) isMapSchema(idx int32, elements [][]int32) bool {
+	return isMapAnnotated(sh.SchemaElements[idx]) &&
 		len(elements[idx]) == 1 &&
 		sh.GetInName(int(elements[idx][0])) == "Key_value" &&
 		len(elements[elements[idx][0]]) == 2 &&
@@ -238,13 +243,13 @@ func (sh *SchemaHandler) resolveStructType(idx int32, elements [][]int32, elemen
 	return reflect.SliceOf(structType)
 }
 
-func (sh *SchemaHandler) resolveGroupType(idx int32, elements [][]int32, elementTypes []reflect.Type, cT *parquet.ConvertedType, rT *parquet.FieldRepetitionType) reflect.Type {
+func (sh *SchemaHandler) resolveGroupType(idx int32, elements [][]int32, elementTypes []reflect.Type, rT *parquet.FieldRepetitionType) reflect.Type {
 	switch {
 	case sh.isListSchema(idx, elements):
 		cidx := elements[elements[idx][0]][0]
 		return applyRepetition(reflect.SliceOf(typeOrAny(elementTypes[cidx])), rT)
 
-	case sh.isMapSchema(idx, elements, cT):
+	case sh.isMapSchema(idx, elements):
 		kIdx, vIdx := elements[elements[idx][0]][0], elements[elements[idx][0]][1]
 		return applyRepetition(reflect.MapOf(typeOrAny(elementTypes[kIdx]), typeOrAny(elementTypes[vIdx])), rT)
 
@@ -290,7 +295,7 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 			curlen := len(stack) - 1
 			idx := stack[curlen][0]
 			elem := sh.SchemaElements[idx]
-			pT, cT, rT := elem.Type, elem.ConvertedType, elem.RepetitionType
+			pT, rT := elem.Type, elem.RepetitionType
 			if idx == 0 {
 				// The root is the row container; a repetition marker some writers set on it must not reshape rows
 				rT = nil
@@ -299,7 +304,7 @@ func (sh *SchemaHandler) GetTypes() []reflect.Type {
 			if sh.isLeaf(idx) {
 				elementTypes[idx] = resolveLeafType(pT, rT)
 			} else {
-				elementTypes[idx] = sh.resolveGroupType(idx, elements, elementTypes, cT, rT)
+				elementTypes[idx] = sh.resolveGroupType(idx, elements, elementTypes, rT)
 			}
 
 			stack = stack[:curlen]
