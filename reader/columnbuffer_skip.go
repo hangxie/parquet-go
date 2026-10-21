@@ -221,7 +221,9 @@ func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 			return skipped, fmt.Errorf("decode page values during skip: %w", err)
 		}
 
-		page.Decode(cbt.DictPage)
+		if err = page.Decode(cbt.DictPage); err != nil {
+			return skipped, fmt.Errorf("decode dictionary indices during skip: %w", err)
+		}
 		i, j := len(cbt.DataTable.Values)-1, len(page.DataTable.Values)-1
 		for i >= 0 && j >= 0 {
 			cbt.DataTable.Values[i] = page.DataTable.Values[j]

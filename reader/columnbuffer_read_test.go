@@ -2,6 +2,7 @@ package reader
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"testing"
@@ -490,4 +491,41 @@ func TestReadPage_RecursiveCall(t *testing.T) {
 	err := cb.ReadPage()
 	// No more row groups to advance to: normal completion via the exhausted sentinel.
 	require.ErrorIs(t, err, errColumnExhausted)
+}
+
+func dictionaryIndexParquet(t *testing.T, bitWidth byte) []byte {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString("UEFSMRUEFRQVFEwVBBUAEgAAAQAAAGEBAAAAYhUAFRIVEiwVBBUQFQYVBhwAAAACAAAABAEBAwIVBBksNQAYBnNjaGVtYRUCABUMJQIYAXMlAEwcAAAAFgQZHBkcJgAcFQwZNQAGEBkYAXMVABYEFmgWaCY4JggpLBUEFQAVAgAVABUQFQIAPBYEGQYZJgAEAAAAFmgWBCYIFmgAGRwYDEFSUk9XOnNjaGVtYRigAS8vLy8vM0FBQUFBUUFBQUFBQUFLQUF3QUJnQUZBQWdBQ2dBQUFBQUJCQUFNQUFBQUNBQUlBQUFBQkFBSUFBQUFCQUFBQUFFQUFBQVVBQUFBRUFBVUFBZ0FCZ0FIQUF3QUFBQVFBQkFBQUFBQUFBRUZFQUFBQUJnQUFBQUVBQUFBQUFBQUFBRUFBQUJ6QUFBQUJBQUVBQVFBQUFBQUFBQUEAGCBwYXJxdWV0LWNwcC1hcnJvdyB2ZXJzaW9uIDI1LjAuMRkcHAAAAEABAABQQVIx")
+	require.NoError(t, err)
+	// Widening the bit width from 1 makes the same bytes decode to indices past the dictionary.
+	data[53] = bitWidth
+	return data
+}
+
+func TestReadRejectsDictionaryIndexOutOfRange(t *testing.T) {
+	tests := []struct {
+		name     string
+		bitWidth byte
+		wantErr  string
+	}{
+		{name: "valid", bitWidth: 1},
+		{name: "width_2", bitWidth: 2, wantErr: "dictionary index 2 out of range [0, 2)"},
+		{name: "width_8", bitWidth: 8, wantErr: "out of range [0, 2)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(dictionaryIndexParquet(t, tt.bitWidth)), nil, WithNP(1))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, pr.ReadStop()) }()
+
+			rows, err := pr.ReadByNumberWithContext(context.Background(), 2)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, rows, 2)
+		})
+	}
 }

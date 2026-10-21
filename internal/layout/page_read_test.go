@@ -146,7 +146,7 @@ func TestPageDecode(t *testing.T) {
 				copy(originalValues, tc.page.DataTable.Values)
 			}
 
-			tc.page.Decode(tc.dictPage)
+			require.NoError(t, tc.page.Decode(tc.dictPage))
 
 			if tc.expected && tc.page != nil && tc.page.DataTable != nil {
 				// Verify that dictionary lookup occurred for non-nil values
@@ -1197,7 +1197,7 @@ func TestPageDecode_V2NonDictionaryEncoding(t *testing.T) {
 		DataTable: &Table{Values: []any{int64(0)}},
 	}
 	dictPage := &Page{DataTable: &Table{Values: []any{"unused"}}}
-	page.Decode(dictPage)
+	require.NoError(t, page.Decode(dictPage))
 	// Non-dictionary V2 page must be left untouched.
 	require.Equal(t, int64(0), page.DataTable.Values[0])
 }
@@ -1502,9 +1502,12 @@ func TestReadPageRawData(t *testing.T) {
 }
 
 func TestPage_Decode_BoundsChecking(t *testing.T) {
+	// A corrupt page must not have an invalid index read back as a value.
 	tests := []struct {
 		name       string
 		setupPages func() (*Page, *Page)
+		wantValues []any
+		wantErr    string
 	}{
 		{
 			name: "dictionary_index_out_of_bounds_negative",
@@ -1521,11 +1524,12 @@ func TestPage_Decode_BoundsChecking(t *testing.T) {
 						},
 					},
 					DataTable: &Table{
-						Values: []any{int64(-1)}, // Negative index - should be ignored
+						Values: []any{int64(-1)},
 					},
 				}
 				return page, dictPage
 			},
+			wantErr: "dictionary index -1 out of range [0, 2)",
 		},
 		{
 			name: "dictionary_index_out_of_bounds_too_large",
@@ -1542,11 +1546,12 @@ func TestPage_Decode_BoundsChecking(t *testing.T) {
 						},
 					},
 					DataTable: &Table{
-						Values: []any{int64(10)}, // Index 10 > dictionary size 2
+						Values: []any{int64(10)},
 					},
 				}
 				return page, dictPage
 			},
+			wantErr: "dictionary index 10 out of range [0, 2)",
 		},
 		{
 			name: "dictionary_index_boundary_valid",
@@ -1568,6 +1573,7 @@ func TestPage_Decode_BoundsChecking(t *testing.T) {
 				}
 				return page, dictPage
 			},
+			wantValues: []any{"value3"},
 		},
 		{
 			name: "dictionary_index_invalid_type_assertion",
@@ -1584,14 +1590,15 @@ func TestPage_Decode_BoundsChecking(t *testing.T) {
 						},
 					},
 					DataTable: &Table{
-						Values: []any{"not_an_int64"}, // Wrong type - should be ignored
+						Values: []any{"not_an_int64"},
 					},
 				}
 				return page, dictPage
 			},
+			wantErr: "dictionary index has type string",
 		},
 		{
-			name: "dictionary_index_mixed_valid_invalid",
+			name: "dictionary_index_valid_with_null",
 			setupPages: func() (*Page, *Page) {
 				dictPage := &Page{
 					DataTable: &Table{
@@ -1605,17 +1612,12 @@ func TestPage_Decode_BoundsChecking(t *testing.T) {
 						},
 					},
 					DataTable: &Table{
-						Values: []any{
-							int64(1),  // Valid
-							int64(-1), // Invalid - negative
-							int64(10), // Invalid - too large
-							"invalid", // Invalid - wrong type
-							int64(0),  // Valid
-						},
+						Values: []any{int64(1), nil, int64(0)},
 					},
 				}
 				return page, dictPage
 			},
+			wantValues: []any{"value2", nil, "value1"},
 		},
 		{
 			name: "empty_dictionary",
@@ -1637,6 +1639,7 @@ func TestPage_Decode_BoundsChecking(t *testing.T) {
 				}
 				return page, dictPage
 			},
+			wantErr: "dictionary index 0 out of range [0, 0)",
 		},
 	}
 
@@ -1644,10 +1647,13 @@ func TestPage_Decode_BoundsChecking(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			page, dictPage := tt.setupPages()
 
-			page.Decode(dictPage)
-
-			// Verify that the function completed without crashing
-			// Invalid indices should remain unchanged or be skipped
+			err := page.Decode(dictPage)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantValues, page.DataTable.Values)
 		})
 	}
 }
@@ -1717,7 +1723,7 @@ func TestPage_Decode_NilSafety(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			page, dictPage := tt.setupPages()
 
-			page.Decode(dictPage)
+			require.NoError(t, page.Decode(dictPage))
 		})
 	}
 }
