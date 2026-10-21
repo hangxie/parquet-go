@@ -181,6 +181,7 @@ func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHan
 			ExName: ExName,
 		}
 	}
+	schemaHandler.normalizeListWrapperNames()
 	schemaHandler.CreateInExMap()
 
 	// use DFS get path of schema
@@ -214,4 +215,58 @@ func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHan
 	schemaHandler.setVariantSchemas()
 
 	return schemaHandler
+}
+
+// normalizeListWrapperNames gives three-level LIST wrappers the internal names List and Element.
+func (sh *SchemaHandler) normalizeListWrapperNames() {
+	// Writers may name the wrapper and element anything (Athena uses bag and
+	// array_element); keeping their external names lets footer paths still resolve.
+	if sh.childrenMap == nil {
+		sh.childrenMap = sh.buildChildrenMap()
+	}
+	for idx := range sh.SchemaElements {
+		if wrapperIdx, ok := sh.listWrapperIndex(int32(idx), sh.childrenMap); ok {
+			sh.Infos[wrapperIdx].InName = "List"
+			sh.Infos[sh.childrenMap[wrapperIdx][0]].InName = "Element"
+		}
+	}
+}
+
+// IsListWrapper reports whether the element at idx is the repeated group of a three-level LIST.
+func (sh *SchemaHandler) IsListWrapper(idx int32) bool {
+	if idx <= 0 || int(idx) >= len(sh.SchemaElements) {
+		return false
+	}
+	path := common.StrToPath(sh.IndexMap[idx])
+	parentIdx, ok := sh.MapIndex[common.PathToStr(path[:len(path)-1])]
+	if !ok {
+		return false
+	}
+	// Building locally keeps this safe for concurrent readers when no map is cached.
+	children := sh.childrenMap
+	if children == nil {
+		children = sh.buildChildrenMap()
+	}
+	wrapperIdx, ok := sh.listWrapperIndex(parentIdx, children)
+	return ok && wrapperIdx == idx
+}
+
+// listWrapperIndex returns the repeated wrapper of the LIST group at idx, if the group has one.
+func (sh *SchemaHandler) listWrapperIndex(idx int32, children [][]int32) (int32, bool) {
+	elem := sh.SchemaElements[idx]
+	if !isListAnnotated(elem) || len(children[idx]) != 1 {
+		return 0, false
+	}
+	wrapperIdx := children[idx][0]
+	wrapper := sh.SchemaElements[wrapperIdx]
+	if wrapper.GetRepetitionType() != parquet.FieldRepetitionType_REPEATED || len(children[wrapperIdx]) != 1 {
+		return 0, false
+	}
+	// The spec's backward-compatibility rules make the repeated group the element
+	// itself when its only field is repeated or when it is named array or <list>_tuple.
+	if sh.SchemaElements[children[wrapperIdx][0]].GetRepetitionType() == parquet.FieldRepetitionType_REPEATED ||
+		wrapper.GetName() == "array" || wrapper.GetName() == elem.GetName()+"_tuple" {
+		return 0, false
+	}
+	return wrapperIdx, true
 }

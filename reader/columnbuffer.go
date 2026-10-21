@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/apache/thrift/lib/go/thrift"
 
@@ -37,6 +38,7 @@ type ColumnBufferType struct {
 
 	caseInsensitive   bool
 	chunkReadMetaData *parquet.ColumnMetaData
+	fileSchema        func() *schema.SchemaHandler // footer schema, built on first use
 
 	// dataTableNumRowsNormalized records that the increment converting DataTableNumRows
 	// from "one less than actual" to the real count has already been applied at
@@ -55,10 +57,13 @@ type ColumnBufferType struct {
 // pathStr components must be separated by common.ParGoPathDelimiter (build it with
 // common.PathToStr); "." is an ordinary character in a name, not a separator.
 func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions) (*ColumnBufferType, error) {
-	return newColumnBuffer(pFile, footer, schemaHandler, pathStr, opts, false)
+	fileSchema := sync.OnceValue(func() *schema.SchemaHandler {
+		return schema.NewSchemaHandlerFromSchemaList(footer.GetSchema())
+	})
+	return newColumnBuffer(pFile, footer, schemaHandler, fileSchema, pathStr, opts, false)
 }
 
-func newColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions, caseInsensitive bool) (*ColumnBufferType, error) {
+func newColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, fileSchema func() *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions, caseInsensitive bool) (*ColumnBufferType, error) {
 	if pFile == nil {
 		return nil, fmt.Errorf("pFile is nil")
 	}
@@ -98,6 +103,7 @@ func newColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaDat
 		DataTableNumRows: -1,
 		PageReadOptions:  opt,
 		caseInsensitive:  caseInsensitive,
+		fileSchema:       fileSchema,
 	}
 
 	if err := res.NextRowGroup(); err != nil && err != io.EOF {
@@ -146,7 +152,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 		if columnChunks[i] == nil || columnChunks[i].MetaData == nil {
 			continue
 		}
-		path := columnPathToInPath(cbt.SchemaHandler, columnChunks[i].MetaData.GetPathInSchema(), cbt.caseInsensitive)
+		path := columnPathToInPath(cbt.SchemaHandler, cbt.fileSchema, columnChunks[i].MetaData.GetPathInSchema(), cbt.caseInsensitive)
 
 		if cbt.PathStr == path {
 			break
@@ -158,7 +164,7 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	}
 
 	cbt.ChunkHeader = columnChunks[i]
-	cbt.chunkReadMetaData = columnMetaDataForRead(cbt.SchemaHandler, cbt.ChunkHeader.MetaData, cbt.caseInsensitive)
+	cbt.chunkReadMetaData = columnMetaDataForRead(cbt.SchemaHandler, cbt.fileSchema, cbt.ChunkHeader.MetaData, cbt.caseInsensitive)
 	cbt.ColumnOrdinal = int16(i)
 	if cbt.Reader != nil {
 		if err := cbt.Reader.configureOptionalPageDecryptor(cbt, rowGroups[cbt.RowGroupIndex-1], int16(i)); err != nil {
@@ -219,5 +225,5 @@ func (cbt *ColumnBufferType) readMetaData() *parquet.ColumnMetaData {
 	if cbt.ChunkHeader == nil {
 		return nil
 	}
-	return columnMetaDataForRead(cbt.SchemaHandler, cbt.ChunkHeader.MetaData, cbt.caseInsensitive)
+	return columnMetaDataForRead(cbt.SchemaHandler, cbt.fileSchema, cbt.ChunkHeader.MetaData, cbt.caseInsensitive)
 }

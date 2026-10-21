@@ -54,7 +54,7 @@ func (pr *ParquetReader) indexSchemaElement(column *parquet.ColumnChunk) *parque
 	if pr.SchemaHandler == nil || column == nil || column.MetaData == nil {
 		return nil
 	}
-	path := columnPathToInPath(pr.SchemaHandler, column.MetaData.GetPathInSchema(), pr.caseInsensitive)
+	path := columnPathToInPath(pr.SchemaHandler, pr.fileSchemaHandler, column.MetaData.GetPathInSchema(), pr.caseInsensitive)
 	index, ok := pr.SchemaHandler.MapIndex[path]
 	if !ok || index < 0 || int(index) >= len(pr.SchemaHandler.SchemaElements) {
 		return nil

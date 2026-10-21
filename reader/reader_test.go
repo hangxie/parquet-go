@@ -185,6 +185,10 @@ func createNestedParquetData() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func TestParquetReaderFileSchemaHandlerWithoutFooter(t *testing.T) {
+	require.Nil(t, (&ParquetReader{}).fileSchemaHandler())
+}
+
 func TestParquetReader_GetNumRows(t *testing.T) {
 	pr, err := parquetReader()
 	require.NoError(t, err)

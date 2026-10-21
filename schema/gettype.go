@@ -192,8 +192,14 @@ func resolveLeafType(pT *parquet.Type, rT *parquet.FieldRepetitionType) reflect.
 	}
 }
 
-func (sh *SchemaHandler) isListSchema(idx int32, elements [][]int32, cT *parquet.ConvertedType) bool {
-	return cT != nil && *cT == parquet.ConvertedType_LIST &&
+// isListAnnotated reports whether elem carries the LIST annotation in either spelling.
+func isListAnnotated(elem *parquet.SchemaElement) bool {
+	// converted_type is optional, so a writer may set only the logical type.
+	return elem.GetConvertedType() == parquet.ConvertedType_LIST || (elem.LogicalType != nil && elem.LogicalType.IsSetLIST())
+}
+
+func (sh *SchemaHandler) isListSchema(idx int32, elements [][]int32) bool {
+	return isListAnnotated(sh.SchemaElements[idx]) &&
 		len(elements[idx]) == 1 &&
 		sh.GetInName(int(elements[idx][0])) == "List" &&
 		len(elements[elements[idx][0]]) == 1 &&
@@ -235,7 +241,7 @@ func (sh *SchemaHandler) resolveStructType(idx int32, elements [][]int32, elemen
 
 func (sh *SchemaHandler) resolveGroupType(idx int32, elements [][]int32, elementTypes []reflect.Type, cT *parquet.ConvertedType, rT *parquet.FieldRepetitionType) reflect.Type {
 	switch {
-	case sh.isListSchema(idx, elements, cT):
+	case sh.isListSchema(idx, elements):
 		cidx := elements[elements[idx][0]][0]
 		return applyRepetition(reflect.SliceOf(typeOrAny(elementTypes[cidx])), rT)
 

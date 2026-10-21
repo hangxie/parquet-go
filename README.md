@@ -540,6 +540,8 @@ An `OPTIONAL` field must be a pointer, including `[]byte`, LIST, MAP, and struct
 
 LIST and REPEATED are different in the Parquet format. Prefer LIST for list data. Standard and non-standard LIST/MAP layouts are both supported.
 
+A three-level LIST is recognized by its structure rather than by its wrapper names, so a file whose repeated group and element are not named `list` and `element`, such as Athena's `bag` and `array_element`, reads into a Go slice declared with `type=LIST` and infers as a slice when no schema is given. A repeated group whose only field is itself repeated, or that is named `array` or `<list>_tuple`, keeps its legacy meaning as the element itself, so a typed read never skips it as a wrapper. Up to v3.9.2 such a file failed a typed read with `Column not found` and inferred as nested structs of the wrappers. A group counts as a LIST when either its logical type or its converted type says so; up to v3.9.2 one carrying only the logical type also inferred as nested structs.
+
 ## Encoding Support
 
 | Encoding | Types | Read | Write |
