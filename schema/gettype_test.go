@@ -547,6 +547,21 @@ func TestSchemaHandler_GetType(t *testing.T) {
 // merged scenario: malformed leaf type should not panic GetTypes and should
 // fall back to interface{} for the leaf reflect type
 
+// standardNamedList returns root > v (LIST) > repeated list > element with the given repetition.
+func standardNamedList(elementRepetition parquet.FieldRepetitionType) []*parquet.SchemaElement {
+	return []*parquet.SchemaElement{
+		{Name: "root", NumChildren: common.ToPtr(int32(1))},
+		{
+			Name:           "v",
+			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
+			ConvertedType:  common.ToPtr(parquet.ConvertedType_LIST),
+			NumChildren:    common.ToPtr(int32(1)),
+		},
+		{Name: "list", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), NumChildren: common.ToPtr(int32(1))},
+		{Name: "element", RepetitionType: &elementRepetition, Type: common.ToPtr(parquet.Type_INT32)},
+	}
+}
+
 func TestSchemaHandler_GetTypes(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -584,6 +599,31 @@ func TestSchemaHandler_GetTypes(t *testing.T) {
 				require.Equal(t, reflect.Struct, types[0].Kind())
 				require.Equal(t, reflect.Struct, types[1].Kind())
 				require.Equal(t, reflect.Interface, types[2].Kind())
+			},
+		},
+		{
+			name: "list_standard_names",
+			setupHandler: func() *SchemaHandler {
+				return NewSchemaHandlerFromSchemaList(standardNamedList(parquet.FieldRepetitionType_REQUIRED))
+			},
+			expectedCount: 4,
+			validateTypes: func(t *testing.T, types []reflect.Type) {
+				require.Equal(t, reflect.TypeFor[[]int32](), types[1])
+			},
+		},
+		{
+			// The spec makes a repeated group whose only field is repeated the element
+			// itself, whatever the names, so v is not a list of int32 lists.
+			name: "list_standard_names_repeated_element",
+			setupHandler: func() *SchemaHandler {
+				return NewSchemaHandlerFromSchemaList(standardNamedList(parquet.FieldRepetitionType_REPEATED))
+			},
+			expectedCount: 4,
+			validateTypes: func(t *testing.T, types []reflect.Type) {
+				require.Equal(t, reflect.Struct, types[1].Kind())
+				require.Equal(t, reflect.Slice, types[2].Kind())
+				require.Equal(t, reflect.Struct, types[2].Elem().Kind())
+				require.Equal(t, reflect.TypeFor[[]int32](), types[3])
 			},
 		},
 		{

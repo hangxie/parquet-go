@@ -199,11 +199,10 @@ func isListAnnotated(elem *parquet.SchemaElement) bool {
 }
 
 func (sh *SchemaHandler) isListSchema(idx int32, elements [][]int32) bool {
-	return isListAnnotated(sh.SchemaElements[idx]) &&
-		len(elements[idx]) == 1 &&
-		sh.GetInName(int(elements[idx][0])) == "List" &&
-		len(elements[elements[idx][0]]) == 1 &&
-		sh.GetInName(int(elements[elements[idx][0]][0])) == "Element"
+	// The structural rule decides; the internal names are what unmarshaling walks.
+	wrapperIdx, ok := sh.listWrapperIndex(idx, elements)
+	return ok && sh.GetInName(int(wrapperIdx)) == "List" &&
+		sh.GetInName(int(elements[wrapperIdx][0])) == "Element"
 }
 
 func (sh *SchemaHandler) isMapSchema(idx int32, elements [][]int32, cT *parquet.ConvertedType) bool {

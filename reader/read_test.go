@@ -992,3 +992,38 @@ func TestRead_OldListStructure(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `[{"a":[[1,2],[3,4]]}]`, string(raw))
 }
+
+func TestReadListWithRepeatedElementField(t *testing.T) {
+	// v (LIST) > repeated list > repeated element: the spec reads list as the element itself.
+	type record struct {
+		V struct {
+			List []struct {
+				Element []int32 `parquet:"name=element, type=INT32, repetitiontype=REPEATED"`
+			} `parquet:"name=list, repetitiontype=REPEATED"`
+		} `parquet:"name=v"`
+	}
+	var buf bytes.Buffer
+	pw, err := writer.NewParquetWriterFromWriterWithContext(context.Background(), &buf, new(record), writer.WithNP(1))
+	require.NoError(t, err)
+	var row record
+	row.V.List = append(row.V.List, struct {
+		Element []int32 `parquet:"name=element, type=INT32, repetitiontype=REPEATED"`
+	}{Element: []int32{1, 2}})
+	require.NoError(t, pw.WriteWithContext(context.Background(), row))
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	// The writer leaves a struct group unannotated, so mark v as a LIST in the footer.
+	data := rewriteFooter(t, buf.Bytes(), func(footer *parquet.FileMetaData) {
+		footer.Schema[1].ConvertedType = common.ToPtr(parquet.ConvertedType_LIST)
+		footer.Schema[1].LogicalType = &parquet.LogicalType{LIST: parquet.NewListType()}
+	})
+
+	pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(data), nil, WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+	got, err := pr.ReadByNumberWithContext(context.Background(), 1)
+	require.NoError(t, err)
+	jsonBytes, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"v":{"list":[{"element":[1,2]}]}}]`, string(jsonBytes))
+}
