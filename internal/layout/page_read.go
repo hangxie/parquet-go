@@ -25,35 +25,41 @@ type PageReadOptions struct {
 	Decryptor   *PageDecryptor
 }
 
-// Decode dict page
-func (page *Page) Decode(dictPage *Page) {
+// Decode replaces a dictionary-encoded page's indices with dictPage values, rejecting invalid indices.
+func (page *Page) Decode(dictPage *Page) error {
 	if dictPage == nil || page == nil ||
 		(page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil) ||
 		dictPage.DataTable == nil || page.DataTable == nil {
-		return
+		return nil
 	}
 
 	if page.Header.DataPageHeader != nil &&
 		(page.Header.DataPageHeader.Encoding != parquet.Encoding_RLE_DICTIONARY &&
 			page.Header.DataPageHeader.Encoding != parquet.Encoding_PLAIN_DICTIONARY) {
-		return
+		return nil
 	}
 
 	if page.Header.DataPageHeaderV2 != nil &&
 		(page.Header.DataPageHeaderV2.Encoding != parquet.Encoding_RLE_DICTIONARY &&
 			page.Header.DataPageHeaderV2.Encoding != parquet.Encoding_PLAIN_DICTIONARY) {
-		return
+		return nil
 	}
 
-	numValues := len(page.DataTable.Values)
-	for i := range numValues {
-		if page.DataTable.Values[i] != nil {
-			index, ok := page.DataTable.Values[i].(int64)
-			if ok && index >= 0 && index < int64(len(dictPage.DataTable.Values)) {
-				page.DataTable.Values[i] = dictPage.DataTable.Values[index]
-			}
+	dictSize := int64(len(dictPage.DataTable.Values))
+	for i, value := range page.DataTable.Values {
+		if value == nil {
+			continue
 		}
+		index, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("dictionary index has type %T", value)
+		}
+		if index < 0 || index >= dictSize {
+			return fmt.Errorf("dictionary index %d out of range [0, %d)", index, dictSize)
+		}
+		page.DataTable.Values[i] = dictPage.DataTable.Values[index]
 	}
+	return nil
 }
 
 // Read page RawData

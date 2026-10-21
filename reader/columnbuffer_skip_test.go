@@ -899,3 +899,12 @@ func TestReadPageForSkip_RecursiveCall(t *testing.T) {
 	require.ErrorIs(t, err, errColumnExhausted)
 	require.Nil(t, page)
 }
+
+func TestSkipRejectsDictionaryIndexOutOfRange(t *testing.T) {
+	pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(dictionaryIndexParquet(t, 2)), nil, WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+
+	// Skipping part of the page decodes the rows it keeps, so the bad index surfaces here.
+	require.ErrorContains(t, pr.SkipRowsWithContext(context.Background(), 1), "out of range [0, 2)")
+}

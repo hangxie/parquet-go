@@ -176,7 +176,9 @@ func (cbt *ColumnBufferType) ReadPage() error {
 	if err := cbt.ensureIndexedDictionary(); err != nil {
 		return fmt.Errorf("load indexed dictionary: %w", err)
 	}
-	page.Decode(cbt.DictPage)
+	if err := page.Decode(cbt.DictPage); err != nil {
+		return fmt.Errorf("decode dictionary indices: %w", err)
+	}
 	if cbt.DataTable == nil {
 		cbt.DataTable = layout.NewTableFromTable(page.DataTable)
 	}
