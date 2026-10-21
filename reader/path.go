@@ -46,7 +46,9 @@ func lookupExternalPath(sh *schema.SchemaHandler, path string, caseInsensitive b
 	return "", false
 }
 
-func columnPathToInPath(sh *schema.SchemaHandler, path []string, caseInsensitive bool) string {
+// columnPathToInPath maps a footer column path to sh; fileSchema, when set, supplies the
+// file's own schema so LIST wrappers can match under other names.
+func columnPathToInPath(sh *schema.SchemaHandler, fileSchema func() *schema.SchemaHandler, path []string, caseInsensitive bool) string {
 	rootInName, ok := schemaRootInName(sh)
 	if !ok {
 		return common.PathToStr(path)
@@ -66,15 +68,69 @@ func columnPathToInPath(sh *schema.SchemaHandler, path []string, caseInsensitive
 	if mappedPath, ok := lookupExternalPath(sh, exPath, caseInsensitive); ok {
 		return mappedPath
 	}
+	if fileSchema != nil {
+		if mappedPath, ok := listAliasInPath(sh, fileSchema(), rootInName, rootExName, path, caseInsensitive); ok {
+			return mappedPath
+		}
+	}
 	return inPath
 }
 
-func columnMetaDataForRead(sh *schema.SchemaHandler, meta *parquet.ColumnMetaData, caseInsensitive bool) *parquet.ColumnMetaData {
+// listAliasInPath resolves path while letting a LIST in sh match a file LIST with other wrapper names.
+func listAliasInPath(sh, fileSH *schema.SchemaHandler, rootInName, rootExName string, path []string, caseInsensitive bool) (string, bool) {
+	if sh.MapIndex == nil || sh.InPathToExPath == nil || fileSH == nil || fileSH.ExPathToInPath == nil {
+		return "", false
+	}
+	inPath, exPath := rootInName, rootExName
+	fileExPath := fileSH.GetRootExName()
+	for i := 0; i < len(path); i++ {
+		fileExPath += common.ParGoPathDelimiter + path[i]
+		// Both sides must be a three-level LIST: a legacy file group that is the
+		// element itself must not have its struct layer skipped.
+		if listInPath, ok := listElementInPath(sh, inPath); ok && i+1 < len(path) && isFileListWrapper(fileSH, fileExPath, caseInsensitive) {
+			inPath, exPath = listInPath, sh.InPathToExPath[listInPath]
+			i++
+			fileExPath += common.ParGoPathDelimiter + path[i]
+			continue
+		}
+		next, ok := lookupExternalPath(sh, exPath+common.ParGoPathDelimiter+path[i], caseInsensitive)
+		if !ok {
+			return "", false
+		}
+		inPath, exPath = next, sh.InPathToExPath[next]
+	}
+	return inPath, true
+}
+
+// isFileListWrapper reports whether the file element at exPath is a LIST's repeated wrapper.
+func isFileListWrapper(fileSH *schema.SchemaHandler, exPath string, caseInsensitive bool) bool {
+	inPath, ok := lookupExternalPath(fileSH, exPath, caseInsensitive)
+	return ok && fileSH.IsListWrapper(fileSH.MapIndex[inPath])
+}
+
+// listElementInPath returns the element path of the LIST group at inPath, if it is one.
+func listElementInPath(sh *schema.SchemaHandler, inPath string) (string, bool) {
+	idx, ok := sh.MapIndex[inPath]
+	if !ok || int(idx) >= len(sh.SchemaElements) || sh.SchemaElements[idx] == nil {
+		return "", false
+	}
+	// converted_type is optional, so a LIST may carry only the logical annotation.
+	if elem := sh.SchemaElements[idx]; elem.GetConvertedType() != parquet.ConvertedType_LIST && (elem.LogicalType == nil || !elem.LogicalType.IsSetLIST()) {
+		return "", false
+	}
+	elementPath := common.PathToStr([]string{inPath, "List", "Element"})
+	if _, ok := sh.MapIndex[elementPath]; !ok {
+		return "", false
+	}
+	return elementPath, true
+}
+
+func columnMetaDataForRead(sh *schema.SchemaHandler, fileSchema func() *schema.SchemaHandler, meta *parquet.ColumnMetaData, caseInsensitive bool) *parquet.ColumnMetaData {
 	if meta == nil {
 		return nil
 	}
 
-	inPath := common.StrToPath(columnPathToInPath(sh, meta.GetPathInSchema(), caseInsensitive))
+	inPath := common.StrToPath(columnPathToInPath(sh, fileSchema, meta.GetPathInSchema(), caseInsensitive))
 	if len(inPath) > 0 {
 		inPath = inPath[1:]
 	}

@@ -54,6 +54,8 @@ type ParquetReader struct {
 	defaultCtx         context.Context
 	ctx                context.Context
 	noColumnRowsRead   int64 // row cursor for a schema without columns
+	fileSchemaOnce     sync.Once
+	fileSchema         *schema.SchemaHandler // footer schema, built on first use
 
 	// encryptedPageOffsets is populated once from the immutable footer and then
 	// treated as read-only. It tracks every per-column offset that belongs to an
@@ -148,7 +150,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 }
 
 func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, error) {
-	cb, err := newColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pathStr, &layout.PageReadOptions{Context: pr.context(), CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}, pr.caseInsensitive)
+	cb, err := newColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pr.fileSchemaHandler, pathStr, &layout.PageReadOptions{Context: pr.context(), CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}, pr.caseInsensitive)
 	if err != nil {
 		return nil, fmt.Errorf("new column buffer for %s: %w", pathStr, err)
 	}
@@ -158,4 +160,15 @@ func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, err
 		return nil, fmt.Errorf("configure decryptor for %s: %w", pathStr, err)
 	}
 	return cb, nil
+}
+
+// fileSchemaHandler returns a schema handler for the footer's own schema, building it once.
+func (pr *ParquetReader) fileSchemaHandler() *schema.SchemaHandler {
+	if pr.Footer == nil {
+		return nil
+	}
+	pr.fileSchemaOnce.Do(func() {
+		pr.fileSchema = schema.NewSchemaHandlerFromSchemaList(pr.Footer.GetSchema())
+	})
+	return pr.fileSchema
 }

@@ -102,7 +102,7 @@ func (pr *ParquetReader) locateColumnChunk(columnPath string, rowGroupIndex int)
 		if cc == nil || cc.MetaData == nil {
 			continue
 		}
-		if columnPathToInPath(pr.SchemaHandler, cc.MetaData.GetPathInSchema(), pr.caseInsensitive) == inPath {
+		if columnPathToInPath(pr.SchemaHandler, pr.fileSchemaHandler, cc.MetaData.GetPathInSchema(), pr.caseInsensitive) == inPath {
 			return rg, cc, int16(i), nil
 		}
 	}

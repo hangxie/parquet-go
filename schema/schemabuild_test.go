@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -479,4 +480,145 @@ func TestNewSchemaHandlerFromStruct_ByteArraySlice(t *testing.T) {
 	require.Equal(t, 2, len(sh.SchemaElements))
 	require.Equal(t, int32(0), sh.SchemaElements[1].GetNumChildren())
 	require.Equal(t, parquet.Type_BYTE_ARRAY, *sh.SchemaElements[1].Type)
+}
+
+func TestNewSchemaHandlerFromSchemaListListWrapperNames(t *testing.T) {
+	required := parquet.FieldRepetitionType_REQUIRED
+	repeated := parquet.FieldRepetitionType_REPEATED
+	int32Type := parquet.Type_INT32
+	listType := parquet.ConvertedType_LIST
+	one, two := int32(1), int32(2)
+	listSchema := func(wrapper string, wrapperChildren int32, leaves ...string) []*parquet.SchemaElement {
+		elements := []*parquet.SchemaElement{
+			{Name: "root", NumChildren: &one},
+			{Name: "v", RepetitionType: &required, ConvertedType: &listType, NumChildren: &one},
+			{Name: wrapper, RepetitionType: &repeated, NumChildren: &wrapperChildren},
+		}
+		if wrapperChildren == 0 {
+			elements[2] = &parquet.SchemaElement{Name: wrapper, RepetitionType: &repeated, Type: &int32Type}
+		}
+		for _, leaf := range leaves {
+			elements = append(elements, &parquet.SchemaElement{Name: leaf, RepetitionType: &required, Type: &int32Type})
+		}
+		return elements
+	}
+
+	tests := []struct {
+		name        string
+		schema      []*parquet.SchemaElement
+		wantType    reflect.Type
+		wantWrapper bool
+		inPath      []string
+		exPath      []string
+	}{
+		{
+			name:        "alternate_names",
+			schema:      listSchema("bag", 1, "array_element"),
+			wantWrapper: true,
+			wantType:    reflect.TypeFor[[]int32](),
+			inPath:      []string{"Root", "V", "List", "Element"},
+			exPath:      []string{"root", "v", "bag", "array_element"},
+		},
+		{
+			name:        "canonical_names",
+			schema:      listSchema("list", 1, "element"),
+			wantWrapper: true,
+			wantType:    reflect.TypeFor[[]int32](),
+			inPath:      []string{"Root", "V", "List", "Element"},
+			exPath:      []string{"root", "v", "list", "element"},
+		},
+		{
+			name: "logical_type_only",
+			schema: func() []*parquet.SchemaElement {
+				elements := listSchema("bag", 1, "array_element")
+				elements[1].ConvertedType = nil
+				elements[1].LogicalType = &parquet.LogicalType{LIST: parquet.NewListType()}
+				return elements
+			}(),
+			wantWrapper: true,
+			wantType:    reflect.TypeFor[[]int32](),
+			inPath:      []string{"Root", "V", "List", "Element"},
+			exPath:      []string{"root", "v", "bag", "array_element"},
+		},
+		{
+			// The spec treats a one-field repeated group named "array" as the element itself.
+			name:   "legacy_array",
+			schema: listSchema("array", 1, "x"),
+			inPath: []string{"Root", "V", "Array", "X"},
+			exPath: []string{"root", "v", "array", "x"},
+		},
+		{
+			name:   "legacy_tuple",
+			schema: listSchema("v_tuple", 1, "x"),
+			inPath: []string{"Root", "V", "V_tuple", "X"},
+			exPath: []string{"root", "v", "v_tuple", "x"},
+		},
+		{
+			name:   "two_level",
+			schema: listSchema("bag", 0),
+			inPath: []string{"Root", "V", "Bag"},
+			exPath: []string{"root", "v", "bag"},
+		},
+		{
+			// A repeated group whose only child is repeated is the element itself.
+			name: "repeated_child",
+			schema: func() []*parquet.SchemaElement {
+				elements := listSchema("bag", 1, "x")
+				elements[3].RepetitionType = &repeated
+				return elements
+			}(),
+			inPath: []string{"Root", "V", "Bag", "X"},
+			exPath: []string{"root", "v", "bag", "x"},
+		},
+		{
+			name:   "multi_field_element",
+			schema: listSchema("bag", two, "a", "b"),
+			inPath: []string{"Root", "V", "Bag", "A"},
+			exPath: []string{"root", "v", "bag", "a"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sh := NewSchemaHandlerFromSchemaList(tt.schema)
+			inPath := common.PathToStr(tt.inPath)
+			require.Contains(t, sh.MapIndex, inPath)
+			require.Equal(t, inPath, sh.ExPathToInPath[common.PathToStr(tt.exPath)])
+			require.Equal(t, tt.wantWrapper, sh.IsListWrapper(2))
+			if tt.wantType != nil {
+				got, err := sh.GetType(common.PathToStr([]string{"Root", "V"}))
+				require.NoError(t, err)
+				require.Equal(t, tt.wantType, got)
+			}
+		})
+	}
+}
+
+func TestIsListWrapper(t *testing.T) {
+	sh := NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{{Name: "root"}})
+	for _, idx := range []int32{-1, 0, 1} {
+		require.False(t, sh.IsListWrapper(idx))
+	}
+
+	// An element missing from IndexMap has no parent to check.
+	unindexed := &SchemaHandler{SchemaElements: []*parquet.SchemaElement{{}, {}}}
+	require.False(t, unindexed.IsListWrapper(1))
+
+	// A hand-built handler has no cached children map to read.
+	one := int32(1)
+	listType := parquet.ConvertedType_LIST
+	repeated := parquet.FieldRepetitionType_REPEATED
+	paths := []string{"R", common.PathToStr([]string{"R", "V"}), common.PathToStr([]string{"R", "V", "L"}), common.PathToStr([]string{"R", "V", "L", "E"})}
+	manual := &SchemaHandler{
+		SchemaElements: []*parquet.SchemaElement{
+			{NumChildren: &one},
+			{ConvertedType: &listType, NumChildren: &one},
+			{RepetitionType: &repeated, NumChildren: &one},
+			{},
+		},
+		MapIndex: map[string]int32{paths[0]: 0, paths[1]: 1, paths[2]: 2, paths[3]: 3},
+		IndexMap: map[int32]string{0: paths[0], 1: paths[1], 2: paths[2], 3: paths[3]},
+	}
+	require.True(t, manual.IsListWrapper(2))
+	require.False(t, manual.IsListWrapper(3))
 }
