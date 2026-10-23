@@ -6,7 +6,6 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
-	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/types"
 )
@@ -199,8 +198,7 @@ func (r *variantReconstructor) reconstructValue(pathPrefix string, rowIdx int, t
 	}
 
 	idx, ok := r.SchemaHandler.MapIndex[pathPrefix]
-	if ok && r.SchemaHandler.SchemaElements[idx].ConvertedType != nil &&
-		*r.SchemaHandler.SchemaElements[idx].ConvertedType == parquet.ConvertedType_LIST {
+	if ok && isListColumn(r.SchemaHandler.SchemaElements[idx]) {
 		return r.reconstructValue(pathPrefix+common.ParGoPathDelimiter+"List", rowIdx, tableBgn, tableEnd, metadata)
 	}
 

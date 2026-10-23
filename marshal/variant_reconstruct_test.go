@@ -641,69 +641,62 @@ func TestVariantReconstructor_Reconstruct_Coverage(t *testing.T) {
 
 func TestVariantReconstructor_reconstructValue_Coverage(t *testing.T) {
 	t.Run("nested_list_reconstruction", func(t *testing.T) {
-		// Mock a LIST of Variants
-		// Root.Var (LIST)
-		//   List
-		//     Element (VARIANT)
-		//       Metadata
-		//       Value
-
+		// Root.Var (LIST) / List / Element (VARIANT) / {Metadata, Value}
 		metadata := types.EncodeVariantMetadata([]string{})
-		val1 := types.EncodeVariantInt8(1)
-		val2 := types.EncodeVariantInt8(2)
-
 		mKeyInt := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element" + common.ParGoPathDelimiter + "Metadata"
 		vKeyInt := common.ParGoRootInName + common.ParGoPathDelimiter + "Var" + common.ParGoPathDelimiter + "List" + common.ParGoPathDelimiter + "Element" + common.ParGoPathDelimiter + "Value"
 
-		metadataTable := &layout.Table{
-			Path:             []string{common.ParGoRootInName, "Var", "List", "Element", "Metadata"},
-			Values:           []any{metadata, metadata},
-			RepetitionLevels: []int32{0, 1},
-			DefinitionLevels: []int32{1, 1},
+		testCases := map[string]struct {
+			logicalTypeOnly bool
+		}{
+			"converted-type":    {},
+			"logical-type-only": {logicalTypeOnly: true},
 		}
-		valueTable := &layout.Table{
-			Path:             []string{common.ParGoRootInName, "Var", "List", "Element", "Value"},
-			Values:           []any{val1, val2},
-			RepetitionLevels: []int32{0, 1},
-			DefinitionLevels: []int32{1, 1},
+		for name, tc := range testCases {
+			t.Run(name, func(t *testing.T) {
+				tableMap := map[string]*layout.Table{
+					mKeyInt: {
+						Path:             []string{common.ParGoRootInName, "Var", "List", "Element", "Metadata"},
+						Values:           []any{metadata, metadata},
+						RepetitionLevels: []int32{0, 1},
+						DefinitionLevels: []int32{1, 1},
+					},
+					vKeyInt: {
+						Path:             []string{common.ParGoRootInName, "Var", "List", "Element", "Value"},
+						Values:           []any{types.EncodeVariantInt8(1), types.EncodeVariantInt8(2)},
+						RepetitionLevels: []int32{0, 1},
+						DefinitionLevels: []int32{1, 1},
+					},
+				}
+
+				sh, err := schema.NewSchemaHandlerFromStruct(new(struct {
+					Var []any `parquet:"name=Var, type=LIST, valuetype=VARIANT"`
+				}))
+				require.NoError(t, err)
+				listElem := sh.SchemaElements[sh.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"Var"]]
+				require.Equal(t, parquet.ConvertedType_LIST, listElem.GetConvertedType())
+				if tc.logicalTypeOnly {
+					listElem.ConvertedType = nil
+					listElem.LogicalType = &parquet.LogicalType{LIST: &parquet.ListType{}}
+				}
+
+				r := &variantReconstructor{
+					Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
+					tableMap:      &tableMap,
+					SchemaHandler: sh,
+				}
+				tableBgn := map[string]int{mKeyInt: 0, vKeyInt: 0}
+				tableEnd := map[string]int{mKeyInt: 2, vKeyInt: 2}
+
+				res, err := r.reconstructValue(r.Path, 0, tableBgn, tableEnd, nil)
+				require.NoError(t, err)
+				v, err := types.AnyToVariant(res)
+				require.NoError(t, err)
+				got, err := types.ConvertVariantValue(v)
+				require.NoError(t, err)
+				require.Equal(t, []any{int8(1), int8(2)}, got)
+			})
 		}
-
-		tableMap := map[string]*layout.Table{
-			mKeyInt: metadataTable,
-			vKeyInt: valueTable,
-		}
-
-		type ListElement struct {
-			Element any `parquet:"name=element, type=VARIANT"`
-		}
-		type ListType struct {
-			List []ListElement `parquet:"name=list, repetitiontype=REPEATED"`
-		}
-		sh, _ := schema.NewSchemaHandlerFromStruct(new(struct {
-			Var ListType `parquet:"name=Var, type=LIST"`
-		}))
-
-		// For LIST, we need to make sure MaxRepetitionLevel > 0 for children
-		// But here we are calling reconstructValue on the LIST group itself.
-		// reconstructValue handles LIST by going to List/Element.
-
-		// Manually create reconstructor since it's not a top-level Variant group
-		r := &variantReconstructor{
-			Path:          common.ParGoRootInName + common.ParGoPathDelimiter + "Var",
-			tableMap:      &tableMap,
-			SchemaHandler: sh,
-		}
-
-		tableBgn := map[string]int{mKeyInt: 0, vKeyInt: 0}
-		tableEnd := map[string]int{mKeyInt: 2, vKeyInt: 2}
-
-		res, err := r.reconstructValue(r.Path, 0, tableBgn, tableEnd, nil)
-		require.NoError(t, err)
-
-		// For LIST, reconstructValue should return a slice
-		slice, ok := res.([]any)
-		require.True(t, ok, "Expected slice, got %T", res)
-		require.Len(t, slice, 2)
 	})
 
 	t.Run("map_reconstruction_zip_slices", func(t *testing.T) {
