@@ -529,3 +529,22 @@ func TestReadRejectsDictionaryIndexOutOfRange(t *testing.T) {
 		})
 	}
 }
+
+func withoutDictionaryPage(t *testing.T, data []byte) []byte {
+	t.Helper()
+	return rewriteFooter(t, data, func(footer *parquet.FileMetaData) {
+		md := footer.RowGroups[0].Columns[0].MetaData
+		md.TotalCompressedSize -= md.DataPageOffset - *md.DictionaryPageOffset
+		md.DictionaryPageOffset = nil
+	})
+}
+
+func TestReadRejectsMissingDictionary(t *testing.T) {
+	data := withoutDictionaryPage(t, dictionaryIndexParquet(t, 1))
+	pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(data), nil, WithNP(1))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pr.ReadStop()) }()
+
+	_, err = pr.ReadByNumberWithContext(context.Background(), 2)
+	require.ErrorContains(t, err, "dictionary-encoded page has no dictionary")
+}
