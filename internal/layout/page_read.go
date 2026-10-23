@@ -27,9 +27,8 @@ type PageReadOptions struct {
 
 // Decode replaces a dictionary-encoded page's indices with dictPage values, rejecting invalid indices.
 func (page *Page) Decode(dictPage *Page) error {
-	if dictPage == nil || page == nil ||
-		(page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil) ||
-		dictPage.DataTable == nil || page.DataTable == nil {
+	if page == nil || page.DataTable == nil ||
+		(page.Header.DataPageHeader == nil && page.Header.DataPageHeaderV2 == nil) {
 		return nil
 	}
 
@@ -45,10 +44,17 @@ func (page *Page) Decode(dictPage *Page) error {
 		return nil
 	}
 
-	dictSize := int64(len(dictPage.DataTable.Values))
+	hasDict := dictPage != nil && dictPage.DataTable != nil
+	var dictSize int64
+	if hasDict {
+		dictSize = int64(len(dictPage.DataTable.Values))
+	}
 	for i, value := range page.DataTable.Values {
 		if value == nil {
 			continue
+		}
+		if !hasDict {
+			return fmt.Errorf("dictionary-encoded page has no dictionary")
 		}
 		index, ok := value.(int64)
 		if !ok {

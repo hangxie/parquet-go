@@ -1662,6 +1662,7 @@ func TestPage_Decode_NilSafety(t *testing.T) {
 	tests := []struct {
 		name       string
 		setupPages func() (*Page, *Page)
+		wantErr    string
 	}{
 		{
 			name: "nil_dict_page",
@@ -1674,6 +1675,23 @@ func TestPage_Decode_NilSafety(t *testing.T) {
 					},
 					DataTable: &Table{
 						Values: []any{int64(0)},
+					},
+				}
+				return page, nil
+			},
+			wantErr: "dictionary-encoded page has no dictionary",
+		},
+		{
+			name: "nil_dict_page_all_null",
+			setupPages: func() (*Page, *Page) {
+				page := &Page{
+					Header: &parquet.PageHeader{
+						DataPageHeader: &parquet.DataPageHeader{
+							Encoding: parquet.Encoding_RLE_DICTIONARY,
+						},
+					},
+					DataTable: &Table{
+						Values: []any{nil, nil},
 					},
 				}
 				return page, nil
@@ -1697,6 +1715,7 @@ func TestPage_Decode_NilSafety(t *testing.T) {
 				}
 				return page, dictPage
 			},
+			wantErr: "dictionary-encoded page has no dictionary",
 		},
 		{
 			name: "nil_page_data_table",
@@ -1723,7 +1742,12 @@ func TestPage_Decode_NilSafety(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			page, dictPage := tt.setupPages()
 
-			require.NoError(t, page.Decode(dictPage))
+			err := page.Decode(dictPage)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
