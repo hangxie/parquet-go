@@ -544,7 +544,7 @@ The reader recognizes LIST and MAP groups by their annotation and structure, not
 
 - A group is a LIST or MAP if its logical type or its converted type says so. Either one is enough.
 - A three-level LIST can use any names for its repeated group and element. For example, Athena writes `bag` and `array_element` instead of `list` and `element`. Such a file reads into a Go slice declared with `type=LIST`. Without a schema, it infers as a slice.
-- Some repeated groups are the list element itself, not a wrapper, whatever they are named. This applies when the group's only field is itself repeated, or when the group is named `array` or `<list>_tuple`. This is the Parquet spec's legacy rule, and a typed read never skips such a group as a wrapper.
+- Some repeated groups are the list element itself, not a wrapper, whatever they are named. This applies when the group's only field is itself repeated, or when the group is named `array` or `<list>_tuple`. This is the Parquet spec's legacy rule, and a typed read never skips such a group as a wrapper. The same goes for a repeated field directly under the LIST, whether a leaf or a group of several fields. Without a schema these infer as a struct holding the repeated field, and `marshal.ConvertToJSONFriendly` renders them as a list of that element, so `[{"element":[1,2]},{"element":[3]}]` for a `list` group around a repeated `element`.
 
 Up to v3.9.2, the reader behaved differently:
 
@@ -552,7 +552,9 @@ Up to v3.9.2, the reader behaved differently:
 | --- | --- | --- |
 | LIST with names other than `list` and `element` | Typed read failed with `Column not found`; inferred as nested structs of the wrappers | Reads and infers as a slice |
 | LIST or MAP with only the logical type set | Inferred as nested structs | Infers as a slice or map |
-| Repeated group named `list` whose only field is a repeated `element` | Inferred as a nested list | The `list` group is the element, so it infers as a list of structs, each holding an `element` slice |
+| Repeated group named `list` whose only field is a repeated `element` | Inferred as a nested list | The `list` group is the element, so it renders as a list of `{"element": [...]}` objects |
+
+Up to v3.9.3, `marshal.ConvertToJSONFriendly` rendered a LIST whose repeated field is the element as an object keyed by that field's name, such as `{"element":[1,2]}`, unless the field was named `array`. v3.9.3 also rendered a `list` group around a repeated `element` this way, as `{"list":[...]}`.
 
 ## Encoding Support
 

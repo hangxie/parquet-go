@@ -78,6 +78,202 @@ func TestConvertToJSONFriendly_NestedOldListFormat(t *testing.T) {
 	require.JSONEq(t, `{"a":[[1,2],[3,4]]}`, string(raw))
 }
 
+// Each spec backward-compatibility rule that makes the repeated field the element renders v as a list of it.
+func TestConvertToJSONFriendly_LegacyListElement(t *testing.T) {
+	repeated := common.ToPtr(parquet.FieldRepetitionType_REPEATED)
+	required := common.ToPtr(parquet.FieldRepetitionType_REQUIRED)
+	int32Type := common.ToPtr(parquet.Type_INT32)
+	listGroup := func(annotated bool, children int32) *parquet.SchemaElement {
+		group := &parquet.SchemaElement{Name: "v", RepetitionType: required, NumChildren: common.ToPtr(children)}
+		if annotated {
+			group.ConvertedType = common.ToPtr(parquet.ConvertedType_LIST)
+		}
+		return group
+	}
+	type pair struct {
+		A int32 `json:"a"`
+		B int32 `json:"b"`
+	}
+	type single struct {
+		X int32 `json:"x"`
+	}
+	type ints struct {
+		Element []int32 `json:"element"`
+	}
+
+	testCases := map[string]struct {
+		schema   []*parquet.SchemaElement
+		input    any
+		expected string
+	}{
+		"rule-1-repeated-leaf": {
+			schema: []*parquet.SchemaElement{
+				listGroup(true, 1),
+				{Name: "element", RepetitionType: repeated, Type: int32Type},
+			},
+			input: struct {
+				V struct {
+					Element []int32 `json:"element"`
+				} `json:"v"`
+			}{V: struct {
+				Element []int32 `json:"element"`
+			}{Element: []int32{1, 2}}},
+			expected: `{"v":[1,2]}`,
+		},
+		"rule-2-multi-field-group": {
+			schema: []*parquet.SchemaElement{
+				listGroup(true, 1),
+				{Name: "element", RepetitionType: repeated, NumChildren: common.ToPtr(int32(2))},
+				{Name: "a", RepetitionType: required, Type: int32Type},
+				{Name: "b", RepetitionType: required, Type: int32Type},
+			},
+			input: struct {
+				V struct {
+					Element []pair `json:"element"`
+				} `json:"v"`
+			}{V: struct {
+				Element []pair `json:"element"`
+			}{Element: []pair{{A: 1, B: 2}}}},
+			expected: `{"v":[{"a":1,"b":2}]}`,
+		},
+		"rule-3-repeated-only-field": {
+			schema: []*parquet.SchemaElement{
+				listGroup(true, 1),
+				{Name: "list", RepetitionType: repeated, NumChildren: common.ToPtr(int32(1))},
+				{Name: "element", RepetitionType: repeated, Type: int32Type},
+			},
+			input: struct {
+				V struct {
+					List []ints `json:"list"`
+				} `json:"v"`
+			}{V: struct {
+				List []ints `json:"list"`
+			}{List: []ints{{Element: []int32{1, 2}}, {Element: []int32{3}}}}},
+			expected: `{"v":[{"element":[1,2]},{"element":[3]}]}`,
+		},
+		"rule-3-empty": {
+			schema: []*parquet.SchemaElement{
+				listGroup(true, 1),
+				{Name: "list", RepetitionType: repeated, NumChildren: common.ToPtr(int32(1))},
+				{Name: "element", RepetitionType: repeated, Type: int32Type},
+			},
+			input: struct {
+				V struct {
+					List []ints `json:"list"`
+				} `json:"v"`
+			}{V: struct {
+				List []ints `json:"list"`
+			}{List: []ints{}}},
+			expected: `{"v":[]}`,
+		},
+		"rule-3-null": {
+			schema: []*parquet.SchemaElement{
+				{Name: "v", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL), ConvertedType: common.ToPtr(parquet.ConvertedType_LIST), NumChildren: common.ToPtr(int32(1))},
+				{Name: "list", RepetitionType: repeated, NumChildren: common.ToPtr(int32(1))},
+				{Name: "element", RepetitionType: repeated, Type: int32Type},
+			},
+			input: struct {
+				V *struct {
+					List []ints `json:"list"`
+				} `json:"v"`
+			}{},
+			expected: `{"v":null}`,
+		},
+		"rule-4-array-name": {
+			schema: []*parquet.SchemaElement{
+				listGroup(true, 1),
+				{Name: "array", RepetitionType: repeated, NumChildren: common.ToPtr(int32(1))},
+				{Name: "x", RepetitionType: required, Type: int32Type},
+			},
+			input: struct {
+				V struct {
+					Array []single `json:"array"`
+				} `json:"v"`
+			}{V: struct {
+				Array []single `json:"array"`
+			}{Array: []single{{X: 7}}}},
+			expected: `{"v":[{"x":7}]}`,
+		},
+		"rule-4-tuple-name": {
+			schema: []*parquet.SchemaElement{
+				listGroup(true, 1),
+				{Name: "v_tuple", RepetitionType: repeated, NumChildren: common.ToPtr(int32(1))},
+				{Name: "x", RepetitionType: required, Type: int32Type},
+			},
+			input: struct {
+				V struct {
+					V_tuple []single `json:"v_tuple"`
+				} `json:"v"`
+			}{V: struct {
+				V_tuple []single `json:"v_tuple"`
+			}{V_tuple: []single{{X: 7}}}},
+			expected: `{"v":[{"x":7}]}`,
+		},
+		"three-level-wrapper-keeps-key": {
+			// Only a caller-declared struct carries the wrapper; an inferred read yields a slice and renders [1,2].
+			schema: []*parquet.SchemaElement{
+				listGroup(true, 1),
+				{Name: "list", RepetitionType: repeated, NumChildren: common.ToPtr(int32(1))},
+				{Name: "element", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL), Type: int32Type},
+			},
+			input: struct {
+				V struct {
+					List []struct {
+						Element *int32 `json:"element"`
+					} `json:"list"`
+				} `json:"v"`
+			}{V: struct {
+				List []struct {
+					Element *int32 `json:"element"`
+				} `json:"list"`
+			}{List: []struct {
+				Element *int32 `json:"element"`
+			}{{Element: common.ToPtr(int32(1))}, {Element: common.ToPtr(int32(2))}}}},
+			expected: `{"v":{"list":[{"element":1},{"element":2}]}}`,
+		},
+		"non-repeated-child-keeps-key": {
+			schema: []*parquet.SchemaElement{
+				listGroup(true, 1),
+				{Name: "element", RepetitionType: required, Type: common.ToPtr(parquet.Type_BYTE_ARRAY)},
+			},
+			input: struct {
+				V struct {
+					Element []byte `json:"element"`
+				} `json:"v"`
+			}{V: struct {
+				Element []byte `json:"element"`
+			}{Element: []byte("ab")}},
+			expected: `{"v":{"element":"YWI="}}`,
+		},
+		"unannotated-group-keeps-key": {
+			schema: []*parquet.SchemaElement{
+				listGroup(false, 1),
+				{Name: "element", RepetitionType: repeated, Type: int32Type},
+			},
+			input: struct {
+				V struct {
+					Element []int32 `json:"element"`
+				} `json:"v"`
+			}{V: struct {
+				Element []int32 `json:"element"`
+			}{Element: []int32{1, 2}}},
+			expected: `{"v":{"element":[1,2]}}`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			root := &parquet.SchemaElement{Name: common.ParGoRootInName, NumChildren: common.ToPtr(int32(1))}
+			sh := schema.NewSchemaHandlerFromSchemaList(append([]*parquet.SchemaElement{root}, tc.schema...))
+			result, err := ConvertToJSONFriendly(tc.input, sh)
+			require.NoError(t, err)
+			raw, err := json.Marshal(result)
+			require.NoError(t, err)
+			require.JSONEq(t, tc.expected, string(raw))
+		})
+	}
+}
+
 func TestConvertToJSONFriendly_UnexportedFields(t *testing.T) {
 	type MixedStruct struct {
 		Public  string `json:"public"`

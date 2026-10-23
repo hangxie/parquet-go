@@ -1008,7 +1008,9 @@ func TestReadListWithRepeatedElementField(t *testing.T) {
 	var row record
 	row.V.List = append(row.V.List, struct {
 		Element []int32 `parquet:"name=element, type=INT32, repetitiontype=REPEATED"`
-	}{Element: []int32{1, 2}})
+	}{Element: []int32{1, 2}}, struct {
+		Element []int32 `parquet:"name=element, type=INT32, repetitiontype=REPEATED"`
+	}{Element: []int32{3}})
 	require.NoError(t, pw.WriteWithContext(context.Background(), row))
 	require.NoError(t, pw.WriteStopWithContext(context.Background()))
 
@@ -1023,9 +1025,11 @@ func TestReadListWithRepeatedElementField(t *testing.T) {
 	defer func() { require.NoError(t, pr.ReadStop()) }()
 	got, err := pr.ReadByNumberWithContext(context.Background(), 1)
 	require.NoError(t, err)
-	jsonBytes, err := json.Marshal(got)
+	friendly, err := marshal.ConvertToJSONFriendly(got, pr.SchemaHandler)
 	require.NoError(t, err)
-	require.JSONEq(t, `[{"v":{"list":[{"element":[1,2]}]}}]`, string(jsonBytes))
+	jsonBytes, err := json.Marshal(friendly)
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"v":[{"element":[1,2]},{"element":[3]}]}]`, string(jsonBytes))
 }
 
 func TestReadMapAnnotatedByLogicalTypeOnly(t *testing.T) {
