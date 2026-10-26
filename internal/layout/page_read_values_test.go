@@ -444,6 +444,36 @@ func TestReadDataPageValues_BoundsChecking(t *testing.T) {
 			},
 			expectedError: "expected 10 values but got 3",
 		},
+		{
+			name:           "delta_binary_packed_more_values_than_expected",
+			encodingMethod: parquet.Encoding_DELTA_BINARY_PACKED,
+			dataType:       parquet.Type_INT32,
+			cnt:            3,
+			setupData: func() []byte {
+				return encoding.WriteDeltaINT32([]any{int32(1), int32(2), int32(3), int32(4), int32(5)})
+			},
+			expectedError: "value count 5 exceeds expected 3",
+		},
+		{
+			name:           "delta_binary_packed_fewer_values_than_expected",
+			encodingMethod: parquet.Encoding_DELTA_BINARY_PACKED,
+			dataType:       parquet.Type_INT64,
+			cnt:            10,
+			setupData: func() []byte {
+				return encoding.WriteDeltaINT64([]any{int64(1), int64(2)})
+			},
+			expectedError: "expected 10 values but got 2 from delta decoder",
+		},
+		{
+			name:           "delta_byte_array_fewer_values_than_expected",
+			encodingMethod: parquet.Encoding_DELTA_BYTE_ARRAY,
+			dataType:       parquet.Type_BYTE_ARRAY,
+			cnt:            10,
+			setupData: func() []byte {
+				return encoding.WriteDeltaByteArray([]any{"a", "ab"})
+			},
+			expectedError: "expected 10 values but got 2 from delta decoder",
+		},
 	}
 
 	for _, tc := range testCases {

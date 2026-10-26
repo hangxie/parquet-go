@@ -107,10 +107,10 @@ func ReadBitPackedCount(bytesReader *bytes.Reader, cnt, bitWidth uint64) ([]any,
 	if cnt == 0 {
 		return []any{}, nil
 	}
-	res := make([]any, 0, cnt)
 	if bitWidth == 0 {
-		for range int(cnt) {
-			res = append(res, int64(0))
+		res := make([]any, cnt)
+		for i := range res {
+			res[i] = int64(0)
 		}
 		return res, nil
 	}
@@ -122,8 +122,9 @@ func ReadBitPackedCount(bytesReader *bytes.Reader, cnt, bitWidth uint64) ([]any,
 	// so allow that margin before rejecting.
 	byteCnt := (cnt*bitWidth + 7) / 8
 	if remaining := uint64(bytesReader.Len()); byteCnt > remaining*8+8 {
-		return res, fmt.Errorf("ReadBitPackedCount: byte count %d exceeds remaining data size %d", byteCnt, remaining)
+		return nil, fmt.Errorf("ReadBitPackedCount: byte count %d exceeds remaining data size %d", byteCnt, remaining)
 	}
+	res := make([]any, 0, cnt)
 
 	bytesBuf := make([]byte, byteCnt)
 	if _, err := bytesReader.Read(bytesBuf); err != nil {
