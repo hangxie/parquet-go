@@ -44,11 +44,7 @@ func ReadUnsignedVarInt(bytesReader *bytes.Reader) (uint64, error) {
 }
 
 // RLE return res is []INT64
-// ReadRLE decodes a single RLE run. maxCount, when > 0, bounds the run length to
-// the caller's expected value count: an RLE run encodes its length in a few bytes
-// regardless of how many values it represents, so a corrupted/malicious header can
-// otherwise claim a run far larger than the page could legitimately contain,
-// forcing a huge allocation. Pass 0 to disable the bound (trusted input only).
+// ReadRLE decodes a single RLE run of at most maxCount values.
 func ReadRLE(bytesReader *bytes.Reader, header, bitWidth, maxCount uint64) ([]any, error) {
 	var err error
 	var res []any
@@ -56,7 +52,8 @@ func ReadRLE(bytesReader *bytes.Reader, header, bitWidth, maxCount uint64) ([]an
 	if err := validateCount(cnt); err != nil {
 		return res, fmt.Errorf("ReadRLE: %w", err)
 	}
-	if maxCount > 0 && cnt > maxCount {
+	// A run's length costs a few header bytes however many values it claims.
+	if cnt > maxCount {
 		return res, fmt.Errorf("ReadRLE: run count %d exceeds expected value count %d", cnt, maxCount)
 	}
 	width := (bitWidth + 7) / 8
@@ -171,13 +168,13 @@ func ReadBitPackedCount(bytesReader *bytes.Reader, cnt, bitWidth uint64) ([]any,
 }
 
 // res is INT64
-// ReadRLEBitPackedHybrid decodes an RLE/bit-packed hybrid buffer. maxCount, when
-// > 0, is the caller's expected number of values: decoding stops once that many
-// values have been produced and individual RLE runs are bounded to it, which
-// prevents a malformed buffer from amplifying a few bytes into a huge allocation.
-// Pass 0 to disable the bound (trusted input only).
+// ReadRLEBitPackedHybrid decodes an RLE/bit-packed hybrid buffer into at most maxCount values.
 func ReadRLEBitPackedHybrid(bytesReader *bytes.Reader, bitWidth, length, maxCount uint64) ([]any, error) {
 	res := make([]any, 0)
+	// Run headers are untrusted, so the expected count is what bounds allocation.
+	if maxCount == 0 {
+		return res, fmt.Errorf("ReadRLEBitPackedHybrid: maxCount must be positive")
+	}
 	if length <= 0 {
 		lb, err := ReadPlainINT32(bytesReader, 1)
 		if err != nil {
@@ -200,32 +197,31 @@ func ReadRLEBitPackedHybrid(bytesReader *bytes.Reader, bitWidth, length, maxCoun
 
 	newReader := bytes.NewReader(buf)
 	for newReader.Len() > 0 {
-		if maxCount > 0 && uint64(len(res)) >= maxCount {
-			break
-		}
 		header, err := ReadUnsignedVarInt(newReader)
 		if err != nil {
 			return res, err
 		}
 		if header&1 == 0 {
-			remainingCount := maxCount
-			if maxCount > 0 {
-				remainingCount -= uint64(len(res))
-			}
-			buf, err := ReadRLE(newReader, header, bitWidth, remainingCount)
+			buf, err := ReadRLE(newReader, header, bitWidth, maxCount-uint64(len(res)))
 			if err != nil {
 				return res, err
 			}
 			res = append(res, buf...)
 
 		} else {
-			buf, err := ReadBitPacked(newReader, header, bitWidth)
+			if header>>1 > maxAllowedCount/8 {
+				return res, fmt.Errorf("ReadRLEBitPackedHybrid: bit-packed run of %d groups is too large", header>>1)
+			}
+			// A zero-width run consumes no input, so its size must not drive allocation;
+			// stopping at maxCount is safe because decoding returns right after.
+			cnt := min((header>>1)*8, maxCount-uint64(len(res)))
+			buf, err := ReadBitPackedCount(newReader, cnt, bitWidth)
 			if err != nil {
 				return res, err
 			}
 			res = append(res, buf...)
 		}
-		if maxCount > 0 && uint64(len(res)) >= maxCount {
+		if uint64(len(res)) >= maxCount {
 			return res[:maxCount], nil
 		}
 	}
