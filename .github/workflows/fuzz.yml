@@ -14,6 +14,10 @@ on:
         description: Fuzz duration per target (e.g. 60s, 5m)
         required: false
         default: 60s
+      notify:
+        description: File or update the failure issue, as a scheduled run does
+        type: boolean
+        default: false
 
 jobs:
   fuzz:
@@ -39,3 +43,28 @@ jobs:
           name: fuzz-findings
           path: '**/testdata/fuzz/**'
           if-no-files-found: ignore
+
+  # Scheduled runs fail silently otherwise; keep one open issue per failure streak.
+  notify:
+    needs: fuzz
+    if: always() && needs.fuzz.result != 'success' && (github.event_name == 'schedule' || inputs.notify)
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.fuzz.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly fuzz run failing"
+          body="Fuzz run ${RESULT}: ${RUN_URL}"
+          num=$(gh issue list --state open --search "in:title \"${title}\"" --json number,title \
+            --jq "map(select(.title == \"${title}\")) | .[0].number // empty")
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "$body"
+          else
+            gh issue create --title "$title" --label bug --body "$body"
+          fi
