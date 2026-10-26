@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -410,9 +411,16 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 		reader := bytes.NewReader(data)
 
 		// This should fail because the declared length exceeds the available data.
-		_, err := ReadRLEBitPackedHybrid(reader, 1, 1000000, 0)
+		_, err := ReadRLEBitPackedHybrid(reader, 1, 1000000, 16)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "exceeds remaining data")
+	})
+
+	t.Run("zero_max_count", func(t *testing.T) {
+		// A zero-width run of 2^31-8 values would otherwise allocate ~32 GB.
+		body := WriteUnsignedVarInt(uint64(1<<28-1)<<1 | 1)
+		_, err := ReadRLEBitPackedHybrid(bytes.NewReader(body), 0, uint64(len(body)), 0)
+		require.ErrorContains(t, err, "maxCount must be positive")
 	})
 
 	t.Run("coverage", func(t *testing.T) {
@@ -519,7 +527,7 @@ func TestReadRLEBitPackedHybrid(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				reader := tt.setupData()
 
-				result, err := ReadRLEBitPackedHybrid(reader, tt.bitWidth, tt.length, 0)
+				result, err := ReadRLEBitPackedHybrid(reader, tt.bitWidth, tt.length, 16)
 
 				if tt.expectError {
 					require.Error(t, err)
@@ -700,6 +708,39 @@ func TestReadRLEBitPackedHybrid_StopsAtMaxCount(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(res), 4)
 	require.LessOrEqual(t, len(res), 8) // bounded, not unbounded
+}
+
+func TestReadRLEBitPackedHybrid_BitPackedRunBoundedByMaxCount(t *testing.T) {
+	testCases := map[string]struct {
+		body     []byte
+		bitWidth uint64
+		maxCount uint64
+		want     []any
+	}{
+		// Regression shape found by FuzzReadRLEBitPackedHybrid; it used to allocate ~32 GB.
+		"zero-width-huge-run": {WriteUnsignedVarInt(uint64(1<<28-1)<<1 | 1), 0, 3, []any{int64(0), int64(0), int64(0)}},
+		"partial-run":         {append(WriteUnsignedVarInt(2<<1|1), 0b101, 0xFF), 1, 3, []any{int64(1), int64(0), int64(1)}},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			res, err := ReadRLEBitPackedHybrid(bytes.NewReader(tc.body), tc.bitWidth, uint64(len(tc.body)), tc.maxCount)
+			runtime.ReadMemStats(&after)
+			require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, res)
+		})
+	}
+
+	body := WriteUnsignedVarInt((maxAllowedCount/8+1)<<1 | 1)
+	_, err := ReadRLEBitPackedHybrid(bytes.NewReader(body), 0, uint64(len(body)), 3)
+	require.ErrorContains(t, err, "too large")
+
+	// 4 groups at width 8 need 32 bytes, but only 1 is present.
+	body = append(WriteUnsignedVarInt(4<<1|1), 0xFF)
+	_, err = ReadRLEBitPackedHybrid(bytes.NewReader(body), 8, uint64(len(body)), 32)
+	require.ErrorContains(t, err, "exceeds remaining data size")
 }
 
 // TestReadBitPackedCount_OversizedCount guards the makeslice panic from an
