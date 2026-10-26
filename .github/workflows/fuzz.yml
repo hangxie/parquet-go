@@ -21,10 +21,24 @@ on:
 
 jobs:
   fuzz:
+    name: fuzz (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
+    # Each target already uses every core, so shards split targets across runners.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: types
+            pkgs: ./types
+          - shard: encoding
+            pkgs: ./internal/encoding
+          # Exclusion keeps packages that gain fuzz tests later covered.
+          - shard: other
+            pkgs: ./...
+            skip: '.*/(types|internal/encoding)'
     steps:
       - uses: actions/checkout@v7
       - name: Setup Go
@@ -42,22 +56,24 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ steps.corpus.outputs.dir }}
-          key: fuzz-corpus-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: fuzz-corpus-${{ runner.os }}-
+          key: fuzz-corpus-${{ runner.os }}-${{ matrix.shard }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ runner.os }}-${{ matrix.shard }}-
       - name: Running fuzz tests
-        run: make fuzz FUZZTIME=${{ github.event.inputs.fuzztime || '60s' }}
+        run: >-
+          make fuzz FUZZTIME=${{ github.event.inputs.fuzztime || '60s' }}
+          FUZZ_PKGS='${{ matrix.pkgs }}' FUZZ_SKIP='${{ matrix.skip }}'
       # Failing runs found something, so their corpus is the most valuable to keep.
       - name: Save fuzz corpus
         if: always()
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.corpus.outputs.dir }}
-          key: fuzz-corpus-${{ runner.os }}-${{ github.run_id }}
+          key: fuzz-corpus-${{ runner.os }}-${{ matrix.shard }}-${{ github.run_id }}
       - name: Upload fuzz findings
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz-findings
+          name: fuzz-findings-${{ matrix.shard }}
           path: '**/testdata/fuzz/**'
           if-no-files-found: ignore
 

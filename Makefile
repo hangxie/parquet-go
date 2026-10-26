@@ -134,12 +134,15 @@ benchmark:  ## Run benchmark
 
 # Per-target fuzz duration. Override for deeper runs, e.g. make fuzz FUZZTIME=120s
 FUZZTIME ?= 10s
+# Packages to fuzz, and a regex of package paths (whole-path match) to leave out.
+FUZZ_PKGS ?= ./...
+FUZZ_SKIP ?=
 
 .PHONY: fuzz
 fuzz: deps  ## Run every fuzz test for FUZZTIME each (default 10s; runs nightly in CI)
 	@echo "==> Running fuzz tests (FUZZTIME=$(FUZZTIME) each)"
 	@rc=0; \
-	for pkg in $$($(GO) list ./...); do \
+	for pkg in $$($(GO) list $(FUZZ_PKGS) | grep -vxE '$(FUZZ_SKIP)'); do \
 		for fn in $$($(GO) test -list '^Fuzz' $$pkg 2>/dev/null | grep '^Fuzz'); do \
 			echo "--> $$pkg $$fn"; \
 			$(GO) test -run='^$$' -fuzz="^$$fn$$" -fuzztime=$(FUZZTIME) $$pkg 2>&1 | grep -vE "^(fuzz: |PASS$$|ok )"; \
