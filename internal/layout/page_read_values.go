@@ -54,20 +54,34 @@ func defaultBitWidth(dataType parquet.Type) uint64 {
 	}
 }
 
-func readDeltaBinaryPacked(bytesReader *bytes.Reader, dataType parquet.Type) ([]any, error) {
+func readDeltaBinaryPacked(bytesReader *bytes.Reader, dataType parquet.Type, cnt uint64) ([]any, error) {
+	var (
+		values []any
+		err    error
+	)
 	switch dataType {
 	case parquet.Type_INT32:
-		return encoding.ReadDeltaBinaryPackedINT32(bytesReader)
+		values, err = encoding.ReadDeltaBinaryPackedINT32(bytesReader, cnt)
 	case parquet.Type_INT64:
-		return encoding.ReadDeltaBinaryPackedINT64(bytesReader)
+		values, err = encoding.ReadDeltaBinaryPackedINT64(bytesReader, cnt)
 	default:
 		return nil, fmt.Errorf("the encoding method DELTA_BINARY_PACKED can only be used with int32 and int64 types, got %v", dataType)
 	}
+	if err != nil {
+		return nil, err
+	}
+	if uint64(len(values)) < cnt {
+		return nil, fmt.Errorf("expected %d values but got %d from delta decoder", cnt, len(values))
+	}
+	return values, nil
 }
 
 func readDeltaByteArrayValues(values []any, err error, dataType parquet.Type, cnt uint64) ([]any, error) {
 	if err != nil {
 		return nil, err
+	}
+	if uint64(len(values)) < cnt {
+		return nil, fmt.Errorf("expected %d values but got %d from delta decoder", cnt, len(values))
 	}
 	if dataType == parquet.Type_FIXED_LEN_BYTE_ARRAY {
 		for i := range values {
@@ -124,12 +138,12 @@ func ReadDataPageValues(bytesReader *bytes.Reader, encodingMethod parquet.Encodi
 		convertRLEValuesForType(values, dataType)
 		return values, nil
 	case parquet.Encoding_DELTA_BINARY_PACKED:
-		return readDeltaBinaryPacked(bytesReader, dataType)
+		return readDeltaBinaryPacked(bytesReader, dataType, cnt)
 	case parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
-		values, err := encoding.ReadDeltaLengthByteArray(bytesReader)
+		values, err := encoding.ReadDeltaLengthByteArray(bytesReader, cnt)
 		return readDeltaByteArrayValues(values, err, dataType, cnt)
 	case parquet.Encoding_DELTA_BYTE_ARRAY:
-		values, err := encoding.ReadDeltaByteArray(bytesReader)
+		values, err := encoding.ReadDeltaByteArray(bytesReader, cnt)
 		return readDeltaByteArrayValues(values, err, dataType, cnt)
 	case parquet.Encoding_BYTE_STREAM_SPLIT:
 		return readByteStreamSplit(bytesReader, dataType, cnt, bitWidth)

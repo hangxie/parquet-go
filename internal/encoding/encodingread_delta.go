@@ -3,43 +3,105 @@ package encoding
 import (
 	"bytes"
 	"fmt"
+	"io"
 )
 
-func ReadDeltaBinaryPackedINT32(bytesReader *bytes.Reader) ([]any, error) {
-	var (
-		err error
-		res []any
-	)
+// deltaHeader holds the fields that open a DELTA_BINARY_PACKED stream.
+type deltaHeader struct {
+	numMiniblocks        uint64
+	numValues            uint64
+	numValuesInMiniblock uint64
+	firstValueZigZag     uint64
+}
 
+// readDeltaHeader parses and validates a delta header holding at most maxValues values.
+func readDeltaHeader(bytesReader *bytes.Reader, maxValues uint64) (deltaHeader, error) {
+	var h deltaHeader
 	blockSize, err := ReadUnsignedVarInt(bytesReader)
 	if err != nil {
-		return res, err
+		return h, err
 	}
-	numMiniblocksInBlock, err := ReadUnsignedVarInt(bytesReader)
-	if err != nil {
-		return res, err
+	if h.numMiniblocks, err = ReadUnsignedVarInt(bytesReader); err != nil {
+		return h, err
 	}
-	numValues, err := ReadUnsignedVarInt(bytesReader)
-	if err != nil {
-		return res, err
+	if h.numValues, err = ReadUnsignedVarInt(bytesReader); err != nil {
+		return h, err
 	}
-	firstValueZigZag, err := ReadUnsignedVarInt(bytesReader)
+	if h.firstValueZigZag, err = ReadUnsignedVarInt(bytesReader); err != nil {
+		return h, err
+	}
+	if h.numMiniblocks == 0 {
+		return h, fmt.Errorf("numMiniblocksInBlock is zero")
+	}
+	// Spec-required multiples guarantee each miniblock holds values, so decoding progresses.
+	if blockSize == 0 || blockSize%128 != 0 {
+		return h, fmt.Errorf("block size %d is not a positive multiple of 128", blockSize)
+	}
+	if err := validateCount(blockSize); err != nil {
+		return h, err
+	}
+	if blockSize%h.numMiniblocks != 0 || (blockSize/h.numMiniblocks)%32 != 0 {
+		return h, fmt.Errorf("values per miniblock (block size %d / %d miniblocks) is not a multiple of 32", blockSize, h.numMiniblocks)
+	}
+	if h.numValues > maxValues {
+		return h, fmt.Errorf("value count %d exceeds expected %d", h.numValues, maxValues)
+	}
+	h.numValuesInMiniblock = blockSize / h.numMiniblocks
+	return h, nil
+}
+
+// readBitWidths reads a block's miniblock widths, checking the input holds them before allocating.
+func readBitWidths(bytesReader *bytes.Reader, numMiniblocks uint64) ([]byte, error) {
+	if remaining := uint64(bytesReader.Len()); numMiniblocks > remaining {
+		return nil, fmt.Errorf("miniblock count %d exceeds remaining data %d", numMiniblocks, remaining)
+	}
+	bitWidths := make([]byte, numMiniblocks)
+	if _, err := io.ReadFull(bytesReader, bitWidths); err != nil {
+		return nil, err
+	}
+	return bitWidths, nil
+}
+
+// readMiniblock returns at most needed deltas, never allocating by the header's miniblock size.
+func readMiniblock(bytesReader *bytes.Reader, numValuesInMiniblock, needed uint64, bitWidth byte) ([]any, error) {
+	n := min(numValuesInMiniblock, needed)
+	if bitWidth == 0 {
+		cur := make([]any, n)
+		for i := range cur {
+			cur[i] = int64(0)
+		}
+		return cur, nil
+	}
+	if bitWidth > 64 {
+		return nil, fmt.Errorf("bit width %d exceeds 64", bitWidth)
+	}
+	// The spec's full padding is what locates the next stream, e.g. DELTA_BYTE_ARRAY suffixes.
+	width := uint64(bitWidth)
+	full := numValuesInMiniblock * width / 8
+	if remaining := uint64(bytesReader.Len()); full > remaining {
+		return nil, fmt.Errorf("miniblock needs %d bytes but %d remain", full, remaining)
+	}
+	cur, err := ReadBitPackedCount(bytesReader, n, width)
 	if err != nil {
-		return res, err
+		return nil, err
+	}
+	if _, err := bytesReader.Seek(int64(full-(n*width+7)/8), io.SeekCurrent); err != nil {
+		return nil, err
+	}
+	return cur, nil
+}
+
+// ReadDeltaBinaryPackedINT32 decodes at most maxValues INT32 values.
+func ReadDeltaBinaryPackedINT32(bytesReader *bytes.Reader, maxValues uint64) ([]any, error) {
+	var res []any
+	h, err := readDeltaHeader(bytesReader, maxValues)
+	if err != nil {
+		return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: %w", err)
 	}
 
-	fv32 := int32(firstValueZigZag)
+	fv32 := int32(h.firstValueZigZag)
 	firstValue := int32(uint32(fv32)>>1) ^ -(fv32 & 1)
-	if numMiniblocksInBlock == 0 {
-		return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: numMiniblocksInBlock is zero")
-	}
-	if err := validateCount(numMiniblocksInBlock); err != nil {
-		return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: %w", err)
-	}
-	if err := validateCount(numValues); err != nil {
-		return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: %w", err)
-	}
-	numValuesInMiniBlock := blockSize / numMiniblocksInBlock
+	numValues := h.numValues
 
 	res = make([]any, 0)
 	res = append(res, firstValue)
@@ -51,20 +113,16 @@ func ReadDeltaBinaryPackedINT32(bytesReader *bytes.Reader) ([]any, error) {
 
 		md32 := int32(minDeltaZigZag)
 		minDelta := int32(uint32(md32)>>1) ^ -(md32 & 1)
-		bitWidths := make([]uint64, numMiniblocksInBlock)
-		for i := range numMiniblocksInBlock {
-			b, err := bytesReader.ReadByte()
-			if err != nil {
-				return res, err
-			}
-			bitWidths[i] = uint64(b)
+		bitWidths, err := readBitWidths(bytesReader, h.numMiniblocks)
+		if err != nil {
+			return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: %w", err)
 		}
-		for i := 0; uint64(i) < numMiniblocksInBlock && uint64(len(res)) < numValues; i++ {
-			cur, err := ReadBitPacked(bytesReader, (numValuesInMiniBlock/8)<<1, bitWidths[i])
+		for i := 0; uint64(i) < h.numMiniblocks && uint64(len(res)) < numValues; i++ {
+			cur, err := readMiniblock(bytesReader, h.numValuesInMiniblock, numValues-uint64(len(res)), bitWidths[i])
 			if err != nil {
-				return res, err
+				return res, fmt.Errorf("ReadDeltaBinaryPackedINT32: %w", err)
 			}
-			for j := 0; j < len(cur) && len(res) < int(numValues); j++ {
+			for j := range cur {
 				res = append(res, int32(res[len(res)-1].(int32)+int32(cur[j].(int64))+minDelta))
 			}
 		}
@@ -72,41 +130,16 @@ func ReadDeltaBinaryPackedINT32(bytesReader *bytes.Reader) ([]any, error) {
 	return res[:numValues], err
 }
 
-// res is INT64
-func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader) ([]any, error) {
-	var (
-		err error
-		res []any
-	)
-
-	blockSize, err := ReadUnsignedVarInt(bytesReader)
+// ReadDeltaBinaryPackedINT64 decodes at most maxValues INT64 values.
+func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader, maxValues uint64) ([]any, error) {
+	var res []any
+	h, err := readDeltaHeader(bytesReader, maxValues)
 	if err != nil {
-		return res, err
-	}
-	numMiniblocksInBlock, err := ReadUnsignedVarInt(bytesReader)
-	if err != nil {
-		return res, err
-	}
-	numValues, err := ReadUnsignedVarInt(bytesReader)
-	if err != nil {
-		return res, err
-	}
-	firstValueZigZag, err := ReadUnsignedVarInt(bytesReader)
-	if err != nil {
-		return res, err
-	}
-	firstValue := int64(firstValueZigZag>>1) ^ -(int64(firstValueZigZag) & 1)
-
-	if numMiniblocksInBlock == 0 {
-		return res, fmt.Errorf("ReadDeltaBinaryPackedINT64: numMiniblocksInBlock is zero")
-	}
-	if err := validateCount(numMiniblocksInBlock); err != nil {
 		return res, fmt.Errorf("ReadDeltaBinaryPackedINT64: %w", err)
 	}
-	if err := validateCount(numValues); err != nil {
-		return res, fmt.Errorf("ReadDeltaBinaryPackedINT64: %w", err)
-	}
-	numValuesInMiniBlock := blockSize / numMiniblocksInBlock
+
+	firstValue := int64(h.firstValueZigZag>>1) ^ -(int64(h.firstValueZigZag) & 1)
+	numValues := h.numValues
 
 	res = make([]any, 0)
 	res = append(res, int64(firstValue))
@@ -116,19 +149,15 @@ func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader) ([]any, error) {
 			return res, err
 		}
 		minDelta := int64(minDeltaZigZag>>1) ^ -(int64(minDeltaZigZag) & 1)
-		bitWidths := make([]uint64, numMiniblocksInBlock)
-		for i := range numMiniblocksInBlock {
-			b, err := bytesReader.ReadByte()
-			if err != nil {
-				return res, err
-			}
-			bitWidths[i] = uint64(b)
+		bitWidths, err := readBitWidths(bytesReader, h.numMiniblocks)
+		if err != nil {
+			return res, fmt.Errorf("ReadDeltaBinaryPackedINT64: %w", err)
 		}
 
-		for i := 0; uint64(i) < numMiniblocksInBlock && uint64(len(res)) < numValues; i++ {
-			cur, err := ReadBitPacked(bytesReader, (numValuesInMiniBlock/8)<<1, bitWidths[i])
+		for i := 0; uint64(i) < h.numMiniblocks && uint64(len(res)) < numValues; i++ {
+			cur, err := readMiniblock(bytesReader, h.numValuesInMiniblock, numValues-uint64(len(res)), bitWidths[i])
 			if err != nil {
-				return res, err
+				return res, fmt.Errorf("ReadDeltaBinaryPackedINT64: %w", err)
 			}
 			for j := range cur {
 				res = append(res, (res[len(res)-1].(int64) + cur[j].(int64) + minDelta))
@@ -138,13 +167,14 @@ func ReadDeltaBinaryPackedINT64(bytesReader *bytes.Reader) ([]any, error) {
 	return res[:numValues], err
 }
 
-func ReadDeltaLengthByteArray(bytesReader *bytes.Reader) ([]any, error) {
+// ReadDeltaLengthByteArray decodes at most maxValues byte arrays.
+func ReadDeltaLengthByteArray(bytesReader *bytes.Reader, maxValues uint64) ([]any, error) {
 	var (
 		res []any
 		err error
 	)
 
-	lengths, err := ReadDeltaBinaryPackedINT64(bytesReader)
+	lengths, err := ReadDeltaBinaryPackedINT64(bytesReader, maxValues)
 	if err != nil {
 		return res, err
 	}
@@ -168,17 +198,18 @@ func ReadDeltaLengthByteArray(bytesReader *bytes.Reader) ([]any, error) {
 	return res, err
 }
 
-func ReadDeltaByteArray(bytesReader *bytes.Reader) ([]any, error) {
+// ReadDeltaByteArray decodes at most maxValues byte arrays.
+func ReadDeltaByteArray(bytesReader *bytes.Reader, maxValues uint64) ([]any, error) {
 	var (
 		res []any
 		err error
 	)
 
-	prefixLengths, err := ReadDeltaBinaryPackedINT64(bytesReader)
+	prefixLengths, err := ReadDeltaBinaryPackedINT64(bytesReader, maxValues)
 	if err != nil {
 		return res, err
 	}
-	suffixes, err := ReadDeltaLengthByteArray(bytesReader)
+	suffixes, err := ReadDeltaLengthByteArray(bytesReader, maxValues)
 	if err != nil {
 		return res, err
 	}

@@ -334,7 +334,7 @@ func TestReadDelta(t *testing.T) {
 		}
 
 		for _, data := range testData {
-			res, err := ReadDeltaBinaryPackedINT64(bytes.NewReader(WriteDeltaINT64(data)))
+			res, err := ReadDeltaBinaryPackedINT64(bytes.NewReader(WriteDeltaINT64(data)), maxAllowedCount)
 			require.NoError(t, err)
 
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res))
@@ -349,7 +349,7 @@ func TestReadDelta(t *testing.T) {
 
 		for _, data := range testData {
 
-			res, err := ReadDeltaBinaryPackedINT32(bytes.NewReader(WriteDeltaINT32(data)))
+			res, err := ReadDeltaBinaryPackedINT32(bytes.NewReader(WriteDeltaINT32(data)), maxAllowedCount)
 			require.NoError(t, err)
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res))
 		}
@@ -360,7 +360,7 @@ func TestReadDelta(t *testing.T) {
 			{"Hello", "world"},
 		}
 		for _, data := range testData {
-			res, _ := ReadDeltaByteArray(bytes.NewReader(WriteDeltaByteArray(data)))
+			res, _ := ReadDeltaByteArray(bytes.NewReader(WriteDeltaByteArray(data)), maxAllowedCount)
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res))
 		}
 	})
@@ -382,7 +382,7 @@ func TestReadDelta(t *testing.T) {
 			{"Hello", "world"},
 		}
 		for _, data := range testData {
-			res, _ := ReadDeltaLengthByteArray(bytes.NewReader(WriteDeltaLengthByteArray(data)))
+			res, _ := ReadDeltaLengthByteArray(bytes.NewReader(WriteDeltaLengthByteArray(data)), maxAllowedCount)
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res))
 		}
 	})
@@ -605,25 +605,25 @@ func TestValidateCount(t *testing.T) {
 
 func TestReadDeltaEmpty(t *testing.T) {
 	t.Run("ReadDeltaBinaryPackedINT32", func(t *testing.T) {
-		_, err := ReadDeltaBinaryPackedINT32(bytes.NewReader([]byte{}))
+		_, err := ReadDeltaBinaryPackedINT32(bytes.NewReader([]byte{}), maxAllowedCount)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "EOF")
 	})
 
 	t.Run("ReadDeltaBinaryPackedINT64", func(t *testing.T) {
-		_, err := ReadDeltaBinaryPackedINT64(bytes.NewReader([]byte{}))
+		_, err := ReadDeltaBinaryPackedINT64(bytes.NewReader([]byte{}), maxAllowedCount)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "EOF")
 	})
 
 	t.Run("ReadDeltaLengthByteArray", func(t *testing.T) {
-		_, err := ReadDeltaLengthByteArray(bytes.NewReader([]byte{}))
+		_, err := ReadDeltaLengthByteArray(bytes.NewReader([]byte{}), maxAllowedCount)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "EOF")
 	})
 
 	t.Run("ReadDeltaByteArray", func(t *testing.T) {
-		_, err := ReadDeltaByteArray(bytes.NewReader([]byte{}))
+		_, err := ReadDeltaByteArray(bytes.NewReader([]byte{}), maxAllowedCount)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "EOF")
 	})
@@ -633,7 +633,7 @@ func TestReadDeltaLengthByteArray_NegativeLength(t *testing.T) {
 	// WriteDeltaINT32 with a negative value produces a valid delta-encoded stream
 	// that ReadDeltaBinaryPackedINT64 decodes to a negative int64 length.
 	lengths := WriteDeltaINT32([]any{int32(-5)})
-	_, err := ReadDeltaLengthByteArray(bytes.NewReader(lengths))
+	_, err := ReadDeltaLengthByteArray(bytes.NewReader(lengths), maxAllowedCount)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid negative length")
 }
@@ -647,7 +647,7 @@ func TestReadDeltaByteArrayWithEmptyPrefixLengths(t *testing.T) {
 
 	fullBuf := append(buf, buf...) // Two such streams
 
-	res, err := ReadDeltaByteArray(bytes.NewReader(fullBuf))
+	res, err := ReadDeltaByteArray(bytes.NewReader(fullBuf), maxAllowedCount)
 	require.NoError(t, err)
 	require.Empty(t, res)
 }

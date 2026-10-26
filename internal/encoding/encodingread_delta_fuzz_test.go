@@ -5,6 +5,9 @@ import (
 	"testing"
 )
 
+// fuzzMaxValues is a page-sized value bound, as a real caller would pass.
+const fuzzMaxValues = 1 << 16
+
 // minimal valid delta header: blockSize=128, numMiniblocks=4, numValues=1, firstValue=0
 var deltaSeed = []byte{0x80, 0x01, 0x04, 0x01, 0x00}
 
@@ -13,7 +16,7 @@ func FuzzReadDeltaBinaryPackedINT32(f *testing.F) {
 	f.Add(deltaSeed)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _ = ReadDeltaBinaryPackedINT32(bytes.NewReader(data))
+		_, _ = ReadDeltaBinaryPackedINT32(bytes.NewReader(data), fuzzMaxValues)
 	})
 }
 
@@ -22,7 +25,7 @@ func FuzzReadDeltaBinaryPackedINT64(f *testing.F) {
 	f.Add(deltaSeed)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _ = ReadDeltaBinaryPackedINT64(bytes.NewReader(data))
+		_, _ = ReadDeltaBinaryPackedINT64(bytes.NewReader(data), fuzzMaxValues)
 	})
 }
 
@@ -31,7 +34,7 @@ func FuzzReadDeltaLengthByteArray(f *testing.F) {
 	f.Add(deltaSeed)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _ = ReadDeltaLengthByteArray(bytes.NewReader(data))
+		_, _ = ReadDeltaLengthByteArray(bytes.NewReader(data), fuzzMaxValues)
 	})
 }
 
@@ -41,6 +44,6 @@ func FuzzReadDeltaByteArray(f *testing.F) {
 	f.Add(append(append([]byte{}, deltaSeed...), deltaSeed...))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _ = ReadDeltaByteArray(bytes.NewReader(data))
+		_, _ = ReadDeltaByteArray(bytes.NewReader(data), fuzzMaxValues)
 	})
 }
