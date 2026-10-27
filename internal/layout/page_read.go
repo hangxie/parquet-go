@@ -10,7 +10,6 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
-	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
@@ -118,6 +117,7 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	page.CompressType = colMetaData.GetCodec()
 	page.RawData = buf
 	page.compressor = opt.Compressor
+	page.chunkValues = colMetaData.GetNumValues()
 	page.Path = make([]string, 0)
 	page.Path = append(page.Path, schemaHandler.GetRootInName())
 	page.Path = append(page.Path, colMetaData.GetPathInSchema()...)
@@ -131,14 +131,12 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 }
 
 // Get values from raw data
-func (p *Page) GetValueFromRawData(schemaHandler *schema.SchemaHandler) error {
+func (p *Page) GetValueFromRawData() error {
 	switch p.Header.GetType() {
 	case parquet.PageType_DICTIONARY_PAGE:
 		return p.processDictionaryPage()
-	case parquet.PageType_DATA_PAGE:
-		return p.processDataPage(schemaHandler, p.Header.DataPageHeader.GetEncoding())
-	case parquet.PageType_DATA_PAGE_V2:
-		return p.processDataPageV2(schemaHandler)
+	case parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2:
+		return p.decodeBatchValues()
 	default:
 		return fmt.Errorf("unsupported page type")
 	}
@@ -163,69 +161,11 @@ func (p *Page) processDictionaryPage() error {
 	}
 
 	bytesReader := bytes.NewReader(p.RawData)
-	values, err := encoding.ReadPlain(bytesReader,
-		*p.Schema.Type,
-		uint64(p.Header.DictionaryPageHeader.GetNumValues()),
-		0)
+	values, err := readDictionaryValues(bytesReader, *p.Schema.Type, p.Header.DictionaryPageHeader.GetNumValues(), uint64(p.Schema.GetTypeLength()))
 	if err != nil {
 		return fmt.Errorf("read plain values from dictionary page: %w", err)
 	}
 	p.DataTable.Values = values
-	return nil
-}
-
-// Process data page v2
-func (p *Page) processDataPageV2(schemaHandler *schema.SchemaHandler) error {
-	if p.Header.DataPageHeaderV2.GetIsCompressed() {
-		var err error
-		// In V2, rep/def levels are always uncompressed and already stripped from RawData.
-		// The expected uncompressed data size is the total minus the level byte lengths.
-		dll := int64(p.Header.DataPageHeaderV2.GetDefinitionLevelsByteLength())
-		rll := int64(p.Header.DataPageHeaderV2.GetRepetitionLevelsByteLength())
-		expectedDataSize := int64(p.Header.GetUncompressedPageSize()) - dll - rll
-		if p.RawData, err = resolveCompressor(p.compressor).UncompressWithExpectedSize(p.RawData, p.CompressType, expectedDataSize); err != nil {
-			return fmt.Errorf("uncompress data page v2: %w", err)
-		}
-	}
-	return p.processDataPage(schemaHandler, p.Header.DataPageHeaderV2.GetEncoding())
-}
-
-// Process data page (common logic for DATA_PAGE and DATA_PAGE_V2)
-func (p *Page) processDataPage(schemaHandler *schema.SchemaHandler, encodingType parquet.Encoding) error {
-	bytesReader := bytes.NewReader(p.RawData)
-
-	var numNulls uint64 = 0
-	for i := range len(p.DataTable.DefinitionLevels) {
-		if p.DataTable.DefinitionLevels[i] != p.DataTable.MaxDefinitionLevel {
-			numNulls++
-		}
-	}
-
-	name := common.PathToStr(p.DataTable.Path)
-	var ct parquet.ConvertedType = -1
-	if schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].IsSetConvertedType() {
-		ct = schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetConvertedType()
-	}
-
-	values, err := ReadDataPageValues(bytesReader,
-		encodingType,
-		*p.Schema.Type,
-		ct,
-		uint64(len(p.DataTable.DefinitionLevels))-numNulls,
-		uint64(schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetTypeLength()))
-	if err != nil {
-		return fmt.Errorf("read data page values: %w", err)
-	}
-
-	j := 0
-	for i := range len(p.DataTable.DefinitionLevels) {
-		if p.DataTable.DefinitionLevels[i] == p.DataTable.MaxDefinitionLevel {
-			p.DataTable.Values[i] = values[j]
-			j++
-		}
-	}
-
-	p.RawData = []byte{}
 	return nil
 }
 

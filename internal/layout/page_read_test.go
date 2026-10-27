@@ -3,13 +3,15 @@ package layout
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"runtime"
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
-	"github.com/hangxie/parquet-go/v3/internal/compress"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 )
@@ -159,406 +161,6 @@ func TestPageDecode(t *testing.T) {
 					} else {
 						// Null values should remain null
 						require.Nil(t, val)
-					}
-				}
-			}
-		})
-	}
-}
-
-func TestPage_GetValueFromRawData(t *testing.T) {
-	tests := []struct {
-		name        string
-		setupPage   func() *Page
-		setupSchema func() *schema.SchemaHandler
-		errMsg      string
-	}{
-		{
-			name: "dictionary_page_valid",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type:                 parquet.PageType_DICTIONARY_PAGE,
-					UncompressedPageSize: 20,
-					CompressedPageSize:   20,
-					DictionaryPageHeader: &parquet.DictionaryPageHeader{
-						NumValues: int32(2),
-						Encoding:  parquet.Encoding_PLAIN,
-					},
-				}
-				page.Schema = &parquet.SchemaElement{
-					Type: common.ToPtr(parquet.Type_INT32),
-				}
-				page.DataTable = &Table{}
-				// Two int32 values: 1, 2
-				page.RawData = []byte{
-					0x01, 0x00, 0x00, 0x00, // int32(1)
-					0x02, 0x00, 0x00, 0x00, // int32(2)
-				}
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				return &schema.SchemaHandler{}
-			},
-		},
-		{
-			name: "unsupported_page_type",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type: parquet.PageType_INDEX_PAGE, // Unsupported type
-				}
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				return &schema.SchemaHandler{}
-			},
-			errMsg: "unsupported page type",
-		},
-		{
-			name: "dictionary_page_invalid_data",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type:                 parquet.PageType_DICTIONARY_PAGE,
-					UncompressedPageSize: 20,
-					CompressedPageSize:   20,
-					DictionaryPageHeader: &parquet.DictionaryPageHeader{
-						NumValues: int32(2),
-						Encoding:  parquet.Encoding_PLAIN,
-					},
-				}
-				page.Schema = &parquet.SchemaElement{
-					Type: common.ToPtr(parquet.Type_INT32),
-				}
-				page.DataTable = &Table{}
-				// Invalid data - not enough bytes
-				page.RawData = []byte{0x01, 0x00} // Incomplete int32
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				return &schema.SchemaHandler{}
-			},
-			errMsg: "read plain values from dictionary page",
-		},
-		{
-			name: "data_page_plain_encoding",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type:                 parquet.PageType_DATA_PAGE,
-					UncompressedPageSize: 12,
-					CompressedPageSize:   12,
-					DataPageHeader: &parquet.DataPageHeader{
-						NumValues:               int32(3),
-						Encoding:                parquet.Encoding_PLAIN,
-						DefinitionLevelEncoding: parquet.Encoding_RLE,
-						RepetitionLevelEncoding: parquet.Encoding_RLE,
-					},
-				}
-				page.Schema = &parquet.SchemaElement{
-					Type: common.ToPtr(parquet.Type_INT32),
-				}
-				page.DataTable = &Table{
-					Path:               []string{"test_field"},
-					MaxDefinitionLevel: 1,
-					MaxRepetitionLevel: 0,
-					DefinitionLevels:   []int32{1, 1, 1},
-					RepetitionLevels:   []int32{0, 0, 0},
-					Values:             make([]any, 3),
-				}
-				// Three int32 values: 10, 20, 30
-				page.RawData = []byte{
-					0x0A, 0x00, 0x00, 0x00, // int32(10)
-					0x14, 0x00, 0x00, 0x00, // int32(20)
-					0x1E, 0x00, 0x00, 0x00, // int32(30)
-				}
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				schemaHandler := &schema.SchemaHandler{
-					SchemaElements: []*parquet.SchemaElement{
-						{
-							Name: "test_field",
-							Type: common.ToPtr(parquet.Type_INT32),
-						},
-					},
-					MapIndex: map[string]int32{
-						"test_field": 0,
-					},
-				}
-				return schemaHandler
-			},
-		},
-		{
-			name: "data_page_with_nulls",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type:                 parquet.PageType_DATA_PAGE,
-					UncompressedPageSize: 8,
-					CompressedPageSize:   8,
-					DataPageHeader: &parquet.DataPageHeader{
-						NumValues:               int32(3),
-						Encoding:                parquet.Encoding_PLAIN,
-						DefinitionLevelEncoding: parquet.Encoding_RLE,
-						RepetitionLevelEncoding: parquet.Encoding_RLE,
-					},
-				}
-				page.Schema = &parquet.SchemaElement{
-					Type: common.ToPtr(parquet.Type_INT32),
-				}
-				page.DataTable = &Table{
-					Path:               []string{"nullable_field"},
-					MaxDefinitionLevel: 1,
-					MaxRepetitionLevel: 0,
-					DefinitionLevels:   []int32{1, 0, 1}, // Second value is null
-					RepetitionLevels:   []int32{0, 0, 0},
-					Values:             make([]any, 3),
-				}
-				// Two int32 values (third is null): 100, 200
-				page.RawData = []byte{
-					0x64, 0x00, 0x00, 0x00, // int32(100)
-					0xC8, 0x00, 0x00, 0x00, // int32(200)
-				}
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				schemaHandler := &schema.SchemaHandler{
-					SchemaElements: []*parquet.SchemaElement{
-						{
-							Name: "nullable_field",
-							Type: common.ToPtr(parquet.Type_INT32),
-						},
-					},
-					MapIndex: map[string]int32{
-						"nullable_field": 0,
-					},
-				}
-				return schemaHandler
-			},
-		},
-		{
-			name: "data_page_with_converted_type",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type:                 parquet.PageType_DATA_PAGE,
-					UncompressedPageSize: 8,
-					CompressedPageSize:   8,
-					DataPageHeader: &parquet.DataPageHeader{
-						NumValues:               int32(2),
-						Encoding:                parquet.Encoding_PLAIN,
-						DefinitionLevelEncoding: parquet.Encoding_RLE,
-						RepetitionLevelEncoding: parquet.Encoding_RLE,
-					},
-				}
-				page.Schema = &parquet.SchemaElement{
-					Type: common.ToPtr(parquet.Type_INT32),
-				}
-				page.DataTable = &Table{
-					Path:               []string{"timestamp_field"},
-					MaxDefinitionLevel: 1,
-					MaxRepetitionLevel: 0,
-					DefinitionLevels:   []int32{1, 1},
-					RepetitionLevels:   []int32{0, 0},
-					Values:             make([]any, 2),
-				}
-				// Two int32 timestamp values
-				page.RawData = []byte{
-					0x10, 0x27, 0x00, 0x00, // int32(10000)
-					0x20, 0x4E, 0x00, 0x00, // int32(20000)
-				}
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				schemaHandler := &schema.SchemaHandler{
-					SchemaElements: []*parquet.SchemaElement{
-						{
-							Name:          "timestamp_field",
-							Type:          common.ToPtr(parquet.Type_INT32),
-							ConvertedType: common.ToPtr(parquet.ConvertedType_TIME_MILLIS),
-						},
-					},
-					MapIndex: map[string]int32{
-						"timestamp_field": 0,
-					},
-				}
-				return schemaHandler
-			},
-		},
-		{
-			name: "data_page_v2_compressed",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type:                 parquet.PageType_DATA_PAGE_V2,
-					UncompressedPageSize: 8,
-					CompressedPageSize:   8,
-					DataPageHeaderV2: &parquet.DataPageHeaderV2{
-						NumValues:                  int32(2),
-						Encoding:                   parquet.Encoding_PLAIN,
-						NumNulls:                   int32(0),
-						NumRows:                    int32(2),
-						DefinitionLevelsByteLength: 0,
-						RepetitionLevelsByteLength: 0,
-					},
-				}
-				page.Schema = &parquet.SchemaElement{
-					Type: common.ToPtr(parquet.Type_INT32),
-				}
-				page.DataTable = &Table{
-					Path:               []string{"v2_field"},
-					MaxDefinitionLevel: 1,
-					MaxRepetitionLevel: 0,
-					DefinitionLevels:   []int32{1, 1},
-					RepetitionLevels:   []int32{0, 0},
-					Values:             make([]any, 2),
-				}
-				page.CompressType = parquet.CompressionCodec_UNCOMPRESSED
-				// Two int32 values
-				page.RawData = []byte{
-					0x2A, 0x00, 0x00, 0x00, // int32(42)
-					0x54, 0x00, 0x00, 0x00, // int32(84)
-				}
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				schemaHandler := &schema.SchemaHandler{
-					SchemaElements: []*parquet.SchemaElement{
-						{
-							Name: "v2_field",
-							Type: common.ToPtr(parquet.Type_INT32),
-						},
-					},
-					MapIndex: map[string]int32{
-						"v2_field": 0,
-					},
-				}
-				return schemaHandler
-			},
-		},
-		{
-			name: "data_page_string_type",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type:                 parquet.PageType_DATA_PAGE,
-					UncompressedPageSize: 16,
-					CompressedPageSize:   16,
-					DataPageHeader: &parquet.DataPageHeader{
-						NumValues:               int32(2),
-						Encoding:                parquet.Encoding_PLAIN,
-						DefinitionLevelEncoding: parquet.Encoding_RLE,
-						RepetitionLevelEncoding: parquet.Encoding_RLE,
-					},
-				}
-				page.Schema = &parquet.SchemaElement{
-					Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
-				}
-				page.DataTable = &Table{
-					Path:               []string{"string_field"},
-					MaxDefinitionLevel: 1,
-					MaxRepetitionLevel: 0,
-					DefinitionLevels:   []int32{1, 1},
-					RepetitionLevels:   []int32{0, 0},
-					Values:             make([]any, 2),
-				}
-				// Two byte arrays: "hi", "bye"
-				page.RawData = []byte{
-					0x02, 0x00, 0x00, 0x00, 'h', 'i', // "hi" (length=2)
-					0x03, 0x00, 0x00, 0x00, 'b', 'y', 'e', // "bye" (length=3)
-				}
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				schemaHandler := &schema.SchemaHandler{
-					SchemaElements: []*parquet.SchemaElement{
-						{
-							Name: "string_field",
-							Type: common.ToPtr(parquet.Type_BYTE_ARRAY),
-						},
-					},
-					MapIndex: map[string]int32{
-						"string_field": 0,
-					},
-				}
-				return schemaHandler
-			},
-		},
-		{
-			name: "data_page_invalid_encoding_error",
-			setupPage: func() *Page {
-				page := NewPage()
-				page.Header = &parquet.PageHeader{
-					Type:                 parquet.PageType_DATA_PAGE,
-					UncompressedPageSize: 8,
-					CompressedPageSize:   8,
-					DataPageHeader: &parquet.DataPageHeader{
-						NumValues:               int32(2),
-						Encoding:                parquet.Encoding_PLAIN,
-						DefinitionLevelEncoding: parquet.Encoding_RLE,
-						RepetitionLevelEncoding: parquet.Encoding_RLE,
-					},
-				}
-				page.Schema = &parquet.SchemaElement{
-					Type: common.ToPtr(parquet.Type_INT32),
-				}
-				page.DataTable = &Table{
-					Path:               []string{"error_field"},
-					MaxDefinitionLevel: 1,
-					MaxRepetitionLevel: 0,
-					DefinitionLevels:   []int32{1, 1},
-					RepetitionLevels:   []int32{0, 0},
-					Values:             make([]any, 2),
-				}
-				// Invalid data - not enough bytes for two int32s
-				page.RawData = []byte{0x01, 0x02} // Only 2 bytes, need 8
-				return page
-			},
-			setupSchema: func() *schema.SchemaHandler {
-				schemaHandler := &schema.SchemaHandler{
-					SchemaElements: []*parquet.SchemaElement{
-						{
-							Name: "error_field",
-							Type: common.ToPtr(parquet.Type_INT32),
-						},
-					},
-					MapIndex: map[string]int32{
-						"error_field": 0,
-					},
-				}
-				return schemaHandler
-			},
-			errMsg: "read data page values",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			page := tt.setupPage()
-			schemaHandler := tt.setupSchema()
-
-			err := page.GetValueFromRawData(schemaHandler)
-
-			if tt.errMsg != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tt.errMsg)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, page.DataTable.Values)
-
-				// Additional verification for successful cases
-				if page.Header.GetType() == parquet.PageType_DATA_PAGE ||
-					page.Header.GetType() == parquet.PageType_DATA_PAGE_V2 {
-					// Verify RawData is cleared after processing
-					require.Empty(t, page.RawData)
-
-					// Verify values are set correctly for non-null entries
-					for i, defLevel := range page.DataTable.DefinitionLevels {
-						if defLevel == page.DataTable.MaxDefinitionLevel {
-							require.NotNil(t, page.DataTable.Values[i])
-						}
 					}
 				}
 			}
@@ -977,58 +579,6 @@ func TestReadPageV2IsCompressedFalse(t *testing.T) {
 	require.Equal(t, parquet.PageType_DATA_PAGE_V2, page.Header.GetType())
 }
 
-func TestProcessDataPageV2IsCompressedFalse(t *testing.T) {
-	// Regression test: processDataPageV2 must not decompress when
-	// is_compressed=false, even when CompressType is SNAPPY.
-	schemaElements := []*parquet.SchemaElement{
-		{
-			Name:           "parquet_go_root",
-			NumChildren:    common.ToPtr(int32(1)),
-			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
-		},
-		{
-			Name:           "test_col",
-			Type:           common.ToPtr(parquet.Type_INT32),
-			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
-		},
-	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
-
-	page := NewDataPage()
-	page.Header = &parquet.PageHeader{
-		Type:                 parquet.PageType_DATA_PAGE_V2,
-		CompressedPageSize:   8,
-		UncompressedPageSize: 8,
-		DataPageHeaderV2: &parquet.DataPageHeaderV2{
-			NumValues:                  2,
-			NumNulls:                   0,
-			NumRows:                    2,
-			Encoding:                   parquet.Encoding_PLAIN,
-			DefinitionLevelsByteLength: 0,
-			RepetitionLevelsByteLength: 0,
-			IsCompressed:               false,
-		},
-	}
-	page.CompressType = parquet.CompressionCodec_SNAPPY
-	page.Path = []string{"parquet_go_root", "test_col"}
-	page.Schema = schemaElements[1]
-	// 2 PLAIN INT32 values: 42, 84 (uncompressed)
-	page.RawData = []byte{0x2A, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00}
-	page.DataTable = &Table{
-		Path:               []string{"parquet_go_root", "test_col"},
-		MaxDefinitionLevel: 0,
-		MaxRepetitionLevel: 0,
-		Values:             make([]any, 2),
-		DefinitionLevels:   []int32{0, 0},
-		RepetitionLevels:   []int32{0, 0},
-	}
-
-	err := page.GetValueFromRawData(schemaHandler)
-	require.NoError(t, err)
-	require.Equal(t, int32(42), page.DataTable.Values[0])
-	require.Equal(t, int32(84), page.DataTable.Values[1])
-}
-
 func TestReadPageErrorCases(t *testing.T) {
 	// Create schema handler
 	schemaElements := []*parquet.SchemaElement{
@@ -1243,30 +793,6 @@ func TestReadPageRawData_CRCFailure(t *testing.T) {
 	_, err := ReadPageRawData(reader, sh, cmd, &PageReadOptions{CRCMode: common.CRCStrict})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CRC validation failed")
-}
-
-func TestProcessDataPageV2_UncompressError(t *testing.T) {
-	sh, _ := simpleInt32Schema(t)
-	page := NewDataPage()
-	page.Header = &parquet.PageHeader{
-		Type:                 parquet.PageType_DATA_PAGE_V2,
-		CompressedPageSize:   4,
-		UncompressedPageSize: 4,
-		DataPageHeaderV2: &parquet.DataPageHeaderV2{
-			NumValues:    1,
-			Encoding:     parquet.Encoding_PLAIN,
-			IsCompressed: true,
-		},
-	}
-	page.CompressType = parquet.CompressionCodec_SNAPPY
-	page.RawData = []byte{0xFF, 0xFF, 0xFF, 0xFF} // invalid snappy
-	page.Path = []string{"parquet_go_root", "Test_col"}
-	page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}
-	page.DataTable = &Table{Values: make([]any, 1), DefinitionLevels: []int32{0}, RepetitionLevels: []int32{0}}
-
-	err := page.processDataPageV2(sh)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "uncompress data page v2")
 }
 
 func TestReadPage_DictionaryBodyError(t *testing.T) {
@@ -1811,45 +1337,76 @@ func TestProcessDictionaryPage_ErrorCases(t *testing.T) {
 	}
 }
 
-func TestProcessDataPageV2_Compressed(t *testing.T) {
-	schemaElements := []*parquet.SchemaElement{
-		{
-			Name: "test_col",
-			Type: common.ToPtr(parquet.Type_INT32),
-		},
+func TestReadPageHugeBooleanRunUsesBoundedBatch(t *testing.T) {
+	for _, count := range []int32{1<<20 - 1, 1<<20 + 1, 1<<31 - 1} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			body := append(encoding.WriteUnsignedVarInt(uint64(count)<<1), byte(1))
+			data := append([]byte{byte(len(body)), 0, 0, 0}, body...)
+			header := &parquet.PageHeader{
+				Type: parquet.PageType_DATA_PAGE, CompressedPageSize: int32(len(data)), UncompressedPageSize: int32(len(data)),
+				DataPageHeader: &parquet.DataPageHeader{NumValues: count, Encoding: parquet.Encoding_RLE},
+			}
+			sh := testSchemaHandler()
+			sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BOOLEAN)
+			meta := testColumnMetaData()
+			meta.Type, meta.NumValues = parquet.Type_BOOLEAN, int64(count)
+			meta.PathInSchema = []string{sh.GetInName(1)}
+			mem := thrift.NewTMemoryBuffer()
+			require.NoError(t, header.Write(context.Background(), thrift.NewTCompactProtocolConf(mem, nil)))
+			_, err := mem.Write(data)
+			require.NoError(t, err)
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			page, n, rows, err := ReadPage(thrift.NewTBufferedTransport(mem, 1024), sh, meta, nil)
+			runtime.ReadMemStats(&after)
+			require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20))
+			require.NoError(t, err)
+			require.Positive(t, n)
+			require.LessOrEqual(t, n, int64(1024))
+			require.Equal(t, n, rows)
+			require.Len(t, page.DataTable.Values, int(n))
+			for _, value := range page.DataTable.Values {
+				require.Equal(t, true, value)
+			}
+		})
 	}
-	schemaHandler := &schema.SchemaHandler{
-		SchemaElements: schemaElements,
-		MapIndex:       map[string]int32{"test_col": 0},
-	}
+}
 
-	data := []byte{0x01, 0x00, 0x00, 0x00} // int32(1)
-	compressed, _ := compress.DefaultCompressor().Compress(data, parquet.CompressionCodec_SNAPPY)
-
-	page := NewDataPage()
-	page.Header = &parquet.PageHeader{
-		Type:                 parquet.PageType_DATA_PAGE_V2,
-		CompressedPageSize:   int32(len(compressed)),
-		UncompressedPageSize: int32(len(data)),
-		DataPageHeaderV2: &parquet.DataPageHeaderV2{
-			NumValues:                  1,
-			Encoding:                   parquet.Encoding_PLAIN,
-			IsCompressed:               true,
-			DefinitionLevelsByteLength: 0,
-			RepetitionLevelsByteLength: 0,
-		},
+func TestReadPageRawDataValueCountExceedsChunk(t *testing.T) {
+	for _, pageType := range []parquet.PageType{parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2} {
+		t.Run(pageType.String(), func(t *testing.T) {
+			sh := testSchemaHandler()
+			meta := testColumnMetaData()
+			meta.PathInSchema = []string{sh.GetInName(1)}
+			meta.NumValues = 1
+			header := &parquet.PageHeader{
+				Type: pageType, CompressedPageSize: 8, UncompressedPageSize: 8,
+				DataPageHeader:   &parquet.DataPageHeader{NumValues: 2, Encoding: parquet.Encoding_PLAIN},
+				DataPageHeaderV2: &parquet.DataPageHeaderV2{NumValues: 2, Encoding: parquet.Encoding_PLAIN},
+			}
+			mem := thrift.NewTMemoryBuffer()
+			require.NoError(t, header.Write(context.Background(), thrift.NewTCompactProtocolConf(mem, nil)))
+			_, err := mem.Write([]byte{1, 0, 0, 0, 2, 0, 0, 0})
+			require.NoError(t, err)
+			page, err := ReadPageRawData(thrift.NewTBufferedTransport(mem, 1024), sh, meta, nil)
+			require.NoError(t, err)
+			_, _, err = page.GetRLDLFromRawData(sh)
+			require.ErrorContains(t, err, "data page value count 2 exceeds column chunk total 1")
+			require.Nil(t, page.decoder)
+		})
 	}
-	page.CompressType = parquet.CompressionCodec_SNAPPY
-	page.RawData = compressed
-	page.Schema = schemaElements[0]
-	page.DataTable = &Table{
-		Path:               []string{"test_col"},
-		MaxDefinitionLevel: 0,
-		Values:             make([]any, 1),
-		DefinitionLevels:   []int32{0},
-	}
+}
 
-	err := page.processDataPageV2(schemaHandler)
+func TestGetValueFromRawDataRequiresDecoder(t *testing.T) {
+	for _, pageType := range []parquet.PageType{parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2} {
+		page := &Page{Header: &parquet.PageHeader{Type: pageType}}
+		require.ErrorContains(t, page.GetValueFromRawData(), "page decoder is not initialized")
+	}
+	page := &Page{Header: &parquet.PageHeader{Type: parquet.PageType_INDEX_PAGE}}
+	require.ErrorContains(t, page.GetValueFromRawData(), "unsupported page type")
+	data, err := encoding.WritePlainINT32([]any{int32(7)})
 	require.NoError(t, err)
-	require.Equal(t, int32(1), page.DataTable.Values[0])
+	page = &Page{Header: &parquet.PageHeader{Type: parquet.PageType_DICTIONARY_PAGE, DictionaryPageHeader: &parquet.DictionaryPageHeader{NumValues: 1}}, Schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}, DataTable: &Table{}, RawData: data}
+	require.NoError(t, page.GetValueFromRawData())
+	require.Equal(t, []any{int32(7)}, page.DataTable.Values)
 }

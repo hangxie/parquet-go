@@ -1,7 +1,6 @@
 package layout
 
 import (
-	"bytes"
 	"math"
 	"testing"
 
@@ -527,25 +526,6 @@ func TestExtractV2LevelBuffers(t *testing.T) {
 	})
 }
 
-func TestReadLevelValues_MaxLevel(t *testing.T) {
-	// RLE encoded data for levels
-	data, _ := encoding.WriteRLEBitPackedHybrid([]any{int64(1), int64(1)}, 1, parquet.Type_INT64)
-	bytesReader := bytes.NewReader(data)
-
-	res, err := readLevelValues(bytesReader, 1, 2)
-	require.NoError(t, err)
-	require.Len(t, res, 2)
-	require.Equal(t, int64(1), res[0])
-}
-
-func TestReadLevelValues_DecodeError(t *testing.T) {
-	// maxLevel > 0 with an empty reader cannot decode the RLE level values.
-	bytesReader := bytes.NewReader(nil)
-	_, err := readLevelValues(bytesReader, 1, 2)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "decode level values")
-}
-
 func TestGetRLDLFromRawData_V2InvalidLevels(t *testing.T) {
 	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
 		{
@@ -601,4 +581,34 @@ func TestDecodeDataPageLevels_DefinitionLevelError(t *testing.T) {
 	_, _, err := page.GetRLDLFromRawData(schemaHandler)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "definition levels")
+}
+
+func TestGetRLDLFromRawDataCompressedV2Batches(t *testing.T) {
+	sh := testSchemaHandler()
+	values := make([]any, PageBatchSize+1)
+	for i := range values {
+		values[i] = int32(7)
+	}
+	raw, err := encoding.WritePlainINT32(values)
+	require.NoError(t, err)
+	compressed, err := compress.DefaultCompressor().Compress(raw, parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
+	p := NewDataPage()
+	p.Path = common.StrToPath(sh.IndexMap[1])
+	p.Schema = sh.SchemaElements[1]
+	p.CompressType = parquet.CompressionCodec_SNAPPY
+	p.RawData = compressed
+	p.Header = &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE_V2, UncompressedPageSize: int32(len(raw)), DataPageHeaderV2: &parquet.DataPageHeaderV2{NumValues: int32(len(values)), Encoding: parquet.Encoding_PLAIN, IsCompressed: true}}
+	n, _, err := p.GetRLDLFromRawData(sh)
+	require.NoError(t, err)
+	require.Equal(t, int64(PageBatchSize), n)
+	n, _, err = p.GetRLDLFromRawData(sh)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+	require.NoError(t, p.GetValueFromRawData())
+	require.Equal(t, []any{int32(7)}, p.DataTable.Values)
+	p.decoder = nil
+	p.RawData = []byte{0xff}
+	_, _, err = p.GetRLDLFromRawData(sh)
+	require.ErrorContains(t, err, "uncompress data page v2")
 }

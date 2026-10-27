@@ -3,9 +3,7 @@ package layout
 import (
 	"bytes"
 	"fmt"
-	"math/bits"
 
-	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
@@ -46,6 +44,15 @@ func (p *Page) extractV2LevelBuffers(maxRepetitionLevel, maxDefinitionLevel int3
 		return nil, fmt.Errorf("read v2 data: %w", err)
 	}
 
+	if p.Header.DataPageHeaderV2.GetIsCompressed() && len(dataBuf) > 0 {
+		expected := int64(p.Header.GetUncompressedPageSize()) - levelsLen
+		var err error
+		dataBuf, err = resolveCompressor(p.compressor).UncompressWithExpectedSize(dataBuf, p.CompressType, expected)
+		if err != nil {
+			return nil, fmt.Errorf("uncompress data page v2: %w", err)
+		}
+	}
+
 	buf := make([]byte, 0)
 	if rll > 0 && maxRepetitionLevel > 0 {
 		tmpBuf, err := encoding.WritePlainINT32([]any{int32(rll)})
@@ -67,28 +74,11 @@ func (p *Page) extractV2LevelBuffers(maxRepetitionLevel, maxDefinitionLevel int3
 	return buf, nil
 }
 
-// readLevelValues reads either repetition or definition level values from a reader.
-func readLevelValues(bytesReader *bytes.Reader, maxLevel int32, numValues uint64) ([]any, error) {
-	if maxLevel > 0 {
-		bitWidth := uint64(bits.Len32(uint32(maxLevel)))
-		levels, err := ReadDataPageValues(bytesReader, parquet.Encoding_RLE, parquet.Type_INT64, -1, numValues, bitWidth)
-		if err != nil {
-			return nil, fmt.Errorf("decode level values: %w", err)
-		}
-		if uint64(len(levels)) > numValues {
-			levels = levels[:numValues]
-		}
-		return levels, nil
-	}
-	levels := make([]any, numValues)
-	for i := range len(levels) {
-		levels[i] = int64(0)
-	}
-	return levels, nil
-}
-
 // Get RepetitionLevels and Definitions from RawData
 func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, int64, error) {
+	if p.decoder != nil {
+		return p.ReadBatch(false)
+	}
 	var buf []byte
 	var err error
 
@@ -123,48 +113,9 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 }
 
 func (p *Page) decodeDataPageLevels(buf []byte, schemaHandler *schema.SchemaHandler) (int64, int64, error) {
-	var numValues uint64
-	if p.Header.GetType() == parquet.PageType_DATA_PAGE {
-		numValues = uint64(p.Header.DataPageHeader.GetNumValues())
-	} else {
-		numValues = uint64(p.Header.DataPageHeaderV2.GetNumValues())
+	if err := p.initDecoder(buf, schemaHandler, p.chunkValues); err != nil {
+		return 0, 0, err
 	}
-
-	maxDefinitionLevel, _ := schemaHandler.MaxDefinitionLevel(p.Path)
-	maxRepetitionLevel, _ := schemaHandler.MaxRepetitionLevel(p.Path)
-
-	bytesReader := bytes.NewReader(buf)
-	repetitionLevels, err := readLevelValues(bytesReader, maxRepetitionLevel, numValues)
-	if err != nil {
-		return 0, 0, fmt.Errorf("read repetition levels: %w", err)
-	}
-	definitionLevels, err := readLevelValues(bytesReader, maxDefinitionLevel, numValues)
-	if err != nil {
-		return 0, 0, fmt.Errorf("read definition levels: %w", err)
-	}
-
-	table := new(Table)
-	table.Path = p.Path
-	name := common.PathToStr(p.Path)
-	table.RepetitionType = schemaHandler.SchemaElements[schemaHandler.MapIndex[name]].GetRepetitionType()
-	table.MaxRepetitionLevel = maxRepetitionLevel
-	table.MaxDefinitionLevel = maxDefinitionLevel
-	table.Values = make([]any, len(definitionLevels))
-	table.RepetitionLevels = make([]int32, len(definitionLevels))
-	table.DefinitionLevels = make([]int32, len(definitionLevels))
-
-	numRows := int64(0)
-	for i := range len(definitionLevels) {
-		dl, _ := definitionLevels[i].(int64)
-		rl, _ := repetitionLevels[i].(int64)
-		table.RepetitionLevels[i] = int32(rl)
-		table.DefinitionLevels[i] = int32(dl)
-		if table.RepetitionLevels[i] == 0 {
-			numRows++
-		}
-	}
-	p.DataTable = table
-	p.RawData = buf[len(buf)-bytesReader.Len():]
-
-	return int64(numValues), numRows, nil
+	p.RawData = nil
+	return p.ReadBatch(false)
 }

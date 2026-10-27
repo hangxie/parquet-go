@@ -11,6 +11,9 @@ import (
 )
 
 func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
+	if err := cbt.context().Err(); err != nil {
+		return nil, err
+	}
 	// Loop so that an empty chunk (no page bytes) is synthesized and then skipped over
 	// to the next row group, rather than ending the whole column: only a truly terminal
 	// empty chunk (no further row groups) reports completion. This keeps a skip that
@@ -38,7 +41,7 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 		// as an error. The synthesized rows stay in the "one less than actual" convention
 		// (DataTableNumRows is not normalized here), so consumeExistingRows and
 		// skipByReadingPages account for them consistently.
-		if cbt.emptyChunkAtCursor() {
+		if cbt.pendingPage == nil && cbt.emptyChunkAtCursor() {
 			if cbt.chunkReadStarted() {
 				return nil, fmt.Errorf("truncated column chunk: %w", io.EOF)
 			}
@@ -63,7 +66,11 @@ func (cbt *ColumnBufferType) ReadPageForSkip() (*layout.Page, error) {
 // returning the page so its values can be decoded on demand. A dictionary page is
 // cached and returned without advancing the row count.
 func (cbt *ColumnBufferType) readRawPageForSkip() (*layout.Page, error) {
-	page, err := layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
+	page := cbt.pendingPage
+	var err error
+	if page == nil {
+		page, err = layout.ReadPageRawData(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read page raw data: %w", err)
 	}
@@ -74,12 +81,14 @@ func (cbt *ColumnBufferType) readRawPageForSkip() (*layout.Page, error) {
 	}
 
 	if page.Header.GetType() == parquet.PageType_DICTIONARY_PAGE {
-		if err := page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
+		if err := page.GetValueFromRawData(); err != nil {
 			return nil, fmt.Errorf("decode dictionary page: %w", err)
 		}
 		cbt.DictPage = page
 		return page, nil
 	}
+
+	cbt.dropSkippedContinuation(page)
 
 	if cbt.DataTable == nil {
 		cbt.DataTable = layout.NewTableFromTable(page.DataTable)
@@ -88,7 +97,7 @@ func (cbt *ColumnBufferType) readRawPageForSkip() (*layout.Page, error) {
 	cbt.DataTable.Merge(page.DataTable)
 	cbt.ChunkReadValues += numValues
 	cbt.DataTableNumRows += numRows
-	cbt.finishIndexedDataPage()
+	cbt.retainPage(page)
 	return page, nil
 }
 
@@ -123,6 +132,7 @@ func (cbt *ColumnBufferType) consumeExistingRows(num int64) (int64, bool) {
 	if num <= buffered {
 		// We have enough rows in the current buffer
 		cbt.DataTable.Pop(num)
+		cbt.markSkippedRowTail()
 		cbt.DataTableNumRows -= num
 		if cbt.DataTableNumRows <= 0 {
 			tmp := cbt.DataTable
@@ -133,6 +143,7 @@ func (cbt *ColumnBufferType) consumeExistingRows(num int64) (int64, bool) {
 	}
 
 	// Skip all remaining rows in current buffer
+	cbt.discardRowContinuation = cbt.DataTable.MaxRepetitionLevel > 0
 	num -= buffered
 	cbt.resetDataTable()
 	return num, false
@@ -187,8 +198,21 @@ func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 			// its rows so the total skipped is reported even across multiple pages.
 			skipped += buffered
 			num -= buffered
+			cbt.discardRowContinuation = cbt.DataTable.MaxRepetitionLevel > 0
 			cbt.resetDataTable()
 		}
+
+		if n, skipErr := cbt.skipPendingFlatRows(num); skipErr != nil {
+			return skipped, skipErr
+		} else if n > 0 {
+			skipped += n
+			num -= n
+			if num == 0 {
+				return skipped, nil
+			}
+			continue
+		}
+
 		page, err = cbt.ReadPageForSkip()
 	}
 	// ReadPageForSkip signals a fully-consumed column (row groups exhausted, or a
@@ -209,6 +233,7 @@ func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 	// both an exact-page skip and a request that runs past terminal exhaustion.
 	if num >= buffered {
 		skipped += buffered
+		cbt.discardRowContinuation = cbt.DataTable.MaxRepetitionLevel > 0
 		cbt.resetDataTable()
 		return skipped, nil
 	}
@@ -217,7 +242,7 @@ func (cbt *ColumnBufferType) skipByReadingPages(num int64) (int64, error) {
 		if err = cbt.ensureIndexedDictionary(); err != nil {
 			return skipped, fmt.Errorf("load indexed dictionary: %w", err)
 		}
-		if err = page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
+		if err = page.GetValueFromRawData(); err != nil {
 			return skipped, fmt.Errorf("decode page values during skip: %w", err)
 		}
 
