@@ -210,6 +210,8 @@ func (cbt *ColumnBufferType) seekToIndexedPage(target indexedSkipTarget, loadDic
 	cbt.PFile = pageFile
 	cbt.ThriftReader = transport
 	cbt.DictPage = dictionary
+	cbt.pendingPage = nil
+	cbt.discardRowContinuation = false
 	cbt.indexedPagesRemaining = target.pageCount
 	cbt.indexedDictionaryPending = dictionary == nil && cbt.ChunkHeader.MetaData.IsSetDictionaryPageOffset()
 	keepFile = true
@@ -244,7 +246,7 @@ func (cbt *ColumnBufferType) readIndexedDictionary(pageFile source.ParquetFileRe
 	if _, _, err := page.GetRLDLFromRawData(cbt.SchemaHandler); err != nil {
 		return nil, fmt.Errorf("read dictionary levels: %w", err)
 	}
-	if err := page.GetValueFromRawData(cbt.SchemaHandler); err != nil {
+	if err := page.GetValueFromRawData(); err != nil {
 		return nil, fmt.Errorf("decode dictionary page: %w", err)
 	}
 	return page, nil

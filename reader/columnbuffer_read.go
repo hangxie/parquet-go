@@ -130,6 +130,9 @@ func (cbt *ColumnBufferType) chunkReadStarted() bool {
 }
 
 func (cbt *ColumnBufferType) ReadPage() error {
+	if err := cbt.context().Err(); err != nil {
+		return err
+	}
 	for cbt.ChunkHeader == nil || cbt.ChunkHeader.MetaData == nil || cbt.ChunkReadValues >= cbt.ChunkHeader.MetaData.NumValues {
 		// Current chunk is exhausted; advance to the next row group and retry.
 		if err := cbt.NextRowGroup(); err != nil {
@@ -153,7 +156,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 	// count once. If pages were already read but the declared value count is not yet
 	// met, the chunk ran out of page data mid-stream — a truncation — and must surface
 	// as an error rather than be completed silently.
-	if cbt.emptyChunkAtCursor() {
+	if cbt.pendingPage == nil && cbt.emptyChunkAtCursor() {
 		if cbt.chunkReadStarted() {
 			return fmt.Errorf("read page: truncated column chunk: %w", io.EOF)
 		}
@@ -163,7 +166,14 @@ func (cbt *ColumnBufferType) ReadPage() error {
 		return nil
 	}
 
-	page, numValues, numRows, err := layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
+	page := cbt.pendingPage
+	var numValues, numRows int64
+	var err error
+	if page != nil {
+		numValues, numRows, err = page.ReadBatch(true)
+	} else {
+		page, numValues, numRows, err = layout.ReadPage(cbt.ThriftReader, cbt.SchemaHandler, cbt.readMetaData(), &cbt.PageReadOptions)
+	}
 	if err != nil {
 		return fmt.Errorf("read page: %w", err)
 	}
@@ -172,6 +182,8 @@ func (cbt *ColumnBufferType) ReadPage() error {
 		cbt.DictPage = page
 		return nil
 	}
+
+	cbt.dropSkippedContinuation(page)
 
 	if err := cbt.ensureIndexedDictionary(); err != nil {
 		return fmt.Errorf("load indexed dictionary: %w", err)
@@ -186,7 +198,7 @@ func (cbt *ColumnBufferType) ReadPage() error {
 	cbt.DataTable.Merge(page.DataTable)
 	cbt.ChunkReadValues += numValues
 	cbt.DataTableNumRows += numRows
-	cbt.finishIndexedDataPage()
+	cbt.retainPage(page)
 	return nil
 }
 

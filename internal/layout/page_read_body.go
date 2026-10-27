@@ -164,8 +164,8 @@ func readDictionaryPageBody(pageHeader *parquet.PageHeader, buf []byte, path []s
 			pageHeader.DictionaryPageHeader.GetNumValues(), chunkValues)
 	}
 	var err error
-	table.Values, err = encoding.ReadPlain(bytes.NewReader(buf), colMetaData.GetType(),
-		uint64(pageHeader.DictionaryPageHeader.GetNumValues()), uint64(bitWidth))
+	table.Values, err = readDictionaryValues(bytes.NewReader(buf), colMetaData.GetType(),
+		pageHeader.DictionaryPageHeader.GetNumValues(), uint64(bitWidth))
 	if err != nil {
 		return nil, fmt.Errorf("decode dictionary values: %w", err)
 	}
@@ -175,86 +175,11 @@ func readDictionaryPageBody(pageHeader *parquet.PageHeader, buf []byte, path []s
 
 // readDataPageBody reads levels, values, and builds the table for a data page.
 func readDataPageBody(pageHeader *parquet.PageHeader, buf []byte, path []string, name string, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData) (*Page, int64, int64, error) {
-	maxDefinitionLevel, _ := schemaHandler.MaxDefinitionLevel(path)
-	maxRepetitionLevel, _ := schemaHandler.MaxRepetitionLevel(path)
-
-	var numValues uint64
-	var encodingType parquet.Encoding
-	if pageHeader.GetType() == parquet.PageType_DATA_PAGE {
-		if pageHeader.DataPageHeader == nil {
-			return nil, 0, 0, fmt.Errorf("data page missing DataPageHeader")
-		}
-		numValues = uint64(pageHeader.DataPageHeader.GetNumValues())
-		encodingType = pageHeader.DataPageHeader.GetEncoding()
-	} else {
-		if pageHeader.DataPageHeaderV2 == nil {
-			return nil, 0, 0, fmt.Errorf("data page v2 missing DataPageHeaderV2")
-		}
-		numValues = uint64(pageHeader.DataPageHeaderV2.GetNumValues())
-		encodingType = pageHeader.DataPageHeaderV2.GetEncoding()
-	}
-
-	// A page cannot hold more values than its column chunk declares in total;
-	// reject inflated counts before they drive a huge level/value allocation.
-	if chunkValues := colMetaData.GetNumValues(); chunkValues > 0 && numValues > uint64(chunkValues) {
-		return nil, 0, 0, fmt.Errorf("data page value count %d exceeds column chunk total %d", numValues, chunkValues)
-	}
-
-	bytesReader := bytes.NewReader(buf)
-	repetitionLevels, err := readLevelValues(bytesReader, maxRepetitionLevel, numValues)
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("read repetition levels: %w", err)
-	}
-	definitionLevels, err := readLevelValues(bytesReader, maxDefinitionLevel, numValues)
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("read definition levels: %w", err)
-	}
-
-	var numNulls uint64 = 0
-	for i := range len(definitionLevels) {
-		if int32(definitionLevels[i].(int64)) != maxDefinitionLevel {
-			numNulls++
-		}
-	}
-
-	var ct parquet.ConvertedType = -1
-	se := schemaHandler.SchemaElements[schemaHandler.MapIndex[name]]
-	if se.IsSetConvertedType() {
-		ct = se.GetConvertedType()
-	}
-	values, err := ReadDataPageValues(bytesReader, encodingType, colMetaData.GetType(), ct,
-		uint64(len(definitionLevels))-numNulls, uint64(se.GetTypeLength()))
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("read data page values: %w", err)
-	}
-
-	table := new(Table)
-	table.Path = path
-	table.RepetitionType = se.GetRepetitionType()
-	table.MaxRepetitionLevel = maxRepetitionLevel
-	table.MaxDefinitionLevel = maxDefinitionLevel
-	table.Values = make([]any, len(definitionLevels))
-	table.RepetitionLevels = make([]int32, len(definitionLevels))
-	table.DefinitionLevels = make([]int32, len(definitionLevels))
-
-	j := 0
-	numRows := int64(0)
-	for i := range len(definitionLevels) {
-		dl, _ := definitionLevels[i].(int64)
-		rl, _ := repetitionLevels[i].(int64)
-		table.RepetitionLevels[i] = int32(rl)
-		table.DefinitionLevels[i] = int32(dl)
-		if table.DefinitionLevels[i] == maxDefinitionLevel {
-			table.Values[i] = values[j]
-			j++
-		}
-		if table.RepetitionLevels[i] == 0 {
-			numRows++
-		}
-	}
-
 	page := NewDataPage()
-	page.Header = pageHeader
-	page.DataTable = table
-	return page, int64(len(definitionLevels)), numRows, nil
+	page.Header, page.Path = pageHeader, path
+	if err := page.initDecoder(buf, schemaHandler, colMetaData.GetNumValues()); err != nil {
+		return nil, 0, 0, err
+	}
+	count, rows, err := page.ReadBatch(true)
+	return page, count, rows, err
 }

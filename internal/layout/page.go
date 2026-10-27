@@ -82,7 +82,9 @@ type Page struct {
 	// compressor is set during page reading so that subsequent operations
 	// (GetRLDLFromRawData, GetValueFromRawData) can decompress using
 	// the same per-instance compressor. Nil means use DefaultCompressor.
-	compressor *compress.Compressor
+	compressor  *compress.Compressor
+	decoder     *pageDecoder
+	chunkValues int64
 }
 
 // Create a new page

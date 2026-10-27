@@ -513,12 +513,12 @@ func TestPageEncodingValues_BooleanRLE(t *testing.T) {
 		require.Equal(t, expected, encoded)
 
 		// Verify it can be decoded correctly
-		result, err := ReadDataPageValues(bytes.NewReader(encoded), parquet.Encoding_RLE, parquet.Type_BOOLEAN, -1, 5, 0)
+		decoder, err := newValueDecoder(bytes.NewReader(encoded), parquet.Encoding_RLE, parquet.Type_BOOLEAN, 5, 0)
 		require.NoError(t, err)
-		require.Len(t, result, 5)
-
-		for i := range boolVals {
-			require.Equal(t, boolVals[i], result[i])
+		for _, want := range boolVals {
+			got, err := decoder.next()
+			require.NoError(t, err)
+			require.Equal(t, want, got)
 		}
 	})
 }

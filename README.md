@@ -178,6 +178,8 @@ Common reader options:
 - `reader.WithCaseInsensitive`
 - `reader.WithCRCMode`
 
+Data pages are decoded incrementally in batches of at most 1,024 values. Encoded runs remain compressed between reads, so a small page declaring a large value count does not allocate a whole page of decoded levels or values. This also applies to pages processed during skips and preserves support for large, highly compressible pages. Requested rows, including all elements of a repeated row, still require memory proportional to the returned data.
+
 Encryption-related options are covered in [Encryption](#encryption).
 
 Reader footers expose schema and column paths as stored in the Parquet file. Use `ParquetReader.InternalFooter()` when a tool needs a converted footer with internal Go schema names.

@@ -510,7 +510,7 @@ func TestReadRejectsDictionaryIndexOutOfRange(t *testing.T) {
 	}{
 		{name: "valid", bitWidth: 1},
 		{name: "width_2", bitWidth: 2, wantErr: "dictionary index 2 out of range [0, 2)"},
-		{name: "width_8", bitWidth: 8, wantErr: "out of range [0, 2)"},
+		{name: "width_8", bitWidth: 8, wantErr: "bit-packed run needs 2 bytes but 1 remain"},
 	}
 
 	for _, tt := range tests {

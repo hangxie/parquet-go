@@ -28,7 +28,9 @@ type ColumnBufferType struct {
 
 	ChunkReadValues int64
 
-	DictPage *layout.Page
+	DictPage               *layout.Page
+	pendingPage            *layout.Page
+	discardRowContinuation bool
 
 	DataTable        *layout.Table
 	DataTableNumRows int64
@@ -206,6 +208,8 @@ func (cbt *ColumnBufferType) NextRowGroup() error {
 	cbt.ThriftReader = thriftReader
 	cbt.ChunkReadValues = 0
 	cbt.DictPage = nil
+	cbt.pendingPage = nil
+	cbt.discardRowContinuation = false
 	cbt.indexedPagesRemaining = 0
 	cbt.indexedDictionaryPending = false
 	return nil

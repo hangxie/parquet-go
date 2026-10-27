@@ -917,3 +917,27 @@ func TestSkipRejectsMissingDictionary(t *testing.T) {
 
 	require.ErrorContains(t, pr.SkipRowsWithContext(context.Background(), 1), "dictionary-encoded page has no dictionary")
 }
+
+func TestSkipRowsRejectsPageCountBeyondChunk(t *testing.T) {
+	type row struct {
+		Value bool `parquet:"name=value, type=BOOLEAN, encoding=RLE"`
+	}
+	for _, indexed := range []bool{false, true} {
+		t.Run(fmt.Sprint(indexed), func(t *testing.T) {
+			data := tinyRunParquet(t, 3)
+			if indexed {
+				data = writeOffsetIndexRecords(t, new(row), []row{{true}, {true}, {true}}, writer.WithPageSize(1<<20))
+			}
+			data = rewriteFooter(t, data, func(footer *parquet.FileMetaData) { footer.RowGroups[0].Columns[0].MetaData.NumValues = 1 })
+			pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), new(row), WithNP(1))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, pr.ReadStopWithContext(context.Background())) }()
+			err = pr.SkipRowsWithContext(context.Background(), 1)
+			require.ErrorContains(t, err, "data page value count 3 exceeds column chunk total 1")
+			for _, cb := range pr.ColumnBuffers {
+				require.Equal(t, indexed, cb.hasIndexedPageCursor())
+				require.Zero(t, cb.ChunkReadValues)
+			}
+		})
+	}
+}
