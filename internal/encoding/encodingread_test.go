@@ -660,40 +660,39 @@ func TestReadDeltaByteArrayWithEmptyPrefixLengths(t *testing.T) {
 	require.Empty(t, res)
 }
 
-// TestReadRLE_OversizedCount guards the makeslice panic fuzzing found when the
-// RLE header encodes a count larger than the int32 maximum.
-func TestReadRLE_OversizedCount(t *testing.T) {
-	// header>>1 = 2^31, which exceeds maxAllowedCount (2^31-1)
-	header := (uint64(maxAllowedCount) + 1) << 1
-	_, err := ReadRLE(bytes.NewReader([]byte{0x00}), header, 1, 0)
-	require.ErrorContains(t, err, "invalid count")
+// TestReadRLE_RunClampedToMax guards the allocation amplification fuzzing found:
+// an RLE run header encodes its length in a few bytes, so a corrupt header can
+// claim a run far larger than the page could hold. The run is clamped to
+// maxCount, as other Parquet readers do, rather than rejected or expanded.
+func TestReadRLE_RunClampedToMax(t *testing.T) {
+	testCases := map[string]struct {
+		count    uint64
+		maxCount uint64
+		want     int
+	}{
+		"within-max":          {4, 16, 4},
+		"above-max":           {1_000_000, 16, 16},
+		"above-int32-maximum": {maxAllowedCount + 1, 16, 16},
+		"far-above-int64":     {1 << 62, 16, 16},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			res, err := ReadRLE(bytes.NewReader([]byte{0x05}), tc.count<<1, 1, tc.maxCount)
+			require.NoError(t, err)
+			require.Len(t, res, tc.want)
+			require.Equal(t, int64(5), res[0])
+		})
+	}
 }
 
-// TestReadRLE_RunCountExceedsMax guards the allocation amplification fuzzing
-// found: an RLE run header encodes its length in a few bytes, so a corrupt
-// header can claim a run far larger than the page could hold. With maxCount set
-// the run must be rejected rather than allocating a huge slice.
-func TestReadRLE_RunCountExceedsMax(t *testing.T) {
-	header := uint64(1_000_000) << 1 // run of 1,000,000 values
-	_, err := ReadRLE(bytes.NewReader([]byte{0x00}), header, 1, 16)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceeds expected value count")
-
-	// A run within the expected count still decodes.
-	res, err := ReadRLE(bytes.NewReader([]byte{0x05}), uint64(4)<<1, 1, 16)
-	require.NoError(t, err)
-	require.Len(t, res, 4)
-}
-
-// TestReadRLEBitPackedHybrid_RunCountExceedsMax guards the same amplification at
-// the hybrid level: a single oversized RLE run must not be expanded.
-func TestReadRLEBitPackedHybrid_RunCountExceedsMax(t *testing.T) {
-	// length=2 buffer: RLE header for a 1,000,000 run + one value byte.
+// TestReadRLEBitPackedHybrid_RunClampedToMax checks the same at the hybrid level:
+// a single oversized RLE run yields exactly the expected number of values.
+func TestReadRLEBitPackedHybrid_RunClampedToMax(t *testing.T) {
 	hdr := WriteUnsignedVarInt(uint64(1_000_000) << 1)
 	buf := append([]byte{byte(len(hdr) + 1), 0, 0, 0}, append(hdr, 0x01)...)
-	_, err := ReadRLEBitPackedHybrid(bytes.NewReader(buf), 1, 0, 16)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceeds expected value count")
+	res, err := ReadRLEBitPackedHybrid(bytes.NewReader(buf), 1, 0, 16)
+	require.NoError(t, err)
+	require.Len(t, res, 16)
 }
 
 // TestReadRLEBitPackedHybrid_StopsAtMaxCount verifies decoding halts once the
@@ -719,6 +718,7 @@ func TestReadRLEBitPackedHybrid_BitPackedRunBoundedByMaxCount(t *testing.T) {
 	}{
 		// Regression shape found by FuzzReadRLEBitPackedHybrid; it used to allocate ~32 GB.
 		"zero-width-huge-run": {WriteUnsignedVarInt(uint64(1<<28-1)<<1 | 1), 0, 3, []any{int64(0), int64(0), int64(0)}},
+		"zero-group-run":      {WriteUnsignedVarInt(0<<1 | 1), 0, 3, []any{}},
 		"partial-run":         {append(WriteUnsignedVarInt(2<<1|1), 0b101, 0xFF), 1, 3, []any{int64(1), int64(0), int64(1)}},
 	}
 	for name, tc := range testCases {
@@ -733,13 +733,17 @@ func TestReadRLEBitPackedHybrid_BitPackedRunBoundedByMaxCount(t *testing.T) {
 		})
 	}
 
-	body := WriteUnsignedVarInt((maxAllowedCount/8+1)<<1 | 1)
-	_, err := ReadRLEBitPackedHybrid(bytes.NewReader(body), 0, uint64(len(body)), 3)
-	require.ErrorContains(t, err, "too large")
+	// Groups beyond the int32 maximum, and beyond what 8*groups fits in a uint64, are clamped too.
+	for _, groups := range []uint64{maxAllowedCount/8 + 1, 1 << 62} {
+		body := WriteUnsignedVarInt(groups<<1 | 1)
+		res, err := ReadRLEBitPackedHybrid(bytes.NewReader(body), 0, uint64(len(body)), 3)
+		require.NoError(t, err)
+		require.Equal(t, []any{int64(0), int64(0), int64(0)}, res)
+	}
 
 	// 4 groups at width 8 need 32 bytes, but only 1 is present.
-	body = append(WriteUnsignedVarInt(4<<1|1), 0xFF)
-	_, err = ReadRLEBitPackedHybrid(bytes.NewReader(body), 8, uint64(len(body)), 32)
+	body := append(WriteUnsignedVarInt(4<<1|1), 0xFF)
+	_, err := ReadRLEBitPackedHybrid(bytes.NewReader(body), 8, uint64(len(body)), 32)
 	require.ErrorContains(t, err, "exceeds remaining data size")
 }
 
