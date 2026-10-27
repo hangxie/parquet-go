@@ -323,6 +323,16 @@ func TestReadDataPageValuesMoreCases(t *testing.T) {
 	}
 }
 
+func TestReadDataPageValues_BooleanRLERunLongerThanPage(t *testing.T) {
+	// One RLE run of 2^31-1 true values in a page that holds 4.
+	body := append(encoding.WriteUnsignedVarInt(uint64(1<<31-1)<<1), 0x01)
+	data := append([]byte{byte(len(body)), 0, 0, 0}, body...)
+
+	result, err := ReadDataPageValues(bytes.NewReader(data), parquet.Encoding_RLE, parquet.Type_BOOLEAN, -1, 4, 1)
+	require.NoError(t, err)
+	require.Equal(t, []any{true, true, true, true}, result)
+}
+
 func TestReadDataPageValues_BooleanTypeConversion(t *testing.T) {
 	t.Run("rle_encoding_boolean_values", func(t *testing.T) {
 		// Test that RLE encoding correctly converts int64 to bool
