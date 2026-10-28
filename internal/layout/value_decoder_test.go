@@ -205,3 +205,35 @@ func TestDefaultBitWidth(t *testing.T) {
 		})
 	}
 }
+
+func TestValueDecoderNumericAllocations(t *testing.T) {
+	for _, method := range []parquet.Encoding{parquet.Encoding_PLAIN, parquet.Encoding_BYTE_STREAM_SPLIT} {
+		for _, typ := range []parquet.Type{parquet.Type_INT64, parquet.Type_DOUBLE} {
+			t.Run(method.String()+"/"+typ.String(), func(t *testing.T) {
+				values := make([]any, 1024)
+				for i := range values {
+					if typ == parquet.Type_INT64 {
+						values[i] = int64(1000 + i)
+					} else {
+						values[i] = float64(i) + 0.5
+					}
+				}
+				page := NewDataPage()
+				page.Schema = &parquet.SchemaElement{Type: common.ToPtr(typ)}
+				page.Info.Encoding = method
+				data, err := page.EncodingValues(values)
+				require.NoError(t, err)
+				allocations := testing.AllocsPerRun(10, func() {
+					d, err := newValueDecoder(bytes.NewReader(data), method, typ, uint64(len(values)), 0)
+					require.NoError(t, err)
+					for range values {
+						_, err = d.next()
+						require.NoError(t, err)
+					}
+				})
+				// Boxing numeric results costs one allocation each; scratch storage is per decoder.
+				require.LessOrEqual(t, allocations, float64(len(values)+16))
+			})
+		}
+	}
+}

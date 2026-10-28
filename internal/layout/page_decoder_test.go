@@ -182,3 +182,35 @@ func TestPageDecoderSkippedMalformedValues(t *testing.T) {
 	require.NoError(t, err)
 	require.ErrorContains(t, p.decodeBatchValues(), "skip data page values")
 }
+
+func TestPageDecoderImplicitLevelsAcrossBatches(t *testing.T) {
+	sh := testSchemaHandler()
+	values := make([]any, 2*PageBatchSize+1)
+	for i := range values {
+		values[i] = int32(i)
+	}
+	data, err := encoding.WritePlainINT32(values)
+	require.NoError(t, err)
+	p := NewDataPage()
+	p.Path = common.StrToPath(sh.IndexMap[1])
+	p.Header.Type = parquet.PageType_DATA_PAGE
+	p.Header.DataPageHeader.NumValues = int32(len(values))
+	p.Header.DataPageHeader.Encoding = parquet.Encoding_PLAIN
+	require.NoError(t, p.initDecoder(data, sh, int64(len(values))))
+	n, rows, err := p.ReadBatch(true)
+	require.NoError(t, err)
+	require.Equal(t, int64(PageBatchSize), n)
+	require.Equal(t, n, rows)
+	require.Equal(t, values[:PageBatchSize], p.DataTable.Values)
+	require.Equal(t, make([]int32, PageBatchSize), p.DataTable.DefinitionLevels)
+	require.Equal(t, make([]int32, PageBatchSize), p.DataTable.RepetitionLevels)
+	n, err = p.SkipFlatRows(PageBatchSize)
+	require.NoError(t, err)
+	require.Equal(t, int64(PageBatchSize), n)
+	n, rows, err = p.ReadBatch(true)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+	require.Equal(t, n, rows)
+	require.Equal(t, values[2*PageBatchSize:], p.DataTable.Values)
+	require.False(t, p.HasMoreValues())
+}
