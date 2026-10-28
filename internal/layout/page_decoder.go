@@ -157,6 +157,7 @@ func (p *Page) decodeBatchValues() error {
 	if err := d.values.skip(d.batchStart - d.values.index); err != nil {
 		return fmt.Errorf("skip data page values: %w", err)
 	}
+	d.values.budget = maxDecodedBatchBytes
 	for i, dl := range p.DataTable.DefinitionLevels {
 		if dl != p.DataTable.MaxDefinitionLevel {
 			continue
