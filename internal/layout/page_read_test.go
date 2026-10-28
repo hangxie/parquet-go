@@ -3,6 +3,7 @@ package layout
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"runtime"
 	"testing"
@@ -1409,4 +1410,62 @@ func TestGetValueFromRawDataRequiresDecoder(t *testing.T) {
 	page = &Page{Header: &parquet.PageHeader{Type: parquet.PageType_DICTIONARY_PAGE, DictionaryPageHeader: &parquet.DictionaryPageHeader{NumValues: 1}}, Schema: &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)}, DataTable: &Table{}, RawData: data}
 	require.NoError(t, page.GetValueFromRawData())
 	require.Equal(t, []any{int32(7)}, page.DataTable.Values)
+}
+
+func TestReadPagePaddedDefinitionLevels(t *testing.T) {
+	sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+		{Name: "root", NumChildren: common.ToPtr(int32(1))},
+		{Name: "a", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
+		{Name: "b", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
+		{Name: "c", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
+		{Name: "value", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
+	})
+	path := common.StrToPath(sh.IndexMap[4])
+	levels := make([]any, 16)
+	for i := range levels {
+		levels[i] = int64(4)
+		if i >= 9 {
+			levels[i] = int64(7)
+		}
+	}
+	packed := encoding.WriteBitPacked(levels, 3, true)
+	want := []any{int32(1), int32(2), int32(3), int32(4), int32(5), int32(6), int32(7), int32(8), int32(9)}
+	values, err := encoding.WritePlainINT32(want)
+	require.NoError(t, err)
+	meta := &parquet.ColumnMetaData{Type: parquet.Type_INT32, Codec: parquet.CompressionCodec_UNCOMPRESSED, NumValues: 9, PathInSchema: path[1:]}
+	for _, v2 := range []bool{false, true} {
+		for _, raw := range []bool{false, true} {
+			t.Run(fmt.Sprintf("v2=%t/raw=%t", v2, raw), func(t *testing.T) {
+				header := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE, DataPageHeader: &parquet.DataPageHeader{NumValues: 9, Encoding: parquet.Encoding_PLAIN}}
+				data := binary.LittleEndian.AppendUint32(nil, uint32(len(packed)))
+				if v2 {
+					header.Type = parquet.PageType_DATA_PAGE_V2
+					header.DataPageHeader = nil
+					header.DataPageHeaderV2 = &parquet.DataPageHeaderV2{NumValues: 9, NumRows: 9, Encoding: parquet.Encoding_PLAIN, DefinitionLevelsByteLength: int32(len(packed)), IsCompressed: false}
+					data = nil
+				}
+				data = append(data, packed...)
+				data = append(data, values...)
+				header.CompressedPageSize, header.UncompressedPageSize = int32(len(data)), int32(len(data))
+				mem := thrift.NewTMemoryBuffer()
+				require.NoError(t, header.Write(context.Background(), thrift.NewTCompactProtocolConf(mem, nil)))
+				_, err := mem.Write(data)
+				require.NoError(t, err)
+				transport := thrift.NewTBufferedTransport(mem, 1024)
+				var page *Page
+				if raw {
+					page, err = ReadPageRawData(transport, sh, meta, nil)
+					require.NoError(t, err)
+					_, _, err = page.GetRLDLFromRawData(sh)
+					require.NoError(t, err)
+					require.NoError(t, page.GetValueFromRawData())
+				} else {
+					page, _, _, err = ReadPage(transport, sh, meta, nil)
+					require.NoError(t, err)
+				}
+				require.Equal(t, want, page.DataTable.Values)
+				require.Equal(t, []int32{4, 4, 4, 4, 4, 4, 4, 4, 4}, page.DataTable.DefinitionLevels)
+			})
+		}
+	}
 }

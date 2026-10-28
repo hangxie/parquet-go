@@ -3,6 +3,7 @@ package encoding
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"testing"
 
@@ -71,6 +72,8 @@ func TestIntDecoderErrors(t *testing.T) {
 		{name: "short prefix", data: []byte{1}, width: 1, count: 1, hybrid: true, prefix: true},
 		{name: "long section", data: []byte{10, 0, 0, 0, 2}, width: 1, count: 1, hybrid: true, prefix: true},
 		{name: "short packed", width: 1, count: 8},
+		{name: "missing packed padding", data: append([]byte{5}, make([]byte, 9)...), width: 8, count: 9, hybrid: true},
+		{name: "packed size overflow", data: WriteUnsignedVarInt(uint64(1<<60)<<1 | 1), width: 64, count: 1, hybrid: true},
 		{name: "empty run", data: []byte{0}, count: 1, hybrid: true},
 		{name: "short repeated", data: []byte{2}, width: 8, count: 1, hybrid: true},
 		{name: "short header", data: []byte{0x80}, width: 8, count: 1, hybrid: true},
@@ -128,4 +131,45 @@ func TestIntDecoderCountPrefix(t *testing.T) {
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	_, err = NewIntDecoder(bytes.NewReader(nil), 1, 1<<32, true, false)
 	require.Error(t, err)
+}
+
+func TestIntDecoderConsumesPaddedRun(t *testing.T) {
+	for _, width := range []uint64{0, 1, 3, 7, 8, 64} {
+		for _, skip := range []bool{false, true} {
+			t.Run(fmt.Sprintf("width=%d/skip=%t", width, skip), func(t *testing.T) {
+				values := make([]any, 16)
+				mask := ^uint64(0) >> (64 - width)
+				for i := range values {
+					values[i] = int64(uint64(i) & mask)
+				}
+				encoded := WriteBitPacked(values, int64(width), true)
+				// The following section is a one-value RLE run at width 8.
+				reader := bytes.NewReader(append(encoded, 2, 123))
+				d, err := NewIntDecoder(reader, width, 9, true, false)
+				require.NoError(t, err)
+				before := reader.Len()
+				_, err = d.CountPrefix(0, 9)
+				require.NoError(t, err)
+				require.Equal(t, before, reader.Len())
+				if skip {
+					require.NoError(t, d.Skip(9))
+				} else {
+					for _, want := range values[:9] {
+						got, err := d.Next()
+						require.NoError(t, err)
+						require.Equal(t, want, got)
+					}
+				}
+				require.Equal(t, 2, reader.Len(), "padding must be consumed before the following section")
+				_, err = d.Next()
+				require.ErrorIs(t, err, io.EOF)
+				next, err := NewIntDecoder(reader, 8, 1, true, false)
+				require.NoError(t, err)
+				got, err := next.Next()
+				require.NoError(t, err)
+				require.Equal(t, int64(123), got)
+				require.Zero(t, reader.Len())
+			})
+		}
+	}
 }
