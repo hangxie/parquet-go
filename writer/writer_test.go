@@ -842,3 +842,44 @@ func TestWriteSchemaWithoutColumns(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkPlainByteArrayWriter(b *testing.B) {
+	type text struct {
+		Value string `parquet:"name=value, type=BYTE_ARRAY, encoding=PLAIN"`
+	}
+	const count = 16384
+	for _, size := range []int{16, 128} {
+		rows := make([]text, count)
+		for i := range rows {
+			rows[i].Value = fmt.Sprintf("%0*d", size, i)
+		}
+		for _, codec := range []parquet.CompressionCodec{parquet.CompressionCodec_UNCOMPRESSED, parquet.CompressionCodec_SNAPPY} {
+			b.Run(fmt.Sprintf("text-%d/%s", size, codec), func(b *testing.B) {
+				b.ReportAllocs()
+				for range b.N {
+					benchmarkWriteRows(b, new(text), rows, codec)
+				}
+			})
+		}
+	}
+}
+
+func benchmarkWriteRows[T any](b *testing.B, schema any, rows []T, codec parquet.CompressionCodec) {
+	var out bytes.Buffer
+	pw, err := NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&out), schema,
+		WithNP(1), WithPageSize(64<<10), WithRowGroupSize(1<<30), WithDataPageVersion(2), WithCompressionCodec(codec))
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, row := range rows {
+		if err := pw.WriteWithContext(context.Background(), row); err != nil {
+			b.Fatal(err)
+		}
+	}
+	if err := pw.WriteStopWithContext(context.Background()); err != nil {
+		b.Fatal(err)
+	}
+	if out.Len() == 0 {
+		b.Fatal("empty output")
+	}
+}

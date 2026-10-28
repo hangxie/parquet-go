@@ -2,6 +2,7 @@ package encoding
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -162,6 +163,8 @@ func TestWritePlain(t *testing.T) {
 			{[]any{}, []byte{}},
 			{[]any{"a", "abc"}, []byte{1, 0, 0, 0, 97, 3, 0, 0, 0, 97, 98, 99}},
 			{[]any{[]byte("a"), []byte("abc")}, []byte{1, 0, 0, 0, 97, 3, 0, 0, 0, 97, 98, 99}},
+			{[]any{"a", []byte("bc")}, []byte{1, 0, 0, 0, 97, 2, 0, 0, 0, 98, 99}},
+			{[]any{"", []byte{}, []byte(nil)}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		}
 
 		for _, data := range testData {
@@ -170,9 +173,28 @@ func TestWritePlain(t *testing.T) {
 			require.Equal(t, string(data.expected), string(res))
 		}
 
-		_, err := WritePlainBYTE_ARRAY([]any{42})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "is not a string or []byte")
+		for _, input := range [][]any{{42}, {"a", nil}, {[]byte("a"), "b", 1.5}} {
+			_, err := WritePlainBYTE_ARRAY(input)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "is not a string or []byte")
+		}
+	})
+
+	t.Run("byte_array_allocations", func(t *testing.T) {
+		values := make([]any, 4096)
+		for i := range values {
+			if i%2 == 0 {
+				values[i] = fmt.Sprintf("%016d", i)
+			} else {
+				values[i] = fmt.Appendf(nil, "%016d", i)
+			}
+		}
+		allocations := testing.AllocsPerRun(10, func() {
+			_, err := WritePlainBYTE_ARRAY(values)
+			require.NoError(t, err)
+		})
+		// Only the encoded output buffer is allocated.
+		require.LessOrEqual(t, allocations, float64(1))
 	})
 
 	t.Run("double", func(t *testing.T) {
@@ -463,4 +485,21 @@ func TestWriteUnsignedVarInt(t *testing.T) {
 	}
 
 	require.Equal(t, string(resBuf), string(testRes))
+}
+
+func BenchmarkWritePlainBYTE_ARRAY(b *testing.B) {
+	for _, size := range []int{16, 128} {
+		values := make([]any, 4096)
+		for i := range values {
+			values[i] = fmt.Sprintf("%0*d", size, i)
+		}
+		b.Run(fmt.Sprintf("text-%d", size), func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				if _, err := WritePlainBYTE_ARRAY(values); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }

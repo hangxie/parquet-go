@@ -123,24 +123,31 @@ func plainByteValue(v any) ([]byte, bool) {
 
 func WritePlainBYTE_ARRAY(arrays []any) ([]byte, error) {
 	bufLen := 0
-	values := make([][]byte, len(arrays))
-	for i := range arrays {
-		value, ok := plainByteValue(arrays[i])
-		if !ok {
-			return nil, fmt.Errorf("[%v] is not a string or []byte", arrays[i])
+	for _, v := range arrays {
+		switch value := v.(type) {
+		case string:
+			bufLen += 4 + len(value)
+		case []byte:
+			bufLen += 4 + len(value)
+		default:
+			return nil, fmt.Errorf("[%v] is not a string or []byte", v)
 		}
-		values[i] = value
-		bufLen += 4 + len(value)
 	}
 
+	// Strings are copied directly so they never need a []byte conversion.
 	buf := make([]byte, bufLen)
 	pos := 0
-	for i := range values {
-		value := values[i]
-		binary.LittleEndian.PutUint32(buf[pos:], uint32(len(value)))
-		pos += 4
-		copy(buf[pos:pos+len(value)], value)
-		pos += len(value)
+	for _, v := range arrays {
+		var n int
+		switch value := v.(type) {
+		case string:
+			binary.LittleEndian.PutUint32(buf[pos:], uint32(len(value)))
+			n = copy(buf[pos+4:], value)
+		case []byte:
+			binary.LittleEndian.PutUint32(buf[pos:], uint32(len(value)))
+			n = copy(buf[pos+4:], value)
+		}
+		pos += 4 + n
 	}
 	return buf, nil
 }
