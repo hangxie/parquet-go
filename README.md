@@ -45,7 +45,6 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 - [Examples](#examples)
 - [Local Development](#local-development)
 - [Documentation](#documentation)
-- [Reader scan performance](#reader-scan-performance)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -1140,50 +1139,6 @@ The `github-pages` workflow runs the same target weekly and publishes the result
 - [v1 README](READMEv1.md): original v1 documentation.
 - [v2 README](READMEv2.md): v2 documentation.
 - [source/README.md](source/README.md): file source implementations.
-
-## Reader scan performance
-
-The end-to-end `BenchmarkReaderScan` comparison for PR #556 uses identical benchmark code on `main` at `6ee845f` (original reader), `d4cae47` (incremental decoding before numeric fast paths), and `60b1940` (optimized incremental decoding). The benchmark and helpers are pinned at `e17652e` and copied unchanged into temporary source snapshots of each measured revision; they exercise both `ReadWithContext` and `ReadColumnByIndexWithContext`.
-
-Each fixture contains 16,384 rows in one row group, scanned in batches of 4,096. Required INT64 and DOUBLE columns use PLAIN encoding, nullable DOUBLE columns contain 50% nulls, and dictionary strings have 64 distinct values. Files use UNCOMPRESSED V2 pages with 8 KiB or 4 MiB page targets. Measurements used Go 1.27.3 on Apple M3, darwin/arm64, NP=1 and one Go CPU, with six 150 ms samples per case and alternating revision order. Timings include reader Reset and exclude fixture creation; encoded fixture sizes match across revisions. These in-memory measurements exclude storage latency.
-
-Median elapsed time per complete scan, in milliseconds (lower is better):
-
-| Page target | Workload | API | Original `6ee845f` | Incremental `d4cae47` | Optimized `60b1940` |
-| --- | --- | --- | ---: | ---: | ---: |
-| 8 KiB | Required INT64 | Row | 2.721 | 2.910 | 2.573 |
-| 8 KiB | Required INT64 | Column | 0.901 | 1.165 | 0.701 |
-| 8 KiB | Required DOUBLE | Row | 2.687 | 2.899 | 2.482 |
-| 8 KiB | Required DOUBLE | Column | 0.899 | 1.169 | 0.707 |
-| 8 KiB | Nullable DOUBLE | Row | 2.915 | 3.015 | 2.817 |
-| 8 KiB | Nullable DOUBLE | Column | 0.857 | 0.890 | 0.680 |
-| 8 KiB | Dictionary strings | Row | 3.023 | 2.763 | 2.720 |
-| 8 KiB | Dictionary strings | Column | 0.971 | 0.726 | 0.668 |
-| 4 MiB | Required INT64 | Row | 2.446 | 2.867 | 2.401 |
-| 4 MiB | Required INT64 | Column | 0.676 | 1.073 | 0.603 |
-| 4 MiB | Required DOUBLE | Row | 2.457 | 2.870 | 2.409 |
-| 4 MiB | Required DOUBLE | Column | 0.691 | 1.074 | 0.610 |
-| 4 MiB | Nullable DOUBLE | Row | 2.507 | 3.040 | 2.844 |
-| 4 MiB | Nullable DOUBLE | Column | 0.675 | 0.832 | 0.618 |
-| 4 MiB | Dictionary strings | Row | 2.778 | 2.769 | 2.714 |
-| 4 MiB | Dictionary strings | Column | 0.733 | 0.621 | 0.563 |
-
-The fast paths recover most of the measured regression. Required INT64 row scans at the 4 MiB target are statistically unchanged from the original implementation; other required-numeric and dictionary cases improve. Nullable DOUBLE row scans at that target remain 13.4% slower than the original, improving from a 21.3% regression before the fast paths. The corresponding nullable column scan is 8.3% faster than the original. At the 8 KiB target, all measured row and column cases improve. This does not establish universal performance parity across schemas or encodings.
-
-Raw samples include elapsed time, file size, B/op and allocs/op: [original](benchmarks/reader-scan/main.txt), [incremental](benchmarks/reader-scan/incremental.txt), and [optimized](benchmarks/reader-scan/optimized.txt). Allocated bytes per operation decrease in every measured case; B/op measures cumulative allocations, not peak resident memory. Six samples leave some uncertainty: for example, the original large-page nullable row timings range from 2.481 to 2.687 ms. Snappy and ZSTD, V1 pages, and storage-backed datasets remain future coverage for this retained comparison.
-
-Reproduce the pinned comparison with the script below. It compiles all three revisions before measuring, copies the same pinned benchmark into each snapshot, and alternates the binary execution order. Fetch the PR history first if any pinned commit is unavailable locally. `BENCH_COUNT` and `BENCH_TIME` optionally override the default six samples and 150 ms duration.
-
-```sh
-scripts/benchmark-reader-scan.sh
-benchstat build/reader-scan/main.txt build/reader-scan/incremental.txt build/reader-scan/optimized.txt
-```
-
-On a revision containing `BenchmarkReaderScan` (such as the PR #556 branch), benchmark that revision directly:
-
-```sh
-go test ./reader -run '^$' -bench '^BenchmarkReaderScan$' -benchmem -benchtime=150ms -count=6 -cpu=1
-```
 
 ## Contributing
 
