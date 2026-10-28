@@ -52,13 +52,13 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 		if *page.Schema.Type != parquet.Type_BYTE_ARRAY {
 			return nil, fmt.Errorf("DELTA_BYTE_ARRAY encoding is only supported for BYTE_ARRAY, not %v", *page.Schema.Type)
 		}
-		return encoding.WriteDeltaByteArray(valuesBuf), nil
+		return encoding.WriteDeltaByteArray(valuesBuf)
 	case parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
 		// DELTA_LENGTH_BYTE_ARRAY: BYTE_ARRAY only
 		if *page.Schema.Type != parquet.Type_BYTE_ARRAY {
 			return nil, fmt.Errorf("DELTA_LENGTH_BYTE_ARRAY encoding is only supported for BYTE_ARRAY, not %v", *page.Schema.Type)
 		}
-		return encoding.WriteDeltaLengthByteArray(valuesBuf), nil
+		return encoding.WriteDeltaLengthByteArray(valuesBuf)
 	case parquet.Encoding_BYTE_STREAM_SPLIT:
 		// BYTE_STREAM_SPLIT: FLOAT, DOUBLE, INT32, INT64, FIXED_LEN_BYTE_ARRAY only
 		switch *page.Schema.Type {
@@ -233,15 +233,19 @@ func (page *Page) dataPageCompress(compressType parquet.CompressionCodec, c *com
 		return nil, fmt.Errorf("compress data page: %w", err)
 	}
 
+	var h headerInt32s
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DATA_PAGE
-	page.Header.CompressedPageSize = int32(len(dataEncodeBuf))
-	page.Header.UncompressedPageSize = int32(len(dataBuf))
+	page.Header.CompressedPageSize = h.narrow(len(dataEncodeBuf), "compressed page size")
+	page.Header.UncompressedPageSize = h.narrow(len(dataBuf), "uncompressed page size")
 	page.Header.DataPageHeader = parquet.NewDataPageHeader()
-	page.Header.DataPageHeader.NumValues = int32(len(page.DataTable.DefinitionLevels))
+	page.Header.DataPageHeader.NumValues = h.narrow(len(page.DataTable.DefinitionLevels), "value count")
 	page.Header.DataPageHeader.DefinitionLevelEncoding = parquet.Encoding_RLE
 	page.Header.DataPageHeader.RepetitionLevelEncoding = parquet.Encoding_RLE
 	page.Header.DataPageHeader.Encoding = page.Info.Encoding
+	if h.err != nil {
+		return nil, h.err
+	}
 
 	page.Header.DataPageHeader.Statistics = parquet.NewStatistics()
 	if err = page.setPageStatistics(page.Header.DataPageHeader.Statistics); err != nil {
@@ -326,20 +330,25 @@ func (page *Page) dataPageV2Compress(compressType parquet.CompressionCodec, c *c
 		dataEncodeBuf = valuesRawBuf
 	}
 
+	// NumRows and NumNulls never exceed NumValues, so checking it covers them.
+	var h headerInt32s
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DATA_PAGE_V2
-	page.Header.CompressedPageSize = int32(len(dataEncodeBuf) + len(definitionLevelBuf) + len(repetitionLevelBuf))
-	page.Header.UncompressedPageSize = int32(len(valuesRawBuf) + len(definitionLevelBuf) + len(repetitionLevelBuf))
+	page.Header.CompressedPageSize = h.narrow(len(dataEncodeBuf)+len(definitionLevelBuf)+len(repetitionLevelBuf), "compressed page size")
+	page.Header.UncompressedPageSize = h.narrow(len(valuesRawBuf)+len(definitionLevelBuf)+len(repetitionLevelBuf), "uncompressed page size")
 	page.Header.DataPageHeaderV2 = parquet.NewDataPageHeaderV2()
-	page.Header.DataPageHeaderV2.NumValues = int32(len(page.DataTable.Values))
-	page.Header.DataPageHeaderV2.NumNulls = page.Header.DataPageHeaderV2.NumValues - int32(len(valuesBuf))
+	page.Header.DataPageHeaderV2.NumValues = h.narrow(len(page.DataTable.Values), "value count")
+	page.Header.DataPageHeaderV2.NumNulls = int32(len(page.DataTable.Values) - len(valuesBuf))
 	page.Header.DataPageHeaderV2.NumRows = r0Num
 	// page.Header.DataPageHeaderV2.Encoding = parquet.Encoding_PLAIN
 	page.Header.DataPageHeaderV2.Encoding = page.Info.Encoding
 
-	page.Header.DataPageHeaderV2.DefinitionLevelsByteLength = int32(len(definitionLevelBuf))
-	page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = int32(len(repetitionLevelBuf))
+	page.Header.DataPageHeaderV2.DefinitionLevelsByteLength = h.narrow(len(definitionLevelBuf), "definition levels byte length")
+	page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = h.narrow(len(repetitionLevelBuf), "repetition levels byte length")
 	page.Header.DataPageHeaderV2.IsCompressed = isCompressed
+	if h.err != nil {
+		return nil, nil, nil, h.err
+	}
 
 	page.Header.DataPageHeaderV2.Statistics = parquet.NewStatistics()
 	if err = page.setPageStatistics(page.Header.DataPageHeaderV2.Statistics); err != nil {

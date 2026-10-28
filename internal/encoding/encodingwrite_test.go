@@ -358,3 +358,76 @@ func TestWriteRLE(t *testing.T) {
 		}
 	})
 }
+
+func TestInt32Length(t *testing.T) {
+	defer func(limit int) { MaxInt32Length = limit }(MaxInt32Length)
+	MaxInt32Length = 4
+
+	testCases := map[string]struct {
+		n      int
+		errMsg string
+	}{
+		"zero":     {n: 0},
+		"at-limit": {n: 4},
+		"over":     {n: 5, errMsg: "test length 5 exceeds the 32-bit limit of 4"},
+		"negative": {n: -1, errMsg: "test length -1 exceeds"},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := Int32Length(tc.n, "test length")
+			if tc.errMsg != "" {
+				require.ErrorContains(t, err, tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, int32(tc.n), got)
+		})
+	}
+}
+
+func TestWriteLengthOverflow(t *testing.T) {
+	defer func(limit int) { MaxInt32Length = limit }(MaxInt32Length)
+	MaxInt32Length = 2
+
+	testCases := map[string]struct {
+		write  func() ([]byte, error)
+		errMsg string
+	}{
+		"plain-string": {
+			write:  func() ([]byte, error) { return WritePlainBYTE_ARRAY([]any{"ab", "abc"}) },
+			errMsg: "BYTE_ARRAY length 3",
+		},
+		"plain-bytes": {
+			write:  func() ([]byte, error) { return WritePlainBYTE_ARRAY([]any{[]byte("abc")}) },
+			errMsg: "BYTE_ARRAY length 3",
+		},
+		"delta-length": {
+			write:  func() ([]byte, error) { return WriteDeltaLengthByteArray([]any{"abc"}) },
+			errMsg: "DELTA_LENGTH_BYTE_ARRAY length 3",
+		},
+		"delta-prefix": {
+			write:  func() ([]byte, error) { return WriteDeltaByteArray([]any{"ab", "abc", "abcd"}) },
+			errMsg: "DELTA_BYTE_ARRAY prefix length 3",
+		},
+		"delta-suffix": {
+			write:  func() ([]byte, error) { return WriteDeltaByteArray([]any{"abc"}) },
+			errMsg: "DELTA_LENGTH_BYTE_ARRAY length 3",
+		},
+		"rle-hybrid": {
+			write: func() ([]byte, error) {
+				return WriteRLEBitPackedHybrid([]any{int64(1), int64(2), int64(3)}, 2, parquet.Type_INT64)
+			},
+			errMsg: "RLE length",
+		},
+		"rle-hybrid-int32": {
+			write:  func() ([]byte, error) { return WriteRLEBitPackedHybridInt32([]int32{1, 2, 3}, 2) },
+			errMsg: "RLE length",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, err := tc.write()
+			require.ErrorContains(t, err, tc.errMsg)
+		})
+	}
+}

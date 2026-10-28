@@ -124,14 +124,20 @@ func plainByteValue(v any) ([]byte, bool) {
 func WritePlainBYTE_ARRAY(arrays []any) ([]byte, error) {
 	bufLen := 0
 	for _, v := range arrays {
+		var n int
 		switch value := v.(type) {
 		case string:
-			bufLen += 4 + len(value)
+			n = len(value)
 		case []byte:
-			bufLen += 4 + len(value)
+			n = len(value)
 		default:
 			return nil, fmt.Errorf("[%v] is not a string or []byte", v)
 		}
+		// The prefix is unsigned, but no page can hold a value past int32.
+		if _, err := Int32Length(n, "BYTE_ARRAY length"); err != nil {
+			return nil, err
+		}
+		bufLen += 4 + n
 	}
 
 	// Strings are copied directly so they never need a []byte conversion.

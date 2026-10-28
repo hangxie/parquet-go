@@ -76,7 +76,7 @@ func TestReadDeltaBinaryPackedINT64_SingleValue(t *testing.T) {
 func TestReadDeltaLengthByteArray_ZeroLength(t *testing.T) {
 	// A single empty string: delta-packed length=0, then 0 bytes of data
 	data := []any{""}
-	encoded := WriteDeltaLengthByteArray(data)
+	encoded := mustWriteDeltaLengthByteArray(t, data)
 	res, err := ReadDeltaLengthByteArray(bytes.NewReader(encoded), maxAllowedCount)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
@@ -85,7 +85,7 @@ func TestReadDeltaLengthByteArray_ZeroLength(t *testing.T) {
 
 func TestReadDeltaByteArray_SingleEntry(t *testing.T) {
 	data := []any{"hello"}
-	encoded := WriteDeltaByteArray(data)
+	encoded := mustWriteDeltaByteArray(t, data)
 	res, err := ReadDeltaByteArray(bytes.NewReader(encoded), maxAllowedCount)
 	require.NoError(t, err)
 	require.Equal(t, []any{"hello"}, res)
@@ -93,7 +93,7 @@ func TestReadDeltaByteArray_SingleEntry(t *testing.T) {
 
 func TestReadDeltaByteArray_PrefixSharing(t *testing.T) {
 	data := []any{"foo", "foobar", "foobaz"}
-	encoded := WriteDeltaByteArray(data)
+	encoded := mustWriteDeltaByteArray(t, data)
 	res, err := ReadDeltaByteArray(bytes.NewReader(encoded), maxAllowedCount)
 	require.NoError(t, err)
 	require.Equal(t, data, res)
@@ -139,7 +139,7 @@ func TestReadDeltaBinaryPackedINT32_TruncatedBeforeBitWidths(t *testing.T) {
 func TestReadDeltaByteArray_InvalidPrefixLength(t *testing.T) {
 	// prefix length 100 exceeds the previous value's length, which is invalid.
 	prefixEncoded := WriteDeltaINT64([]any{int64(0), int64(100)})
-	suffixEncoded := WriteDeltaLengthByteArray([]any{"ab", "cd"})
+	suffixEncoded := mustWriteDeltaLengthByteArray(t, []any{"ab", "cd"})
 	_, err := ReadDeltaByteArray(bytes.NewReader(append(prefixEncoded, suffixEncoded...)), maxAllowedCount)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid prefix length")
@@ -240,18 +240,18 @@ func TestReadDeltaBinaryPacked_MultiBlockRoundTrip(t *testing.T) {
 func TestReadDeltaByteArray_PaddedPrefixThenSuffix(t *testing.T) {
 	// Prefix lengths 0, 1, 1: width 1, 32-value miniblock padded to 4 bytes.
 	prefix := deltaStream(128, 4, 3, 0, 0, 1, 0, 0, 0, 0b001, 0, 0, 0)
-	suffix := WriteDeltaLengthByteArray([]any{"a", "b", "c"})
+	suffix := mustWriteDeltaLengthByteArray(t, []any{"a", "b", "c"})
 	res, err := ReadDeltaByteArray(bytes.NewReader(append(prefix, suffix...)), 3)
 	require.NoError(t, err)
 	require.Equal(t, []any{"a", "ab", "ac"}, res)
 }
 
 func TestReadDeltaByteArray_ValueCountAboveBound(t *testing.T) {
-	encoded := WriteDeltaLengthByteArray([]any{"a", "b", "c"})
+	encoded := mustWriteDeltaLengthByteArray(t, []any{"a", "b", "c"})
 	_, err := ReadDeltaLengthByteArray(bytes.NewReader(encoded), 2)
 	require.ErrorContains(t, err, "exceeds expected")
 
-	encoded = WriteDeltaByteArray([]any{"a", "ab", "abc"})
+	encoded = mustWriteDeltaByteArray(t, []any{"a", "ab", "abc"})
 	_, err = ReadDeltaByteArray(bytes.NewReader(encoded), 2)
 	require.ErrorContains(t, err, "exceeds expected")
 }

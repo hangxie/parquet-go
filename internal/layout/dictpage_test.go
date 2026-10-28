@@ -139,6 +139,22 @@ func TestScanDictPageValues_OptionalNull(t *testing.T) {
 	require.Len(t, dictRec.DictSlice, 1)
 }
 
+func TestScanDictPageValues_SizePastInt32(t *testing.T) {
+	table := &Table{
+		Schema:           &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
+		Values:           []any{int32(1), int32(2), int32(3)},
+		DefinitionLevels: []int32{0, 0, 0},
+		RepetitionLevels: []int32{0, 0, 0},
+	}
+	// An int32 running size would wrap negative after the second value and never end the page.
+	funcTable := &sizeFuncTable{sizes: []int32{math.MaxInt32 - 1, 2, 1}}
+
+	res, err := scanDictPageValues(table, NewDictRec(parquet.Type_INT32), 0, math.MaxInt32, false, funcTable)
+	require.NoError(t, err)
+	require.Equal(t, 2, res.endIdx)
+	require.Equal(t, int64(math.MaxInt32)+1, res.size)
+}
+
 func TestDictPageCompress_CompressError(t *testing.T) {
 	page := NewDataPage()
 	page.DataTable = &Table{Values: []any{int32(1)}}

@@ -10,6 +10,7 @@ import (
 	"github.com/apache/thrift/lib/go/thrift"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -204,7 +205,9 @@ func (pw *ParquetWriter) encryptPage(page *layout.Page, key []byte, rowGroupOrdi
 	// Update CompressedPageSize to the encrypted body module size so that
 	// readers (e.g. Java) can advance their stream position past the body
 	// to reach the next page header.
-	page.Header.CompressedPageSize = int32(len(encodedBody))
+	if page.Header.CompressedPageSize, err = encoding.Int32Length(len(encodedBody), "encrypted page size"); err != nil {
+		return err
+	}
 
 	// Re-serialize the header with the updated CompressedPageSize.
 	headerBuf, err := serializeCompact(pw.context(), page.Header)

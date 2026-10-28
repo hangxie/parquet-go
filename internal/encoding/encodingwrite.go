@@ -3,9 +3,21 @@ package encoding
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
+
+// MaxInt32Length is the largest length or count a 32-bit Parquet field holds; tests lower it.
+var MaxInt32Length = math.MaxInt32
+
+// Int32Length narrows n to int32, failing instead of wrapping when the field cannot hold it.
+func Int32Length(n int, what string) (int32, error) {
+	if n < 0 || n > MaxInt32Length {
+		return 0, fmt.Errorf("%s %d exceeds the 32-bit limit of %d", what, n, MaxInt32Length)
+	}
+	return int32(n), nil
+}
 
 func WriteRLE(vals []any, bitWidth int32, pt parquet.Type) ([]byte, error) {
 	intVals := make([]int64, len(vals))
@@ -43,14 +55,7 @@ func WriteRLEBitPackedHybrid(vals []any, bitWidths int32, pt parquet.Type) ([]by
 	if err != nil {
 		return nil, err
 	}
-	res := make([]byte, 0)
-	lenBuf, err := WritePlain([]any{int32(len(rleBuf))}, parquet.Type_INT32)
-	if err != nil {
-		return nil, err
-	}
-	res = append(res, lenBuf...)
-	res = append(res, rleBuf...)
-	return res, nil
+	return prependRLELength(rleBuf)
 }
 
 func WriteRLEInt32(vals []int32, bitWidth int32) []byte {
@@ -63,14 +68,17 @@ func WriteRLEInt32(vals []int32, bitWidth int32) []byte {
 
 func WriteRLEBitPackedHybridInt32(vals []int32, bitWidths int32) ([]byte, error) {
 	rleBuf := WriteRLEInt32(vals, bitWidths)
-	res := make([]byte, 0)
-	lenBuf, err := WritePlain([]any{int32(len(rleBuf))}, parquet.Type_INT32)
+	return prependRLELength(rleBuf)
+}
+
+// prependRLELength prefixes an RLE run with its 4-byte length, as levels in v1 data pages require.
+func prependRLELength(rleBuf []byte) ([]byte, error) {
+	ln, err := Int32Length(len(rleBuf), "RLE length")
 	if err != nil {
 		return nil, err
 	}
-	res = append(res, lenBuf...)
-	res = append(res, rleBuf...)
-	return res, nil
+	res := binary.LittleEndian.AppendUint32(make([]byte, 0, 4+len(rleBuf)), uint32(ln))
+	return append(res, rleBuf...), nil
 }
 
 func WriteBitPacked(vals []any, bitWidth int64, ifHeader bool) []byte {
