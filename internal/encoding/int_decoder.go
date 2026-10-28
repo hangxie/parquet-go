@@ -77,13 +77,25 @@ func (d *IntDecoder) nextRun() error {
 		return fmt.Errorf("empty hybrid run")
 	}
 	if d.packed {
+		groups := d.run
+		// Each group occupies width bytes, including its padded values. Compare
+		// before multiplying so an oversized header cannot overflow the byte count.
+		if d.width > 0 && groups > uint64(d.reader.Len())/d.width {
+			return fmt.Errorf("bit-packed run exceeds remaining data %d (groups=%d, width=%d)", d.reader.Len(), groups, d.width)
+		}
+		size := groups * d.width
 		d.value = 0
 		if d.run > (d.left+7)/8 {
 			d.run = d.left
 		} else {
 			d.run = min(d.run*8, d.left)
 		}
-		return d.readPacked()
+		if err := d.readPacked(); err != nil {
+			return err
+		}
+		// Retain only logical values, but position the reader after all padding.
+		_, err := d.reader.Seek(int64(size-uint64(len(d.data))), io.SeekCurrent)
+		return err
 	}
 	d.run = min(d.run, d.left)
 	var data [8]byte

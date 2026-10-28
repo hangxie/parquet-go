@@ -497,20 +497,20 @@ func dictionaryIndexParquet(t *testing.T, bitWidth byte) []byte {
 	t.Helper()
 	data, err := base64.StdEncoding.DecodeString("UEFSMRUEFRQVFEwVBBUAEgAAAQAAAGEBAAAAYhUAFRIVEiwVBBUQFQYVBhwAAAACAAAABAEBAwIVBBksNQAYBnNjaGVtYRUCABUMJQIYAXMlAEwcAAAAFgQZHBkcJgAcFQwZNQAGEBkYAXMVABYEFmgWaCY4JggpLBUEFQAVAgAVABUQFQIAPBYEGQYZJgAEAAAAFmgWBCYIFmgAGRwYDEFSUk9XOnNjaGVtYRigAS8vLy8vM0FBQUFBUUFBQUFBQUFLQUF3QUJnQUZBQWdBQ2dBQUFBQUJCQUFNQUFBQUNBQUlBQUFBQkFBSUFBQUFCQUFBQUFFQUFBQVVBQUFBRUFBVUFBZ0FCZ0FIQUF3QUFBQVFBQkFBQUFBQUFBRUZFQUFBQUJnQUFBQUVBQUFBQUFBQUFBRUFBQUJ6QUFBQUJBQUVBQVFBQUFBQUFBQUEAGCBwYXJxdWV0LWNwcC1hcnJvdyB2ZXJzaW9uIDI1LjAuMRkcHAAAAEABAABQQVIx")
 	require.NoError(t, err)
-	// Widening the bit width from 1 makes the same bytes decode to indices past the dictionary.
+	// Widening the bit width makes the packed payload too short for its declared group.
 	data[53] = bitWidth
 	return data
 }
 
-func TestReadRejectsDictionaryIndexOutOfRange(t *testing.T) {
+func TestReadRejectsMalformedDictionaryIndices(t *testing.T) {
 	tests := []struct {
 		name     string
 		bitWidth byte
 		wantErr  string
 	}{
 		{name: "valid", bitWidth: 1},
-		{name: "width_2", bitWidth: 2, wantErr: "dictionary index 2 out of range [0, 2)"},
-		{name: "width_8", bitWidth: 8, wantErr: "bit-packed run needs 2 bytes but 1 remain"},
+		{name: "width_2", bitWidth: 2, wantErr: "bit-packed run exceeds remaining data 1"},
+		{name: "width_8", bitWidth: 8, wantErr: "bit-packed run exceeds remaining data 1"},
 	}
 
 	for _, tt := range tests {
