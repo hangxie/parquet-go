@@ -100,24 +100,32 @@ func (p *Page) ReadBatch(decodeValues bool) (int64, int64, error) {
 	table.DefinitionLevels = make([]int32, count)
 	d.batchStart = d.emitted
 	var rows int64
-	for i := range count {
-		rl, err := d.repetitions.Next()
-		if err != nil {
-			return 0, 0, fmt.Errorf("read repetition levels: %w", err)
-		}
-		dl, err := d.definitions.Next()
-		if err != nil {
-			return 0, 0, fmt.Errorf("read definition levels: %w", err)
-		}
-		if rl < 0 || rl > int64(table.MaxRepetitionLevel) || dl < 0 || dl > int64(table.MaxDefinitionLevel) {
-			return 0, 0, fmt.Errorf("page level out of range")
-		}
-		table.RepetitionLevels[i], table.DefinitionLevels[i] = int32(rl), int32(dl)
-		if rl == 0 {
-			rows++
-		}
-		if dl == int64(table.MaxDefinitionLevel) {
-			d.emitted++
+	if table.MaxRepetitionLevel == 0 && table.MaxDefinitionLevel == 0 {
+		// Required flat columns carry no level bytes; the allocated level slices are already zero.
+		_ = d.repetitions.Skip(count)
+		_ = d.definitions.Skip(count)
+		rows = int64(count)
+		d.emitted += count
+	} else {
+		for i := range count {
+			rl, err := d.repetitions.Next()
+			if err != nil {
+				return 0, 0, fmt.Errorf("read repetition levels: %w", err)
+			}
+			dl, err := d.definitions.Next()
+			if err != nil {
+				return 0, 0, fmt.Errorf("read definition levels: %w", err)
+			}
+			if rl < 0 || rl > int64(table.MaxRepetitionLevel) || dl < 0 || dl > int64(table.MaxDefinitionLevel) {
+				return 0, 0, fmt.Errorf("page level out of range")
+			}
+			table.RepetitionLevels[i], table.DefinitionLevels[i] = int32(rl), int32(dl)
+			if rl == 0 {
+				rows++
+			}
+			if dl == int64(table.MaxDefinitionLevel) {
+				d.emitted++
+			}
 		}
 	}
 	d.left -= count

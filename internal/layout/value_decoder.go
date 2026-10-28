@@ -124,21 +124,9 @@ func (d *valueDecoder) next() (any, error) {
 	case parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY, parquet.Encoding_DELTA_BYTE_ARRAY:
 		return d.nextString()
 	case parquet.Encoding_BYTE_STREAM_SPLIT:
-		data := make([]byte, d.width)
-		for i := range d.width {
-			data[i] = d.split[i*d.count+d.index-1]
-		}
-		values, err := encoding.ReadPlain(bytes.NewReader(data), d.dataType, 1, d.width)
-		if err != nil {
-			return nil, err
-		}
-		return values[0], nil
+		return d.nextSplit(), nil
 	default:
-		values, err := encoding.ReadPlain(d.reader, d.dataType, 1, d.width)
-		if err != nil {
-			return nil, err
-		}
-		return values[0], nil
+		return d.nextPlain()
 	}
 }
 
@@ -181,6 +169,21 @@ func (d *valueDecoder) skip(count uint64) error {
 	}
 	if d.method == parquet.Encoding_DELTA_BINARY_PACKED {
 		if err := d.delta.Skip(count); err != nil {
+			return err
+		}
+		d.index += count
+		return nil
+	}
+	if d.method == parquet.Encoding_BYTE_STREAM_SPLIT {
+		d.index += count
+		return nil
+	}
+	if width := numericWidth(d.dataType); d.method == parquet.Encoding_PLAIN && width > 0 {
+		if count > uint64(d.reader.Len())/width {
+			return io.ErrUnexpectedEOF
+		}
+		_, err := d.reader.Seek(int64(count*width), io.SeekCurrent)
+		if err != nil {
 			return err
 		}
 		d.index += count
