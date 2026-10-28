@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -236,4 +237,107 @@ func TestValueDecoderNumericAllocations(t *testing.T) {
 			})
 		}
 	}
+}
+
+var benchmarkStringValue any
+
+func BenchmarkValueDecoderStrings(b *testing.B) {
+	shapes := []struct {
+		name  string
+		value func(int) any
+	}{
+		{"short-unshared", func(i int) any { return fmt.Sprintf("%08x", uint32(i)*2654435761) }},
+		{"long-shared-prefix", func(i int) any { return "https://example.com/some/long/shared/path/" + fmt.Sprintf("%06d", i) }},
+	}
+	for _, method := range []parquet.Encoding{parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY, parquet.Encoding_DELTA_BYTE_ARRAY} {
+		for _, shape := range shapes {
+			b.Run(method.String()+"/"+shape.name, func(b *testing.B) {
+				values := make([]any, 1024)
+				for i := range values {
+					values[i] = shape.value(i)
+				}
+				page := NewDataPage()
+				page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_BYTE_ARRAY)}
+				page.Info.Encoding = method
+				data, err := page.EncodingValues(values)
+				require.NoError(b, err)
+				b.ReportAllocs()
+				b.SetBytes(int64(len(data)))
+				b.ResetTimer()
+				for range b.N {
+					d, err := newValueDecoder(bytes.NewReader(data), method, parquet.Type_BYTE_ARRAY, uint64(len(values)), 0)
+					if err != nil {
+						b.Fatal(err)
+					}
+					for range values {
+						benchmarkStringValue, err = d.next()
+						if err != nil {
+							b.Fatal(err)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+// prefixGrowthData encodes DELTA_BYTE_ARRAY values that each reuse the whole previous value and append one byte.
+func prefixGrowthData(count, seed int) []byte {
+	prefixes, lengths := make([]any, count), make([]any, count)
+	for i := range prefixes {
+		prefixes[i], lengths[i] = int64(seed+i-1), int64(1)
+	}
+	prefixes[0], lengths[0] = int64(0), int64(seed)
+	data := append(encoding.WriteDeltaINT64(prefixes), encoding.WriteDeltaINT64(lengths)...)
+	data = append(data, bytes.Repeat([]byte{'a'}, seed)...)
+	return append(data, bytes.Repeat([]byte{'b'}, count-1)...)
+}
+
+func TestValueDecoderPrefixGrowth(t *testing.T) {
+	const count, seed = 1024, 16 * 1024
+	data := prefixGrowthData(count, seed)
+	last := strings.Repeat("a", seed) + strings.Repeat("b", count-1)
+	open := func(t *testing.T) *valueDecoder {
+		d, err := newValueDecoder(bytes.NewReader(data), parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Type_BYTE_ARRAY, count, 0)
+		require.NoError(t, err)
+		return d
+	}
+
+	t.Run("within-budget", func(t *testing.T) {
+		d := open(t)
+		var got any
+		var err error
+		for range count {
+			got, err = d.next()
+			require.NoError(t, err)
+		}
+		require.Equal(t, last, got)
+	})
+
+	t.Run("over-budget", func(t *testing.T) {
+		d := open(t)
+		d.budget = 4 * seed
+		for i := range 3 {
+			got, err := d.next()
+			require.NoError(t, err)
+			require.Len(t, got, seed+i)
+		}
+		_, err := d.next()
+		require.ErrorContains(t, err, "budget")
+	})
+
+	t.Run("skip-shares-prefix", func(t *testing.T) {
+		allocations := testing.AllocsPerRun(5, func() {
+			d := open(t)
+			d.budget = 0
+			require.NoError(t, d.skip(count-1))
+		})
+		// Skipped values extend one reusable buffer; what remains is per-block delta decoder state.
+		require.Less(t, allocations, float64(count/4))
+		d := open(t)
+		require.NoError(t, d.skip(count-1))
+		got, err := d.next()
+		require.NoError(t, err)
+		require.Equal(t, last, got)
+	})
 }

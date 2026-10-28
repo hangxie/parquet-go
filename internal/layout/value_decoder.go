@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
+
+// maxDecodedBatchBytes bounds byte-array output returned per batch, not peak memory; DELTA_BYTE_ARRAY prefixes can outgrow the page.
+var maxDecodedBatchBytes int64 = DefaultMaxPageSize
 
 type valueDecoder struct {
 	reader   *bytes.Reader
@@ -19,12 +23,13 @@ type valueDecoder struct {
 	ints     *encoding.IntDecoder
 	delta    *encoding.DeltaDecoder
 	prefixes *encoding.DeltaDecoder
-	previous string
+	previous []byte
+	budget   int64
 	split    []byte
 }
 
 func newValueDecoder(reader *bytes.Reader, method parquet.Encoding, dataType parquet.Type, count, width uint64) (*valueDecoder, error) {
-	d := &valueDecoder{reader: reader, method: method, dataType: dataType, count: count, width: width}
+	d := &valueDecoder{reader: reader, method: method, dataType: dataType, count: count, width: width, budget: maxDecodedBatchBytes}
 	if count == 0 {
 		return d, nil
 	}
@@ -131,29 +136,42 @@ func (d *valueDecoder) next() (any, error) {
 }
 
 func (d *valueDecoder) nextString() (any, error) {
+	if err := d.advanceString(); err != nil {
+		return nil, err
+	}
+	size := int64(len(d.previous))
+	if size > d.budget {
+		return nil, fmt.Errorf("byte array of %d bytes exceeds remaining batch budget of %d bytes", size, d.budget)
+	}
+	d.budget -= size
+	return string(d.previous), nil
+}
+
+// advanceString decodes the next byte array into the reusable previous buffer without materializing it.
+func (d *valueDecoder) advanceString() error {
 	prefix := int64(0)
 	var err error
 	if d.prefixes != nil {
 		prefix, err = d.prefixes.Next()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if prefix < 0 || prefix > int64(len(d.previous)) {
-			return nil, fmt.Errorf("invalid prefix length %d", prefix)
+			return fmt.Errorf("invalid prefix length %d", prefix)
 		}
 	}
 	length, err := d.delta.Next()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if length < 0 || length > int64(d.reader.Len()) {
-		return nil, fmt.Errorf("invalid byte array length %d with %d bytes remaining", length, d.reader.Len())
+		return fmt.Errorf("invalid byte array length %d with %d bytes remaining", length, d.reader.Len())
 	}
-	suffix := make([]byte, length)
+	// Earlier values were copied out, so the shared prefix is rewritten in place and only the suffix is read.
+	d.previous = slices.Grow(d.previous[:prefix], int(length))[:prefix+length]
 	// The byte length was checked against the remaining input above.
-	_, _ = d.reader.Read(suffix)
-	d.previous = d.previous[:prefix] + string(suffix)
-	return d.previous, nil
+	_, _ = d.reader.Read(d.previous[prefix:])
+	return nil
 }
 
 func (d *valueDecoder) skip(count uint64) error {
@@ -176,6 +194,15 @@ func (d *valueDecoder) skip(count uint64) error {
 	}
 	if d.method == parquet.Encoding_BYTE_STREAM_SPLIT {
 		d.index += count
+		return nil
+	}
+	if d.method == parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY || d.method == parquet.Encoding_DELTA_BYTE_ARRAY {
+		for range count {
+			if err := d.advanceString(); err != nil {
+				return err
+			}
+			d.index++
+		}
 		return nil
 	}
 	if width := numericWidth(d.dataType); d.method == parquet.Encoding_PLAIN && width > 0 {

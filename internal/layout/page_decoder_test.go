@@ -214,3 +214,52 @@ func TestPageDecoderImplicitLevelsAcrossBatches(t *testing.T) {
 	require.Equal(t, values[2*PageBatchSize:], p.DataTable.Values)
 	require.False(t, p.HasMoreValues())
 }
+
+func TestPageDecoderByteBudgetPerBatch(t *testing.T) {
+	const valueLen = 1024
+	sh := testSchemaHandler()
+	sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BYTE_ARRAY)
+	// Large shared prefixes make every value after the first depend on prefix state carried from its predecessor.
+	values := make([]any, 2*PageBatchSize)
+	for i := range values {
+		values[i] = fmt.Sprintf("%0*d", valueLen, i)
+	}
+	data := encoding.WriteDeltaByteArray(values)
+	open := func(t *testing.T) *Page {
+		p := NewDataPage()
+		p.Path = common.StrToPath(sh.IndexMap[1])
+		p.Header.Type = parquet.PageType_DATA_PAGE
+		p.Header.DataPageHeader.NumValues = int32(len(values))
+		p.Header.DataPageHeader.Encoding = parquet.Encoding_DELTA_BYTE_ARRAY
+		require.NoError(t, p.initDecoder(data, sh, int64(len(values))))
+		return p
+	}
+	defer func(limit int64) { maxDecodedBatchBytes = limit }(maxDecodedBatchBytes)
+
+	// One batch fits exactly, so the second succeeds only if the budget resets per batch.
+	maxDecodedBatchBytes = PageBatchSize * valueLen
+	for _, decodeFirst := range []bool{true, false} {
+		t.Run(fmt.Sprintf("decode-first=%t", decodeFirst), func(t *testing.T) {
+			p := open(t)
+			_, _, err := p.ReadBatch(decodeFirst)
+			require.NoError(t, err)
+			if decodeFirst {
+				require.Equal(t, values[:PageBatchSize], p.DataTable.Values)
+			}
+			// A skipped first batch is replayed through skip() when the second batch is decoded.
+			_, _, err = p.ReadBatch(true)
+			require.NoError(t, err)
+			require.Equal(t, values[PageBatchSize:], p.DataTable.Values)
+		})
+	}
+
+	maxDecodedBatchBytes--
+	_, _, err := open(t).ReadBatch(true)
+	require.ErrorContains(t, err, "budget")
+	// Skipped values draw nothing, so the full shortfall lands on the decoded batch.
+	p := open(t)
+	_, _, err = p.ReadBatch(false)
+	require.NoError(t, err)
+	_, _, err = p.ReadBatch(true)
+	require.ErrorContains(t, err, "budget")
+}
