@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# Compares BenchmarkReaderScan across the original reader (6ee845f), incremental
+# decoding (d4cae47) and its numeric fast paths (60b1940) from PR #556, using the
+# same benchmark code pinned at e17652e for all three.
+#
+# Usage: scripts/benchmark-reader-scan.sh [output-dir]   (default build/reader-scan)
+#        benchstat <output-dir>/main.txt <output-dir>/incremental.txt <output-dir>/optimized.txt
+#
+# BENCH_COUNT (default 6) and BENCH_TIME (default 150ms) set samples per case and
+# their duration. Apart from 6ee845f, the pinned commits are only reachable from the
+# PR #556 head, so fetch it first if needed: git fetch origin pull/556/head
 set -euo pipefail
 
 repo_dir=$(git rev-parse --show-toplevel)
