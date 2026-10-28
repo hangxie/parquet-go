@@ -178,7 +178,7 @@ Common reader options:
 - `reader.WithCaseInsensitive`
 - `reader.WithCRCMode`
 
-Data pages are decoded incrementally in batches of at most 1,024 values. Encoded runs remain compressed between reads, so a small page declaring a large value count does not allocate a whole page of decoded levels or values. This also applies to pages processed during skips and preserves support for large, highly compressible pages. Requested rows, including all elements of a repeated row, still require memory proportional to the returned data.
+Data pages are decoded incrementally in batches of at most 1,024 values. Encoded runs remain compressed between reads, so a small page declaring a large value count does not allocate a whole page of decoded levels or values. This also applies to pages processed during skips and preserves support for large, highly compressible pages. Requested rows, including all elements of a repeated row, still require memory proportional to the returned data. Batching does not bound total reader memory: encoded page and decompression buffers remain page-sized. BYTE_STREAM_SPLIT currently copies and retains the entire encoded section for byte-lane access (non-null value count × physical type width), after validating its size against the bytes present.
 
 Encryption-related options are covered in [Encryption](#encryption).
 
