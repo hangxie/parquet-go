@@ -1021,3 +1021,91 @@ func TestSetSchemaHandlerFromJSONEmptySchema(t *testing.T) {
 	require.NoError(t, pr.SetSchemaHandlerFromJSON(`{"Tag": "name=parquet_go_root", "Fields": []}`))
 	require.Empty(t, pr.ColumnBuffers)
 }
+
+func BenchmarkReaderScan(b *testing.B) {
+	type integer struct {
+		Value int64 `parquet:"name=value, type=INT64"`
+	}
+	type floating struct {
+		Value float64 `parquet:"name=value, type=DOUBLE"`
+	}
+	type nullable struct {
+		Value *float64 `parquet:"name=value, type=DOUBLE"`
+	}
+	type dictionary struct {
+		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=RLE_DICTIONARY"`
+	}
+	const count = 16384
+	integers, floats := make([]integer, count), make([]floating, count)
+	nulls, strings := make([]nullable, count), make([]dictionary, count)
+	for i := range count {
+		integers[i].Value = int64(i)
+		floats[i].Value = float64(i) / 7
+		if i%2 != 0 {
+			nulls[i].Value = common.ToPtr(float64(i) / 7)
+		}
+		strings[i].Value = "label-" + strconv.Itoa(i%64)
+	}
+	for _, size := range []int64{8 << 10, 4 << 20} {
+		b.Run("page-"+strconv.FormatInt(size, 10), func(b *testing.B) {
+			b.Run("required-int64", func(b *testing.B) { benchmarkReaderScanRecords(b, integers, size) })
+			b.Run("required-double", func(b *testing.B) { benchmarkReaderScanRecords(b, floats, size) })
+			b.Run("nullable-double", func(b *testing.B) { benchmarkReaderScanRecords(b, nulls, size) })
+			b.Run("dictionary", func(b *testing.B) { benchmarkReaderScanRecords(b, strings, size) })
+		})
+	}
+}
+
+func benchmarkReaderScanRecords[T any](b *testing.B, records []T, pageSize int64) {
+	b.Helper()
+	var out bytes.Buffer
+	pw, err := writer.NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&out), new(T), writer.WithNP(1), writer.WithPageSize(pageSize), writer.WithRowGroupSize(1<<30), writer.WithDataPageVersion(2), writer.WithCompressionCodec(parquet.CompressionCodec_UNCOMPRESSED))
+	require.NoError(b, err)
+	for _, record := range records {
+		require.NoError(b, pw.WriteWithContext(context.Background(), record))
+	}
+	require.NoError(b, pw.WriteStopWithContext(context.Background()))
+	data := bytes.Clone(out.Bytes())
+	b.Run("rows", func(b *testing.B) { benchmarkReaderScanData[T](b, data, len(records), false) })
+	b.Run("column", func(b *testing.B) { benchmarkReaderScanData[T](b, data, len(records), true) })
+}
+
+var benchmarkScanValues any
+
+func benchmarkReaderScanData[T any](b *testing.B, data []byte, count int, column bool) {
+	b.Helper()
+	pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), new(T), WithNP(1))
+	require.NoError(b, err)
+	b.Cleanup(func() { require.NoError(b, pr.ReadStopWithContext(context.Background())) })
+	const batch = 4096
+	dst := make([]T, batch)
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.ReportMetric(float64(len(data)), "file-B")
+	for range b.N {
+		if err := pr.ResetWithContext(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+		for consumed := 0; consumed < count; consumed += batch {
+			if column {
+				values, _, _, err := pr.ReadColumnByIndexWithContext(context.Background(), 0, batch)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(values) != batch {
+					b.Fatalf("got %d values, want %d", len(values), batch)
+				}
+				benchmarkScanValues = values
+			} else {
+				dst = dst[:batch]
+				if err := pr.ReadWithContext(context.Background(), &dst); err != nil {
+					b.Fatal(err)
+				}
+				if len(dst) != batch {
+					b.Fatalf("got %d rows, want %d", len(dst), batch)
+				}
+				benchmarkScanValues = dst
+			}
+		}
+	}
+}
