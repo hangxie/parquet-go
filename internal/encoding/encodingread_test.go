@@ -361,7 +361,7 @@ func TestReadDelta(t *testing.T) {
 			{"Hello", "world"},
 		}
 		for _, data := range testData {
-			res, _ := ReadDeltaByteArray(bytes.NewReader(WriteDeltaByteArray(data)), maxAllowedCount)
+			res, _ := ReadDeltaByteArray(bytes.NewReader(mustWriteDeltaByteArray(t, data)), maxAllowedCount)
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res))
 		}
 	})
@@ -383,7 +383,7 @@ func TestReadDelta(t *testing.T) {
 			{"Hello", "world"},
 		}
 		for _, data := range testData {
-			res, _ := ReadDeltaLengthByteArray(bytes.NewReader(WriteDeltaLengthByteArray(data)), maxAllowedCount)
+			res, _ := ReadDeltaLengthByteArray(bytes.NewReader(mustWriteDeltaLengthByteArray(t, data)), maxAllowedCount)
 			require.Equal(t, fmt.Sprintf("%v", data), fmt.Sprintf("%v", res))
 		}
 	})

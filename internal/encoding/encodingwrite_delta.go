@@ -159,15 +159,19 @@ func WriteDeltaINT64(nums []any) []byte {
 	return res
 }
 
-func WriteDeltaLengthByteArray(arrays []any) []byte {
+func WriteDeltaLengthByteArray(arrays []any) ([]byte, error) {
 	ln := len(arrays)
 	if ln <= 0 {
-		return WriteDeltaINT32([]any{})
+		return WriteDeltaINT32([]any{}), nil
 	}
 	lengthArray := make([]any, ln)
 	for i := range ln {
 		array := reflect.ValueOf(arrays[i]).String()
-		lengthArray[i] = int32(len(array))
+		length, err := Int32Length(len(array), "DELTA_LENGTH_BYTE_ARRAY length")
+		if err != nil {
+			return nil, err
+		}
+		lengthArray[i] = length
 	}
 
 	res := WriteDeltaINT32(lengthArray)
@@ -176,19 +180,22 @@ func WriteDeltaLengthByteArray(arrays []any) []byte {
 		array := reflect.ValueOf(arrays[i]).String()
 		res = append(res, array...)
 	}
-	return res
+	return res, nil
 }
 
-func WriteDeltaByteArray(arrays []any) []byte {
+func WriteDeltaByteArray(arrays []any) ([]byte, error) {
 	ln := len(arrays)
 	if ln <= 0 {
 		// Prepare empty inputs for prefix lengths and suffixes to generate valid headers
 		prefixBuf := WriteDeltaINT32([]any{})
-		suffixBuf := WriteDeltaLengthByteArray([]any{})
+		suffixBuf, err := WriteDeltaLengthByteArray([]any{})
+		if err != nil {
+			return nil, err
+		}
 		res := make([]byte, 0)
 		res = append(res, prefixBuf...)
 		res = append(res, suffixBuf...)
-		return res
+		return res, nil
 	}
 
 	prefixLengths := make([]any, ln)
@@ -208,15 +215,22 @@ func WriteDeltaByteArray(arrays []any) []byte {
 			}
 			j++
 		}
-		prefixLengths[i] = int32(j)
+		prefixLength, err := Int32Length(j, "DELTA_BYTE_ARRAY prefix length")
+		if err != nil {
+			return nil, err
+		}
+		prefixLengths[i] = prefixLength
 		suffixes[i] = s2[j:]
 	}
 
 	prefixBuf := WriteDeltaINT32(prefixLengths)
-	suffixBuf := WriteDeltaLengthByteArray(suffixes)
+	suffixBuf, err := WriteDeltaLengthByteArray(suffixes)
+	if err != nil {
+		return nil, err
+	}
 
 	res := make([]byte, 0)
 	res = append(res, prefixBuf...)
 	res = append(res, suffixBuf...)
-	return res
+	return res, nil
 }

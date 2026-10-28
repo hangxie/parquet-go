@@ -2057,3 +2057,99 @@ func TestPageGeospatialTypesAreSorted(t *testing.T) {
 		require.Equal(t, []int32{1, 2, 3, 4, 6, 7}, stats.Types, "run %d", i)
 	}
 }
+
+// sizeFuncTable reports the given element sizes in order.
+type sizeFuncTable struct {
+	sizes []int32
+	next  int
+}
+
+func (f *sizeFuncTable) LessThan(a, b any) bool { return false }
+
+func (f *sizeFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+	f.next++
+	return minVal, maxVal, f.sizes[f.next-1]
+}
+
+func TestScanPageValues_SizePastInt32(t *testing.T) {
+	table := &Table{
+		Values:           []any{int32(1), int32(2), int32(3)},
+		DefinitionLevels: []int32{0, 0, 0},
+		RepetitionLevels: []int32{0, 0, 0},
+	}
+	// An int32 running size would wrap negative after the second value and never end the page.
+	funcTable := &sizeFuncTable{sizes: []int32{math.MaxInt32 - 1, 2, 1}}
+
+	res, err := scanPageValues(table, 0, math.MaxInt32, false, funcTable)
+	require.NoError(t, err)
+	require.Equal(t, 2, res.endIdx)
+	require.Equal(t, int64(math.MaxInt32)+1, res.size)
+}
+
+func TestHeaderInt32sNarrow(t *testing.T) {
+	defer func(limit int) { encoding.MaxInt32Length = limit }(encoding.MaxInt32Length)
+	encoding.MaxInt32Length = 4
+
+	var h headerInt32s
+	require.Equal(t, int32(4), h.narrow(4, "first"))
+	require.NoError(t, h.err)
+	h.narrow(5, "second")
+	h.narrow(6, "third")
+	require.EqualError(t, h.err, "page header second 5 exceeds the 32-bit limit of 4")
+
+	h = headerInt32s{}
+	h.narrow(-1, "negative")
+	require.ErrorContains(t, h.err, "negative -1 exceeds")
+}
+
+func TestPageHeaderInt32Overflow(t *testing.T) {
+	defer func(limit int) { encoding.MaxInt32Length = limit }(encoding.MaxInt32Length)
+
+	// Eight booleans pack into one byte, so a limit of 4 rejects only the value count.
+	newPage := func() *Page {
+		page := NewDataPage()
+		page.Schema = &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_BOOLEAN), Name: "col"}
+		page.Info = &common.Tag{}
+		page.DataTable = &Table{
+			Values:           []any{true, false, true, false, true, false, true, false},
+			DefinitionLevels: make([]int32, 8),
+			RepetitionLevels: make([]int32, 8),
+		}
+		return page
+	}
+	indices := make([]int32, 8)
+	testCases := map[string]func(*Page) error{
+		"data-page-v1": func(p *Page) error {
+			_, err := p.dataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, nil)
+			return err
+		},
+		"data-page-v2": func(p *Page) error {
+			_, _, _, err := p.dataPageV2Compress(parquet.CompressionCodec_UNCOMPRESSED, nil)
+			return err
+		},
+		"dict-data-page-v1": func(p *Page) error {
+			_, err := p.dictDataPageCompress(parquet.CompressionCodec_UNCOMPRESSED, 1, indices, nil)
+			return err
+		},
+		"dict-data-page-v2": func(p *Page) error {
+			_, _, _, err := p.dictDataPageV2Compress(parquet.CompressionCodec_UNCOMPRESSED, 1, indices, nil)
+			return err
+		},
+		"dict-page": func(p *Page) error {
+			_, err := p.dictPageCompress(parquet.CompressionCodec_UNCOMPRESSED, parquet.Type_BOOLEAN, nil)
+			return err
+		},
+	}
+	for name, compressPage := range testCases {
+		t.Run(name, func(t *testing.T) {
+			encoding.MaxInt32Length = math.MaxInt32
+			require.NoError(t, compressPage(newPage()))
+
+			encoding.MaxInt32Length = 4
+			require.ErrorContains(t, compressPage(newPage()), "value count 8 exceeds")
+
+			encoding.MaxInt32Length = 0
+			require.ErrorContains(t, compressPage(newPage()), "compressed page size")
+		})
+	}
+}

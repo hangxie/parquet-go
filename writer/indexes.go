@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
@@ -148,7 +149,10 @@ func (pw *ParquetWriter) recordDataPage(page *layout.Page, columnIndex *parquet.
 	// page. Pages are built row-aligned, so *firstRowIndex is exactly the index
 	// of this page's first row.
 	pageLocation.FirstRowIndex = *firstRowIndex
-	pageLocation.CompressedPageSize = int32(len(page.RawData))
+	// The location spans the page header too, so it can overflow when the body alone fits.
+	if pageLocation.CompressedPageSize, err = encoding.Int32Length(len(page.RawData), "offset index page size"); err != nil {
+		return bounds, false, err
+	}
 	offsetIndex.PageLocations = append(offsetIndex.PageLocations, pageLocation)
 	// One total per page, so a reader sizes a buffer for the page it is about to read.
 	if page.UnencodedByteArrayDataBytes != nil {

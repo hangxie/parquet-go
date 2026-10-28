@@ -70,13 +70,17 @@ func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT par
 		return nil, fmt.Errorf("compress dictionary buffer: %w", err)
 	}
 
+	var h headerInt32s
 	page.Header = parquet.NewPageHeader()
 	page.Header.Type = parquet.PageType_DICTIONARY_PAGE
-	page.Header.CompressedPageSize = int32(len(dataEncodeBuf))
-	page.Header.UncompressedPageSize = int32(len(dataBuf))
+	page.Header.CompressedPageSize = h.narrow(len(dataEncodeBuf), "compressed page size")
+	page.Header.UncompressedPageSize = h.narrow(len(dataBuf), "uncompressed page size")
 	page.Header.DictionaryPageHeader = parquet.NewDictionaryPageHeader()
-	page.Header.DictionaryPageHeader.NumValues = int32(len(page.DataTable.Values))
+	page.Header.DictionaryPageHeader.NumValues = h.narrow(len(page.DataTable.Values), "value count")
 	page.Header.DictionaryPageHeader.Encoding = parquet.Encoding_PLAIN
+	if h.err != nil {
+		return nil, h.err
+	}
 
 	return dataEncodeBuf, nil
 }
@@ -85,7 +89,7 @@ func (page *Page) dictPageCompress(compressType parquet.CompressionCodec, pT par
 type dictPageValueResult struct {
 	endIdx         int
 	numValues      int32
-	size           int32
+	size           int64
 	minVal         any
 	maxVal         any
 	nullCount      int64
@@ -111,7 +115,7 @@ func scanDictPageValues(table *Table, dictRec *DictRecType, startIdx int, pageSi
 		// the size budget is met, keep scanning to the next rep-0 entry before
 		// ending the page. Flat columns have a rep-0 entry at every value, so
 		// this never extends a page.
-		if r.endIdx > startIdx && r.size >= pageSize && table.RepetitionLevels[r.endIdx] == 0 {
+		if r.endIdx > startIdx && r.size >= int64(pageSize) && table.RepetitionLevels[r.endIdx] == 0 {
 			break
 		}
 		if table.Values[r.endIdx] == nil {
@@ -133,7 +137,7 @@ func scanDictPageValues(table *Table, dictRec *DictRecType, startIdx int, pageSi
 			} else {
 				r.minVal, r.maxVal, elSize = funcTable.MinMaxSize(r.minVal, r.maxVal, table.Values[r.endIdx])
 			}
-			r.size += elSize
+			r.size += int64(elSize)
 			index, ok, err := dictRec.tryLookupOrInsert(table.Values[r.endIdx])
 			if err != nil {
 				return r, fmt.Errorf("measure dictionary value: %w", err)

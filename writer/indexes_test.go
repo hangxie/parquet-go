@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/reader"
@@ -248,4 +249,32 @@ func TestChunkOmitsStats(t *testing.T) {
 			require.Equal(t, tc.want, chunkOmitsStats(tc.pages))
 		})
 	}
+}
+
+func TestRecordDataPageLocationOverflow(t *testing.T) {
+	defer func(limit int) { encoding.MaxInt32Length = limit }(encoding.MaxInt32Length)
+
+	// The location covers the serialized header as well as the body.
+	page := &layout.Page{Header: parquet.NewPageHeader(), RawData: make([]byte, 10)}
+	page.Header.DataPageHeader = parquet.NewDataPageHeader()
+	page.Header.CompressedPageSize = 4
+	pw := &ParquetWriter{}
+	newColumnIndex := func() *parquet.ColumnIndex {
+		columnIndex := parquet.NewColumnIndex()
+		columnIndex.NullPages = make([]bool, 1)
+		columnIndex.MinValues = make([][]byte, 1)
+		columnIndex.MaxValues = make([][]byte, 1)
+		return columnIndex
+	}
+
+	encoding.MaxInt32Length = 10
+	offsetIndex := parquet.NewOffsetIndex()
+	var firstRowIndex int64
+	_, _, err := pw.recordDataPage(page, newColumnIndex(), offsetIndex, 0, 1, &firstRowIndex)
+	require.NoError(t, err)
+	require.Equal(t, int32(10), offsetIndex.PageLocations[0].CompressedPageSize)
+
+	encoding.MaxInt32Length = 9
+	_, _, err = pw.recordDataPage(page, newColumnIndex(), parquet.NewOffsetIndex(), 0, 1, &firstRowIndex)
+	require.EqualError(t, err, "offset index page size 10 exceeds the 32-bit limit of 9")
 }

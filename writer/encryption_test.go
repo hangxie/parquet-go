@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	internalEncryption "github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -582,6 +583,36 @@ func TestEncryptPageErrors(t *testing.T) {
 		err := pw.encryptPage(page, key, 0, 0, 0)
 		require.ErrorContains(t, err, "page header re-serialization mismatch")
 	})
+}
+
+func TestEncryptPageSizeOverflow(t *testing.T) {
+	defer func(limit int) { encoding.MaxInt32Length = limit }(encoding.MaxInt32Length)
+
+	pw, _, err := createTestParquetWriter(
+		new(encryptedWriterRecord),
+		WithFooterKey([]byte("0123456789abcdef")),
+		WithAADFileUnique([]byte("overflow-test-001")),
+	)
+	require.NoError(t, err)
+
+	// A 10-byte GCM body grows to a 42-byte module, past a limit the plain body fits.
+	newPage := func() *layout.Page {
+		header := parquet.NewPageHeader()
+		header.Type = parquet.PageType_DATA_PAGE
+		header.DataPageHeader = parquet.NewDataPageHeader()
+		header.UncompressedPageSize = 10
+		header.CompressedPageSize = 10
+		headerBuf, err := serializeCompact(context.Background(), header)
+		require.NoError(t, err)
+		return &layout.Page{Header: header, RawData: append(headerBuf, make([]byte, 10)...)}
+	}
+
+	encoding.MaxInt32Length = 42
+	require.NoError(t, pw.encryptPage(newPage(), pw.encryptionState.footerKey, 0, 0, 0))
+
+	encoding.MaxInt32Length = 41
+	err = pw.encryptPage(newPage(), pw.encryptionState.footerKey, 0, 0, 0)
+	require.EqualError(t, err, "encrypted page size 42 exceeds the 32-bit limit of 41")
 }
 
 func TestEncryptionHelpersNoopWithoutState(t *testing.T) {

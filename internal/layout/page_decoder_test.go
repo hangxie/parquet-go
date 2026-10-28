@@ -224,7 +224,8 @@ func TestPageDecoderByteBudgetPerBatch(t *testing.T) {
 	for i := range values {
 		values[i] = fmt.Sprintf("%0*d", valueLen, i)
 	}
-	data := encoding.WriteDeltaByteArray(values)
+	data, err := encoding.WriteDeltaByteArray(values)
+	require.NoError(t, err)
 	open := func(t *testing.T) *Page {
 		p := NewDataPage()
 		p.Path = common.StrToPath(sh.IndexMap[1])
@@ -254,7 +255,7 @@ func TestPageDecoderByteBudgetPerBatch(t *testing.T) {
 	}
 
 	maxDecodedBatchBytes--
-	_, _, err := open(t).ReadBatch(true)
+	_, _, err = open(t).ReadBatch(true)
 	require.ErrorContains(t, err, "budget")
 	// Skipped values draw nothing, so the full shortfall lands on the decoded batch.
 	p := open(t)

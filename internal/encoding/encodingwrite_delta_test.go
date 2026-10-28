@@ -57,7 +57,7 @@ func TestWriteDelta(t *testing.T) {
 		}
 
 		for _, data := range testData {
-			res := WriteDeltaByteArray(data.nums)
+			res := mustWriteDeltaByteArray(t, data.nums)
 			require.Equal(t, string(data.expected), string(res))
 		}
 	})
@@ -107,7 +107,7 @@ func TestWriteDelta(t *testing.T) {
 		}
 
 		for _, data := range testData {
-			res := WriteDeltaLengthByteArray(data.nums)
+			res := mustWriteDeltaLengthByteArray(t, data.nums)
 			require.Equal(t, string(data.expected), string(res))
 		}
 	})
@@ -125,15 +125,29 @@ func TestWriteDeltaEmpty(t *testing.T) {
 	})
 
 	t.Run("WriteDeltaLengthByteArray", func(t *testing.T) {
-		res := WriteDeltaLengthByteArray([]any{})
+		res := mustWriteDeltaLengthByteArray(t, []any{})
 		// Expect header for lengths (INT32)
 		require.Equal(t, []byte{128, 1, 4, 0, 0}, res)
 	})
 
 	t.Run("WriteDeltaByteArray", func(t *testing.T) {
-		res := WriteDeltaByteArray([]any{})
+		res := mustWriteDeltaByteArray(t, []any{})
 		// Expect header for prefixes (INT32) + header for suffixes (LengthByteArray -> INT32)
 		expected := []byte{128, 1, 4, 0, 0, 128, 1, 4, 0, 0}
 		require.Equal(t, expected, res)
 	})
+}
+
+func mustWriteDeltaLengthByteArray(t *testing.T, arrays []any) []byte {
+	t.Helper()
+	res, err := WriteDeltaLengthByteArray(arrays)
+	require.NoError(t, err)
+	return res
+}
+
+func mustWriteDeltaByteArray(t *testing.T, arrays []any) []byte {
+	t.Helper()
+	res, err := WriteDeltaByteArray(arrays)
+	require.NoError(t, err)
+	return res
 }

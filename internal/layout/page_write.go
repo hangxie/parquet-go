@@ -9,6 +9,7 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
+	"github.com/hangxie/parquet-go/v3/internal/encoding"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/types"
 )
@@ -22,6 +23,18 @@ type PageWriteOption struct {
 	DataPageVersion int32
 	WriteCRC        bool
 	Compressor      *compress.Compressor
+}
+
+// headerInt32s narrows page header sizes and counts, keeping the first overflow as err.
+type headerInt32s struct {
+	err error
+}
+
+func (h *headerInt32s) narrow(n int, field string) int32 {
+	if h.err == nil {
+		_, h.err = encoding.Int32Length(n, "page header "+field)
+	}
+	return int32(n)
 }
 
 // serializePage applies optional CRC, serializes the page header via Thrift,
@@ -56,7 +69,7 @@ func serializePage(page *Page, opt PageWriteOption, compressedData ...[]byte) er
 type pageValueResult struct {
 	endIdx    int
 	numValues int32
-	size      int32
+	size      int64
 	minVal    any
 	maxVal    any
 	nullCount int64
@@ -80,7 +93,7 @@ func scanPageValues(table *Table, startIdx int, pageSize int32, omitStats bool, 
 		// the size budget is met, keep scanning to the next rep-0 entry before
 		// ending the page. Flat columns have a rep-0 entry at every value, so
 		// this never extends a page.
-		if r.endIdx > startIdx && r.size >= pageSize && table.RepetitionLevels[r.endIdx] == 0 {
+		if r.endIdx > startIdx && r.size >= int64(pageSize) && table.RepetitionLevels[r.endIdx] == 0 {
 			break
 		}
 		if table.Values[r.endIdx] == nil {
@@ -99,7 +112,7 @@ func scanPageValues(table *Table, startIdx int, pageSize int32, omitStats bool, 
 			} else {
 				r.minVal, r.maxVal, elSize = funcTable.MinMaxSize(r.minVal, r.maxVal, table.Values[r.endIdx])
 			}
-			r.size += elSize
+			r.size += int64(elSize)
 		}
 		r.endIdx++
 	}
