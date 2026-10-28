@@ -1,0 +1,126 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/hangxie/parquet-go/v3/reader
+cpu: Apple M3
+BenchmarkReaderScan/page-8192/required-int64/rows    	      61	   2553142 ns/op	    133268 file-B	 4189892 B/op	   33596 allocs/op
+BenchmarkReaderScan/page-8192/required-int64/column  	     250	    704308 ns/op	    133268 file-B	 2108465 B/op	   16985 allocs/op
+BenchmarkReaderScan/page-8192/required-double/rows   	      69	   2482774 ns/op	    133268 file-B	 4191927 B/op	   33851 allocs/op
+BenchmarkReaderScan/page-8192/required-double/column 	     254	    706000 ns/op	    133268 file-B	 2110506 B/op	   17240 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/rows   	      61	   2824857 ns/op	     68996 file-B	 3877888 B/op	   33730 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/column 	     264	    683321 ns/op	     68996 file-B	 1730920 B/op	    8927 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/rows        	      63	   2719409 ns/op	     14820 file-B	 4146728 B/op	   17643 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/column      	     267	    669145 ns/op	     14820 file-B	 1803122 B/op	    1032 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/rows 	      80	   2396067 ns/op	    131399 file-B	 3946291 B/op	   32942 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/column         	     297	    599139 ns/op	    131399 file-B	 1864838 B/op	   16331 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/rows          	      79	   2409382 ns/op	    131399 file-B	 3948325 B/op	   33197 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/column        	     294	    614947 ns/op	    131399 file-B	 1866881 B/op	   16586 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/rows          	      63	   2866115 ns/op	     67940 file-B	 3836688 B/op	   33211 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/column        	     286	    618877 ns/op	     67940 file-B	 1689709 B/op	    8408 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/rows               	      78	   2714831 ns/op	     13371 file-B	 3862104 B/op	   17024 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/column             	     316	    565223 ns/op	     13371 file-B	 1518494 B/op	     413 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/hangxie/parquet-go/v3/reader
+cpu: Apple M3
+BenchmarkReaderScan/page-8192/required-int64/rows    	      92	   2584265 ns/op	    133268 file-B	 4189891 B/op	   33596 allocs/op
+BenchmarkReaderScan/page-8192/required-int64/column  	     254	    701114 ns/op	    133268 file-B	 2108466 B/op	   16985 allocs/op
+BenchmarkReaderScan/page-8192/required-double/rows   	      69	   2475308 ns/op	    133268 file-B	 4191927 B/op	   33851 allocs/op
+BenchmarkReaderScan/page-8192/required-double/column 	     254	    707843 ns/op	    133268 file-B	 2110504 B/op	   17240 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/rows   	      61	   2823318 ns/op	     68996 file-B	 3877888 B/op	   33730 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/column 	     259	    683045 ns/op	     68996 file-B	 1730920 B/op	    8927 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/rows        	      64	   2690979 ns/op	     14820 file-B	 4146728 B/op	   17643 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/column      	     268	    667966 ns/op	     14820 file-B	 1803122 B/op	    1032 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/rows 	      80	   2405358 ns/op	    131399 file-B	 3946289 B/op	   32942 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/column         	     297	    606073 ns/op	    131399 file-B	 1864844 B/op	   16331 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/rows          	      79	   2409020 ns/op	    131399 file-B	 3948325 B/op	   33197 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/column        	     290	    608691 ns/op	    131399 file-B	 1866878 B/op	   16586 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/rows          	      63	   2846503 ns/op	     67940 file-B	 3836689 B/op	   33211 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/column        	     290	    619729 ns/op	     67940 file-B	 1689709 B/op	    8408 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/rows               	      79	   2713052 ns/op	     13371 file-B	 3862103 B/op	   17024 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/column             	     319	    565367 ns/op	     13371 file-B	 1518495 B/op	     413 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/hangxie/parquet-go/v3/reader
+cpu: Apple M3
+BenchmarkReaderScan/page-8192/required-int64/rows    	      90	   2573645 ns/op	    133268 file-B	 4189891 B/op	   33596 allocs/op
+BenchmarkReaderScan/page-8192/required-int64/column  	     254	    704776 ns/op	    133268 file-B	 2108465 B/op	   16985 allocs/op
+BenchmarkReaderScan/page-8192/required-double/rows   	      69	   2499969 ns/op	    133268 file-B	 4191927 B/op	   33851 allocs/op
+BenchmarkReaderScan/page-8192/required-double/column 	     254	    707941 ns/op	    133268 file-B	 2110504 B/op	   17240 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/rows   	      61	   2810985 ns/op	     68996 file-B	 3877888 B/op	   33730 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/column 	     265	    680445 ns/op	     68996 file-B	 1730920 B/op	    8927 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/rows        	      63	   2720828 ns/op	     14820 file-B	 4146728 B/op	   17643 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/column      	     267	    671273 ns/op	     14820 file-B	 1803124 B/op	    1032 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/rows 	      79	   2399715 ns/op	    131399 file-B	 3946289 B/op	   32942 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/column         	     297	    608646 ns/op	    131399 file-B	 1864839 B/op	   16331 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/rows          	      79	   2418605 ns/op	    131399 file-B	 3948325 B/op	   33197 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/column        	     294	    613377 ns/op	    131399 file-B	 1866881 B/op	   16586 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/rows          	      63	   2848814 ns/op	     67940 file-B	 3836689 B/op	   33211 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/column        	     290	    618869 ns/op	     67940 file-B	 1689708 B/op	    8408 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/rows               	      79	   2734768 ns/op	     13371 file-B	 3862104 B/op	   17024 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/column             	     318	    560847 ns/op	     13371 file-B	 1518493 B/op	     413 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/hangxie/parquet-go/v3/reader
+cpu: Apple M3
+BenchmarkReaderScan/page-8192/required-int64/rows    	      93	   2564643 ns/op	    133268 file-B	 4189892 B/op	   33596 allocs/op
+BenchmarkReaderScan/page-8192/required-int64/column  	     253	    700907 ns/op	    133268 file-B	 2108466 B/op	   16985 allocs/op
+BenchmarkReaderScan/page-8192/required-double/rows   	      70	   2466895 ns/op	    133268 file-B	 4191928 B/op	   33851 allocs/op
+BenchmarkReaderScan/page-8192/required-double/column 	     254	    707203 ns/op	    133268 file-B	 2110505 B/op	   17240 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/rows   	      61	   2835850 ns/op	     68996 file-B	 3877888 B/op	   33730 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/column 	     260	    674169 ns/op	     68996 file-B	 1730918 B/op	    8927 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/rows        	      63	   2721321 ns/op	     14820 file-B	 4146728 B/op	   17643 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/column      	     268	    667146 ns/op	     14820 file-B	 1803123 B/op	    1032 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/rows 	      80	   2397630 ns/op	    131399 file-B	 3946290 B/op	   32942 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/column         	     295	    605868 ns/op	    131399 file-B	 1864840 B/op	   16331 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/rows          	      79	   2414761 ns/op	    131399 file-B	 3948325 B/op	   33197 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/column        	     292	    608911 ns/op	    131399 file-B	 1866878 B/op	   16586 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/rows          	      63	   2840611 ns/op	     67940 file-B	 3836688 B/op	   33211 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/column        	     292	    618106 ns/op	     67940 file-B	 1689709 B/op	    8408 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/rows               	      81	   2734856 ns/op	     13371 file-B	 3862103 B/op	   17024 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/column             	     319	    560811 ns/op	     13371 file-B	 1518495 B/op	     413 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/hangxie/parquet-go/v3/reader
+cpu: Apple M3
+BenchmarkReaderScan/page-8192/required-int64/rows    	      90	   2571631 ns/op	    133268 file-B	 4189891 B/op	   33596 allocs/op
+BenchmarkReaderScan/page-8192/required-int64/column  	     256	    697004 ns/op	    133268 file-B	 2108465 B/op	   16985 allocs/op
+BenchmarkReaderScan/page-8192/required-double/rows   	      69	   2481242 ns/op	    133268 file-B	 4191929 B/op	   33851 allocs/op
+BenchmarkReaderScan/page-8192/required-double/column 	     252	    702764 ns/op	    133268 file-B	 2110504 B/op	   17240 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/rows   	      61	   2781628 ns/op	     68996 file-B	 3877888 B/op	   33730 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/column 	     266	    678618 ns/op	     68996 file-B	 1730919 B/op	    8927 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/rows        	      63	   2703926 ns/op	     14820 file-B	 4146728 B/op	   17643 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/column      	     270	    663523 ns/op	     14820 file-B	 1803122 B/op	    1032 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/rows 	      79	   2405124 ns/op	    131399 file-B	 3946289 B/op	   32942 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/column         	     297	    597738 ns/op	    131399 file-B	 1864838 B/op	   16331 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/rows          	      78	   2386977 ns/op	    131399 file-B	 3948325 B/op	   33197 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/column        	     292	    610209 ns/op	    131399 file-B	 1866880 B/op	   16586 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/rows          	      63	   2814714 ns/op	     67940 file-B	 3836689 B/op	   33211 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/column        	     294	    611603 ns/op	     67940 file-B	 1689708 B/op	    8408 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/rows               	      67	   2708918 ns/op	     13371 file-B	 3862104 B/op	   17024 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/column             	     321	    562251 ns/op	     13371 file-B	 1518494 B/op	     413 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/hangxie/parquet-go/v3/reader
+cpu: Apple M3
+BenchmarkReaderScan/page-8192/required-int64/rows    	      92	   2584676 ns/op	    133268 file-B	 4189891 B/op	   33596 allocs/op
+BenchmarkReaderScan/page-8192/required-int64/column  	     255	    699483 ns/op	    133268 file-B	 2108465 B/op	   16985 allocs/op
+BenchmarkReaderScan/page-8192/required-double/rows   	      69	   2492165 ns/op	    133268 file-B	 4191927 B/op	   33851 allocs/op
+BenchmarkReaderScan/page-8192/required-double/column 	     253	    701610 ns/op	    133268 file-B	 2110504 B/op	   17240 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/rows   	      61	   2787095 ns/op	     68996 file-B	 3877888 B/op	   33730 allocs/op
+BenchmarkReaderScan/page-8192/nullable-double/column 	     266	    674344 ns/op	     68996 file-B	 1730918 B/op	    8927 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/rows        	      63	   2722579 ns/op	     14820 file-B	 4146728 B/op	   17643 allocs/op
+BenchmarkReaderScan/page-8192/dictionary/column      	     270	    667860 ns/op	     14820 file-B	 1803124 B/op	    1032 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/rows 	      80	   2403069 ns/op	    131399 file-B	 3946288 B/op	   32942 allocs/op
+BenchmarkReaderScan/page-4194304/required-int64/column         	     300	    599731 ns/op	    131399 file-B	 1864842 B/op	   16331 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/rows          	      79	   2378546 ns/op	    131399 file-B	 3948326 B/op	   33197 allocs/op
+BenchmarkReaderScan/page-4194304/required-double/column        	     295	    607428 ns/op	    131399 file-B	 1866879 B/op	   16586 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/rows          	      62	   2802040 ns/op	     67940 file-B	 3836690 B/op	   33211 allocs/op
+BenchmarkReaderScan/page-4194304/nullable-double/column        	     289	    616371 ns/op	     67940 file-B	 1689707 B/op	    8408 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/rows               	      82	   2709060 ns/op	     13371 file-B	 3862103 B/op	   17024 allocs/op
+BenchmarkReaderScan/page-4194304/dictionary/column             	     320	    564569 ns/op	     13371 file-B	 1518496 B/op	     413 allocs/op
+PASS
