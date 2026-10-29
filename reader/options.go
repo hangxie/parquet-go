@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/compress"
+	"github.com/hangxie/parquet-go/v3/internal/layout"
 )
 
 // ReaderOption configures a ParquetReader when passed to constructors such as
@@ -75,9 +77,27 @@ func WithColumnKey(path string, key []byte) ReaderOption {
 	})
 }
 
+// WithMaxPageSize limits each page's stored size; default 256 MB, -1 for none (unsafe for untrusted files).
+func WithMaxPageSize(size int64) ReaderOption {
+	return readerOptionFunc(func(pr *ParquetReader) { pr.maxPageSize = size })
+}
+
+// WithMaxDecompressedSize limits each page's decoded size; default 256 MB, -1 for none (unsafe for untrusted files).
+func WithMaxDecompressedSize(size int64) ReaderOption {
+	return readerOptionFunc(func(pr *ParquetReader) { pr.maxDecompressedSize = size })
+}
+
+// WithMaxDecodedBatchBytes limits DELTA byte-array bytes decoded per 1,024 values; default 256 MB, -1 for none.
+func WithMaxDecodedBatchBytes(size int64) ReaderOption {
+	return readerOptionFunc(func(pr *ParquetReader) { pr.maxDecodedBatchBytes = size })
+}
+
 // applyReaderDefaults sets defaults, applies constructor options, and validates them.
 func applyReaderDefaults(pr *ParquetReader, opts []ReaderOption) error {
 	pr.np = 4 // default parallel number
+	pr.maxPageSize = layout.DefaultMaxPageSize
+	pr.maxDecompressedSize = compress.DefaultMaxDecompressedSize
+	pr.maxDecodedBatchBytes = layout.DefaultMaxDecodedBatchBytes
 
 	for _, opt := range opts {
 		opt.apply(pr)
@@ -85,6 +105,21 @@ func applyReaderDefaults(pr *ParquetReader, opts []ReaderOption) error {
 
 	if pr.np <= 0 {
 		return fmt.Errorf("WithNP: value must be positive, got %d", pr.np)
+	}
+	for _, limit := range []struct {
+		name string
+		size int64
+	}{
+		{"WithMaxPageSize", pr.maxPageSize},
+		{"WithMaxDecompressedSize", pr.maxDecompressedSize},
+		{"WithMaxDecodedBatchBytes", pr.maxDecodedBatchBytes},
+	} {
+		if limit.size <= 0 && limit.size != layout.NoSizeLimit {
+			return fmt.Errorf("%s: value must be positive or -1, got %d", limit.name, limit.size)
+		}
+	}
+	if pr.maxDecompressedSize != compress.DefaultMaxDecompressedSize {
+		pr.compressor = compress.DefaultCompressor().WithMaxDecompressedSize(pr.maxDecompressedSize)
 	}
 	switch pr.crcMode {
 	case common.CRCIgnore, common.CRCAuto, common.CRCStrict:

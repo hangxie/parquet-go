@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/compress"
 	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
@@ -1089,7 +1090,11 @@ func TestPageBodyDiskSize(t *testing.T) {
 	t.Run("plaintext returns CompressedPageSize", func(t *testing.T) {
 		t.Parallel()
 		header := &parquet.PageHeader{CompressedPageSize: 17}
-		size, err := pageBodyDiskSize(bytes.NewReader(nil), header, nil)
+		size, err := pageBodyDiskSize(bytes.NewReader(nil), header, nil, layout.DefaultMaxPageSize)
+		require.NoError(t, err)
+		require.Equal(t, int64(17), size)
+		// Plaintext bodies are skipped, not read, so the page size limit does not apply.
+		size, err = pageBodyDiskSize(bytes.NewReader(nil), header, nil, 16)
 		require.NoError(t, err)
 		require.Equal(t, int64(17), size)
 	})
@@ -1098,23 +1103,23 @@ func TestPageBodyDiskSize(t *testing.T) {
 		t.Parallel()
 		var prefix [4]byte
 		binary.LittleEndian.PutUint32(prefix[:], 123)
-		size, err := pageBodyDiskSize(bytes.NewReader(prefix[:]), &parquet.PageHeader{}, &layout.PageDecryptor{})
+		size, err := pageBodyDiskSize(bytes.NewReader(prefix[:]), &parquet.PageHeader{}, &layout.PageDecryptor{}, layout.DefaultMaxPageSize)
 		require.NoError(t, err)
 		require.Equal(t, int64(4+123), size)
 	})
 
 	t.Run("length too short to read", func(t *testing.T) {
 		t.Parallel()
-		_, err := pageBodyDiskSize(bytes.NewReader([]byte{1, 2}), &parquet.PageHeader{}, &layout.PageDecryptor{})
+		_, err := pageBodyDiskSize(bytes.NewReader([]byte{1, 2}), &parquet.PageHeader{}, &layout.PageDecryptor{}, layout.DefaultMaxPageSize)
 		require.ErrorContains(t, err, "read encrypted page body length")
 	})
 
 	t.Run("length exceeds max page size", func(t *testing.T) {
 		t.Parallel()
 		var prefix [4]byte
-		binary.LittleEndian.PutUint32(prefix[:], uint32(layout.DefaultMaxPageSize+1))
-		_, err := pageBodyDiskSize(bytes.NewReader(prefix[:]), &parquet.PageHeader{}, &layout.PageDecryptor{})
-		require.ErrorContains(t, err, "exceeds limit")
+		binary.LittleEndian.PutUint32(prefix[:], 123)
+		_, err := pageBodyDiskSize(bytes.NewReader(prefix[:]), &parquet.PageHeader{}, &layout.PageDecryptor{}, 122)
+		require.ErrorContains(t, err, "page size 123 exceeds limit 122 (see reader.WithMaxPageSize)")
 	})
 }
 
@@ -1132,7 +1137,7 @@ func TestReadPageBodyErrors(t *testing.T) {
 	t.Run("read encrypted body fails", func(t *testing.T) {
 		t.Parallel()
 		// Empty buffer — encryption.ReadModule will fail reading the length.
-		_, err := readPageBody(bytes.NewReader(nil), 0, &parquet.PageHeader{Type: parquet.PageType_DICTIONARY_PAGE}, parquet.CompressionCodec_UNCOMPRESSED, common.CRCIgnore, decryptor)
+		_, err := readPageBody(bytes.NewReader(nil), 0, &parquet.PageHeader{Type: parquet.PageType_DICTIONARY_PAGE}, parquet.CompressionCodec_UNCOMPRESSED, layout.PageReadOptions{Decryptor: decryptor})
 		require.ErrorContains(t, err, "read encrypted page body")
 	})
 
@@ -1149,8 +1154,39 @@ func TestReadPageBodyErrors(t *testing.T) {
 
 		wrongKeyDecryptor := *decryptor
 		wrongKeyDecryptor.Key = []byte("abcdef0123456789")
-		_, err = readPageBody(bytes.NewReader(encoded), 0, header, parquet.CompressionCodec_UNCOMPRESSED, common.CRCIgnore, &wrongKeyDecryptor)
+		_, err = readPageBody(bytes.NewReader(encoded), 0, header, parquet.CompressionCodec_UNCOMPRESSED, layout.PageReadOptions{Decryptor: &wrongKeyDecryptor})
 		require.ErrorContains(t, err, "decrypt page body")
+	})
+
+	t.Run("plaintext body out of range", func(t *testing.T) {
+		t.Parallel()
+		for size, limit := range map[int32]int64{-1: 0, 17: 16} {
+			header := &parquet.PageHeader{CompressedPageSize: size}
+			_, err := readPageBody(bytes.NewReader(nil), 0, header, parquet.CompressionCodec_UNCOMPRESSED, layout.PageReadOptions{MaxPageSize: limit})
+			require.ErrorContains(t, err, "page size")
+		}
+	})
+
+	t.Run("encrypted body exceeds max page size", func(t *testing.T) {
+		t.Parallel()
+		encoded, err := encryption.EncodeModule([]byte("hello"))
+		require.NoError(t, err)
+		_, err = readPageBody(bytes.NewReader(encoded), 0, &parquet.PageHeader{}, parquet.CompressionCodec_UNCOMPRESSED, layout.PageReadOptions{Decryptor: decryptor, MaxPageSize: 4})
+		require.ErrorContains(t, err, "exceeds limit 4 (see reader.WithMaxPageSize)")
+	})
+
+	t.Run("decompressed size exceeds compressor limit", func(t *testing.T) {
+		t.Parallel()
+		compressed, err := compress.Compress(make([]byte, 64), parquet.CompressionCodec_GZIP)
+		require.NoError(t, err)
+		header := &parquet.PageHeader{CompressedPageSize: int32(len(compressed)), UncompressedPageSize: 64}
+		compressor, err := compress.NewCompressor(compress.WithMaxDecompressedSize(32))
+		require.NoError(t, err)
+		_, err = readPageBody(bytes.NewReader(compressed), 0, header, parquet.CompressionCodec_GZIP, layout.PageReadOptions{Compressor: compressor})
+		require.ErrorIs(t, err, compress.ErrDecompressedSizeExceeded)
+		data, err := readPageBody(bytes.NewReader(compressed), 0, header, parquet.CompressionCodec_GZIP, layout.PageReadOptions{})
+		require.NoError(t, err)
+		require.Len(t, data, 64)
 	})
 
 	t.Run("decompress fails on bogus data", func(t *testing.T) {
@@ -1158,7 +1194,7 @@ func TestReadPageBodyErrors(t *testing.T) {
 		// Plaintext path: feed bytes that aren't valid GZIP.
 		header := &parquet.PageHeader{CompressedPageSize: 8, UncompressedPageSize: 64}
 		buf := make([]byte, 8) // not a valid gzip stream
-		_, err := readPageBody(bytes.NewReader(buf), 0, header, parquet.CompressionCodec_GZIP, common.CRCIgnore, nil)
+		_, err := readPageBody(bytes.NewReader(buf), 0, header, parquet.CompressionCodec_GZIP, layout.PageReadOptions{})
 		require.ErrorContains(t, err, "decompress page data")
 	})
 }
@@ -1175,7 +1211,7 @@ func TestReadPageHeaderEncryptedErrors(t *testing.T) {
 
 	t.Run("read module length fails", func(t *testing.T) {
 		t.Parallel()
-		_, _, err := readPageHeader(context.Background(), bytes.NewReader(nil), 0, decryptor)
+		_, _, err := readPageHeader(context.Background(), bytes.NewReader(nil), 0, decryptor, layout.DefaultMaxPageSize)
 		require.ErrorContains(t, err, "read encrypted page header module")
 	})
 
@@ -1195,7 +1231,7 @@ func TestReadPageHeaderEncryptedErrors(t *testing.T) {
 		encoded, err := encryption.EncodeModule(mod)
 		require.NoError(t, err)
 
-		_, _, err = readPageHeader(context.Background(), bytes.NewReader(encoded), 0, decryptor)
+		_, _, err = readPageHeader(context.Background(), bytes.NewReader(encoded), 0, decryptor, layout.DefaultMaxPageSize)
 		require.ErrorContains(t, err, "decrypt page header")
 	})
 }

@@ -14,8 +14,11 @@ import (
 // expands to exhaust available memory.
 const DefaultMaxDecompressedSize = 256 * 1024 * 1024
 
+// NoSizeLimit disables the decompressed size limit; it is unsafe for untrusted input.
+const NoSizeLimit = -1
+
 // ErrDecompressedSizeExceeded is returned when decompressed data exceeds the configured limit.
-var ErrDecompressedSizeExceeded = errors.New("decompressed data size exceeds configured limit")
+var ErrDecompressedSizeExceeded = errors.New("decompressed data size exceeds configured limit (see reader.WithMaxDecompressedSize)")
 
 // codec holds the compress/uncompress functions for a single codec.
 type codec struct {
@@ -45,10 +48,12 @@ type compressorConfig struct {
 	levels              map[parquet.CompressionCodec]*int
 }
 
-// WithMaxDecompressedSize sets the maximum allowed decompressed data size.
-// A value of 0 disables the limit (not recommended for untrusted input).
+// WithMaxDecompressedSize sets the maximum decompressed data size; NoSizeLimit disables it.
 func WithMaxDecompressedSize(size int64) CompressorOption {
 	return func(cfg *compressorConfig) error {
+		if size <= 0 && size != NoSizeLimit {
+			return fmt.Errorf("WithMaxDecompressedSize: value must be positive or -1, got %d", size)
+		}
 		cfg.maxDecompressedSize = size
 		return nil
 	}
@@ -120,6 +125,21 @@ func DefaultCompressor() *Compressor {
 // MaxDecompressedSize returns the configured maximum decompressed data size.
 func (c *Compressor) MaxDecompressedSize() int64 {
 	return c.maxDecompressedSize
+}
+
+// WithMaxDecompressedSize returns a copy of c with a different decompressed size limit; NoSizeLimit disables it.
+func (c *Compressor) WithMaxDecompressedSize(size int64) *Compressor {
+	clone := *c
+	clone.maxDecompressedSize = size
+	return &clone
+}
+
+// CheckSize rejects a decoded size over the decompressed size limit, for pages that skip decompression.
+func (c *Compressor) CheckSize(size int64) error {
+	if c.maxDecompressedSize > 0 && size > c.maxDecompressedSize {
+		return fmt.Errorf("decoded page size %d exceeds maximum allowed size %d: %w", size, c.maxDecompressedSize, ErrDecompressedSizeExceeded)
+	}
+	return nil
 }
 
 // Compress compresses data using the specified codec.

@@ -548,3 +548,35 @@ func TestReadRejectsMissingDictionary(t *testing.T) {
 	_, err = pr.ReadByNumberWithContext(context.Background(), 2)
 	require.ErrorContains(t, err, "dictionary-encoded page has no dictionary")
 }
+
+func TestReadRows_EmptyChunkKeepsSyntheticCapWithoutPageSizeLimit(t *testing.T) {
+	// num_rows comes from the footer, so lifting the page size limit must not lift this cap.
+	const numRows int64 = 1 << 40
+	footer := &parquet.FileMetaData{
+		NumRows: numRows,
+		RowGroups: []*parquet.RowGroup{{
+			NumRows: numRows,
+			Columns: []*parquet.ColumnChunk{{MetaData: &parquet.ColumnMetaData{
+				PathInSchema:   []string{"leaf"},
+				DataPageOffset: 64,
+				NumValues:      numRows,
+				Type:           parquet.Type_INT64,
+				Codec:          parquet.CompressionCodec_UNCOMPRESSED,
+			}}},
+		}},
+	}
+	opts := &layout.PageReadOptions{MaxPageSize: layout.NoSizeLimit}
+	cb, err := NewColumnBuffer(newMockColumnBufferFileReader(make([]byte, 64)), footer, newSchemaHandlerWithPath("leaf"), common.PathToStr([]string{"root", "leaf"}), opts)
+	require.NoError(t, err)
+
+	_, _, err = cb.ReadRows(1)
+	require.ErrorContains(t, err, fmt.Sprintf("exceeds allocation limit %d", layout.DefaultMaxPageSize))
+}
+
+func TestNewColumnBuffer_InvalidSizeLimits(t *testing.T) {
+	footer := &parquet.FileMetaData{RowGroups: []*parquet.RowGroup{}}
+	for _, opts := range []*layout.PageReadOptions{{MaxPageSize: -2}, {MaxDecodedBatchBytes: -2}} {
+		_, err := NewColumnBuffer(newMockColumnBufferFileReader(nil), footer, newSchemaHandlerWithPath("leaf"), common.PathToStr([]string{"root", "leaf"}), opts)
+		require.ErrorContains(t, err, "value must be positive, 0 or -1, got -2")
+	}
+}

@@ -21,12 +21,19 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 	if opts != nil {
 		opt = *opts
 	}
+	if err := opt.Validate(); err != nil {
+		return nil, err
+	}
 	ctx := opt.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	maxPageSize := layout.ResolveSizeLimit(opt.MaxPageSize, layout.DefaultMaxPageSize)
+	if err := checkCompressedPageSize(pageHeader, maxPageSize); err != nil {
+		return nil, err
+	}
 	// Re-read the header to get exact header size
-	_, headerSize, err := readPageHeader(ctx, pFile, offset, nil)
+	_, headerSize, err := readPageHeader(ctx, pFile, offset, nil, maxPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("read page header: %w", err)
 	}
@@ -40,8 +47,7 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 
 	// Read compressed page data
 	compressedData := make([]byte, pageHeader.CompressedPageSize)
-	_, err = pFile.Read(compressedData)
-	if err != nil {
+	if _, err := io.ReadFull(pFile, compressedData); err != nil {
 		return nil, fmt.Errorf("read compressed page data: %w", err)
 	}
 
@@ -65,12 +71,15 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 
 		if v2Header.GetIsCompressed() && len(valuesData) > 0 {
 			expectedDataSize := int64(pageHeader.UncompressedPageSize) - int64(levelBytes)
-			valuesData, err = compress.UncompressWithExpectedSize(valuesData, codec, expectedDataSize)
+			valuesData, err = pageCompressor(opt).UncompressWithExpectedSize(valuesData, codec, expectedDataSize)
 			if err != nil {
 				return nil, fmt.Errorf("decompress page data: %w", err)
 			}
 		}
 
+		if err := pageCompressor(opt).CheckSize(int64(len(levelData) + len(valuesData))); err != nil {
+			return nil, fmt.Errorf("read page data: %w", err)
+		}
 		result := make([]byte, 0, len(levelData)+len(valuesData))
 		result = append(result, levelData...)
 		result = append(result, valuesData...)
@@ -78,7 +87,7 @@ func ReadPageData(pFile io.ReadSeeker, offset int64, pageHeader *parquet.PageHea
 	}
 
 	// Non-V2 pages: decompress the entire buffer
-	uncompressedData, err := compress.UncompressWithExpectedSize(compressedData, codec, int64(pageHeader.UncompressedPageSize))
+	uncompressedData, err := pageCompressor(opt).UncompressWithExpectedSize(compressedData, codec, int64(pageHeader.UncompressedPageSize))
 	if err != nil {
 		return nil, fmt.Errorf("decompress page data: %w", err)
 	}
@@ -109,22 +118,35 @@ func DecodeDictionaryPage(data []byte, pageHeader *parquet.PageHeader, physicalT
 	return values, nil
 }
 
-// readPageBody reads the page body bytes (decrypting when decryptor is non-nil)
+// pageCompressor returns the compressor configured in opt, or the default one.
+func pageCompressor(opt layout.PageReadOptions) *compress.Compressor {
+	if opt.Compressor != nil {
+		return opt.Compressor
+	}
+	return compress.DefaultCompressor()
+}
+
+// readPageBody reads the page body bytes (decrypting when opt.Decryptor is non-nil)
 // from dataOffset, validates CRC, and decompresses according to codec. The
 // reader is repositioned to dataOffset first.
-func readPageBody(pFile io.ReadSeeker, dataOffset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, crcMode common.CRCMode, decryptor *layout.PageDecryptor) ([]byte, error) {
+func readPageBody(pFile io.ReadSeeker, dataOffset int64, pageHeader *parquet.PageHeader, codec parquet.CompressionCodec, opt layout.PageReadOptions) ([]byte, error) {
+	decryptor := opt.Decryptor
 	if _, err := pFile.Seek(dataOffset, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("seek to page data: %w", err)
 	}
 
+	maxPageSize := layout.ResolveSizeLimit(opt.MaxPageSize, layout.DefaultMaxPageSize)
 	var compressedData []byte
 	if decryptor == nil {
+		if err := checkCompressedPageSize(pageHeader, maxPageSize); err != nil {
+			return nil, err
+		}
 		compressedData = make([]byte, pageHeader.CompressedPageSize)
 		if _, err := io.ReadFull(pFile, compressedData); err != nil {
 			return nil, fmt.Errorf("read compressed page data: %w", err)
 		}
 	} else {
-		module, err := encryption.ReadModule(pFile, layout.DefaultMaxPageSize)
+		module, err := layout.ReadPageModule(pFile, maxPageSize)
 		if err != nil {
 			return nil, fmt.Errorf("read encrypted page body: %w", err)
 		}
@@ -138,11 +160,11 @@ func readPageBody(pFile io.ReadSeeker, dataOffset int64, pageHeader *parquet.Pag
 		}
 	}
 
-	if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), crcMode, compressedData); err != nil {
+	if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), opt.CRCMode, compressedData); err != nil {
 		return nil, fmt.Errorf("CRC validation failed: %w", err)
 	}
 
-	uncompressed, err := compress.UncompressWithExpectedSize(compressedData, codec, int64(pageHeader.UncompressedPageSize))
+	uncompressed, err := pageCompressor(opt).UncompressWithExpectedSize(compressedData, codec, int64(pageHeader.UncompressedPageSize))
 	if err != nil {
 		return nil, fmt.Errorf("decompress page data: %w", err)
 	}

@@ -76,6 +76,9 @@ func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet
 			return nil, fmt.Errorf("decompress v2 data: %w", err)
 		}
 	}
+	if err := resolveCompressor(c).CheckSize(levelsLen + int64(len(dataBuf))); err != nil {
+		return nil, fmt.Errorf("read v2 data: %w", err)
+	}
 
 	return assembleLevelPrefixedBuf(rll, dll, repetitionLevelsBuf, definitionLevelsBuf, dataBuf, maxRepetitionLevel, maxDefinitionLevel)
 }
@@ -174,9 +177,9 @@ func readDictionaryPageBody(pageHeader *parquet.PageHeader, buf []byte, path []s
 }
 
 // readDataPageBody reads levels, values, and builds the table for a data page.
-func readDataPageBody(pageHeader *parquet.PageHeader, buf []byte, path []string, name string, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData) (*Page, int64, int64, error) {
+func readDataPageBody(pageHeader *parquet.PageHeader, buf []byte, path []string, name string, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, maxDecodedBatchBytes int64) (*Page, int64, int64, error) {
 	page := NewDataPage()
-	page.Header, page.Path = pageHeader, path
+	page.Header, page.Path, page.maxDecodedBatchBytes = pageHeader, path, maxDecodedBatchBytes
 	if err := page.initDecoder(buf, schemaHandler, colMetaData.GetNumValues()); err != nil {
 		return nil, 0, 0, err
 	}

@@ -52,6 +52,9 @@ func (p *Page) extractV2LevelBuffers(maxRepetitionLevel, maxDefinitionLevel int3
 			return nil, fmt.Errorf("uncompress data page v2: %w", err)
 		}
 	}
+	if err := resolveCompressor(p.compressor).CheckSize(levelsLen + int64(len(dataBuf))); err != nil {
+		return nil, fmt.Errorf("read v2 data: %w", err)
+	}
 
 	buf := make([]byte, 0)
 	if rll > 0 && maxRepetitionLevel > 0 {
@@ -95,6 +98,9 @@ func (p *Page) GetRLDLFromRawData(schemaHandler *schema.SchemaHandler) (int64, i
 			return 0, 0, fmt.Errorf("uncompress data page: %w", err)
 		}
 	} else {
+		if err := resolveCompressor(p.compressor).CheckSize(int64(len(p.RawData))); err != nil {
+			return 0, 0, fmt.Errorf("read data page: %w", err)
+		}
 		buf = p.RawData
 	}
 

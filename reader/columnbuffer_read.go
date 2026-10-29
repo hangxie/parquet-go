@@ -59,6 +59,7 @@ func (cbt *ColumnBufferType) appendNullChunk() error {
 	if numRows < 0 {
 		return fmt.Errorf("read page: column chunk row count is negative: %d", numRows)
 	}
+	// num_rows comes from the footer, so NoSizeLimit keeps the default cap rather than lifting it.
 	maxAllocation := cbt.PageReadOptions.MaxPageSize
 	if maxAllocation <= 0 {
 		maxAllocation = layout.DefaultMaxPageSize

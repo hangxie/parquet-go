@@ -10,18 +10,20 @@ import (
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
-	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
 // PageReadOptions controls optional behavior when reading pages.
 type PageReadOptions struct {
-	Context     context.Context
-	CRCMode     common.CRCMode
-	Compressor  *compress.Compressor
+	Context    context.Context
+	CRCMode    common.CRCMode
+	Compressor *compress.Compressor
+	// MaxPageSize limits a page's stored size; 0 means DefaultMaxPageSize and NoSizeLimit means none.
 	MaxPageSize int64
-	Decryptor   *PageDecryptor
+	// MaxDecodedBatchBytes limits DELTA byte-array bytes per batch; 0 means the default and NoSizeLimit means none.
+	MaxDecodedBatchBytes int64
+	Decryptor            *PageDecryptor
 }
 
 // Decode replaces a dictionary-encoded page's indices with dictPage values, rejecting invalid indices.
@@ -69,13 +71,14 @@ func (page *Page) Decode(dictPage *Page) error {
 
 // Read page RawData
 func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts *PageReadOptions) (*Page, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
 	var opt PageReadOptions
 	if opts != nil {
 		opt = *opts
 	}
-	if opt.MaxPageSize <= 0 {
-		opt.MaxPageSize = DefaultMaxPageSize
-	}
+	opt.MaxPageSize = ResolveSizeLimit(opt.MaxPageSize, DefaultMaxPageSize)
 	var err error
 
 	pageHeader, err := readPageHeader(thriftReader, opt)
@@ -94,7 +97,7 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 
 	compressedPageSize := pageHeader.GetCompressedPageSize()
 	if compressedPageSize < 0 || int64(compressedPageSize) > opt.MaxPageSize {
-		return nil, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, opt.MaxPageSize)
+		return nil, PageSizeError(int64(compressedPageSize), opt.MaxPageSize)
 	}
 	var buf []byte
 	if opt.Decryptor != nil {
@@ -117,6 +120,7 @@ func ReadPageRawData(thriftReader *thrift.TBufferedTransport, schemaHandler *sch
 	page.CompressType = colMetaData.GetCodec()
 	page.RawData = buf
 	page.compressor = opt.Compressor
+	page.maxDecodedBatchBytes = opt.MaxDecodedBatchBytes
 	page.chunkValues = colMetaData.GetNumValues()
 	page.Path = make([]string, 0)
 	page.Path = append(page.Path, schemaHandler.GetRootInName())
@@ -190,7 +194,7 @@ func readPageHeader(thriftReader *thrift.TBufferedTransport, opt PageReadOptions
 	if opt.Decryptor == nil {
 		return ReadPageHeaderWithContext(pageContext(opt), thriftReader)
 	}
-	module, err := encryption.ReadModule(thriftReader, opt.MaxPageSize)
+	module, err := ReadPageModule(thriftReader, opt.MaxPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("read encrypted page header module: %w", err)
 	}
@@ -210,13 +214,14 @@ func pageContext(opt PageReadOptions) context.Context {
 
 // Read page from parquet file
 func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, opts *PageReadOptions) (*Page, int64, int64, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, 0, 0, err
+	}
 	var opt PageReadOptions
 	if opts != nil {
 		opt = *opts
 	}
-	if opt.MaxPageSize <= 0 {
-		opt.MaxPageSize = DefaultMaxPageSize
-	}
+	opt.MaxPageSize = ResolveSizeLimit(opt.MaxPageSize, DefaultMaxPageSize)
 
 	pageHeader, err := readPageHeader(thriftReader, opt)
 	if err != nil {
@@ -225,7 +230,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 
 	compressedPageSize := pageHeader.GetCompressedPageSize()
 	if compressedPageSize < 0 || int64(compressedPageSize) > opt.MaxPageSize {
-		return nil, 0, 0, fmt.Errorf("page size %d exceeds limit %d", compressedPageSize, opt.MaxPageSize)
+		return nil, 0, 0, PageSizeError(int64(compressedPageSize), opt.MaxPageSize)
 	}
 
 	path := make([]string, 0)
@@ -253,7 +258,7 @@ func ReadPage(thriftReader *thrift.TBufferedTransport, schemaHandler *schema.Sch
 		}
 		return page, 0, 0, nil
 	case parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2:
-		page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
+		page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, opt.MaxDecodedBatchBytes)
 		if err == nil && opt.Decryptor != nil {
 			opt.Decryptor.PageOrdinal++
 		}
