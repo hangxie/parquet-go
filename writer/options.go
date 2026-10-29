@@ -29,7 +29,7 @@ func WithNP(np int64) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) { pw.np = np })
 }
 
-// WithPageSize sets the page size in bytes. Default is 8KB.
+// WithPageSize sets the page size in bytes, at most math.MaxInt32. Default is 8KB.
 func WithPageSize(size int64) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) { pw.pageSize = size })
 }

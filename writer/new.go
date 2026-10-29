@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 
 	"github.com/hangxie/parquet-go/v3/common"
@@ -96,6 +97,10 @@ func (pw *ParquetWriter) initBase(ctx context.Context, pFile source.ParquetFileW
 	}
 	if pw.pageSize <= 0 {
 		return fmt.Errorf("WithPageSize: value must be positive, got %d", pw.pageSize)
+	}
+	// Pages are cut by an int32 size, matching the page header's size fields.
+	if pw.pageSize > math.MaxInt32 {
+		return fmt.Errorf("WithPageSize: value must not exceed %d, got %d", math.MaxInt32, pw.pageSize)
 	}
 	if pw.rowGroupSize <= 0 {
 		return fmt.Errorf("WithRowGroupSize: value must be positive, got %d", pw.rowGroupSize)

@@ -172,6 +172,8 @@ Common writer options:
 - `writer.WithWriteCRC`
 - `writer.WithSortingColumns`
 
+`writer.WithPageSize` accepts at most 2,147,483,647 bytes (`math.MaxInt32`), the largest size a page header can record; the writer constructor rejects larger values.
+
 Common reader options:
 
 - `reader.WithNP`

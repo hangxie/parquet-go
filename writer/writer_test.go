@@ -424,6 +424,7 @@ func TestOptionValidation(t *testing.T) {
 		"np_negative":          {[]WriterOption{WithNP(-1)}, "WithNP: value must be positive"},
 		"page_size_zero":       {[]WriterOption{WithPageSize(0)}, "WithPageSize: value must be positive"},
 		"page_size_negative":   {[]WriterOption{WithPageSize(-100)}, "WithPageSize: value must be positive"},
+		"page_size_over_int32": {[]WriterOption{WithPageSize(math.MaxInt32 + 1)}, "WithPageSize: value must not exceed 2147483647"},
 		"truncate_length_zero": {[]WriterOption{WithBinaryMinMaxTruncateLength(0)}, "WithBinaryMinMaxTruncateLength: value must be positive"},
 		"truncate_length_negative": {
 			[]WriterOption{WithBinaryMinMaxTruncateLength(-1)},
@@ -469,6 +470,37 @@ func TestOptionValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPageSizeInt32Limit(t *testing.T) {
+	type S struct {
+		ID int32 `parquet:"name=id, type=INT32"`
+	}
+	write := func(pageSize int64) ([]byte, error) {
+		var buf bytes.Buffer
+		pw, err := NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&buf), new(S), WithNP(1), WithPageSize(pageSize))
+		if err != nil {
+			return nil, err
+		}
+		for i := range 1000 {
+			require.NoError(t, pw.WriteWithContext(context.Background(), S{ID: int32(i)}))
+		}
+		require.NoError(t, pw.WriteStopWithContext(context.Background()))
+		return buf.Bytes(), nil
+	}
+
+	// The largest page size keeps every value in one page rather than wrapping to one page per value.
+	data, err := write(math.MaxInt32)
+	require.NoError(t, err)
+	pr, err := reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), new(S))
+	require.NoError(t, err)
+	headers, err := pr.GetAllPageHeadersWithContext(context.Background(), 0, 0)
+	require.NoError(t, err)
+	require.Len(t, headers, 1)
+	require.Equal(t, int32(1000), headers[0].NumValues)
+
+	_, err = write(math.MaxInt32 + 1)
+	require.ErrorContains(t, err, "WithPageSize: value must not exceed 2147483647")
 }
 
 func TestOptionValidation_NoPartialOutput(t *testing.T) {
