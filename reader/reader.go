@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/compress"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
@@ -38,6 +39,12 @@ type ParquetReader struct {
 	np              int64          // parallel number
 	caseInsensitive bool           // case-insensitive schema matching
 	crcMode         common.CRCMode // CRC validation when reading pages
+
+	// Page size limits; -1 means unlimited.
+	maxPageSize          int64
+	maxDecompressedSize  int64
+	maxDecodedBatchBytes int64
+	compressor           *compress.Compressor // nil uses the default decompressed-size limit
 
 	// Encryption options.
 	footerKey         []byte
@@ -150,7 +157,7 @@ func (pr *ParquetReader) SetSchemaHandlerFromJSON(jsonSchema string) error {
 }
 
 func (pr *ParquetReader) newColumnBuffer(pathStr string) (*ColumnBufferType, error) {
-	cb, err := newColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pr.fileSchemaHandler, pathStr, &layout.PageReadOptions{Context: pr.context(), CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize}, pr.caseInsensitive)
+	cb, err := newColumnBuffer(pr.PFile, pr.Footer, pr.SchemaHandler, pr.fileSchemaHandler, pathStr, pr.pageReadOptions(pr.context(), nil), pr.caseInsensitive)
 	if err != nil {
 		return nil, fmt.Errorf("new column buffer for %s: %w", pathStr, err)
 	}
@@ -185,4 +192,21 @@ func newFileSchemaHandler(footer *parquet.FileMetaData) *schema.SchemaHandler {
 		elements[i] = &clone
 	}
 	return schema.NewSchemaHandlerFromSchemaList(elements)
+}
+
+// pageReadOptions returns the page options built from the reader's configuration.
+func (pr *ParquetReader) pageReadOptions(ctx context.Context, decryptor *layout.PageDecryptor) *layout.PageReadOptions {
+	return &layout.PageReadOptions{
+		Context:              ctx,
+		CRCMode:              pr.crcMode,
+		Compressor:           pr.compressor,
+		MaxPageSize:          pr.maxPageSize,
+		MaxDecodedBatchBytes: pr.maxDecodedBatchBytes,
+		Decryptor:            decryptor,
+	}
+}
+
+// resolvedMaxPageSize returns the effective page size limit, with no limit as math.MaxInt64.
+func (pr *ParquetReader) resolvedMaxPageSize() int64 {
+	return layout.ResolveSizeLimit(pr.maxPageSize, layout.DefaultMaxPageSize)
 }

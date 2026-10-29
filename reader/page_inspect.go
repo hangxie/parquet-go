@@ -38,7 +38,7 @@ func (pr *ParquetReader) GetAllPageHeadersWithContext(ctx context.Context, rgInd
 	if err != nil {
 		return nil, err
 	}
-	return readAllPageHeaders(ctx, source.ReadSeekerWithContext{Ctx: ctx, ReadSeeker: pr.PFile}, column, decryptor)
+	return readAllPageHeaders(ctx, source.ReadSeekerWithContext{Ctx: ctx, ReadSeeker: pr.PFile}, column, decryptor, pr.resolvedMaxPageSize())
 }
 
 // GetFirstDataPageHeader returns metadata for the first data page in a column
@@ -69,7 +69,7 @@ func (pr *ParquetReader) GetFirstDataPageHeaderWithContext(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	return readFirstDataPageHeader(ctx, source.ReadSeekerWithContext{Ctx: ctx, ReadSeeker: pr.PFile}, column, decryptor)
+	return readFirstDataPageHeader(ctx, source.ReadSeekerWithContext{Ctx: ctx, ReadSeeker: pr.PFile}, column, decryptor, pr.resolvedMaxPageSize())
 }
 
 // ReadDictionaryPageValues reads and decodes dictionary page values at the
@@ -97,7 +97,7 @@ func (pr *ParquetReader) ReadDictionaryPageValuesWithContext(ctx context.Context
 
 	// Read page header at the offset
 	contextFile := source.ReadSeekerWithContext{Ctx: ctx, ReadSeeker: pr.PFile}
-	pageHeader, _, err := readPageHeader(ctx, contextFile, offset, nil)
+	pageHeader, _, err := readPageHeader(ctx, contextFile, offset, nil, pr.resolvedMaxPageSize())
 	if err != nil {
 		return nil, fmt.Errorf("read page header: %w", err)
 	}
@@ -108,7 +108,7 @@ func (pr *ParquetReader) ReadDictionaryPageValuesWithContext(ctx context.Context
 	}
 
 	// Read and decode the page data
-	data, err := ReadPageData(contextFile, offset, pageHeader, codec, &layout.PageReadOptions{Context: ctx, CRCMode: pr.crcMode, MaxPageSize: layout.DefaultMaxPageSize})
+	data, err := ReadPageData(contextFile, offset, pageHeader, codec, pr.pageReadOptions(ctx, nil))
 	if err != nil {
 		return nil, fmt.Errorf("read page data: %w", err)
 	}
@@ -159,7 +159,7 @@ func (pr *ParquetReader) ReadDictionaryPageValuesInColumnWithContext(ctx context
 
 	offset := column.MetaData.GetDictionaryPageOffset()
 	contextFile := source.ReadSeekerWithContext{Ctx: ctx, ReadSeeker: pr.PFile}
-	pageHeader, headerSize, err := readPageHeader(ctx, contextFile, offset, decryptor)
+	pageHeader, headerSize, err := readPageHeader(ctx, contextFile, offset, decryptor, pr.resolvedMaxPageSize())
 	if err != nil {
 		return nil, fmt.Errorf("read page header: %w", err)
 	}
@@ -167,7 +167,7 @@ func (pr *ParquetReader) ReadDictionaryPageValuesInColumnWithContext(ctx context
 		return nil, fmt.Errorf("expected dictionary page but got %v", pageHeader.Type)
 	}
 
-	data, err := readPageBody(contextFile, offset+headerSize, pageHeader, column.MetaData.GetCodec(), pr.crcMode, decryptor)
+	data, err := readPageBody(contextFile, offset+headerSize, pageHeader, column.MetaData.GetCodec(), *pr.pageReadOptions(ctx, decryptor))
 	if err != nil {
 		return nil, fmt.Errorf("read page data: %w", err)
 	}

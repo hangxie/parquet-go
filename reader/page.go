@@ -8,7 +8,6 @@ import (
 
 	"github.com/apache/thrift/lib/go/thrift"
 
-	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
@@ -82,7 +81,7 @@ func (p *positionTracker) Open() error {
 // decrypted in place. The returned headerSize is the number of bytes consumed
 // on disk by the header (including the 4-byte length prefix for encrypted
 // modules).
-func readPageHeader(ctx context.Context, pFile io.ReadSeeker, offset int64, decryptor *layout.PageDecryptor) (*parquet.PageHeader, int64, error) {
+func readPageHeader(ctx context.Context, pFile io.ReadSeeker, offset int64, decryptor *layout.PageDecryptor, maxPageSize int64) (*parquet.PageHeader, int64, error) {
 	if _, err := pFile.Seek(offset, io.SeekStart); err != nil {
 		return nil, 0, fmt.Errorf("seek to page: %w", err)
 	}
@@ -103,7 +102,7 @@ func readPageHeader(ctx context.Context, pFile io.ReadSeeker, offset int64, decr
 		return pageHeader, headerSize, nil
 	}
 
-	module, err := encryption.ReadModule(pFile, layout.DefaultMaxPageSize)
+	module, err := layout.ReadPageModule(pFile, maxPageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("read encrypted page header module: %w", err)
 	}
@@ -115,13 +114,26 @@ func readPageHeader(ctx context.Context, pFile io.ReadSeeker, offset int64, decr
 	return pageHeader, headerSize, nil
 }
 
+// checkCompressedPageSize rejects a plaintext page body that is negative or over maxPageSize.
+func checkCompressedPageSize(pageHeader *parquet.PageHeader, maxPageSize int64) error {
+	size := int64(pageHeader.CompressedPageSize)
+	if size < 0 {
+		return fmt.Errorf("negative compressed page size %d", size)
+	}
+	if size > maxPageSize {
+		return layout.PageSizeError(size, maxPageSize)
+	}
+	return nil
+}
+
 // pageBodyDiskSize returns the on-disk size of a page body given the page
 // header. For plaintext pages the size is the compressed page size; for
 // encrypted pages the size is the 4-byte length prefix plus the encrypted
 // module body. The reader is positioned at the start of the body and is left
 // positioned immediately after the body when this returns.
-func pageBodyDiskSize(pFile io.ReadSeeker, pageHeader *parquet.PageHeader, decryptor *layout.PageDecryptor) (int64, error) {
+func pageBodyDiskSize(pFile io.ReadSeeker, pageHeader *parquet.PageHeader, decryptor *layout.PageDecryptor, maxPageSize int64) (int64, error) {
 	if decryptor == nil {
+		// The body is skipped, not read, so only a negative size matters here.
 		if pageHeader.CompressedPageSize < 0 {
 			return 0, fmt.Errorf("negative compressed page size %d", pageHeader.CompressedPageSize)
 		}
@@ -132,8 +144,8 @@ func pageBodyDiskSize(pFile io.ReadSeeker, pageHeader *parquet.PageHeader, decry
 		return 0, fmt.Errorf("read encrypted page body length: %w", err)
 	}
 	bodyLen := int64(binary.LittleEndian.Uint32(lengthBuf[:]))
-	if bodyLen < 0 || bodyLen > layout.DefaultMaxPageSize {
-		return 0, fmt.Errorf("encrypted page body length %d exceeds limit %d", bodyLen, layout.DefaultMaxPageSize)
+	if bodyLen < 0 || bodyLen > maxPageSize {
+		return 0, layout.PageSizeError(bodyLen, maxPageSize)
 	}
 	return 4 + bodyLen, nil
 }
@@ -200,7 +212,7 @@ func ExtractPageHeaderInfo(pageHeader *parquet.PageHeader, offset int64, index i
 // decryptor is non-nil page headers are decrypted and body lengths are read
 // from the encrypted module prefix. The decryptor's PageOrdinal is advanced
 // after each data page so the next header's AAD matches the file layout.
-func readAllPageHeaders(ctx context.Context, pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk, decryptor *layout.PageDecryptor) ([]PageHeaderInfo, error) {
+func readAllPageHeaders(ctx context.Context, pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk, decryptor *layout.PageDecryptor, maxPageSize int64) ([]PageHeaderInfo, error) {
 	meta := columnChunk.MetaData
 	if meta == nil {
 		return nil, fmt.Errorf("column chunk metadata is nil")
@@ -219,7 +231,7 @@ func readAllPageHeaders(ctx context.Context, pFile io.ReadSeeker, columnChunk *p
 
 	// Read pages until we've read all values
 	for totalValuesRead < meta.NumValues {
-		pageHeader, headerSize, err := readPageHeader(ctx, pFile, currentOffset, decryptor)
+		pageHeader, headerSize, err := readPageHeader(ctx, pFile, currentOffset, decryptor, maxPageSize)
 		if err != nil {
 			return nil, fmt.Errorf("read page header at offset %d: %w", currentOffset, err)
 		}
@@ -236,7 +248,7 @@ func readAllPageHeaders(ctx context.Context, pFile io.ReadSeeker, columnChunk *p
 		}
 		totalValuesRead += valuesInPage
 
-		bodySize, err := pageBodyDiskSize(pFile, pageHeader, decryptor)
+		bodySize, err := pageBodyDiskSize(pFile, pageHeader, decryptor, maxPageSize)
 		if err != nil {
 			return nil, fmt.Errorf("read page body size at offset %d: %w", currentOffset, err)
 		}
@@ -257,7 +269,7 @@ func readAllPageHeaders(ctx context.Context, pFile io.ReadSeeker, columnChunk *p
 // first data page header. When decryptor is non-nil pages are decrypted as
 // they are walked; dictionary headers occupy ordinal 0 so the data-page
 // ordinal does not need to advance before the first data page.
-func readFirstDataPageHeader(ctx context.Context, pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk, decryptor *layout.PageDecryptor) (*PageHeaderInfo, error) {
+func readFirstDataPageHeader(ctx context.Context, pFile io.ReadSeeker, columnChunk *parquet.ColumnChunk, decryptor *layout.PageDecryptor, maxPageSize int64) (*PageHeaderInfo, error) {
 	meta := columnChunk.MetaData
 	if meta == nil {
 		return nil, fmt.Errorf("column chunk metadata is nil")
@@ -272,7 +284,7 @@ func readFirstDataPageHeader(ctx context.Context, pFile io.ReadSeeker, columnChu
 
 	// Read page headers sequentially until we find the first data page
 	for {
-		pageHeader, headerSize, err := readPageHeader(ctx, pFile, offset, decryptor)
+		pageHeader, headerSize, err := readPageHeader(ctx, pFile, offset, decryptor, maxPageSize)
 		if err != nil {
 			return nil, fmt.Errorf("read page header at offset %d: %w", offset, err)
 		}
@@ -280,12 +292,15 @@ func readFirstDataPageHeader(ctx context.Context, pFile io.ReadSeeker, columnChu
 		// Check if this is a data page
 		switch pageHeader.Type {
 		case parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2:
-			// Found the first data page, extract and return its info
+			// Found the first data page; its body must pass the same size check as skipped pages.
+			if _, err := pageBodyDiskSize(pFile, pageHeader, decryptor, maxPageSize); err != nil {
+				return nil, fmt.Errorf("read page body size at offset %d: %w", offset, err)
+			}
 			headerInfo := ExtractPageHeaderInfo(pageHeader, offset, 0)
 			return &headerInfo, nil
 		}
 
-		bodySize, err := pageBodyDiskSize(pFile, pageHeader, decryptor)
+		bodySize, err := pageBodyDiskSize(pFile, pageHeader, decryptor, maxPageSize)
 		if err != nil {
 			return nil, fmt.Errorf("read page body size at offset %d: %w", offset, err)
 		}

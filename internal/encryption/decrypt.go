@@ -32,6 +32,13 @@ func DecodeModule(buf []byte) ([]byte, error) {
 	return buf[lengthSize : lengthSize+n], nil
 }
 
+// ModuleSizeError reports an encrypted module longer than the caller's limit.
+type ModuleSizeError struct{ Size, Limit int64 }
+
+func (e *ModuleSizeError) Error() string {
+	return fmt.Sprintf("encrypted module size %d exceeds limit %d", e.Size, e.Limit)
+}
+
 // ReadModule reads a length-prefixed encrypted Parquet module from r and
 // returns the module body without the 4-byte length prefix.
 func ReadModule(r io.Reader, maxSize int64) ([]byte, error) {
@@ -41,7 +48,7 @@ func ReadModule(r io.Reader, maxSize int64) ([]byte, error) {
 	}
 	n := int64(binary.LittleEndian.Uint32(lengthBuf[:]))
 	if maxSize > 0 && n > maxSize {
-		return nil, fmt.Errorf("encrypted module size %d exceeds limit %d", n, maxSize)
+		return nil, &ModuleSizeError{Size: n, Limit: maxSize}
 	}
 	module := make([]byte, n)
 	if _, err := io.ReadFull(r, module); err != nil {

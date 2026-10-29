@@ -226,19 +226,18 @@ func TestPageDecoderByteBudgetPerBatch(t *testing.T) {
 	}
 	data, err := encoding.WriteDeltaByteArray(values)
 	require.NoError(t, err)
+	// One batch fits exactly, so the second succeeds only if the budget resets per batch.
+	limit := int64(PageBatchSize * valueLen)
 	open := func(t *testing.T) *Page {
 		p := NewDataPage()
 		p.Path = common.StrToPath(sh.IndexMap[1])
 		p.Header.Type = parquet.PageType_DATA_PAGE
 		p.Header.DataPageHeader.NumValues = int32(len(values))
 		p.Header.DataPageHeader.Encoding = parquet.Encoding_DELTA_BYTE_ARRAY
+		p.maxDecodedBatchBytes = limit
 		require.NoError(t, p.initDecoder(data, sh, int64(len(values))))
 		return p
 	}
-	defer func(limit int64) { maxDecodedBatchBytes = limit }(maxDecodedBatchBytes)
-
-	// One batch fits exactly, so the second succeeds only if the budget resets per batch.
-	maxDecodedBatchBytes = PageBatchSize * valueLen
 	for _, decodeFirst := range []bool{true, false} {
 		t.Run(fmt.Sprintf("decode-first=%t", decodeFirst), func(t *testing.T) {
 			p := open(t)
@@ -254,13 +253,25 @@ func TestPageDecoderByteBudgetPerBatch(t *testing.T) {
 		})
 	}
 
-	maxDecodedBatchBytes--
+	limit--
 	_, _, err = open(t).ReadBatch(true)
 	require.ErrorContains(t, err, "budget")
+	require.ErrorContains(t, err, "reader.WithMaxDecodedBatchBytes")
 	// Skipped values draw nothing, so the full shortfall lands on the decoded batch.
 	p := open(t)
 	_, _, err = p.ReadBatch(false)
 	require.NoError(t, err)
 	_, _, err = p.ReadBatch(true)
 	require.ErrorContains(t, err, "budget")
+
+	for name, pageLimit := range map[string]int64{"unlimited": NoSizeLimit, "default": 0} {
+		limit = pageLimit
+		t.Run(name, func(t *testing.T) {
+			p := open(t)
+			for p.HasMoreValues() {
+				_, _, err := p.ReadBatch(true)
+				require.NoError(t, err)
+			}
+		})
+	}
 }

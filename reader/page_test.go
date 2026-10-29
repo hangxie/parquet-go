@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/local"
@@ -426,7 +427,7 @@ func TestReadAllPageHeaders_NilMetadata(t *testing.T) {
 		MetaData: nil,
 	}
 
-	_, err := readAllPageHeaders(context.Background(), buf, cc, nil)
+	_, err := readAllPageHeaders(context.Background(), buf, cc, nil, layout.DefaultMaxPageSize)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "metadata is nil")
 }
@@ -440,13 +441,13 @@ func TestPageBodyDiskSize_NegativeCompressedSize(t *testing.T) {
 		Type:               parquet.PageType_DATA_PAGE,
 		CompressedPageSize: -1,
 	}
-	_, err := pageBodyDiskSize(bytes.NewReader(nil), pageHeader, nil)
+	_, err := pageBodyDiskSize(bytes.NewReader(nil), pageHeader, nil, layout.DefaultMaxPageSize)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "negative compressed page size")
 
 	// A non-negative size is returned as-is.
 	pageHeader.CompressedPageSize = 42
-	size, err := pageBodyDiskSize(bytes.NewReader(nil), pageHeader, nil)
+	size, err := pageBodyDiskSize(bytes.NewReader(nil), pageHeader, nil, layout.DefaultMaxPageSize)
 	require.NoError(t, err)
 	require.Equal(t, int64(42), size)
 }

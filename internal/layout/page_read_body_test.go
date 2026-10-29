@@ -111,6 +111,39 @@ func TestReadPageV2Data_Compressed(t *testing.T) {
 	require.Equal(t, data, res)
 }
 
+func TestReadPageV2Data_DecodedSizeLimit(t *testing.T) {
+	levels, data := []byte{0x01, 0x02, 0x03}, []byte{0x0A, 0x0B, 0x0C}
+	snappy, err := compress.DefaultCompressor().Compress(data, parquet.CompressionCodec_SNAPPY)
+	require.NoError(t, err)
+	for name, compressed := range map[string]bool{"compressed": true, "uncompressed": false} {
+		t.Run(name, func(t *testing.T) {
+			body, codec := data, parquet.CompressionCodec_UNCOMPRESSED
+			if compressed {
+				body, codec = snappy, parquet.CompressionCodec_SNAPPY
+			}
+			header := &parquet.PageHeader{
+				Type:                 parquet.PageType_DATA_PAGE_V2,
+				CompressedPageSize:   int32(len(levels) + len(body)),
+				UncompressedPageSize: int32(len(levels) + len(data)),
+				DataPageHeaderV2: &parquet.DataPageHeaderV2{
+					NumValues: 1, IsCompressed: compressed,
+					RepetitionLevelsByteLength: 2, DefinitionLevelsByteLength: 1,
+				},
+			}
+			read := func(limit int64) error {
+				mem := thrift.NewTMemoryBuffer()
+				mem.Write(append(append([]byte(nil), levels...), body...))
+				c := compress.DefaultCompressor().WithMaxDecompressedSize(limit)
+				_, err := readPageV2Data(thrift.NewTBufferedTransport(mem, 1024), header, &parquet.ColumnMetaData{Codec: codec}, c, PageReadOptions{}, 1, 1)
+				return err
+			}
+			// The values alone fit in 5 bytes; the level bytes push the page over.
+			require.ErrorIs(t, read(5), compress.ErrDecompressedSizeExceeded)
+			require.NoError(t, read(6))
+		})
+	}
+}
+
 func TestAssembleLevelPrefixedBuf_WithRll(t *testing.T) {
 	repBuf := []byte{0x01}
 	defBuf := []byte{0x02}
@@ -386,7 +419,7 @@ func TestReadDataPageBody_Required(t *testing.T) {
 	buf := []byte{0x2A, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00}
 	path, name := leafPathName(schemaHandler, "Test_col")
 
-	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), numValues)
 	require.Equal(t, int64(2), numRows)
@@ -422,7 +455,7 @@ func TestReadDataPageBody_V2Header(t *testing.T) {
 	buf := []byte{0x07, 0x00, 0x00, 0x00} // int32(7)
 	path, name := leafPathName(schemaHandler, "V2_col")
 
-	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), numValues)
 	require.Equal(t, int64(1), numRows)
@@ -442,7 +475,7 @@ func TestReadDataPageBody_NumValuesExceedsChunk(t *testing.T) {
 	}
 	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32, NumValues: 2}
 	path, name := leafPathName(schemaHandler, "Test_col")
-	_, _, _, err := readDataPageBody(pageHeader, []byte{0x01, 0x00, 0x00, 0x00}, path, name, schemaHandler, colMetaData)
+	_, _, _, err := readDataPageBody(pageHeader, []byte{0x01, 0x00, 0x00, 0x00}, path, name, schemaHandler, colMetaData, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exceeds column chunk total")
 }
@@ -470,7 +503,7 @@ func TestReadDataPageBody_NilDataPageHeader(t *testing.T) {
 	// Type says DATA_PAGE but DataPageHeader is absent (malformed page).
 	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE}
 	path, name := leafPathName(schemaHandler, "Test_col")
-	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32})
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32}, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing DataPageHeader")
 }
@@ -482,7 +515,7 @@ func TestReadDataPageBody_NilDataPageHeaderV2(t *testing.T) {
 	})
 	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE_V2}
 	path, name := leafPathName(schemaHandler, "Test_col")
-	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32})
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32}, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing DataPageHeaderV2")
 }
@@ -657,7 +690,7 @@ func TestReadDataPageBody_WithNulls(t *testing.T) {
 	buf := append(append([]byte(nil), defLevels...), values...)
 	path, name := leafPathName(schemaHandler, "Opt_col")
 
-	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), numValues)
 	require.Equal(t, int64(3), numRows)
@@ -692,7 +725,7 @@ func TestReadDataPageBody_ConvertedType(t *testing.T) {
 	buf := []byte{0x10, 0x27, 0x00, 0x00, 0x20, 0x4E, 0x00, 0x00} // int32 10000, 20000
 	path, name := leafPathName(schemaHandler, "Ts_col")
 
-	page, numValues, _, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
+	page, numValues, _, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), numValues)
 	require.Equal(t, []any{int32(10000), int32(20000)}, page.DataTable.Values)
@@ -723,7 +756,7 @@ func TestReadDataPageBody_DefinitionLevelError(t *testing.T) {
 	}
 	// OPTIONAL column needs RLE definition levels, but buffer is empty.
 	path, name := leafPathName(schemaHandler, "Opt_col")
-	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, colMetaData)
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, colMetaData, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "definition levels")
 }
@@ -755,7 +788,7 @@ func TestReadDataPageBody_ValuesError(t *testing.T) {
 	buf := []byte{0x2A, 0x00, 0x00, 0x00}
 	path, name := leafPathName(schemaHandler, "Test_col")
 
-	_, _, _, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData)
+	_, _, _, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read data page values")
 }

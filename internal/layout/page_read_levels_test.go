@@ -514,6 +514,16 @@ func TestExtractV2LevelBuffers(t *testing.T) {
 		require.Equal(t, []byte{0x0A, 0x0B, 0x0C}, buf)
 	})
 
+	t.Run("decoded size limit counts level bytes", func(t *testing.T) {
+		page := newPage()
+		page.compressor = compress.DefaultCompressor().WithMaxDecompressedSize(5)
+		_, err := page.extractV2LevelBuffers(1, 1)
+		require.ErrorIs(t, err, compress.ErrDecompressedSizeExceeded)
+		page.compressor = compress.DefaultCompressor().WithMaxDecompressedSize(6)
+		_, err = page.extractV2LevelBuffers(1, 1)
+		require.NoError(t, err)
+	})
+
 	t.Run("page contradicting the schema is rejected", func(t *testing.T) {
 		// Wires up validateV2LevelSections: no repetition levels on a column
 		// that repeats would have the definition levels read as repetition ones.
@@ -611,4 +621,13 @@ func TestGetRLDLFromRawDataCompressedV2Batches(t *testing.T) {
 	p.RawData = []byte{0xff}
 	_, _, err = p.GetRLDLFromRawData(sh)
 	require.ErrorContains(t, err, "uncompress data page v2")
+}
+
+func TestGetRLDLFromRawData_UncompressedSizeLimit(t *testing.T) {
+	page := NewDataPage()
+	page.CompressType = parquet.CompressionCodec_UNCOMPRESSED
+	page.RawData = make([]byte, 8)
+	page.compressor = compress.DefaultCompressor().WithMaxDecompressedSize(7)
+	_, _, err := page.GetRLDLFromRawData(nil)
+	require.ErrorIs(t, err, compress.ErrDecompressedSizeExceeded)
 }

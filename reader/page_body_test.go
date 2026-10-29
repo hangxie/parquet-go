@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/internal/compress"
+	"github.com/hangxie/parquet-go/v3/internal/layout"
 	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/local"
@@ -115,6 +117,13 @@ func TestReadPageData_V2(t *testing.T) {
 		require.NotEmpty(t, pageData)
 		require.Equal(t, h.UncompressedSize, int32(len(pageData)),
 			"page %d (type %v): uncompressed size mismatch", h.Index, h.PageType)
+
+		if h.PageType == parquet.PageType_DATA_PAGE_V2 && h.DefLevelBytes > 0 {
+			// The values fit; the level bytes push the decoded page one byte over.
+			opts := &layout.PageReadOptions{Compressor: compress.DefaultCompressor().WithMaxDecompressedSize(int64(h.UncompressedSize) - 1)}
+			_, err := ReadPageData(pr.PFile, h.Offset, pageHeader, col.MetaData.Codec, opts)
+			require.ErrorIs(t, err, compress.ErrDecompressedSizeExceeded)
+		}
 	}
 }
 
@@ -370,8 +379,22 @@ func TestReadPageData_NegativeCases(t *testing.T) {
 		pageHeader.UncompressedPageSize = 999
 
 		_, err = ReadPageData(pr.PFile, firstPage.Offset, pageHeader, col.MetaData.Codec, nil)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "decompress page data")
+		require.ErrorContains(t, err, "decompress page data")
+	})
+
+	t.Run("compressed size out of range", func(t *testing.T) {
+		buf := buffer.NewBufferReaderFromBytesNoAlloc(serializeThrift(t, &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE}))
+		for size, limit := range map[int32]int64{-1: 0, 17: 16} {
+			pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE, CompressedPageSize: size}
+			_, err := ReadPageData(buf, 0, pageHeader, parquet.CompressionCodec_UNCOMPRESSED, &layout.PageReadOptions{MaxPageSize: limit})
+			require.ErrorContains(t, err, "page size")
+		}
+	})
+
+	t.Run("invalid size limit", func(t *testing.T) {
+		pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE}
+		_, err := ReadPageData(buffer.NewBufferReaderFromBytesNoAlloc(nil), 0, pageHeader, parquet.CompressionCodec_UNCOMPRESSED, &layout.PageReadOptions{MaxPageSize: -2})
+		require.ErrorContains(t, err, "MaxPageSize: value must be positive, 0 or -1, got -2")
 	})
 
 	t.Run("decompressed size mismatch", func(t *testing.T) {

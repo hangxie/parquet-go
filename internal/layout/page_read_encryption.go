@@ -80,7 +80,7 @@ func readPageHeaderFromBytes(ctx context.Context, buf []byte) (*parquet.PageHead
 }
 
 func readEncryptedPageBody(thriftReader *thrift.TBufferedTransport, pageHeader *parquet.PageHeader, opt PageReadOptions) ([]byte, error) {
-	module, err := encryption.ReadModule(thriftReader, opt.MaxPageSize)
+	module, err := ReadPageModule(thriftReader, opt.MaxPageSize)
 	if err != nil {
 		return nil, fmt.Errorf("read encrypted page module: %w", err)
 	}

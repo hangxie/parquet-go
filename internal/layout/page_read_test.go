@@ -1469,3 +1469,15 @@ func TestReadPagePaddedDefinitionLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestReadPageEntryPointsValidateOptions(t *testing.T) {
+	newReader := func() *thrift.TBufferedTransport {
+		return thrift.NewTBufferedTransport(thrift.NewTMemoryBuffer(), 1024)
+	}
+	for _, opts := range []*PageReadOptions{{MaxPageSize: -2}, {MaxDecodedBatchBytes: -2}} {
+		_, err := ReadPageRawData(newReader(), nil, &parquet.ColumnMetaData{}, opts)
+		require.ErrorContains(t, err, "value must be positive, 0 or -1, got -2")
+		_, _, _, err = ReadPage(newReader(), nil, &parquet.ColumnMetaData{}, opts)
+		require.ErrorContains(t, err, "value must be positive, 0 or -1, got -2")
+	}
+}

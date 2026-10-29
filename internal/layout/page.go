@@ -1,8 +1,14 @@
 package layout
 
 import (
+	"errors"
+	"fmt"
+	"io"
+	"math"
+
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/compress"
+	"github.com/hangxie/parquet-go/v3/internal/encryption"
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
@@ -10,6 +16,50 @@ import (
 // This helps prevent memory exhaustion from maliciously crafted files with
 // extremely large page sizes specified in headers.
 const DefaultMaxPageSize = 256 * 1024 * 1024
+
+// NoSizeLimit disables a page read size limit in PageReadOptions; it is unsafe for untrusted files.
+const NoSizeLimit = compress.NoSizeLimit
+
+// PageSizeError reports a page over the stored size limit and names the option that sets it.
+func PageSizeError(size, limit int64) error {
+	return fmt.Errorf("page size %d exceeds limit %d (see reader.WithMaxPageSize)", size, limit)
+}
+
+// ReadPageModule reads an encrypted page module, reporting an oversized one with PageSizeError.
+func ReadPageModule(r io.Reader, maxPageSize int64) ([]byte, error) {
+	module, err := encryption.ReadModule(r, maxPageSize)
+	if sizeErr := (*encryption.ModuleSizeError)(nil); errors.As(err, &sizeErr) {
+		return nil, PageSizeError(sizeErr.Size, sizeErr.Limit)
+	}
+	return module, err
+}
+
+// Validate rejects size limits other than a positive value, 0 (default) or NoSizeLimit.
+func (opts *PageReadOptions) Validate() error {
+	if opts == nil {
+		return nil
+	}
+	for _, limit := range []struct {
+		name string
+		size int64
+	}{{"MaxPageSize", opts.MaxPageSize}, {"MaxDecodedBatchBytes", opts.MaxDecodedBatchBytes}} {
+		if limit.size < NoSizeLimit {
+			return fmt.Errorf("%s: value must be positive, 0 or -1, got %d", limit.name, limit.size)
+		}
+	}
+	return nil
+}
+
+// ResolveSizeLimit maps NoSizeLimit to math.MaxInt64 and any other non-positive limit to fallback.
+func ResolveSizeLimit(limit, fallback int64) int64 {
+	switch {
+	case limit == NoSizeLimit:
+		return math.MaxInt64
+	case limit <= 0:
+		return fallback
+	}
+	return limit
+}
 
 // resolveCompressor returns c if non-nil, otherwise returns the DefaultCompressor.
 func resolveCompressor(c *compress.Compressor) *compress.Compressor {
@@ -85,6 +135,8 @@ type Page struct {
 	compressor  *compress.Compressor
 	decoder     *pageDecoder
 	chunkValues int64
+	// maxDecodedBatchBytes is the unresolved PageReadOptions.MaxDecodedBatchBytes.
+	maxDecodedBatchBytes int64
 }
 
 // Create a new page

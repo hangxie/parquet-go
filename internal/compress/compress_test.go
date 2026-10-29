@@ -271,10 +271,17 @@ func TestNewCompressor(t *testing.T) {
 		require.Equal(t, int64(1024), c.MaxDecompressedSize())
 	})
 
-	t.Run("zero max size disables limit", func(t *testing.T) {
-		c, err := NewCompressor(WithMaxDecompressedSize(0))
+	t.Run("invalid max size", func(t *testing.T) {
+		for _, size := range []int64{0, -2} {
+			_, err := NewCompressor(WithMaxDecompressedSize(size))
+			require.ErrorContains(t, err, "value must be positive or -1")
+		}
+	})
+
+	t.Run("no limit", func(t *testing.T) {
+		c, err := NewCompressor(WithMaxDecompressedSize(NoSizeLimit))
 		require.NoError(t, err)
-		require.Equal(t, int64(0), c.MaxDecompressedSize())
+		require.Equal(t, int64(NoSizeLimit), c.MaxDecompressedSize())
 
 		// Should decompress without limit
 		testData := make([]byte, 1000)
@@ -347,6 +354,27 @@ func TestDefaultCompressor(t *testing.T) {
 	require.Same(t, c, c2)
 }
 
+func TestCompressorWithMaxDecompressedSize(t *testing.T) {
+	c := DefaultCompressor().WithMaxDecompressedSize(16)
+	require.Equal(t, int64(16), c.MaxDecompressedSize())
+	require.Equal(t, int64(DefaultMaxDecompressedSize), DefaultCompressor().MaxDecompressedSize())
+
+	compressed, err := c.Compress(make([]byte, 32), parquet.CompressionCodec_GZIP)
+	require.NoError(t, err)
+	_, err = c.Uncompress(compressed, parquet.CompressionCodec_GZIP)
+	require.ErrorIs(t, err, ErrDecompressedSizeExceeded)
+	data, err := c.WithMaxDecompressedSize(NoSizeLimit).Uncompress(compressed, parquet.CompressionCodec_GZIP)
+	require.NoError(t, err)
+	require.Len(t, data, 32)
+}
+
+func TestCompressorCheckSize(t *testing.T) {
+	c := DefaultCompressor().WithMaxDecompressedSize(16)
+	require.NoError(t, c.CheckSize(16))
+	require.ErrorIs(t, c.CheckSize(17), ErrDecompressedSizeExceeded)
+	require.NoError(t, c.WithMaxDecompressedSize(NoSizeLimit).CheckSize(1<<40))
+}
+
 func TestErrDecompressedSizeExceeded(t *testing.T) {
 	require.True(t, errors.Is(ErrDecompressedSizeExceeded, ErrDecompressedSizeExceeded))
 }
@@ -375,4 +403,8 @@ func Test_limitedReadAll(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, data, result)
 	})
+}
+
+func TestErrDecompressedSizeExceededNamesOption(t *testing.T) {
+	require.ErrorContains(t, ErrDecompressedSizeExceeded, "reader.WithMaxDecompressedSize")
 }

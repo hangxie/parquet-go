@@ -10,8 +10,8 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
-// maxDecodedBatchBytes bounds byte-array output returned per batch, not peak memory; DELTA_BYTE_ARRAY prefixes can outgrow the page.
-var maxDecodedBatchBytes int64 = DefaultMaxPageSize
+// DefaultMaxDecodedBatchBytes bounds byte-array output returned per batch, not peak memory; DELTA_BYTE_ARRAY prefixes can outgrow the page.
+const DefaultMaxDecodedBatchBytes = DefaultMaxPageSize
 
 type valueDecoder struct {
 	reader   *bytes.Reader
@@ -24,12 +24,13 @@ type valueDecoder struct {
 	delta    *encoding.DeltaDecoder
 	prefixes *encoding.DeltaDecoder
 	previous []byte
+	limit    int64
 	budget   int64
 	split    []byte
 }
 
 func newValueDecoder(reader *bytes.Reader, method parquet.Encoding, dataType parquet.Type, count, width uint64) (*valueDecoder, error) {
-	d := &valueDecoder{reader: reader, method: method, dataType: dataType, count: count, width: width, budget: maxDecodedBatchBytes}
+	d := &valueDecoder{reader: reader, method: method, dataType: dataType, count: count, width: width, limit: DefaultMaxDecodedBatchBytes, budget: DefaultMaxDecodedBatchBytes}
 	if count == 0 {
 		return d, nil
 	}
@@ -141,7 +142,7 @@ func (d *valueDecoder) nextString() (any, error) {
 	}
 	size := int64(len(d.previous))
 	if size > d.budget {
-		return nil, fmt.Errorf("byte array of %d bytes exceeds remaining batch budget of %d bytes", size, d.budget)
+		return nil, fmt.Errorf("byte array of %d bytes exceeds remaining batch budget of %d bytes under the %d-byte limit (see reader.WithMaxDecodedBatchBytes)", size, d.budget, d.limit)
 	}
 	d.budget -= size
 	return string(d.previous), nil
