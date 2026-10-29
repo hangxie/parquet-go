@@ -176,6 +176,11 @@ type sizeLimitRecord struct {
 	Dict  string `parquet:"name=dict, type=BYTE_ARRAY, convertedtype=UTF8, encoding=RLE_DICTIONARY, omitstats=true"`
 }
 
+// sizeLimitDelta varies each delta value's last byte, so no value repeats the previous one and shares its bytes.
+func sizeLimitDelta(i int) string {
+	return strings.Repeat("x", 1023) + string(rune('a'+i%26))
+}
+
 // writeSizeLimitFile writes one page per column; the delta and plain pages each decode to about 1 MiB.
 func writeSizeLimitFile(t *testing.T, footerKey []byte, codec parquet.CompressionCodec) []byte {
 	t.Helper()
@@ -195,8 +200,8 @@ func writeSizeLimitFile(t *testing.T, footerKey []byte, codec parquet.Compressio
 	pw, err := writer.NewParquetWriterWithContext(ctx, writerfile.NewWriterFile(&buf), new(sizeLimitRecord), opts...)
 	require.NoError(t, err)
 	value := strings.Repeat("x", 1024)
-	for range 1024 {
-		require.NoError(t, pw.WriteWithContext(ctx, sizeLimitRecord{Delta: value, Plain: value, Dict: value}))
+	for i := range 1024 {
+		require.NoError(t, pw.WriteWithContext(ctx, sizeLimitRecord{Delta: sizeLimitDelta(i), Plain: value, Dict: value}))
 	}
 	require.NoError(t, pw.WriteStopWithContext(ctx))
 	return buf.Bytes()
@@ -225,7 +230,7 @@ func TestReaderSizeLimits(t *testing.T) {
 						return err
 					}
 					require.Len(t, rows, 1024)
-					require.Equal(t, strings.Repeat("x", 1024), rows[1023].Delta)
+					require.Equal(t, sizeLimitDelta(1023), rows[1023].Delta)
 					return nil
 				}
 
