@@ -14,73 +14,75 @@ import (
 	"github.com/hangxie/parquet-go/v3/schema"
 )
 
-// readPageV2Data reads a DATA_PAGE_V2 from the reader, decompresses if needed, and reassembles with level prefixes.
-func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet.PageHeader, colMetaData *parquet.ColumnMetaData, c *compress.Compressor, opt PageReadOptions, maxRepetitionLevel, maxDefinitionLevel int32) ([]byte, error) {
+// readPageV2Data reads a DATA_PAGE_V2 and returns its length-prefixed levels and its decompressed values.
+func readPageV2Data(thriftReader *thrift.TBufferedTransport, pageHeader *parquet.PageHeader, colMetaData *parquet.ColumnMetaData, c *compress.Compressor, opt PageReadOptions, maxRepetitionLevel, maxDefinitionLevel int32) ([]byte, []byte, error) {
 	if pageHeader.DataPageHeaderV2 == nil {
-		return nil, fmt.Errorf("ReadPage: data page v2 missing DataPageHeaderV2")
+		return nil, nil, fmt.Errorf("ReadPage: data page v2 missing DataPageHeaderV2")
 	}
 	dll := pageHeader.DataPageHeaderV2.GetDefinitionLevelsByteLength()
 	rll := pageHeader.DataPageHeaderV2.GetRepetitionLevelsByteLength()
 	compressedPageSize := pageHeader.GetCompressedPageSize()
 
 	if dll < 0 || rll < 0 {
-		return nil, fmt.Errorf("ReadPage: invalid level byte lengths (dll=%d, rll=%d)", dll, rll)
+		return nil, nil, fmt.Errorf("ReadPage: invalid level byte lengths (dll=%d, rll=%d)", dll, rll)
 	}
 	// Widened before summing: two positive int32 lengths can wrap negative, slipping
 	// past this check and reaching make() below with a negative length.
 	levelsLen := int64(dll) + int64(rll)
 	if levelsLen > int64(compressedPageSize) {
-		return nil, fmt.Errorf("ReadPage: level byte lengths exceed page size (dll=%d + rll=%d > %d)", dll, rll, compressedPageSize)
+		return nil, nil, fmt.Errorf("ReadPage: level byte lengths exceed page size (dll=%d + rll=%d > %d)", dll, rll, compressedPageSize)
 	}
 	if err := validateV2LevelSections(rll, dll, maxRepetitionLevel, maxDefinitionLevel,
 		pageHeader.DataPageHeaderV2.GetNumValues()); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var repetitionLevelsBuf, definitionLevelsBuf, dataBuf []byte
 	if opt.Decryptor != nil {
 		plain, err := readEncryptedPageBody(thriftReader, pageHeader, opt)
 		if err != nil {
-			return nil, fmt.Errorf("read encrypted v2 body: %w", err)
+			return nil, nil, fmt.Errorf("read encrypted v2 body: %w", err)
 		}
 		if int64(len(plain)) < levelsLen {
-			return nil, fmt.Errorf("ReadPage: decrypted data page v2 body too small")
+			return nil, nil, fmt.Errorf("ReadPage: decrypted data page v2 body too small")
 		}
-		repetitionLevelsBuf = append([]byte(nil), plain[:rll]...)
-		definitionLevelsBuf = append([]byte(nil), plain[rll:rll+dll]...)
-		dataBuf = append([]byte(nil), plain[rll+dll:]...)
+		repetitionLevelsBuf, definitionLevelsBuf, dataBuf = plain[:rll], plain[rll:rll+dll], plain[rll+dll:]
 	} else {
 		repetitionLevelsBuf = make([]byte, rll)
 		definitionLevelsBuf = make([]byte, dll)
 		dataBuf = make([]byte, int64(compressedPageSize)-levelsLen)
 
 		if _, err := io.ReadFull(thriftReader, repetitionLevelsBuf); err != nil {
-			return nil, fmt.Errorf("read v2 repetition levels: %w", err)
+			return nil, nil, fmt.Errorf("read v2 repetition levels: %w", err)
 		}
 		if _, err := io.ReadFull(thriftReader, definitionLevelsBuf); err != nil {
-			return nil, fmt.Errorf("read v2 definition levels: %w", err)
+			return nil, nil, fmt.Errorf("read v2 definition levels: %w", err)
 		}
 		if _, err := io.ReadFull(thriftReader, dataBuf); err != nil {
-			return nil, fmt.Errorf("read v2 data: %w", err)
+			return nil, nil, fmt.Errorf("read v2 data: %w", err)
 		}
 	}
 
 	if err := common.ValidatePageCRC(pageHeader.IsSetCrc(), pageHeader.GetCrc(), opt.CRCMode, repetitionLevelsBuf, definitionLevelsBuf, dataBuf); err != nil {
-		return nil, fmt.Errorf("CRC validation failed: %w", err)
+		return nil, nil, fmt.Errorf("CRC validation failed: %w", err)
 	}
 
 	if pageHeader.DataPageHeaderV2.GetIsCompressed() && len(dataBuf) > 0 {
 		expectedDataSize := int64(pageHeader.GetUncompressedPageSize()) - levelsLen
 		var err error
 		if dataBuf, err = resolveCompressor(c).UncompressWithExpectedSize(dataBuf, colMetaData.GetCodec(), expectedDataSize); err != nil {
-			return nil, fmt.Errorf("decompress v2 data: %w", err)
+			return nil, nil, fmt.Errorf("decompress v2 data: %w", err)
 		}
 	}
 	if err := resolveCompressor(c).CheckSize(levelsLen + int64(len(dataBuf))); err != nil {
-		return nil, fmt.Errorf("read v2 data: %w", err)
+		return nil, nil, fmt.Errorf("read v2 data: %w", err)
 	}
 
-	return assembleLevelPrefixedBuf(rll, dll, repetitionLevelsBuf, definitionLevelsBuf, dataBuf, maxRepetitionLevel, maxDefinitionLevel)
+	levels, err := prefixV2Levels(rll, dll, repetitionLevelsBuf, definitionLevelsBuf, maxRepetitionLevel, maxDefinitionLevel)
+	if err != nil {
+		return nil, nil, err
+	}
+	return levels, dataBuf, nil
 }
 
 // validateV2LevelSections rejects a V2 page whose level sections contradict the schema.
@@ -100,8 +102,8 @@ func validateV2LevelSections(rll, dll, maxRepetitionLevel, maxDefinitionLevel, n
 	return nil
 }
 
-// assembleLevelPrefixedBuf prefixes level buffers with their lengths and appends the data.
-func assembleLevelPrefixedBuf(rll, dll int32, repBuf, defBuf, dataBuf []byte, maxRepetitionLevel, maxDefinitionLevel int32) ([]byte, error) {
+// prefixV2Levels prefixes V2 level sections with their lengths; values stay in their own buffer to avoid copying the page.
+func prefixV2Levels(rll, dll int32, repBuf, defBuf []byte, maxRepetitionLevel, maxDefinitionLevel int32) ([]byte, error) {
 	// Included only where the schema says those levels exist, matching what
 	// readDataPageBody reads back; writers pad the byte length even at level 0.
 	buf := make([]byte, 0)
@@ -121,7 +123,6 @@ func assembleLevelPrefixedBuf(rll, dll int32, repBuf, defBuf, dataBuf []byte, ma
 		buf = append(buf, tmpBuf...)
 		buf = append(buf, defBuf...)
 	}
-	buf = append(buf, dataBuf...)
 	return buf, nil
 }
 
@@ -177,10 +178,10 @@ func readDictionaryPageBody(pageHeader *parquet.PageHeader, buf []byte, path []s
 }
 
 // readDataPageBody reads levels, values, and builds the table for a data page.
-func readDataPageBody(pageHeader *parquet.PageHeader, buf []byte, path []string, name string, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, maxDecodedBatchBytes int64) (*Page, int64, int64, error) {
+func readDataPageBody(pageHeader *parquet.PageHeader, buf, values []byte, path []string, name string, schemaHandler *schema.SchemaHandler, colMetaData *parquet.ColumnMetaData, maxDecodedBatchBytes int64) (*Page, int64, int64, error) {
 	page := NewDataPage()
 	page.Header, page.Path, page.maxDecodedBatchBytes = pageHeader, path, maxDecodedBatchBytes
-	if err := page.initDecoder(buf, schemaHandler, colMetaData.GetNumValues()); err != nil {
+	if err := page.initDecoder(buf, values, schemaHandler, colMetaData.GetNumValues()); err != nil {
 		return nil, 0, 0, err
 	}
 	count, rows, err := page.ReadBatch(true)

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -1108,4 +1109,57 @@ func benchmarkReaderScanData[T any](b *testing.B, data []byte, count int, column
 			}
 		}
 	}
+}
+
+func TestReaderPlainPageRetention(t *testing.T) {
+	type required struct {
+		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN, omitstats=true"`
+	}
+	type optional struct {
+		Value *string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN, omitstats=true"`
+	}
+	for _, version := range []int32{1, 2} {
+		t.Run("v"+strconv.Itoa(int(version)), func(t *testing.T) {
+			t.Run("required", func(t *testing.T) {
+				testPlainPageRetention(t, version, func(v *string) required { return required{Value: *v} })
+			})
+			t.Run("optional", func(t *testing.T) {
+				testPlainPageRetention(t, version, func(v *string) optional { return optional{Value: v} })
+			})
+		})
+	}
+}
+
+func testPlainPageRetention[T any](t *testing.T, version int32, record func(*string) T) {
+	t.Helper()
+	// One ZSTD page of repeated 80-byte values is small on disk but decodes to ~34 MB.
+	const count, size = 400_000, 80
+	ctx := context.Background()
+	var out bytes.Buffer
+	pw, err := writer.NewParquetWriterWithContext(ctx, writerfile.NewWriterFile(&out), new(T), writer.WithNP(1), writer.WithDataPageVersion(version), writer.WithCompressionCodec(parquet.CompressionCodec_ZSTD), writer.WithPageSize(1<<30))
+	require.NoError(t, err)
+	value := strings.Repeat("x", size)
+	for range count {
+		require.NoError(t, pw.WriteWithContext(ctx, record(&value)))
+	}
+	require.NoError(t, pw.WriteStopWithContext(ctx))
+	data := bytes.Clone(out.Bytes())
+	out = bytes.Buffer{}
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytesNoAlloc(data), new(T), WithNP(1))
+	require.NoError(t, err)
+	got := make([]T, 1024)
+	require.NoError(t, pr.ReadWithContext(ctx, &got))
+	require.Len(t, got, 1024)
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(pr)
+
+	// The reader holds the decompressed page once while it is being read, not a copy of it too.
+	decoded := int64(count * (4 + size))
+	require.Less(t, int64(after.HeapInuse)-int64(before.HeapInuse), decoded*3/2)
+	require.NoError(t, pr.ReadStopWithContext(ctx))
 }

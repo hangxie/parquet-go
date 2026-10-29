@@ -51,7 +51,7 @@ func TestPageDecoderHugeLevels(t *testing.T) {
 			p.Header.Type = parquet.PageType_DATA_PAGE
 			p.Header.DataPageHeader.NumValues = count
 			p.Header.DataPageHeader.Encoding = parquet.Encoding_RLE
-			require.NoError(t, p.initDecoder(data, sh, int64(count)))
+			require.NoError(t, p.initDecoder(data, nil, sh, int64(count)))
 			n, rows, err := p.ReadBatch(false)
 			require.NoError(t, err)
 			require.Equal(t, int64(PageBatchSize), n)
@@ -79,15 +79,15 @@ func TestPageDecoderErrors(t *testing.T) {
 	p.Path = common.StrToPath(sh.IndexMap[1])
 	p.Header.Type = parquet.PageType_DATA_PAGE
 	p.Header.DataPageHeader.NumValues = -1
-	require.ErrorContains(t, p.initDecoder(nil, sh, 0), "negative")
+	require.ErrorContains(t, p.initDecoder(nil, nil, sh, 0), "negative")
 	p.Header.DataPageHeader.NumValues = 2
-	require.ErrorContains(t, p.initDecoder(nil, sh, 1), "exceeds column chunk")
+	require.ErrorContains(t, p.initDecoder(nil, nil, sh, 1), "exceeds column chunk")
 	p.Header.DataPageHeader = nil
-	require.ErrorContains(t, p.initDecoder(nil, sh, 0), "missing")
+	require.ErrorContains(t, p.initDecoder(nil, nil, sh, 0), "missing")
 	p.Header.Type = parquet.PageType_DATA_PAGE_V2
-	require.ErrorContains(t, p.initDecoder(nil, sh, 0), "missing")
+	require.ErrorContains(t, p.initDecoder(nil, nil, sh, 0), "missing")
 	p.Header.Type = parquet.PageType_INDEX_PAGE
-	require.ErrorContains(t, p.initDecoder(nil, sh, 0), "unsupported")
+	require.ErrorContains(t, p.initDecoder(nil, nil, sh, 0), "unsupported")
 	_, _, err := p.ReadBatch(true)
 	require.Error(t, err)
 	require.Error(t, p.decodeBatchValues())
@@ -103,7 +103,7 @@ func TestPageDecoderSkipFlatRows(t *testing.T) {
 	p.Header.DataPageHeader.Encoding = parquet.Encoding_RLE
 	body := append(encoding.WriteUnsignedVarInt(uint64(1<<31-1)<<1), byte(1))
 	data := append([]byte{byte(len(body)), 0, 0, 0}, body...)
-	require.NoError(t, p.initDecoder(data, sh, 0))
+	require.NoError(t, p.initDecoder(data, nil, sh, 0))
 	n, err := p.SkipFlatRows(1<<31 - 3)
 	require.NoError(t, err)
 	require.Equal(t, int64(1<<31-3), n)
@@ -148,7 +148,7 @@ func TestPageDecoderMalformedLevelsAndValues(t *testing.T) {
 			p.Header.Type = parquet.PageType_DATA_PAGE
 			p.Header.DataPageHeader.NumValues = 1
 			p.Header.DataPageHeader.Encoding = tt.method
-			err := p.initDecoder(tt.data, sh, 0)
+			err := p.initDecoder(tt.data, nil, sh, 0)
 			if err == nil {
 				_, _, err = p.ReadBatch(true)
 			}
@@ -175,7 +175,7 @@ func TestPageDecoderSkippedMalformedValues(t *testing.T) {
 	p.Header.Type = parquet.PageType_DATA_PAGE
 	p.Header.DataPageHeader.NumValues = PageBatchSize + 1
 	p.Header.DataPageHeader.Encoding = parquet.Encoding_RLE
-	require.NoError(t, p.initDecoder([]byte{1, 0, 0, 0, 2}, sh, 0))
+	require.NoError(t, p.initDecoder([]byte{1, 0, 0, 0, 2}, nil, sh, 0))
 	_, _, err := p.ReadBatch(false)
 	require.NoError(t, err)
 	_, _, err = p.ReadBatch(false)
@@ -196,7 +196,7 @@ func TestPageDecoderImplicitLevelsAcrossBatches(t *testing.T) {
 	p.Header.Type = parquet.PageType_DATA_PAGE
 	p.Header.DataPageHeader.NumValues = int32(len(values))
 	p.Header.DataPageHeader.Encoding = parquet.Encoding_PLAIN
-	require.NoError(t, p.initDecoder(data, sh, int64(len(values))))
+	require.NoError(t, p.initDecoder(data, nil, sh, int64(len(values))))
 	n, rows, err := p.ReadBatch(true)
 	require.NoError(t, err)
 	require.Equal(t, int64(PageBatchSize), n)
@@ -235,7 +235,7 @@ func TestPageDecoderByteBudgetPerBatch(t *testing.T) {
 		p.Header.DataPageHeader.NumValues = int32(len(values))
 		p.Header.DataPageHeader.Encoding = parquet.Encoding_DELTA_BYTE_ARRAY
 		p.maxDecodedBatchBytes = limit
-		require.NoError(t, p.initDecoder(data, sh, int64(len(values))))
+		require.NoError(t, p.initDecoder(data, nil, sh, int64(len(values))))
 		return p
 	}
 	for _, decodeFirst := range []bool{true, false} {
