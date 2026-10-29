@@ -35,7 +35,8 @@ func newLevelDecoder(reader *bytes.Reader, maxLevel int32, count uint64) (*encod
 	return encoding.NewIntDecoder(reader, uint64(bits.Len32(uint32(maxLevel))), count, true, true)
 }
 
-func (p *Page) initDecoder(buf []byte, sh *schema.SchemaHandler, chunkValues int64) error {
+// initDecoder reads levels from buf; values is the V2 value section, or nil when values follow the levels in buf.
+func (p *Page) initDecoder(buf, values []byte, sh *schema.SchemaHandler, chunkValues int64) error {
 	var count int32
 	var method parquet.Encoding
 	switch p.Header.GetType() {
@@ -74,6 +75,9 @@ func (p *Page) initDecoder(buf []byte, sh *schema.SchemaHandler, chunkValues int
 	nonNulls, err := dl.Count(int64(maxDL))
 	if err != nil {
 		return fmt.Errorf("read definition levels: %w", err)
+	}
+	if values != nil {
+		reader = bytes.NewReader(values)
 	}
 	p.decoder = &pageDecoder{
 		repetitions: rl, definitions: dl, valueData: reader, method: method, schema: se,

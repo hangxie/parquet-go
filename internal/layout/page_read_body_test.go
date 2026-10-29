@@ -20,14 +20,14 @@ func TestReadPageV2Data_InvalidLevels(t *testing.T) {
 			DefinitionLevelsByteLength: -1,
 		},
 	}
-	_, err := readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
+	_, _, err := readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid level byte lengths")
 
 	header.DataPageHeaderV2.DefinitionLevelsByteLength = 10
 	header.DataPageHeaderV2.RepetitionLevelsByteLength = 10
 	header.CompressedPageSize = 15
-	_, err = readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
+	_, _, err = readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "level byte lengths exceed page size")
 }
@@ -54,7 +54,7 @@ func TestReadPageV2Data_LevelLengthSumOverflow(t *testing.T) {
 					RepetitionLevelsByteLength: tt.rll,
 				},
 			}
-			_, err := readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
+			_, _, err := readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "level byte lengths exceed page size")
 		})
@@ -75,7 +75,7 @@ func TestReadPageV2Data_LevelLengthSumOverflowEncrypted(t *testing.T) {
 		},
 	}
 	opt := PageReadOptions{Decryptor: &PageDecryptor{}}
-	_, err := readPageV2Data(nil, header, nil, nil, opt, 1, 1)
+	_, _, err := readPageV2Data(nil, header, nil, nil, opt, 1, 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "level byte lengths exceed page size")
 }
@@ -105,10 +105,10 @@ func TestReadPageV2Data_Compressed(t *testing.T) {
 	mem.Write(compressed)
 	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
 
-	res, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{}, 0, 0)
+	levels, values, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{}, 0, 0)
 	require.NoError(t, err)
-	// res should be prefixed by 0, 0 (rll, dll) as they are 0
-	require.Equal(t, data, res)
+	require.Empty(t, levels)
+	require.Equal(t, data, values)
 }
 
 func TestReadPageV2Data_DecodedSizeLimit(t *testing.T) {
@@ -134,7 +134,7 @@ func TestReadPageV2Data_DecodedSizeLimit(t *testing.T) {
 				mem := thrift.NewTMemoryBuffer()
 				mem.Write(append(append([]byte(nil), levels...), body...))
 				c := compress.DefaultCompressor().WithMaxDecompressedSize(limit)
-				_, err := readPageV2Data(thrift.NewTBufferedTransport(mem, 1024), header, &parquet.ColumnMetaData{Codec: codec}, c, PageReadOptions{}, 1, 1)
+				_, _, err := readPageV2Data(thrift.NewTBufferedTransport(mem, 1024), header, &parquet.ColumnMetaData{Codec: codec}, c, PageReadOptions{}, 1, 1)
 				return err
 			}
 			// The values alone fit in 5 bytes; the level bytes push the page over.
@@ -144,21 +144,16 @@ func TestReadPageV2Data_DecodedSizeLimit(t *testing.T) {
 	}
 }
 
-func TestAssembleLevelPrefixedBuf_WithRll(t *testing.T) {
-	repBuf := []byte{0x01}
-	defBuf := []byte{0x02}
-	dataBuf := []byte{0x03}
-	res, err := assembleLevelPrefixedBuf(1, 1, repBuf, defBuf, dataBuf, 1, 1)
+func TestPrefixV2Levels_WithRll(t *testing.T) {
+	res, err := prefixV2Levels(1, 1, []byte{0x01}, []byte{0x02}, 1, 1)
 	require.NoError(t, err)
-	require.NotEmpty(t, res)
+	require.Equal(t, []byte{0x01, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x02}, res)
 }
 
-func TestAssembleLevelPrefixedBuf_NoLevels(t *testing.T) {
-	dataBuf := []byte{0x0A, 0x0B, 0x0C}
-	res, err := assembleLevelPrefixedBuf(0, 0, nil, nil, dataBuf, 1, 1)
+func TestPrefixV2Levels_NoLevels(t *testing.T) {
+	res, err := prefixV2Levels(0, 0, nil, nil, 1, 1)
 	require.NoError(t, err)
-	// With no levels, only the data is returned without length prefixes.
-	require.Equal(t, dataBuf, res)
+	require.Empty(t, res)
 }
 
 func TestValidateV2LevelSections(t *testing.T) {
@@ -217,31 +212,27 @@ func TestReadPageV2Data_RejectsPageContradictingSchema(t *testing.T) {
 		},
 	}
 
-	_, err := readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
+	_, _, err := readPageV2Data(nil, header, nil, nil, PageReadOptions{}, 1, 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "carries no repetition levels")
 }
 
-func TestAssembleLevelPrefixedBuf_LevelsAbsentFromSchema(t *testing.T) {
+func TestPrefixV2Levels_LevelsAbsentFromSchema(t *testing.T) {
 	repBuf := []byte{0x01, 0x02}
 	defBuf := []byte{0x03}
-	dataBuf := []byte{0x0A, 0x0B, 0x0C}
 
 	t.Run("repetition levels dropped when column cannot repeat", func(t *testing.T) {
 		// Writers emit a non-zero repetition_levels_byte_length even at max level 0;
 		// those bytes hold no levels and would be misread as the definition ones.
-		res, err := assembleLevelPrefixedBuf(2, 1, repBuf, defBuf, dataBuf, 0, 1)
+		res, err := prefixV2Levels(2, 1, repBuf, defBuf, 0, 1)
 		require.NoError(t, err)
-
-		want := append([]byte{0x01, 0x00, 0x00, 0x00}, defBuf...)
-		want = append(want, dataBuf...)
-		require.Equal(t, want, res)
+		require.Equal(t, append([]byte{0x01, 0x00, 0x00, 0x00}, defBuf...), res)
 	})
 
 	t.Run("definition levels dropped when column is required", func(t *testing.T) {
-		res, err := assembleLevelPrefixedBuf(2, 1, repBuf, defBuf, dataBuf, 0, 0)
+		res, err := prefixV2Levels(2, 1, repBuf, defBuf, 0, 0)
 		require.NoError(t, err)
-		require.Equal(t, dataBuf, res)
+		require.Empty(t, res)
 	})
 }
 
@@ -419,7 +410,7 @@ func TestReadDataPageBody_Required(t *testing.T) {
 	buf := []byte{0x2A, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00}
 	path, name := leafPathName(schemaHandler, "Test_col")
 
-	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, nil, path, name, schemaHandler, colMetaData, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), numValues)
 	require.Equal(t, int64(2), numRows)
@@ -455,7 +446,7 @@ func TestReadDataPageBody_V2Header(t *testing.T) {
 	buf := []byte{0x07, 0x00, 0x00, 0x00} // int32(7)
 	path, name := leafPathName(schemaHandler, "V2_col")
 
-	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, nil, path, name, schemaHandler, colMetaData, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), numValues)
 	require.Equal(t, int64(1), numRows)
@@ -475,7 +466,7 @@ func TestReadDataPageBody_NumValuesExceedsChunk(t *testing.T) {
 	}
 	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32, NumValues: 2}
 	path, name := leafPathName(schemaHandler, "Test_col")
-	_, _, _, err := readDataPageBody(pageHeader, []byte{0x01, 0x00, 0x00, 0x00}, path, name, schemaHandler, colMetaData, 0)
+	_, _, _, err := readDataPageBody(pageHeader, []byte{0x01, 0x00, 0x00, 0x00}, nil, path, name, schemaHandler, colMetaData, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exceeds column chunk total")
 }
@@ -503,7 +494,7 @@ func TestReadDataPageBody_NilDataPageHeader(t *testing.T) {
 	// Type says DATA_PAGE but DataPageHeader is absent (malformed page).
 	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE}
 	path, name := leafPathName(schemaHandler, "Test_col")
-	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32}, 0)
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, nil, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32}, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing DataPageHeader")
 }
@@ -515,7 +506,7 @@ func TestReadDataPageBody_NilDataPageHeaderV2(t *testing.T) {
 	})
 	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE_V2}
 	path, name := leafPathName(schemaHandler, "Test_col")
-	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32}, 0)
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, nil, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32}, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing DataPageHeaderV2")
 }
@@ -534,7 +525,7 @@ func TestReadDictionaryPageBody_NilHeader(t *testing.T) {
 
 func TestReadPageV2Data_NilHeader(t *testing.T) {
 	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE_V2}
-	_, err := readPageV2Data(nil, pageHeader, &parquet.ColumnMetaData{}, nil, PageReadOptions{}, 1, 1)
+	_, _, err := readPageV2Data(nil, pageHeader, &parquet.ColumnMetaData{}, nil, PageReadOptions{}, 1, 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing DataPageHeaderV2")
 }
@@ -560,7 +551,7 @@ func TestReadPageV2Data_CRCFailure(t *testing.T) {
 	mem.Write(data)
 	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
 
-	_, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{CRCMode: common.CRCStrict}, 0, 0)
+	_, _, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{CRCMode: common.CRCStrict}, 0, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CRC validation failed")
 }
@@ -583,7 +574,7 @@ func TestReadPageV2Data_TruncatedDefinitionLevels(t *testing.T) {
 	mem.Write([]byte{0x01, 0x02}) // only the 2 repetition-level bytes
 	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
 
-	_, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{}, 1, 1)
+	_, _, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{}, 1, 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "definition levels")
 }
@@ -606,7 +597,7 @@ func TestReadPageV2Data_TruncatedData(t *testing.T) {
 	mem.Write([]byte{0x01, 0x02, 0x03, 0x04}) // rep+def levels but no data bytes
 	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
 
-	_, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{}, 1, 1)
+	_, _, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{}, 1, 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "v2 data")
 }
@@ -630,7 +621,7 @@ func TestReadPageV2Data_DecompressError(t *testing.T) {
 	mem.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF}) // not valid snappy data
 	thriftReader := thrift.NewTBufferedTransport(mem, 1024)
 
-	_, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{}, 0, 0)
+	_, _, err := readPageV2Data(thriftReader, header, colMetaData, nil, PageReadOptions{}, 0, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "decompress v2 data")
 }
@@ -690,7 +681,7 @@ func TestReadDataPageBody_WithNulls(t *testing.T) {
 	buf := append(append([]byte(nil), defLevels...), values...)
 	path, name := leafPathName(schemaHandler, "Opt_col")
 
-	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
+	page, numValues, numRows, err := readDataPageBody(pageHeader, buf, nil, path, name, schemaHandler, colMetaData, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), numValues)
 	require.Equal(t, int64(3), numRows)
@@ -725,7 +716,7 @@ func TestReadDataPageBody_ConvertedType(t *testing.T) {
 	buf := []byte{0x10, 0x27, 0x00, 0x00, 0x20, 0x4E, 0x00, 0x00} // int32 10000, 20000
 	path, name := leafPathName(schemaHandler, "Ts_col")
 
-	page, numValues, _, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
+	page, numValues, _, err := readDataPageBody(pageHeader, buf, nil, path, name, schemaHandler, colMetaData, 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), numValues)
 	require.Equal(t, []any{int32(10000), int32(20000)}, page.DataTable.Values)
@@ -756,7 +747,7 @@ func TestReadDataPageBody_DefinitionLevelError(t *testing.T) {
 	}
 	// OPTIONAL column needs RLE definition levels, but buffer is empty.
 	path, name := leafPathName(schemaHandler, "Opt_col")
-	_, _, _, err := readDataPageBody(pageHeader, []byte{}, path, name, schemaHandler, colMetaData, 0)
+	_, _, _, err := readDataPageBody(pageHeader, []byte{}, nil, path, name, schemaHandler, colMetaData, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "definition levels")
 }
@@ -788,7 +779,7 @@ func TestReadDataPageBody_ValuesError(t *testing.T) {
 	buf := []byte{0x2A, 0x00, 0x00, 0x00}
 	path, name := leafPathName(schemaHandler, "Test_col")
 
-	_, _, _, err := readDataPageBody(pageHeader, buf, path, name, schemaHandler, colMetaData, 0)
+	_, _, _, err := readDataPageBody(pageHeader, buf, nil, path, name, schemaHandler, colMetaData, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read data page values")
 }

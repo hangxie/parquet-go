@@ -435,13 +435,13 @@ func TestExtractV2LevelBuffers_Errors(t *testing.T) {
 			},
 		},
 	}
-	_, err := page.extractV2LevelBuffers(1, 1)
+	_, _, err := page.extractV2LevelBuffers(1, 1)
 	require.Error(t, err)
 
 	page.Header.DataPageHeaderV2.DefinitionLevelsByteLength = 10
 	page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = 10
 	page.RawData = make([]byte, 15)
-	_, err = page.extractV2LevelBuffers(1, 1)
+	_, _, err = page.extractV2LevelBuffers(1, 1)
 	require.Error(t, err)
 }
 
@@ -468,7 +468,7 @@ func TestExtractV2LevelBuffers_LevelLengthSumOverflow(t *testing.T) {
 				},
 				RawData: make([]byte, 64),
 			}
-			_, err := page.extractV2LevelBuffers(1, 1)
+			_, _, err := page.extractV2LevelBuffers(1, 1)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "level byte lengths exceed raw data size")
 		})
@@ -492,35 +492,37 @@ func TestExtractV2LevelBuffers(t *testing.T) {
 	}
 
 	t.Run("repeated column keeps both sections", func(t *testing.T) {
-		buf, err := newPage().extractV2LevelBuffers(1, 1)
+		levels, values, err := newPage().extractV2LevelBuffers(1, 1)
 		require.NoError(t, err)
 		require.Equal(t, []byte{
 			0x02, 0x00, 0x00, 0x00, 0x01, 0x02, // rll prefix + repetition levels
 			0x01, 0x00, 0x00, 0x00, 0x03, // dll prefix + definition levels
-			0x0A, 0x0B, 0x0C, // values
-		}, buf)
+		}, levels)
+		require.Equal(t, []byte{0x0A, 0x0B, 0x0C}, values)
 	})
 
 	t.Run("repetition levels dropped when column cannot repeat", func(t *testing.T) {
 		// Those 2 bytes hold no levels and must not reach the level decoder.
-		buf, err := newPage().extractV2LevelBuffers(0, 1)
+		levels, values, err := newPage().extractV2LevelBuffers(0, 1)
 		require.NoError(t, err)
-		require.Equal(t, []byte{0x01, 0x00, 0x00, 0x00, 0x03, 0x0A, 0x0B, 0x0C}, buf)
+		require.Equal(t, []byte{0x01, 0x00, 0x00, 0x00, 0x03}, levels)
+		require.Equal(t, []byte{0x0A, 0x0B, 0x0C}, values)
 	})
 
 	t.Run("both dropped when column is required and flat", func(t *testing.T) {
-		buf, err := newPage().extractV2LevelBuffers(0, 0)
+		levels, values, err := newPage().extractV2LevelBuffers(0, 0)
 		require.NoError(t, err)
-		require.Equal(t, []byte{0x0A, 0x0B, 0x0C}, buf)
+		require.Empty(t, levels)
+		require.Equal(t, []byte{0x0A, 0x0B, 0x0C}, values)
 	})
 
 	t.Run("decoded size limit counts level bytes", func(t *testing.T) {
 		page := newPage()
 		page.compressor = compress.DefaultCompressor().WithMaxDecompressedSize(5)
-		_, err := page.extractV2LevelBuffers(1, 1)
+		_, _, err := page.extractV2LevelBuffers(1, 1)
 		require.ErrorIs(t, err, compress.ErrDecompressedSizeExceeded)
 		page.compressor = compress.DefaultCompressor().WithMaxDecompressedSize(6)
-		_, err = page.extractV2LevelBuffers(1, 1)
+		_, _, err = page.extractV2LevelBuffers(1, 1)
 		require.NoError(t, err)
 	})
 
@@ -530,7 +532,7 @@ func TestExtractV2LevelBuffers(t *testing.T) {
 		page := newPage()
 		page.Header.DataPageHeaderV2.RepetitionLevelsByteLength = 0
 
-		_, err := page.extractV2LevelBuffers(1, 1)
+		_, _, err := page.extractV2LevelBuffers(1, 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "carries no repetition levels")
 	})
