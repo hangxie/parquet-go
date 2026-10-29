@@ -14,19 +14,22 @@ import (
 const DefaultMaxDecodedBatchBytes = DefaultMaxPageSize
 
 type valueDecoder struct {
-	reader   *bytes.Reader
-	method   parquet.Encoding
-	dataType parquet.Type
-	width    uint64
-	count    uint64
-	index    uint64
-	ints     *encoding.IntDecoder
-	delta    *encoding.DeltaDecoder
-	prefixes *encoding.DeltaDecoder
-	previous []byte
-	limit    int64
-	budget   int64
-	split    []byte
+	reader    *bytes.Reader
+	method    parquet.Encoding
+	dataType  parquet.Type
+	width     uint64
+	count     uint64
+	index     uint64
+	ints      *encoding.IntDecoder
+	delta     *encoding.DeltaDecoder
+	prefixes  *encoding.DeltaDecoder
+	previous  []byte
+	last      string
+	lastAlloc int
+	shared    bool
+	limit     int64
+	budget    int64
+	split     []byte
 }
 
 func newValueDecoder(reader *bytes.Reader, method parquet.Encoding, dataType parquet.Type, count, width uint64) (*valueDecoder, error) {
@@ -137,42 +140,51 @@ func (d *valueDecoder) next() (any, error) {
 }
 
 func (d *valueDecoder) nextString() (any, error) {
-	if err := d.advanceString(); err != nil {
+	suffix, err := d.advanceString()
+	if err != nil {
 		return nil, err
+	}
+	// Strings are immutable, so a value adding nothing to the last returned one
+	// reuses its bytes and allocates nothing to charge against the batch budget.
+	// A short prefix is copied instead, so it never pins more than twice its size.
+	if d.shared && suffix == 0 && 2*len(d.previous) >= d.lastAlloc {
+		d.last = d.last[:len(d.previous)]
+		return d.last, nil
 	}
 	size := int64(len(d.previous))
 	if size > d.budget {
 		return nil, fmt.Errorf("byte array of %d bytes exceeds remaining batch budget of %d bytes under the %d-byte limit (see reader.WithMaxDecodedBatchBytes)", size, d.budget, d.limit)
 	}
 	d.budget -= size
-	return string(d.previous), nil
+	d.last, d.lastAlloc, d.shared = string(d.previous), len(d.previous), true
+	return d.last, nil
 }
 
-// advanceString decodes the next byte array into the reusable previous buffer without materializing it.
-func (d *valueDecoder) advanceString() error {
+// advanceString decodes the next byte array into the reusable previous buffer without materializing it, returning the suffix length.
+func (d *valueDecoder) advanceString() (int64, error) {
 	prefix := int64(0)
 	var err error
 	if d.prefixes != nil {
 		prefix, err = d.prefixes.Next()
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if prefix < 0 || prefix > int64(len(d.previous)) {
-			return fmt.Errorf("invalid prefix length %d", prefix)
+			return 0, fmt.Errorf("invalid prefix length %d", prefix)
 		}
 	}
 	length, err := d.delta.Next()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if length < 0 || length > int64(d.reader.Len()) {
-		return fmt.Errorf("invalid byte array length %d with %d bytes remaining", length, d.reader.Len())
+		return 0, fmt.Errorf("invalid byte array length %d with %d bytes remaining", length, d.reader.Len())
 	}
 	// Earlier values were copied out, so the shared prefix is rewritten in place and only the suffix is read.
 	d.previous = slices.Grow(d.previous[:prefix], int(length))[:prefix+length]
 	// The byte length was checked against the remaining input above.
 	_, _ = d.reader.Read(d.previous[prefix:])
-	return nil
+	return length, nil
 }
 
 func (d *valueDecoder) skip(count uint64) error {
@@ -198,8 +210,12 @@ func (d *valueDecoder) skip(count uint64) error {
 		return nil
 	}
 	if d.method == parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY || d.method == parquet.Encoding_DELTA_BYTE_ARRAY {
+		if count > 0 {
+			// Skipped values are never materialized, so the last returned string no longer matches previous.
+			d.shared = false
+		}
 		for range count {
-			if err := d.advanceString(); err != nil {
+			if _, err := d.advanceString(); err != nil {
 				return err
 			}
 			d.index++

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 
@@ -248,6 +250,7 @@ func BenchmarkValueDecoderStrings(b *testing.B) {
 	}{
 		{"short-unshared", func(i int) any { return fmt.Sprintf("%08x", uint32(i)*2654435761) }},
 		{"long-shared-prefix", func(i int) any { return "https://example.com/some/long/shared/path/" + fmt.Sprintf("%06d", i) }},
+		{"repeated", func(int) any { return strings.Repeat("x", 4096) }},
 	}
 	for _, method := range []parquet.Encoding{parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY, parquet.Encoding_DELTA_BYTE_ARRAY} {
 		for _, shape := range shapes {
@@ -339,5 +342,96 @@ func TestValueDecoderPrefixGrowth(t *testing.T) {
 		got, err := d.next()
 		require.NoError(t, err)
 		require.Equal(t, last, got)
+	})
+}
+
+func TestValueDecoderRepeatedValuesShare(t *testing.T) {
+	const count, size = 1024, 300 * 1024
+	value := strings.Repeat("x", size)
+	values := make([]any, count)
+	for i := range values {
+		values[i] = value
+	}
+	data, err := encoding.WriteDeltaByteArray(values)
+	require.NoError(t, err)
+	d, err := newValueDecoder(bytes.NewReader(data), parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Type_BYTE_ARRAY, count, 0)
+	require.NoError(t, err)
+	// The batch holds one copy, well under the budget that copying every value would exceed.
+	d.budget = 2 * size
+	first, err := d.next()
+	require.NoError(t, err)
+	require.Equal(t, value, first)
+	for range count - 1 {
+		got, err := d.next()
+		require.NoError(t, err)
+		require.Equal(t, value, got)
+		require.Same(t, unsafe.StringData(first.(string)), unsafe.StringData(got.(string)))
+	}
+	require.Equal(t, int64(size), d.budget)
+}
+
+func TestValueDecoderShortPrefixReleasesLargeValue(t *testing.T) {
+	const size = 64 << 20
+	data, err := encoding.WriteDeltaByteArray([]any{strings.Repeat("x", size), "x", "x"})
+	require.NoError(t, err)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	d, err := newValueDecoder(bytes.NewReader(data), parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Type_BYTE_ARRAY, 3, 0)
+	require.NoError(t, err)
+	var last any
+	for range 3 {
+		last, err = d.next()
+		require.NoError(t, err)
+	}
+	d = nil
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	// Keeping only the final 1-byte value must not keep the 64 MB value it was a prefix of.
+	require.Less(t, int64(after.HeapInuse)-int64(before.HeapInuse), int64(size/4))
+	require.Equal(t, "x", last)
+	runtime.KeepAlive(data)
+	runtime.KeepAlive(last)
+}
+
+func TestValueDecoderSharedPrefix(t *testing.T) {
+	decode := func(t *testing.T, values []any, skip bool) []any {
+		t.Helper()
+		data, err := encoding.WriteDeltaByteArray(values)
+		require.NoError(t, err)
+		d, err := newValueDecoder(bytes.NewReader(data), parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Type_BYTE_ARRAY, uint64(len(values)), 0)
+		require.NoError(t, err)
+		got := []any{}
+		for i := range values {
+			if skip && i == 1 {
+				require.NoError(t, d.skip(1))
+				continue
+			}
+			v, err := d.next()
+			require.NoError(t, err)
+			got = append(got, v)
+		}
+		return got
+	}
+
+	t.Run("truncated-value-shares-last", func(t *testing.T) {
+		got := decode(t, []any{"abcdef", "abc", "abc"}, false)
+		require.Equal(t, []any{"abcdef", "abc", "abc"}, got)
+		require.Same(t, unsafe.StringData(got[0].(string)), unsafe.StringData(got[2].(string)))
+	})
+
+	t.Run("short-prefix-copies", func(t *testing.T) {
+		// "abcde" keeps over half of "abcdefgh" and shares it; "abc" would pin 8 bytes for 3, so it
+		// gets its own copy, which the following repeat then shares.
+		got := decode(t, []any{"abcdefgh", "abcde", "abc", "abc"}, false)
+		require.Equal(t, []any{"abcdefgh", "abcde", "abc", "abc"}, got)
+		require.Same(t, unsafe.StringData(got[0].(string)), unsafe.StringData(got[1].(string)))
+		require.NotSame(t, unsafe.StringData(got[0].(string)), unsafe.StringData(got[2].(string)))
+		require.Same(t, unsafe.StringData(got[2].(string)), unsafe.StringData(got[3].(string)))
+	})
+
+	t.Run("skip-stops-sharing", func(t *testing.T) {
+		// After a skipped value, the last returned string no longer holds the shared prefix.
+		require.Equal(t, []any{"abc", "x"}, decode(t, []any{"abc", "xy", "x"}, true))
 	})
 }

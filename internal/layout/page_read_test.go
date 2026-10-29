@@ -1481,3 +1481,24 @@ func TestReadPageEntryPointsValidateOptions(t *testing.T) {
 		require.ErrorContains(t, err, "value must be positive, 0 or -1, got -2")
 	}
 }
+
+func TestReadPageGrowingDeltaByteArrayOverDefaultBudget(t *testing.T) {
+	// Each value is the previous one plus a byte, so every value is a new allocation that the
+	// default batch budget must still cap: 1,024 values from 256 KB up decode to over 256 MB.
+	const count, seed = 1024, 256 * 1024
+	data := prefixGrowthData(count, seed)
+	header := &parquet.PageHeader{
+		Type: parquet.PageType_DATA_PAGE, CompressedPageSize: int32(len(data)), UncompressedPageSize: int32(len(data)),
+		DataPageHeader: &parquet.DataPageHeader{NumValues: count, Encoding: parquet.Encoding_DELTA_BYTE_ARRAY},
+	}
+	sh := testSchemaHandler()
+	sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BYTE_ARRAY)
+	meta := testColumnMetaData()
+	meta.Type, meta.NumValues = parquet.Type_BYTE_ARRAY, count
+	mem := thrift.NewTMemoryBuffer()
+	require.NoError(t, header.Write(context.Background(), thrift.NewTCompactProtocolConf(mem, nil)))
+	_, err := mem.Write(data)
+	require.NoError(t, err)
+	_, _, _, err = ReadPage(thrift.NewTBufferedTransport(mem, 1024), sh, meta, nil)
+	require.ErrorContains(t, err, "batch budget")
+}

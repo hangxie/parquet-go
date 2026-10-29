@@ -1111,6 +1111,39 @@ func benchmarkReaderScanData[T any](b *testing.B, data []byte, count int, column
 	}
 }
 
+func TestReaderRepeatedDeltaByteArrayWithinDefaultBudget(t *testing.T) {
+	type record struct {
+		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=DELTA_BYTE_ARRAY, omitstats=true"`
+	}
+	const count = 1024
+	ctx := context.Background()
+	var out bytes.Buffer
+	pw, err := writer.NewParquetWriterWithContext(ctx, writerfile.NewWriterFile(&out), new(record), writer.WithNP(1), writer.WithDataPageVersion(2), writer.WithCompressionCodec(parquet.CompressionCodec_ZSTD), writer.WithPageSize(512<<20))
+	require.NoError(t, err)
+	// One page of 1,024 copies of a 300 KB value decodes to 300 MB, over the default 256 MB batch
+	// budget unless repeated values share their bytes.
+	value := strings.Repeat("x", 300*1024)
+	for range count {
+		require.NoError(t, pw.WriteWithContext(ctx, record{Value: value}))
+	}
+	require.NoError(t, pw.WriteStopWithContext(ctx))
+	data := out.Bytes()
+
+	for _, rows := range []int{count, 1} {
+		t.Run(strconv.Itoa(rows), func(t *testing.T) {
+			pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytesNoAlloc(data), new(record), WithNP(1))
+			require.NoError(t, err)
+			got := make([]record, rows)
+			require.NoError(t, pr.ReadWithContext(ctx, &got))
+			require.Len(t, got, rows)
+			for _, r := range got {
+				require.Equal(t, value, r.Value)
+			}
+			require.NoError(t, pr.ReadStopWithContext(ctx))
+		})
+	}
+}
+
 func TestReaderPlainPageRetention(t *testing.T) {
 	type required struct {
 		Value string `parquet:"name=value, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN, omitstats=true"`
