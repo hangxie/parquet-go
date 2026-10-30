@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/storage v1.68.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.2
-	github.com/andybalholm/brotli v1.2.6
+	github.com/andybalholm/brotli v1.2.7
 	github.com/apache/arrow-go/v18 v18.8.0
 	github.com/apache/thrift v0.24.0
 	github.com/aws/aws-sdk-go-v2 v1.47.3
