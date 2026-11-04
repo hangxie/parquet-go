@@ -40,7 +40,7 @@ type ColumnBufferType struct {
 
 	caseInsensitive   bool
 	chunkReadMetaData *parquet.ColumnMetaData
-	fileSchema        func() *schema.SchemaHandler // footer schema, built on first use
+	fileSchema        func() *schema.SchemaHandler // footer schema lookup
 
 	// dataTableNumRowsNormalized records that the increment converting DataTableNumRows
 	// from "one less than actual" to the real count has already been applied at
@@ -60,7 +60,9 @@ type ColumnBufferType struct {
 // common.PathToStr); "." is an ordinary character in a name, not a separator.
 func NewColumnBuffer(pFile source.ParquetFileReader, footer *parquet.FileMetaData, schemaHandler *schema.SchemaHandler, pathStr string, opts *layout.PageReadOptions) (*ColumnBufferType, error) {
 	fileSchema := sync.OnceValue(func() *schema.SchemaHandler {
-		return newFileSchemaHandler(footer)
+		// A missing file schema leaves column lookup to the supplied handler.
+		sh, _ := newFileSchemaHandler(footer)
+		return sh
 	})
 	return newColumnBuffer(pFile, footer, schemaHandler, fileSchema, pathStr, opts, false)
 }

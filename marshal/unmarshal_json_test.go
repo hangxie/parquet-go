@@ -39,11 +39,12 @@ func TestConvertToJSONFriendly_OldListFormat(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+			sh, shErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 				{Name: common.ParGoRootInName, NumChildren: common.ToPtr(int32(1))},
 				{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), ConvertedType: tc.convertedType, LogicalType: tc.logicalType, NumChildren: common.ToPtr(int32(1))},
 				{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), Type: common.ToPtr(parquet.Type_INT32)},
 			})
+			require.NoError(t, shErr)
 			result, err := ConvertToJSONFriendly(input, sh)
 			require.NoError(t, err)
 			raw, err := json.Marshal(result)
@@ -64,12 +65,13 @@ func TestConvertToJSONFriendly_NestedOldListFormat(t *testing.T) {
 	type row struct {
 		A outer `json:"a"`
 	}
-	sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	sh, shErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{Name: common.ParGoRootInName, NumChildren: common.ToPtr(int32(1))},
 		{Name: "a", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED), ConvertedType: common.ToPtr(parquet.ConvertedType_LIST), NumChildren: common.ToPtr(int32(1))},
 		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), ConvertedType: common.ToPtr(parquet.ConvertedType_LIST), NumChildren: common.ToPtr(int32(1))},
 		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), Type: common.ToPtr(parquet.Type_INT32)},
 	})
+	require.NoError(t, shErr)
 
 	result, err := ConvertToJSONFriendly(row{A: outer{Array: []inner{{Array: []int32{1, 2}}, {Array: []int32{3, 4}}}}}, sh)
 	require.NoError(t, err)
@@ -264,7 +266,8 @@ func TestConvertToJSONFriendly_LegacyListElement(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			root := &parquet.SchemaElement{Name: common.ParGoRootInName, NumChildren: common.ToPtr(int32(1))}
-			sh := schema.NewSchemaHandlerFromSchemaList(append([]*parquet.SchemaElement{root}, tc.schema...))
+			sh, shErr := schema.NewSchemaHandlerFromSchemaListWithError(append([]*parquet.SchemaElement{root}, tc.schema...))
+			require.NoError(t, shErr)
 			result, err := ConvertToJSONFriendly(tc.input, sh)
 			require.NoError(t, err)
 			raw, err := json.Marshal(result)

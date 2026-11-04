@@ -473,3 +473,63 @@ func TestReadFooterRejectsMalformedTail(t *testing.T) {
 		})
 	}
 }
+
+func TestReadFooterMalformedSchema(t *testing.T) {
+	valid := writeFooterRenamedColumnParquet(t)
+	tests := []struct {
+		name   string
+		mutate func(*parquet.FileMetaData)
+		errMsg string
+	}{
+		{"trailing-leaf", func(f *parquet.FileMetaData) {
+			f.Schema = append(f.Schema, &parquet.SchemaElement{Name: "extra", Type: common.ToPtr(parquet.Type_INT32)})
+		}, "outside the root subtree"},
+		{"trailing-group", func(f *parquet.FileMetaData) {
+			f.Schema = append(f.Schema, &parquet.SchemaElement{Name: "extra", NumChildren: common.ToPtr(int32(0))})
+		}, "outside the root subtree"},
+		{"root-too-few", func(f *parquet.FileMetaData) {
+			f.Schema[0].NumChildren = common.ToPtr(int32(0))
+		}, "outside the root subtree"},
+		{"root-too-many", func(f *parquet.FileMetaData) {
+			f.Schema[0].NumChildren = common.ToPtr(int32(2))
+		}, "unfulfilled child"},
+		{"nested-too-many", func(f *parquet.FileMetaData) {
+			f.Schema[1].NumChildren = common.ToPtr(int32(1))
+		}, "unfulfilled child"},
+		{"negative-count", func(f *parquet.FileMetaData) {
+			f.Schema[0].NumChildren = common.ToPtr(int32(-1))
+		}, "negative num_children"},
+		{"empty-schema", func(f *parquet.FileMetaData) { f.Schema = []*parquet.SchemaElement{} }, "empty schema"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := rewriteFooter(t, valid, tt.mutate)
+			for _, mode := range []string{"inferred", "struct", "json", "list", "column", "footer"} {
+				t.Run(mode, func(t *testing.T) {
+					file := buffer.NewBufferReaderFromBytesNoAlloc(data)
+					var err error
+					switch mode {
+					case "column":
+						_, err = NewParquetColumnReaderWithContext(context.Background(), file)
+					case "footer":
+						pr := &ParquetReader{PFile: file}
+						err = pr.ReadFooterWithContext(context.Background())
+					default:
+						var obj any
+						switch mode {
+						case "struct":
+							obj = new(footerRenamedColumnRecord)
+						case "json":
+							obj = `{"Tag":"name=root", "Fields":[{"Tag":"name=col_l1, type=BYTE_ARRAY"}]}`
+						case "list":
+							obj = []*parquet.SchemaElement{{Name: "root"}}
+						}
+						_, err = NewParquetReaderWithContext(context.Background(), file, obj)
+					}
+					require.ErrorContains(t, err, "malformed schema")
+					require.ErrorContains(t, err, tt.errMsg)
+				})
+			}
+		})
+	}
+}

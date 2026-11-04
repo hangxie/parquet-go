@@ -396,7 +396,8 @@ func TestReadDataPageBody_Required(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
 
 	pageHeader := &parquet.PageHeader{
@@ -432,7 +433,8 @@ func TestReadDataPageBody_V2Header(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
 
 	pageHeader := &parquet.PageHeader{
@@ -454,10 +456,11 @@ func TestReadDataPageBody_V2Header(t *testing.T) {
 }
 
 func TestReadDataPageBody_NumValuesExceedsChunk(t *testing.T) {
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 		{Name: "test_col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 	})
+	require.NoError(t, schemaHandlerErr)
 	// Page claims a billion values but the column chunk only has 2 — must be
 	// rejected before allocating, not expanded into a huge slice.
 	pageHeader := &parquet.PageHeader{
@@ -487,10 +490,11 @@ func TestReadDictionaryPageBody_NumValuesExceedsChunk(t *testing.T) {
 }
 
 func TestReadDataPageBody_NilDataPageHeader(t *testing.T) {
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 		{Name: "test_col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 	})
+	require.NoError(t, schemaHandlerErr)
 	// Type says DATA_PAGE but DataPageHeader is absent (malformed page).
 	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE}
 	path, name := leafPathName(schemaHandler, "Test_col")
@@ -500,10 +504,11 @@ func TestReadDataPageBody_NilDataPageHeader(t *testing.T) {
 }
 
 func TestReadDataPageBody_NilDataPageHeaderV2(t *testing.T) {
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 		{Name: "test_col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 	})
+	require.NoError(t, schemaHandlerErr)
 	pageHeader := &parquet.PageHeader{Type: parquet.PageType_DATA_PAGE_V2}
 	path, name := leafPathName(schemaHandler, "Test_col")
 	_, _, _, err := readDataPageBody(pageHeader, []byte{}, nil, path, name, schemaHandler, &parquet.ColumnMetaData{Type: parquet.Type_INT32}, 0)
@@ -662,7 +667,8 @@ func TestReadDataPageBody_WithNulls(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
 
 	pageHeader := &parquet.PageHeader{
@@ -703,7 +709,8 @@ func TestReadDataPageBody_ConvertedType(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
 
 	pageHeader := &parquet.PageHeader{
@@ -735,7 +742,8 @@ func TestReadDataPageBody_DefinitionLevelError(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
 
 	pageHeader := &parquet.PageHeader{
@@ -765,7 +773,8 @@ func TestReadDataPageBody_ValuesError(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	colMetaData := &parquet.ColumnMetaData{Type: parquet.Type_INT32}
 
 	pageHeader := &parquet.PageHeader{

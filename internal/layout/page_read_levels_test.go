@@ -32,7 +32,8 @@ func TestGetRLDLFromRawData(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 
 	tests := []struct {
 		name           string
@@ -286,7 +287,8 @@ func TestGetRLDLFromRawDataComplexScenarios(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 
 	tests := []struct {
 		name        string
@@ -539,7 +541,7 @@ func TestExtractV2LevelBuffers(t *testing.T) {
 }
 
 func TestGetRLDLFromRawData_V2InvalidLevels(t *testing.T) {
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{
 			Name:           "parquet_go_root",
 			NumChildren:    common.ToPtr(int32(1)),
@@ -551,6 +553,7 @@ func TestGetRLDLFromRawData_V2InvalidLevels(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	})
+	require.NoError(t, schemaHandlerErr)
 
 	page := NewDataPage()
 	page.Header.Type = parquet.PageType_DATA_PAGE_V2
@@ -567,7 +570,7 @@ func TestGetRLDLFromRawData_V2InvalidLevels(t *testing.T) {
 }
 
 func TestDecodeDataPageLevels_DefinitionLevelError(t *testing.T) {
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{
 			Name:           "parquet_go_root",
 			NumChildren:    common.ToPtr(int32(1)),
@@ -579,6 +582,7 @@ func TestDecodeDataPageLevels_DefinitionLevelError(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL),
 		},
 	})
+	require.NoError(t, schemaHandlerErr)
 
 	page := NewDataPage()
 	page.Header.Type = parquet.PageType_DATA_PAGE
@@ -596,7 +600,7 @@ func TestDecodeDataPageLevels_DefinitionLevelError(t *testing.T) {
 }
 
 func TestGetRLDLFromRawDataCompressedV2Batches(t *testing.T) {
-	sh := testSchemaHandler()
+	sh := testSchemaHandler(t)
 	values := make([]any, PageBatchSize+1)
 	for i := range values {
 		values[i] = int32(7)

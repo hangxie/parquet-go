@@ -704,10 +704,11 @@ func newTruncatedChunkBuffer(t *testing.T) *ColumnBufferType {
 // a footer row group containing a column chunk with no MetaData must be skipped
 // rather than dereferenced.
 func TestNextRowGroup_NilColumnMetaData(t *testing.T) {
-	sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	sh, shErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{Name: "parquet_go_root", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 		{Name: "col", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 	})
+	require.NoError(t, shErr)
 	footer := &parquet.FileMetaData{
 		NumRows: 1,
 		RowGroups: []*parquet.RowGroup{

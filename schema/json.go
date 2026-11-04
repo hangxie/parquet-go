@@ -199,7 +199,10 @@ func NewSchemaHandlerFromJSON(str string) (sh *SchemaHandler, err error) {
 			infos = append(infos, newInfo)
 		}
 	}
-	res := NewSchemaHandlerFromSchemaList(schemaElements)
+	res, err := NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	if err != nil {
+		return nil, fmt.Errorf("build schema handler: %w", err)
+	}
 	res.Infos = infos
 	res.CreateInExMap()
 	if err := res.ValidateUniqueNames(); err != nil {

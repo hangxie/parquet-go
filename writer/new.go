@@ -213,9 +213,13 @@ func NewParquetWriterWithContext(ctx context.Context, pFile source.ParquetFileWr
 		} else {
 			var err error
 			if sa, ok := obj.(*schema.SchemaHandler); ok {
-				res.SchemaHandler = schema.NewSchemaHandlerFromSchemaHandler(sa)
+				if res.SchemaHandler, err = schema.NewSchemaHandlerFromSchemaHandlerWithError(sa); err != nil {
+					return nil, fmt.Errorf("build schema handler: %w", err)
+				}
 			} else if sa, ok := obj.([]*parquet.SchemaElement); ok {
-				res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
+				if res.SchemaHandler, err = schema.NewSchemaHandlerFromSchemaListWithError(sa); err != nil {
+					return nil, fmt.Errorf("build schema handler: %w", err)
+				}
 			} else {
 				if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
 					return nil, fmt.Errorf("build schema handler: %w", err)

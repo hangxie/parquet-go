@@ -183,7 +183,8 @@ func TestReadPage(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 
 	// Create column metadata
 	colMetaData := &parquet.ColumnMetaData{
@@ -387,7 +388,8 @@ func TestReadPage_NilOptsUsesDefaults(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	colMetaData := &parquet.ColumnMetaData{
 		Type:         parquet.Type_INT32,
 		Codec:        parquet.CompressionCodec_UNCOMPRESSED,
@@ -464,7 +466,8 @@ func TestReadPageRawData_NilOptsUsesDefaults(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	colMetaData := &parquet.ColumnMetaData{
 		Type:         parquet.Type_INT32,
 		Codec:        parquet.CompressionCodec_UNCOMPRESSED,
@@ -535,7 +538,8 @@ func TestReadPageV2IsCompressedFalse(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 
 	colMetaData := &parquet.ColumnMetaData{
 		Type:         parquet.Type_INT32,
@@ -594,7 +598,8 @@ func TestReadPageErrorCases(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 
 	// Create column metadata with compression
 	colMetaDataCompressed := &parquet.ColumnMetaData{
@@ -718,7 +723,7 @@ func bufferedTransportFrom(data ...[]byte) *thrift.TBufferedTransport {
 
 func simpleInt32Schema(t *testing.T) (*schema.SchemaHandler, *parquet.ColumnMetaData) {
 	t.Helper()
-	sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	sh, shErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{
 			Name:           "parquet_go_root",
 			NumChildren:    common.ToPtr(int32(1)),
@@ -730,6 +735,7 @@ func simpleInt32Schema(t *testing.T) (*schema.SchemaHandler, *parquet.ColumnMeta
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	})
+	require.NoError(t, shErr)
 	cmd := &parquet.ColumnMetaData{
 		Type:         parquet.Type_INT32,
 		Codec:        parquet.CompressionCodec_UNCOMPRESSED,
@@ -935,7 +941,8 @@ func TestReadPageRawData(t *testing.T) {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	}
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 
 	testCases := []struct {
 		name        string
@@ -1347,7 +1354,7 @@ func TestReadPageHugeBooleanRunUsesBoundedBatch(t *testing.T) {
 				Type: parquet.PageType_DATA_PAGE, CompressedPageSize: int32(len(data)), UncompressedPageSize: int32(len(data)),
 				DataPageHeader: &parquet.DataPageHeader{NumValues: count, Encoding: parquet.Encoding_RLE},
 			}
-			sh := testSchemaHandler()
+			sh := testSchemaHandler(t)
 			sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BOOLEAN)
 			meta := testColumnMetaData()
 			meta.Type, meta.NumValues = parquet.Type_BOOLEAN, int64(count)
@@ -1376,7 +1383,7 @@ func TestReadPageHugeBooleanRunUsesBoundedBatch(t *testing.T) {
 func TestReadPageRawDataValueCountExceedsChunk(t *testing.T) {
 	for _, pageType := range []parquet.PageType{parquet.PageType_DATA_PAGE, parquet.PageType_DATA_PAGE_V2} {
 		t.Run(pageType.String(), func(t *testing.T) {
-			sh := testSchemaHandler()
+			sh := testSchemaHandler(t)
 			meta := testColumnMetaData()
 			meta.PathInSchema = []string{sh.GetInName(1)}
 			meta.NumValues = 1
@@ -1413,13 +1420,14 @@ func TestGetValueFromRawDataRequiresDecoder(t *testing.T) {
 }
 
 func TestReadPagePaddedDefinitionLevels(t *testing.T) {
-	sh := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	sh, shErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{Name: "root", NumChildren: common.ToPtr(int32(1))},
 		{Name: "a", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
 		{Name: "b", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
 		{Name: "c", NumChildren: common.ToPtr(int32(1)), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
 		{Name: "value", Type: common.ToPtr(parquet.Type_INT32), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_OPTIONAL)},
 	})
+	require.NoError(t, shErr)
 	path := common.StrToPath(sh.IndexMap[4])
 	levels := make([]any, 16)
 	for i := range levels {
@@ -1491,7 +1499,7 @@ func TestReadPageGrowingDeltaByteArrayOverDefaultBudget(t *testing.T) {
 		Type: parquet.PageType_DATA_PAGE, CompressedPageSize: int32(len(data)), UncompressedPageSize: int32(len(data)),
 		DataPageHeader: &parquet.DataPageHeader{NumValues: count, Encoding: parquet.Encoding_DELTA_BYTE_ARRAY},
 	}
-	sh := testSchemaHandler()
+	sh := testSchemaHandler(t)
 	sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BYTE_ARRAY)
 	meta := testColumnMetaData()
 	meta.Type, meta.NumValues = parquet.Type_BYTE_ARRAY, count

@@ -53,7 +53,9 @@ func TestValidateSchemaForWrite(t *testing.T) {
 		return fromObj(flbaSchemaList(length))
 	}
 	fromSchemaHandler := func(length *int32) func() error {
-		return fromObj(schema.NewSchemaHandlerFromSchemaList(flbaSchemaList(length)))
+		sh, err := schema.NewSchemaHandlerFromSchemaListWithError(flbaSchemaList(length))
+		require.NoError(t, err)
+		return fromObj(sh)
 	}
 	fromJSONSchema := func(tag string) func() error {
 		return fromObj(`{"Tag": "name=parquet-go-root", "Fields": [{"Tag": "` + tag + `"}]}`)
@@ -286,10 +288,12 @@ func TestValidateSchemaForWrite_DuplicateColumnNames(t *testing.T) {
 		{Name: "value", Type: common.ToPtr(parquet.Type_INT64), RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED)},
 	}
 
+	sh, err := schema.NewSchemaHandlerFromSchemaListWithError(schemaList)
+	require.NoError(t, err)
 	testCases := map[string]any{
 		"struct":         new(row),
 		"schema-list":    schemaList,
-		"schema-handler": schema.NewSchemaHandlerFromSchemaList(schemaList),
+		"schema-handler": sh,
 	}
 	for name, obj := range testCases {
 		t.Run(name, func(t *testing.T) {

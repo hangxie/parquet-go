@@ -138,7 +138,10 @@ func NewSchemaHandlerFromArrow(arrowSchema *arrow.Schema) (
 		}
 		schemaList = append(schemaList, schema)
 	}
-	res := NewSchemaHandlerFromSchemaList(schemaList)
+	res, err := NewSchemaHandlerFromSchemaListWithError(schemaList)
+	if err != nil {
+		return nil, fmt.Errorf("build schema handler: %w", err)
+	}
 	res.Infos = infos
 	res.CreateInExMap()
 	if err := res.ValidateUniqueNames(); err != nil {

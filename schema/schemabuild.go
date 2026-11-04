@@ -19,8 +19,16 @@ func NewItem() *Item {
 	return item
 }
 
+// NewSchemaHandlerFromStruct builds a schema from a pointer to a tagged struct.
 func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
-	ot := reflect.TypeOf(obj).Elem()
+	objType := reflect.TypeOf(obj)
+	if objType == nil || objType.Kind() != reflect.Pointer || objType.Elem().Kind() != reflect.Struct {
+		return nil, fmt.Errorf("schema object must be a pointer to a struct")
+	}
+	return newSchemaHandlerFromStruct(objType.Elem())
+}
+
+func newSchemaHandlerFromStruct(ot reflect.Type) (*SchemaHandler, error) {
 	item := NewItem()
 	item.GoType = ot
 	item.Info.InName = common.ParGoRootInName
@@ -38,11 +46,11 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 		stack = stack[:ln-1]
 
 		if item.Info.Type == "VARIANT" {
-			if err = createVariantSchema(item, &stack, &schemaElements, &infos); err != nil {
+			if err := createVariantSchema(item, &stack, &schemaElements, &infos); err != nil {
 				return nil, fmt.Errorf("create variant schema for %s: %w", item.Info.InName, err)
 			}
 		} else if item.GoType.Kind() == reflect.Struct {
-			if err = createStructSchema(item, &stack, &schemaElements, &infos); err != nil {
+			if err := createStructSchema(item, &stack, &schemaElements, &infos); err != nil {
 				return nil, fmt.Errorf("create struct schema for %s: %w", item.Info.InName, err)
 			}
 		} else if item.GoType.Kind() == reflect.Slice &&
@@ -114,57 +122,22 @@ func NewSchemaHandlerFromStruct(obj any) (sh *SchemaHandler, err error) {
 	return res, nil
 }
 
-func NewSchemaHandlerFromSchemaHandler(sh *SchemaHandler) *SchemaHandler {
-	schemaHandler := new(SchemaHandler)
-	schemaHandler.MapIndex = make(map[string]int32)
-	schemaHandler.IndexMap = make(map[int32]string)
-	schemaHandler.InPathToExPath = make(map[string]string)
-	schemaHandler.ExPathToInPath = make(map[string]string)
-	schemaHandler.SchemaElements = sh.SchemaElements
-
-	schemaHandler.Infos = make([]*common.Tag, len(sh.SchemaElements))
-	for i := range len(sh.SchemaElements) {
-		InName, ExName := sh.GetInName(i), sh.GetExName(i)
-		schemaHandler.Infos[i] = &common.Tag{
-			InName: InName,
-			ExName: ExName,
-		}
-	}
-	schemaHandler.CreateInExMap()
-
-	// use DFS get path of schema
-	ln := int32(len(sh.SchemaElements))
-	var pos int32 = 0
-	stack := make([][2]int32, 0) // stack item[0]: index of schemas; item[1]: numChildren
-	for pos < ln || len(stack) > 0 {
-		if len(stack) == 0 || stack[len(stack)-1][1] > 0 {
-			if len(stack) > 0 {
-				stack[len(stack)-1][1]--
-			}
-			item := [2]int32{pos, sh.SchemaElements[pos].GetNumChildren()}
-			stack = append(stack, item)
-			pos++
-		} else {
-			path := make([]string, 0)
-			for i := range len(stack) {
-				inname := schemaHandler.Infos[stack[i][0]].InName
-				path = append(path, inname)
-			}
-			topPos := stack[len(stack)-1][0]
-			schemaHandler.MapIndex[common.PathToStr(path)] = topPos
-			schemaHandler.IndexMap[topPos] = common.PathToStr(path)
-			stack = stack[:len(stack)-1]
-		}
-	}
-	schemaHandler.setPathMap()
-	schemaHandler.setValueColumns()
-	schemaHandler.setVariantSchemas()
-
-	return schemaHandler
+// NewSchemaHandlerFromSchemaList creates a schema handler without validating the schema tree.
+//
+// Deprecated: use NewSchemaHandlerFromSchemaListWithError.
+func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHandler {
+	return newSchemaHandlerFromSchemaList(schemas)
 }
 
-// NewSchemaHandlerFromSchemaList creates schema handler from schema list
-func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHandler {
+// NewSchemaHandlerFromSchemaListWithError validates the schema tree and creates a schema handler.
+func NewSchemaHandlerFromSchemaListWithError(schemas []*parquet.SchemaElement) (*SchemaHandler, error) {
+	if err := validateSchemaList(schemas); err != nil {
+		return nil, err
+	}
+	return newSchemaHandlerFromSchemaList(schemas), nil
+}
+
+func newSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHandler {
 	schemaHandler := new(SchemaHandler)
 	schemaHandler.MapIndex = make(map[string]int32)
 	schemaHandler.IndexMap = make(map[int32]string)

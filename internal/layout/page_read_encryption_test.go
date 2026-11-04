@@ -58,7 +58,7 @@ func TestReadPageRawDataEncrypted(t *testing.T) {
 			t.Parallel()
 			headerModule := encryptPageGCMModule(t, key, pageTestAAD(aadPrefix, fileUnique, encryption.ModuleDataPageHeader), serializePageHeader(t, header))
 			thriftReader := encryptedPageReader(headerModule, tt.body)
-			page, err := ReadPageRawData(thriftReader, testSchemaHandler(), testColumnMetaData(), &PageReadOptions{
+			page, err := ReadPageRawData(thriftReader, testSchemaHandler(t), testColumnMetaData(), &PageReadOptions{
 				MaxPageSize: 100,
 				Decryptor: &PageDecryptor{
 					Algorithm:     tt.algorithm,
@@ -102,7 +102,7 @@ func TestReadPageRawDataEncryptedDictionaryHeader(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, parquet.PageType_DICTIONARY_PAGE, decryptedHeader.GetType())
-	page, err := ReadPageRawData(encryptedPageReader(headerModule, bodyModule), testSchemaHandler(), testColumnMetaData(), &PageReadOptions{
+	page, err := ReadPageRawData(encryptedPageReader(headerModule, bodyModule), testSchemaHandler(t), testColumnMetaData(), &PageReadOptions{
 		MaxPageSize: 100,
 		Decryptor: &PageDecryptor{
 			Algorithm:     PageEncryptionAESGCM,
@@ -176,8 +176,9 @@ func TestEncryptedPageErrors(t *testing.T) {
 	require.ErrorContains(t, err, "decrypt AES-GCM module")
 }
 
-func testSchemaHandler() *schema.SchemaHandler {
-	return schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+func testSchemaHandler(t *testing.T) *schema.SchemaHandler {
+	t.Helper()
+	sh, err := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{
 			Name:           "parquet_go_root",
 			NumChildren:    common.ToPtr(int32(1)),
@@ -189,6 +190,8 @@ func testSchemaHandler() *schema.SchemaHandler {
 			RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REQUIRED),
 		},
 	})
+	require.NoError(t, err)
+	return sh
 }
 
 func testColumnMetaData() *parquet.ColumnMetaData {

@@ -221,6 +221,11 @@ func (pr *ParquetReader) ReadFooterWithContext(ctx context.Context) error {
 	if err := validateRowCounts(pr.Footer); err != nil {
 		return err
 	}
+	fileSchema, err := newFileSchemaHandler(pr.Footer)
+	if err != nil {
+		return fmt.Errorf("validate footer schema: %w", err)
+	}
+	pr.fileSchemaOnce.Do(func() { pr.fileSchema = fileSchema })
 	pr.footerLoaded = true
 	return nil
 }

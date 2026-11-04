@@ -29,36 +29,6 @@ func TestNewSchemaHandlerFromSchemaList_MalformedChildren(t *testing.T) {
 	})
 }
 
-func TestNewSchemaHandlerFromSchemaHandler(t *testing.T) {
-	// Create an original schema using NewSchemaHandlerFromStruct for simplicity
-	originalSchema, err := NewSchemaHandlerFromStruct(new(struct {
-		Field1 int32  `parquet:"name=field1, type=INT32"`
-		Field2 string `parquet:"name=field2, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
-	}))
-	require.NoError(t, err)
-
-	// Test NewSchemaHandlerFromSchemaHandler
-	schema2 := NewSchemaHandlerFromSchemaHandler(originalSchema)
-
-	// Verify that the schema was copied correctly
-	require.Equal(t, len(originalSchema.SchemaElements), len(schema2.SchemaElements))
-	require.Equal(t, common.ParGoRootInName, schema2.SchemaElements[0].Name)
-	require.Equal(t, "Field1", schema2.SchemaElements[1].Name)
-	require.Equal(t, "Field2", schema2.SchemaElements[2].Name)
-
-	// Verify the schema elements were deep copied
-	require.Equal(t, "REQUIRED", schema2.SchemaElements[1].RepetitionType.String())
-	require.Equal(t, "INT32", schema2.SchemaElements[1].Type.String())
-
-	require.Equal(t, "OPTIONAL", schema2.SchemaElements[2].RepetitionType.String())
-	require.Equal(t, "BYTE_ARRAY", schema2.SchemaElements[2].Type.String())
-	require.Equal(t, "UTF8", schema2.SchemaElements[2].ConvertedType.String())
-
-	// Verify it's a separate copy, not the same reference
-	require.NotSame(t, originalSchema, schema2)
-	require.NotSame(t, &originalSchema.SchemaElements, &schema2.SchemaElements)
-}
-
 func TestNewSchemaHandlerFromSchemaList(t *testing.T) {
 	// Create a simple schema element list directly
 	requiredRep := parquet.FieldRepetitionType_REQUIRED
@@ -102,6 +72,10 @@ func TestNewSchemaHandlerFromStruct(t *testing.T) {
 		expectedErrorText string
 		validateSchema    func(t *testing.T, schema *SchemaHandler)
 	}{
+		{name: "nil-object", expectedErrorText: "pointer to a struct"},
+		{name: "non-pointer", structDef: struct{}{}, expectedErrorText: "pointer to a struct"},
+		{name: "non-struct-pointer", structDef: new(int), expectedErrorText: "pointer to a struct"},
+		{name: "typed-nil-pointer", structDef: (*struct{})(nil)},
 		{
 			name: "invalid_tag",
 			structDef: new(struct {
@@ -621,4 +595,57 @@ func TestIsListWrapper(t *testing.T) {
 	}
 	require.True(t, manual.IsListWrapper(2))
 	require.False(t, manual.IsListWrapper(3))
+}
+
+func TestNewSchemaHandlerFromSchemaListWithError(t *testing.T) {
+	root := func(n int32) *parquet.SchemaElement {
+		return &parquet.SchemaElement{Name: "root", NumChildren: common.ToPtr(n)}
+	}
+	leaf := func(name string) *parquet.SchemaElement {
+		return &parquet.SchemaElement{Name: name, Type: common.ToPtr(parquet.Type_INT32)}
+	}
+	tests := []struct {
+		name     string
+		elements []*parquet.SchemaElement
+		errMsg   string
+	}{
+		{name: "nil", errMsg: "empty schema"},
+		{name: "empty", elements: []*parquet.SchemaElement{}, errMsg: "empty schema"},
+		{name: "nil-root", elements: []*parquet.SchemaElement{nil}, errMsg: "element 0 is nil"},
+		{name: "nil-child", elements: []*parquet.SchemaElement{root(1), nil}, errMsg: "element 1 is nil"},
+		{name: "negative-root", elements: []*parquet.SchemaElement{root(-1)}, errMsg: "negative num_children"},
+		{name: "negative-child", elements: []*parquet.SchemaElement{root(1), {Name: "group", NumChildren: common.ToPtr(int32(-1))}}, errMsg: "negative num_children"},
+		{name: "missing-root-children", elements: []*parquet.SchemaElement{root(2), leaf("a")}, errMsg: "1 unfulfilled child"},
+		{name: "missing-nested-children", elements: []*parquet.SchemaElement{root(1), {Name: "group", NumChildren: common.ToPtr(int32(2))}, leaf("a")}, errMsg: "1 unfulfilled child"},
+		{name: "trailing-leaf", elements: []*parquet.SchemaElement{root(1), leaf("a"), leaf("extra")}, errMsg: `element 2 ("extra") is outside the root subtree`},
+		{name: "trailing-group", elements: []*parquet.SchemaElement{root(0), {Name: "extra", NumChildren: common.ToPtr(int32(0))}}, errMsg: "outside the root subtree"},
+		{name: "large-count", elements: []*parquet.SchemaElement{root(2147483647), {Name: "group", NumChildren: common.ToPtr(int32(2147483647))}}, errMsg: "4294967293 unfulfilled child"},
+		{name: "empty-root", elements: []*parquet.SchemaElement{root(0)}},
+		{name: "implicit-empty-root", elements: []*parquet.SchemaElement{{Name: "root"}}},
+		{name: "flat", elements: []*parquet.SchemaElement{root(2), leaf("a"), leaf("b")}},
+		{name: "nested", elements: []*parquet.SchemaElement{root(2), {Name: "group", NumChildren: common.ToPtr(int32(1))}, leaf("a"), leaf("b")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sh, err := NewSchemaHandlerFromSchemaListWithError(tt.elements)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, "malformed schema")
+				require.ErrorContains(t, err, tt.errMsg)
+				require.Nil(t, sh)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, NewSchemaHandlerFromSchemaList(tt.elements), sh)
+		})
+	}
+}
+
+func TestNewSchemaHandlerFromSchemaListTrailingElementsCompatibility(t *testing.T) {
+	elements := []*parquet.SchemaElement{
+		{Name: "root", NumChildren: common.ToPtr(int32(0))},
+		{Name: "extra", Type: common.ToPtr(parquet.Type_INT32)},
+	}
+	sh := NewSchemaHandlerFromSchemaList(elements)
+	require.Equal(t, []string{"Extra"}, sh.ValueColumns)
+	require.Equal(t, int32(1), sh.MapIndex["Extra"])
 }

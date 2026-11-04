@@ -6,7 +6,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
@@ -34,7 +33,7 @@ func NewParquetColumnReaderWithContext(ctx context.Context, pFile source.Parquet
 		return nil, fmt.Errorf("read footer: %w", err)
 	}
 	res.ColumnBuffers = make(map[string]*ColumnBufferType)
-	res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(res.Footer.GetSchema())
+	res.SchemaHandler = res.fileSchemaHandler()
 	if err := res.validateColumnKeyPaths(); err != nil {
 		return res, err
 	}
