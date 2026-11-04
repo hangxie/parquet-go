@@ -257,9 +257,9 @@ schema := arrow.NewSchema(
 
 Schema notes:
 
-Use `schema.NewSchemaHandlerFromSchemaListWithError` when constructing a handler from raw Parquet schema elements. It rejects empty lists, nil elements, negative child counts, missing children, and elements outside the root subtree. A root with zero children is valid. `NewSchemaHandlerFromSchemaList` is deprecated and retains its unchecked behavior for compatibility.
+Use `schema.NewSchemaHandlerFromSchemaListWithError` when constructing a handler from raw Parquet schema elements. It rejects empty lists, nil elements, negative child counts, missing children, and elements outside the root subtree. A root with zero children is valid. This checks tree completeness, not every Parquet schema rule; for example, it does not reject a primitive physical type that also declares children. `NewSchemaHandlerFromSchemaList` is deprecated and retains its unchecked behavior for compatibility.
 
-When rebuilding an existing handler, use `NewSchemaHandlerFromSchemaHandlerWithError`; it also checks that every schema element has name information. `NewSchemaHandlerFromSchemaHandler` is deprecated and retains its existing behavior.
+When rebuilding an existing handler, use `NewSchemaHandlerFromSchemaHandlerWithError`; it also checks that every schema element has nonempty internal and external name information and rejects sibling fields sharing either name. The same names in different parent groups remain valid. `NewSchemaHandlerFromSchemaHandler` is deprecated and retains its existing behavior.
 
 `NewSchemaHandlerFromStruct` requires a pointer to a struct and returns an error for other inputs; typed nil struct pointers are accepted.
 

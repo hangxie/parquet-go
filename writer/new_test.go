@@ -160,6 +160,7 @@ func TestNewParquetWriterMalformedSchemaHandler(t *testing.T) {
 		{name: "empty", handler: &schema.SchemaHandler{}},
 		{name: "missing-child", handler: &schema.SchemaHandler{SchemaElements: []*parquet.SchemaElement{{Name: "root", NumChildren: common.ToPtr(int32(1))}}}},
 		{name: "missing-info", handler: &schema.SchemaHandler{SchemaElements: []*parquet.SchemaElement{{Name: "root"}}}},
+		{name: "empty-names", handler: &schema.SchemaHandler{SchemaElements: []*parquet.SchemaElement{{Name: "root"}}, Infos: []*common.Tag{{}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

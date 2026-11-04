@@ -129,7 +129,7 @@ func NewSchemaHandlerFromSchemaList(schemas []*parquet.SchemaElement) *SchemaHan
 	return newSchemaHandlerFromSchemaList(schemas)
 }
 
-// NewSchemaHandlerFromSchemaListWithError validates the schema tree and creates a schema handler.
+// NewSchemaHandlerFromSchemaListWithError checks tree completeness and builds a handler; physical/group compatibility is not checked.
 func NewSchemaHandlerFromSchemaListWithError(schemas []*parquet.SchemaElement) (*SchemaHandler, error) {
 	if err := validateSchemaList(schemas); err != nil {
 		return nil, err

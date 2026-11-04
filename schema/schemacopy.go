@@ -13,7 +13,7 @@ func NewSchemaHandlerFromSchemaHandler(sh *SchemaHandler) *SchemaHandler {
 	return newSchemaHandlerFromSchemaHandler(sh)
 }
 
-// NewSchemaHandlerFromSchemaHandlerWithError validates and rebuilds an existing schema handler.
+// NewSchemaHandlerFromSchemaHandlerWithError checks tree completeness and nonempty, unique sibling names before rebuilding.
 func NewSchemaHandlerFromSchemaHandlerWithError(sh *SchemaHandler) (*SchemaHandler, error) {
 	if sh == nil {
 		return nil, fmt.Errorf("schema handler is nil")
@@ -28,6 +28,15 @@ func NewSchemaHandlerFromSchemaHandlerWithError(sh *SchemaHandler) (*SchemaHandl
 		if info == nil {
 			return nil, fmt.Errorf("schema info %d is nil", i)
 		}
+		if info.InName == "" {
+			return nil, fmt.Errorf("schema info %d has empty InName", i)
+		}
+		if info.ExName == "" {
+			return nil, fmt.Errorf("schema info %d has empty ExName", i)
+		}
+	}
+	if err := sh.ValidateUniqueNames(); err != nil {
+		return nil, fmt.Errorf("validate column names: %w", err)
 	}
 	return newSchemaHandlerFromSchemaHandler(sh), nil
 }
