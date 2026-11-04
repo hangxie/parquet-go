@@ -20,6 +20,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 ## Contents
 
 - [Installation](#installation)
+- [Unreleased API Changes](#unreleased-api-changes)
 - [Quick Start](#quick-start)
   - [Write a File](#write-a-file)
   - [Read a File](#read-a-file)
@@ -55,6 +56,10 @@ go get github.com/hangxie/parquet-go/v3
 ```
 
 parquet-go builds with the latest Go toolchain and is guaranteed to stay compatible two releases back, so `go.mod` never requires anything newer than the current Go release minus two. CI enforces that floor and runs the test suite against it and the two releases above it. See [go.mod](go.mod) for the exact minimum, currently Go 1.25.
+
+## Unreleased API Changes
+
+`common.FuncTable.MinMaxSize` now returns `(any, any, int64)` so page size estimates remain exact for individual values of 2 GiB or larger. Custom `FuncTable` implementations must change their size return type from `int32` to `int64`; callers storing the returned size must also use `int64`. For string-backed values, return `int64(len(value))` without an intermediate `int32` conversion. The encoders and page headers continue to reject values that exceed Parquet’s 32-bit limits.
 
 ## Quick Start
 
@@ -1122,6 +1127,8 @@ go build -tags example ./example/all_types
 | [mem](example/mem) | In-memory file system |
 
 ## Local Development
+
+The direct large-string size regression is opt-in because it allocates a 2 GiB string. On a 64-bit system with at least 3 GiB of available memory, run `PARQUET_GO_TEST_LARGE_ALLOC=1 go test ./common -run '^TestStringFuncTable_MinMaxSizeLargeValue$' -count=1`. The test skips during ordinary runs and when `-short` is set.
 
 ### Generating GitHub Pages
 

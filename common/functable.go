@@ -6,9 +6,11 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
+// FuncTable compares values and measures their unencoded size in bytes.
 type FuncTable interface {
 	LessThan(a, b any) bool
-	MinMaxSize(minVal, maxVal, val any) (any, any, int32)
+	// MinMaxSize updates the bounds with val and returns its size in bytes.
+	MinMaxSize(minVal, maxVal, val any) (any, any, int64)
 }
 
 var parquetTypeFuncTable = map[parquet.Type]FuncTable{

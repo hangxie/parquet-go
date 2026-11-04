@@ -20,7 +20,7 @@ func (float16FuncTable) LessThan(a, b any) bool {
 	return bytes.Compare(ab, bb) < 0
 }
 
-func (table float16FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (table float16FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	if isFloat16NaN(minVal) {
 		minVal = nil
 	}

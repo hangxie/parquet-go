@@ -106,13 +106,13 @@ func scanPageValues(table *Table, startIdx int, pageSize int32, omitStats bool, 
 		}
 		if table.DefinitionLevels[r.endIdx] == table.MaxDefinitionLevel {
 			r.numValues++
-			var elSize int32
+			var elSize int64
 			if omitStats {
 				_, _, elSize = funcTable.MinMaxSize(nil, nil, table.Values[r.endIdx])
 			} else {
 				r.minVal, r.maxVal, elSize = funcTable.MinMaxSize(r.minVal, r.maxVal, table.Values[r.endIdx])
 			}
-			r.size += int64(elSize)
+			r.size += elSize
 		}
 		r.endIdx++
 	}
