@@ -38,9 +38,9 @@ func FuzzFloat16MinMaxSize(f *testing.F) {
 			v := string(b[i : i+2])
 			values = append(values, v)
 
-			var size int32
+			var size int64
 			minVal, maxVal, size = table.MinMaxSize(minVal, maxVal, v)
-			require.Equal(t, int32(2), size)
+			require.Equal(t, int64(2), size)
 		}
 
 		var ordered []string

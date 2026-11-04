@@ -2,6 +2,9 @@ package common
 
 import (
 	"math"
+	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -96,7 +99,7 @@ func TestFloatFuncTable_NaNExcludedFromBounds(t *testing.T) {
 		min, max, size := table.MinMaxSize(float32(1), float32(3), nan)
 		require.Equal(t, float32(1), min)
 		require.Equal(t, float32(3), max)
-		require.Equal(t, int32(4), size)
+		require.Equal(t, int64(4), size)
 
 		min, max, _ = table.MinMaxSize(nan, nan, float32(2))
 		require.Equal(t, float32(2), min)
@@ -118,7 +121,7 @@ func TestFloatFuncTable_NaNExcludedFromBounds(t *testing.T) {
 		min, max, size := table.MinMaxSize(1.0, 3.0, nan)
 		require.Equal(t, 1.0, min)
 		require.Equal(t, 3.0, max)
-		require.Equal(t, int32(8), size)
+		require.Equal(t, int64(8), size)
 
 		min, max, _ = table.MinMaxSize(nan, nan, 2.0)
 		require.Equal(t, 2.0, min)
@@ -142,4 +145,21 @@ func TestFloatFuncTable_NaNExcludedFromBounds(t *testing.T) {
 		require.Nil(t, dropNaNBound(nil))
 		require.Equal(t, "not a float", dropNaNBound("not a float"))
 	})
+}
+
+func TestStringFuncTable_MinMaxSizeLargeValue(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("requires 64-bit string lengths")
+	}
+	if testing.Short() || os.Getenv("PARQUET_GO_TEST_LARGE_ALLOC") != "1" {
+		t.Skip("set PARQUET_GO_TEST_LARGE_ALLOC=1 with at least 3 GiB of available memory")
+	}
+
+	// Keep this allocation opt-in; ordinary test runs should not require gigabytes of memory.
+	length := int64(math.MaxInt32) + 1
+	value := strings.Repeat("x", int(length))
+	minVal, maxVal, size := (stringFuncTable{}).MinMaxSize(nil, nil, value)
+	require.Equal(t, length, size)
+	require.Equal(t, value, minVal)
+	require.Equal(t, value, maxVal)
 }

@@ -8,7 +8,7 @@ func (boolFuncTable) LessThan(a, b any) bool {
 	return !a.(bool) && b.(bool)
 }
 
-func (table boolFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (table boolFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	return Min(table, minVal, val), Max(table, maxVal, val), 1
 }
 
@@ -18,7 +18,7 @@ func (int32FuncTable) LessThan(a, b any) bool {
 	return a.(int32) < b.(int32)
 }
 
-func (table int32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (table int32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	return Min(table, minVal, val), Max(table, maxVal, val), 4
 }
 
@@ -28,7 +28,7 @@ func (uint32FuncTable) LessThan(a, b any) bool {
 	return uint32(a.(int32)) < uint32(b.(int32))
 }
 
-func (table uint32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (table uint32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	return Min(table, minVal, val), Max(table, maxVal, val), 4
 }
 
@@ -38,7 +38,7 @@ func (int64FuncTable) LessThan(a, b any) bool {
 	return a.(int64) < b.(int64)
 }
 
-func (table int64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (table int64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	return Min(table, minVal, val), Max(table, maxVal, val), 8
 }
 
@@ -48,7 +48,7 @@ func (uint64FuncTable) LessThan(a, b any) bool {
 	return uint64(a.(int64)) < uint64(b.(int64))
 }
 
-func (table uint64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (table uint64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	return Min(table, minVal, val), Max(table, maxVal, val), 8
 }
 
@@ -82,8 +82,8 @@ func (int96FuncTable) LessThan(ai, bi any) bool {
 	return false
 }
 
-func (table int96FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), int32(len(val.(string)))
+func (table int96FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
+	return Min(table, minVal, val), Max(table, maxVal, val), int64(len(val.(string)))
 }
 
 type float32FuncTable struct{}
@@ -92,7 +92,7 @@ func (float32FuncTable) LessThan(a, b any) bool {
 	return a.(float32) < b.(float32)
 }
 
-func (table float32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (table float32FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	minVal, maxVal = dropNaNBound(minVal), dropNaNBound(maxVal)
 	if isNaNValue(val) {
 		return minVal, maxVal, 4
@@ -106,7 +106,7 @@ func (float64FuncTable) LessThan(a, b any) bool {
 	return a.(float64) < b.(float64)
 }
 
-func (table float64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (table float64FuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	minVal, maxVal = dropNaNBound(minVal), dropNaNBound(maxVal)
 	if isNaNValue(val) {
 		return minVal, maxVal, 8
@@ -141,8 +141,8 @@ func (stringFuncTable) LessThan(a, b any) bool {
 	return a.(string) < b.(string)
 }
 
-func (table stringFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), int32(len(val.(string)))
+func (table stringFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
+	return Min(table, minVal, val), Max(table, maxVal, val), int64(len(val.(string)))
 }
 
 type intervalFuncTable struct{}
@@ -169,8 +169,8 @@ func (intervalFuncTable) LessThan(ai, bi any) bool {
 	return false
 }
 
-func (table intervalFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), int32(len(val.(string)))
+func (table intervalFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
+	return Min(table, minVal, val), Max(table, maxVal, val), int64(len(val.(string)))
 }
 
 type decimalStringFuncTable struct{}
@@ -179,6 +179,6 @@ func (decimalStringFuncTable) LessThan(a, b any) bool {
 	return cmpIntBinary(a.(string), b.(string), "BigEndian", true)
 }
 
-func (table decimalStringFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
-	return Min(table, minVal, val), Max(table, maxVal, val), int32(len(val.(string)))
+func (table decimalStringFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
+	return Min(table, minVal, val), Max(table, maxVal, val), int64(len(val.(string)))
 }

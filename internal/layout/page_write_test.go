@@ -2060,13 +2060,13 @@ func TestPageGeospatialTypesAreSorted(t *testing.T) {
 
 // sizeFuncTable reports the given element sizes in order.
 type sizeFuncTable struct {
-	sizes []int32
+	sizes []int64
 	next  int
 }
 
 func (f *sizeFuncTable) LessThan(a, b any) bool { return false }
 
-func (f *sizeFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int32) {
+func (f *sizeFuncTable) MinMaxSize(minVal, maxVal, val any) (any, any, int64) {
 	f.next++
 	return minVal, maxVal, f.sizes[f.next-1]
 }
@@ -2078,7 +2078,7 @@ func TestScanPageValues_SizePastInt32(t *testing.T) {
 		RepetitionLevels: []int32{0, 0, 0},
 	}
 	// An int32 running size would wrap negative after the second value and never end the page.
-	funcTable := &sizeFuncTable{sizes: []int32{math.MaxInt32 - 1, 2, 1}}
+	funcTable := &sizeFuncTable{sizes: []int64{math.MaxInt32 - 1, 2, 1}}
 
 	res, err := scanPageValues(table, 0, math.MaxInt32, false, funcTable)
 	require.NoError(t, err)
@@ -2150,6 +2150,29 @@ func TestPageHeaderInt32Overflow(t *testing.T) {
 
 			encoding.MaxInt32Length = 0
 			require.ErrorContains(t, compressPage(newPage()), "compressed page size")
+		})
+	}
+}
+
+func TestScanPageValues_LargeElement(t *testing.T) {
+	for _, omitStats := range []bool{false, true} {
+		name := "with-stats"
+		if omitStats {
+			name = "omit-stats"
+		}
+		t.Run(name, func(t *testing.T) {
+			table := &Table{
+				Schema:           &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
+				Values:           []any{int32(1), int32(2)},
+				DefinitionLevels: []int32{0, 0},
+				RepetitionLevels: []int32{0, 0},
+			}
+			// Simulate an oversized element without allocating a multi-gigabyte value.
+			funcTable := &sizeFuncTable{sizes: []int64{int64(math.MaxInt32) + 1, 1}}
+			res, err := scanPageValues(table, 0, math.MaxInt32, omitStats, funcTable)
+			require.NoError(t, err)
+			require.Equal(t, 1, res.endIdx)
+			require.Equal(t, int64(math.MaxInt32)+1, res.size)
 		})
 	}
 }

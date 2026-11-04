@@ -131,13 +131,13 @@ func scanDictPageValues(table *Table, dictRec *DictRecType, startIdx int, pageSi
 				return r, err
 			}
 			r.numValues++
-			var elSize int32
+			var elSize int64
 			if omitStats {
 				_, _, elSize = funcTable.MinMaxSize(nil, nil, table.Values[r.endIdx])
 			} else {
 				r.minVal, r.maxVal, elSize = funcTable.MinMaxSize(r.minVal, r.maxVal, table.Values[r.endIdx])
 			}
-			r.size += int64(elSize)
+			r.size += elSize
 			index, ok, err := dictRec.tryLookupOrInsert(table.Values[r.endIdx])
 			if err != nil {
 				return r, fmt.Errorf("measure dictionary value: %w", err)

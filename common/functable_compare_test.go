@@ -105,7 +105,7 @@ func TestMinMaxSize(t *testing.T) {
 		val          any
 		expectedMin  any
 		expectedMax  any
-		expectedSize int32
+		expectedSize int64
 	}{
 		"bool-1":   {boolFuncTable{}, false, true, false, false, true, 1},
 		"bool-2":   {boolFuncTable{}, false, true, true, false, true, 1},
@@ -198,7 +198,7 @@ func TestMinMaxSize(t *testing.T) {
 			newMin, newMax, size := tc.f.MinMaxSize(tc.minVal, tc.maxVal, tc.val)
 			require.Equal(t, tc.expectedMin, newMin)
 			require.Equal(t, tc.expectedMax, newMax)
-			require.Equal(t, tc.expectedSize, int32(size))
+			require.Equal(t, tc.expectedSize, size)
 		})
 	}
 }

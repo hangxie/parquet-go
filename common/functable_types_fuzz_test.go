@@ -80,9 +80,9 @@ func FuzzFloat32MinMaxSize(f *testing.F) {
 			v := math.Float32frombits(binary.LittleEndian.Uint32(b[i:]))
 			values = append(values, float64(v))
 
-			var size int32
+			var size int64
 			minVal, maxVal, size = table.MinMaxSize(minVal, maxVal, v)
-			require.Equal(t, int32(4), size)
+			require.Equal(t, int64(4), size)
 		}
 		requireFloatBounds(t, values, float32Bound(minVal), float32Bound(maxVal))
 	})
@@ -113,9 +113,9 @@ func FuzzFloat64MinMaxSize(f *testing.F) {
 			v := math.Float64frombits(binary.LittleEndian.Uint64(b[i:]))
 			values = append(values, v)
 
-			var size int32
+			var size int64
 			minVal, maxVal, size = table.MinMaxSize(minVal, maxVal, v)
-			require.Equal(t, int32(8), size)
+			require.Equal(t, int64(8), size)
 		}
 		requireFloatBounds(t, values, float64Bound(minVal), float64Bound(maxVal))
 	})

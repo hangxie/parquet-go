@@ -147,7 +147,7 @@ func TestScanDictPageValues_SizePastInt32(t *testing.T) {
 		RepetitionLevels: []int32{0, 0, 0},
 	}
 	// An int32 running size would wrap negative after the second value and never end the page.
-	funcTable := &sizeFuncTable{sizes: []int32{math.MaxInt32 - 1, 2, 1}}
+	funcTable := &sizeFuncTable{sizes: []int64{math.MaxInt32 - 1, 2, 1}}
 
 	res, err := scanDictPageValues(table, NewDictRec(parquet.Type_INT32), 0, math.MaxInt32, false, funcTable)
 	require.NoError(t, err)
@@ -460,5 +460,28 @@ func TestDictPageUnencodedByteArrayDataBytesRepeated(t *testing.T) {
 	for i := range dictPages {
 		require.Equal(t, *plainPages[i].UnencodedByteArrayDataBytes, *dictPages[i].UnencodedByteArrayDataBytes, "page %d", i)
 		require.Equal(t, plainPages[i].NumRows, dictPages[i].NumRows, "page %d rows", i)
+	}
+}
+
+func TestScanDictPageValues_LargeElement(t *testing.T) {
+	for _, omitStats := range []bool{false, true} {
+		name := "with-stats"
+		if omitStats {
+			name = "omit-stats"
+		}
+		t.Run(name, func(t *testing.T) {
+			table := &Table{
+				Schema:           &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT32)},
+				Values:           []any{int32(1), int32(2)},
+				DefinitionLevels: []int32{0, 0},
+				RepetitionLevels: []int32{0, 0},
+			}
+			// Simulate an oversized element without allocating a multi-gigabyte value.
+			funcTable := &sizeFuncTable{sizes: []int64{int64(math.MaxInt32) + 1, 1}}
+			res, err := scanDictPageValues(table, NewDictRec(parquet.Type_INT32), 0, math.MaxInt32, omitStats, funcTable)
+			require.NoError(t, err)
+			require.Equal(t, 1, res.endIdx)
+			require.Equal(t, int64(math.MaxInt32)+1, res.size)
+		})
 	}
 }

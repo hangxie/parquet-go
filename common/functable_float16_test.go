@@ -21,7 +21,7 @@ func TestFloat16FuncTable(t *testing.T) {
 	// min(1.0, -2.0) => -2.0; max(0.5, -2.0) => 0.5
 	require.Equal(t, le(0xC000), min)
 	require.Equal(t, le(0x3800), max)
-	require.Equal(t, int32(2), sz)
+	require.Equal(t, int64(2), sz)
 }
 
 func TestFloat16FuncTableTotalOrder(t *testing.T) {
@@ -56,7 +56,7 @@ func TestFloat16FuncTableTotalOrder(t *testing.T) {
 	min, max, sz := ftab.MinMaxSize(le(0x8000), le(0x0000), le(0xFE00))
 	require.Equal(t, le(0x8000), min)
 	require.Equal(t, le(0x0000), max)
-	require.Equal(t, int32(2), sz)
+	require.Equal(t, int64(2), sz)
 
 	min, max, _ = ftab.MinMaxSize(le(0x8000), le(0x0000), le(0x7E00))
 	require.Equal(t, le(0x8000), min)
