@@ -69,3 +69,57 @@ func TestNewSchemaHandlerFromSchemaHandler(t *testing.T) {
 	require.NotSame(t, originalSchema, schema2)
 	require.NotSame(t, &originalSchema.SchemaElements, &schema2.SchemaElements)
 }
+
+func TestNewSchemaHandlerFromSchemaHandlerWithErrorNames(t *testing.T) {
+	tests := []struct {
+		name   string
+		infos  []*common.Tag
+		errMsg string
+	}{
+		{name: "empty-column-names", infos: []*common.Tag{{InName: "Root", ExName: "root"}, {}, {InName: "Other", ExName: "other"}}, errMsg: "schema info 1 has empty InName"},
+		{name: "empty-column-internal", infos: []*common.Tag{{InName: "Root", ExName: "root"}, {ExName: "value"}, {InName: "Other", ExName: "other"}}, errMsg: "schema info 1 has empty InName"},
+		{name: "empty-column-external", infos: []*common.Tag{{InName: "Root", ExName: "root"}, {InName: "Value"}, {InName: "Other", ExName: "other"}}, errMsg: "schema info 1 has empty ExName"},
+		{name: "empty-root-internal", infos: []*common.Tag{{ExName: "root"}, {InName: "Value", ExName: "value"}, {InName: "Other", ExName: "other"}}, errMsg: "schema info 0 has empty InName"},
+		{name: "empty-root-external", infos: []*common.Tag{{InName: "Root"}, {InName: "Value", ExName: "value"}, {InName: "Other", ExName: "other"}}, errMsg: "schema info 0 has empty ExName"},
+		{name: "duplicate-internal", infos: []*common.Tag{{InName: "Root", ExName: "root"}, {InName: "Value", ExName: "value"}, {InName: "Value", ExName: "other"}}, errMsg: "duplicate column name"},
+		{name: "duplicate-external", infos: []*common.Tag{{InName: "Root", ExName: "root"}, {InName: "Value", ExName: "value"}, {InName: "Other", ExName: "value"}}, errMsg: "duplicate column name"},
+		{name: "valid", infos: []*common.Tag{{InName: "Root", ExName: "root"}, {InName: "Value", ExName: "value"}, {InName: "Other", ExName: "other"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := &SchemaHandler{
+				SchemaElements: []*parquet.SchemaElement{
+					{Name: "root", NumChildren: common.ToPtr(int32(2))},
+					{Name: "value", Type: common.ToPtr(parquet.Type_INT32)},
+					{Name: "other", Type: common.ToPtr(parquet.Type_INT32)},
+				},
+				Infos: tt.infos,
+			}
+			rebuilt, err := NewSchemaHandlerFromSchemaHandlerWithError(original)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				require.Nil(t, rebuilt)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, int32(1), rebuilt.MapIndex[common.PathToStr([]string{"Root", "Value"})])
+			require.Equal(t, int32(2), rebuilt.MapIndex[common.PathToStr([]string{"Root", "Other"})])
+		})
+	}
+}
+
+func TestNewSchemaHandlerFromSchemaHandlerWithErrorNamesAcrossGroups(t *testing.T) {
+	original, err := NewSchemaHandlerFromStruct(new(struct {
+		Left struct {
+			Value int32 `parquet:"name=value, type=INT32"`
+		} `parquet:"name=left"`
+		Right struct {
+			Value int32 `parquet:"name=value, type=INT32"`
+		} `parquet:"name=right"`
+	}))
+	require.NoError(t, err)
+	rebuilt, err := NewSchemaHandlerFromSchemaHandlerWithError(original)
+	require.NoError(t, err)
+	require.Len(t, rebuilt.ValueColumns, 2)
+	require.NotEqual(t, rebuilt.ValueColumns[0], rebuilt.ValueColumns[1])
+}
