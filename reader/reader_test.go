@@ -192,13 +192,16 @@ func TestParquetReaderFileSchemaHandlerWithoutFooter(t *testing.T) {
 
 func TestNewFileSchemaHandler(t *testing.T) {
 	footer := &parquet.FileMetaData{Schema: []*parquet.SchemaElement{{Name: "root", NumChildren: common.ToPtr(int32(1))}, {Name: "v", Type: common.ToPtr(parquet.Type_INT32)}}}
-	sh := newFileSchemaHandler(footer)
+	sh, err := newFileSchemaHandler(footer)
+	require.NoError(t, err)
 	// Renaming the footer in place, as RenameSchema does, must not reach the handler.
 	footer.Schema[1].Name = "V"
 	require.Equal(t, "v", sh.SchemaElements[1].GetName())
 
 	footer.Schema[1] = nil
-	require.Nil(t, newFileSchemaHandler(footer))
+	sh, err = newFileSchemaHandler(footer)
+	require.ErrorContains(t, err, "element 1 is nil")
+	require.Nil(t, sh)
 }
 
 func TestParquetReader_GetNumRows(t *testing.T) {
@@ -1195,4 +1198,64 @@ func testPlainPageRetention[T any](t *testing.T, version int32, record func(*str
 	decoded := int64(count * (4 + size))
 	require.Less(t, int64(after.HeapInuse)-int64(before.HeapInuse), decoded*3/2)
 	require.NoError(t, pr.ReadStopWithContext(ctx))
+}
+
+func TestNewParquetReaderMalformedSchemaList(t *testing.T) {
+	data := writeFooterRenamedColumnParquet(t)
+	tests := []struct {
+		name     string
+		elements []*parquet.SchemaElement
+	}{
+		{name: "nil"},
+		{name: "nil-element", elements: []*parquet.SchemaElement{nil}},
+		{name: "missing-child", elements: []*parquet.SchemaElement{{Name: "root", NumChildren: common.ToPtr(int32(1))}}},
+		{name: "trailing-element", elements: []*parquet.SchemaElement{{Name: "root"}, {Name: "extra"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), tt.elements)
+			require.ErrorContains(t, err, "build schema handler: malformed schema")
+		})
+	}
+}
+
+func TestParquetReaderFileSchemaHandlerFallback(t *testing.T) {
+	for _, valid := range []bool{false, true} {
+		t.Run(strconv.FormatBool(valid), func(t *testing.T) {
+			footer := &parquet.FileMetaData{Schema: []*parquet.SchemaElement{{Name: "root", NumChildren: common.ToPtr(int32(1))}}}
+			if valid {
+				footer.Schema = append(footer.Schema, &parquet.SchemaElement{Name: "value", Type: common.ToPtr(parquet.Type_INT32)})
+			}
+			pr := &ParquetReader{Footer: footer}
+			sh := pr.fileSchemaHandler()
+			if valid {
+				require.NotNil(t, sh)
+				require.Same(t, sh, pr.fileSchemaHandler())
+				footer.Schema[1].Name = "renamed"
+				require.Equal(t, "value", sh.SchemaElements[1].Name)
+			} else {
+				require.Nil(t, sh)
+			}
+		})
+	}
+}
+
+func TestNewParquetReaderJSONSchemaErrors(t *testing.T) {
+	data := writeFooterRenamedColumnParquet(t)
+	tests := []struct {
+		name   string
+		json   string
+		opts   []ReaderOption
+		errMsg string
+	}{
+		{name: "invalid-json", json: "{", errMsg: "parse JSON schema"},
+		{name: "invalid-column-key", json: `{"Tag":"name=root", "Fields":[{"Tag":"name=col_l1, type=BYTE_ARRAY"}]}`, opts: []ReaderOption{WithColumnKey("missing", []byte("0123456789abcdef"))}, errMsg: "does not match any schema column"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(data), tt.json, tt.opts...)
+			require.ErrorContains(t, err, "set schema from JSON")
+			require.ErrorContains(t, err, tt.errMsg)
+		})
+	}
 }

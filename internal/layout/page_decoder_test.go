@@ -25,7 +25,7 @@ func TestPageDecoderHugeLevels(t *testing.T) {
 	} {
 		repetition, null := tt.repetition, tt.null
 		t.Run(fmt.Sprintf("%s/null=%t", repetition, null), func(t *testing.T) {
-			sh := testSchemaHandler()
+			sh := testSchemaHandler(t)
 			sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BOOLEAN)
 			sh.SchemaElements[1].RepetitionType = common.ToPtr(repetition)
 			var data []byte
@@ -74,7 +74,7 @@ func TestPageDecoderHugeLevels(t *testing.T) {
 }
 
 func TestPageDecoderErrors(t *testing.T) {
-	sh := testSchemaHandler()
+	sh := testSchemaHandler(t)
 	p := NewDataPage()
 	p.Path = common.StrToPath(sh.IndexMap[1])
 	p.Header.Type = parquet.PageType_DATA_PAGE
@@ -94,7 +94,7 @@ func TestPageDecoderErrors(t *testing.T) {
 }
 
 func TestPageDecoderSkipFlatRows(t *testing.T) {
-	sh := testSchemaHandler()
+	sh := testSchemaHandler(t)
 	sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BOOLEAN)
 	p := NewDataPage()
 	p.Path = common.StrToPath(sh.IndexMap[1])
@@ -141,7 +141,7 @@ func TestPageDecoderMalformedLevelsAndValues(t *testing.T) {
 		{"missing value", parquet.FieldRepetitionType_REQUIRED, nil, parquet.Encoding_PLAIN, "read data page values"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			sh := testSchemaHandler()
+			sh := testSchemaHandler(t)
 			sh.SchemaElements[1].RepetitionType = common.ToPtr(tt.repetition)
 			p := NewDataPage()
 			p.Path = common.StrToPath(sh.IndexMap[1])
@@ -168,7 +168,7 @@ func TestDropRowContinuation(t *testing.T) {
 }
 
 func TestPageDecoderSkippedMalformedValues(t *testing.T) {
-	sh := testSchemaHandler()
+	sh := testSchemaHandler(t)
 	sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BOOLEAN)
 	p := NewDataPage()
 	p.Path = common.StrToPath(sh.IndexMap[1])
@@ -184,7 +184,7 @@ func TestPageDecoderSkippedMalformedValues(t *testing.T) {
 }
 
 func TestPageDecoderImplicitLevelsAcrossBatches(t *testing.T) {
-	sh := testSchemaHandler()
+	sh := testSchemaHandler(t)
 	values := make([]any, 2*PageBatchSize+1)
 	for i := range values {
 		values[i] = int32(i)
@@ -217,7 +217,7 @@ func TestPageDecoderImplicitLevelsAcrossBatches(t *testing.T) {
 
 func TestPageDecoderByteBudgetPerBatch(t *testing.T) {
 	const valueLen = 1024
-	sh := testSchemaHandler()
+	sh := testSchemaHandler(t)
 	sh.SchemaElements[1].Type = common.ToPtr(parquet.Type_BYTE_ARRAY)
 	// Large shared prefixes make every value after the first depend on prefix state carried from its predecessor.
 	values := make([]any, 2*PageBatchSize)

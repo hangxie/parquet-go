@@ -62,7 +62,7 @@ type ParquetReader struct {
 	ctx                context.Context
 	noColumnRowsRead   int64 // row cursor for a schema without columns
 	fileSchemaOnce     sync.Once
-	fileSchema         *schema.SchemaHandler // footer schema, built on first use
+	fileSchema         *schema.SchemaHandler // validated footer schema
 
 	// encryptedPageOffsets is populated once from the immutable footer and then
 	// treated as read-only. It tracks every per-column offset that belongs to an
@@ -113,7 +113,9 @@ func NewParquetReaderWithContext(ctx context.Context, pFile source.ParquetFileRe
 			return res, nil
 
 		} else if sa, ok := obj.([]*parquet.SchemaElement); ok {
-			res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(sa)
+			if res.SchemaHandler, err = schema.NewSchemaHandlerFromSchemaListWithError(sa); err != nil {
+				return res, fmt.Errorf("build schema handler: %w", err)
+			}
 		} else {
 			if res.SchemaHandler, err = schema.NewSchemaHandlerFromStruct(obj); err != nil {
 				return res, fmt.Errorf("build schema handler: %w", err)
@@ -122,7 +124,7 @@ func NewParquetReaderWithContext(ctx context.Context, pFile source.ParquetFileRe
 			res.ObjType = reflect.TypeOf(obj).Elem()
 		}
 	} else {
-		res.SchemaHandler = schema.NewSchemaHandlerFromSchemaList(res.Footer.Schema)
+		res.SchemaHandler = res.fileSchemaHandler()
 	}
 
 	if err = res.validateColumnKeyPaths(); err != nil {
@@ -175,23 +177,25 @@ func (pr *ParquetReader) fileSchemaHandler() *schema.SchemaHandler {
 		return nil
 	}
 	pr.fileSchemaOnce.Do(func() {
-		pr.fileSchema = newFileSchemaHandler(pr.Footer)
+		// Normal readers validate during footer loading; manually assembled readers
+		// retain the nil fallback when their footer schema is malformed.
+		pr.fileSchema, _ = newFileSchemaHandler(pr.Footer)
 	})
 	return pr.fileSchema
 }
 
-// newFileSchemaHandler builds a handler over a copy of the footer schema, or nil if it has nil elements.
-func newFileSchemaHandler(footer *parquet.FileMetaData) *schema.SchemaHandler {
+// newFileSchemaHandler builds a validated handler over a copy of the footer schema.
+func newFileSchemaHandler(footer *parquet.FileMetaData) (*schema.SchemaHandler, error) {
 	// The copy keeps RenameSchema, which rewrites Footer names in place, from changing it.
 	elements := make([]*parquet.SchemaElement, len(footer.GetSchema()))
 	for i, element := range footer.GetSchema() {
 		if element == nil {
-			return nil
+			return nil, fmt.Errorf("malformed schema: element %d is nil", i)
 		}
 		clone := *element
 		elements[i] = &clone
 	}
-	return schema.NewSchemaHandlerFromSchemaList(elements)
+	return schema.NewSchemaHandlerFromSchemaListWithError(elements)
 }
 
 // pageReadOptions returns the page options built from the reader's configuration.

@@ -148,7 +148,9 @@ func TestReadColumnIndexInvalidBounds(t *testing.T) {
 			buf := serializeThrift(t, columnIndex)
 			pr := indexTestReader(buf, false, nil, nil, int32(len(buf)), 0)
 			root := &parquet.SchemaElement{Name: "root", NumChildren: common.ToPtr(int32(1))}
-			pr.SchemaHandler = schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{root, tc.element})
+			sh, schemaErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{root, tc.element})
+			require.NoError(t, schemaErr)
+			pr.SchemaHandler = sh
 			pr.Footer.RowGroups[0].Columns[0].MetaData = &parquet.ColumnMetaData{PathInSchema: []string{"leaf"}}
 
 			got, err := pr.ReadColumnIndex(0, 0)

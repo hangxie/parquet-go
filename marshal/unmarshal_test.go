@@ -441,14 +441,16 @@ type OldListTestStruct struct {
 }
 
 // createOldListSchema creates the standard old list schema pattern used across tests
-func createOldListSchema() *schema.SchemaHandler {
+func createOldListSchema(t *testing.T) *schema.SchemaHandler {
+	t.Helper()
 	schemaElements := []*parquet.SchemaElement{
 		{Name: common.ParGoRootInName, RepetitionType: nil, NumChildren: common.ToPtr(int32(1))},
 		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), ConvertedType: common.ToPtr(parquet.ConvertedType_LIST), NumChildren: common.ToPtr(int32(1))},
 		{Name: "array", RepetitionType: common.ToPtr(parquet.FieldRepetitionType_REPEATED), Type: common.ToPtr(parquet.Type_INT32)},
 	}
 
-	schemaHandler := schema.NewSchemaHandlerFromSchemaList(schemaElements)
+	schemaHandler, schemaHandlerErr := schema.NewSchemaHandlerFromSchemaListWithError(schemaElements)
+	require.NoError(t, schemaHandlerErr)
 	// Set up the critical MapIndex entries for old list detection
 	schemaHandler.MapIndex[common.ParGoRootInName] = 1
 	schemaHandler.MapIndex[common.ParGoRootInName+common.ParGoPathDelimiter+"array"] = 1
@@ -507,7 +509,7 @@ func TestUnmarshal_MapPathMissingKeyValueComponent(t *testing.T) {
 // Test_OldStyleList targets test old style list
 func TestOldStyleList(t *testing.T) {
 	t.Run("unmarshal_old_list_multi_inner_segments", func(t *testing.T) {
-		schemaHandler := createOldListSchema()
+		schemaHandler := createOldListSchema(t)
 
 		values := []any{int32(1), int32(2), int32(3), int32(4), int32(5), int32(6), int32(7), int32(8)}
 		repetitionLevels := []int32{0, 2, 1, 2, 0, 2, 1, 2, 0, 2, 1, 2}

@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/parquet"
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 )
@@ -127,4 +129,44 @@ func TestNewParquetWriter_InvalidStructInput(t *testing.T) {
 	_, err := NewParquetWriter(fw, new(BadStruct), WithNP(1))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "build schema handler")
+}
+
+func TestNewParquetWriterMalformedSchemaList(t *testing.T) {
+	tests := []struct {
+		name     string
+		elements []*parquet.SchemaElement
+	}{
+		{name: "nil"},
+		{name: "nil-element", elements: []*parquet.SchemaElement{nil}},
+		{name: "missing-child", elements: []*parquet.SchemaElement{{Name: "root", NumChildren: common.ToPtr(int32(1))}}},
+		{name: "trailing-element", elements: []*parquet.SchemaElement{{Name: "root"}, {Name: "extra"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			pw, err := NewParquetWriter(writerfile.NewWriterFile(&buf), tt.elements)
+			require.ErrorContains(t, err, "build schema handler: malformed schema")
+			require.Nil(t, pw)
+		})
+	}
+}
+
+func TestNewParquetWriterMalformedSchemaHandler(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler *schema.SchemaHandler
+	}{
+		{name: "nil"},
+		{name: "empty", handler: &schema.SchemaHandler{}},
+		{name: "missing-child", handler: &schema.SchemaHandler{SchemaElements: []*parquet.SchemaElement{{Name: "root", NumChildren: common.ToPtr(int32(1))}}}},
+		{name: "missing-info", handler: &schema.SchemaHandler{SchemaElements: []*parquet.SchemaElement{{Name: "root"}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			pw, err := NewParquetWriter(writerfile.NewWriterFile(&buf), tt.handler)
+			require.ErrorContains(t, err, "build schema handler")
+			require.Nil(t, pw)
+		})
+	}
 }

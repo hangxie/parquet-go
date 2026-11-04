@@ -257,6 +257,14 @@ schema := arrow.NewSchema(
 
 Schema notes:
 
+Use `schema.NewSchemaHandlerFromSchemaListWithError` when constructing a handler from raw Parquet schema elements. It rejects empty lists, nil elements, negative child counts, missing children, and elements outside the root subtree. A root with zero children is valid. `NewSchemaHandlerFromSchemaList` is deprecated and retains its unchecked behavior for compatibility.
+
+When rebuilding an existing handler, use `NewSchemaHandlerFromSchemaHandlerWithError`; it also checks that every schema element has name information. `NewSchemaHandlerFromSchemaHandler` is deprecated and retains its existing behavior.
+
+`NewSchemaHandlerFromStruct` requires a pointer to a struct and returns an error for other inputs; typed nil struct pointers are accepted.
+
+Readers validate the footer schema even when a struct, JSON schema, or schema list is supplied; malformed files now return a schema error during opening.
+
 - `InName` is the Go field name. `ExName` is the Parquet field name.
 - Avoid field names that differ only by first-letter case. Sibling fields must have distinct names: schema construction rejects two siblings sharing a Parquet name, or names that map to the same Go name, while the same name under different parent groups is allowed.
 - `PARGO_PREFIX_` is reserved and should not be used as a field prefix.

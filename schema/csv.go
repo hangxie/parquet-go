@@ -7,7 +7,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
-// Create a schema handler from CSV metadata
+// NewSchemaHandlerFromMetadata builds a schema handler from CSV metadata.
 func NewSchemaHandlerFromMetadata(mds []string) (*SchemaHandler, error) {
 	schemaList := make([]*parquet.SchemaElement, 0)
 	infos := make([]*common.Tag, 0)
@@ -39,7 +39,10 @@ func NewSchemaHandlerFromMetadata(mds []string) (*SchemaHandler, error) {
 		// schema.RepetitionType = parquet.FieldRepetitionTypePtr(parquet.FieldRepetitionType_OPTIONAL)
 		schemaList = append(schemaList, schema)
 	}
-	res := NewSchemaHandlerFromSchemaList(schemaList)
+	res, err := NewSchemaHandlerFromSchemaListWithError(schemaList)
+	if err != nil {
+		return nil, fmt.Errorf("build schema handler: %w", err)
+	}
 	res.Infos = infos
 	res.CreateInExMap()
 	if err := res.ValidateUniqueNames(); err != nil {

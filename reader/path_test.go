@@ -366,12 +366,13 @@ func TestListAliasInPath(t *testing.T) {
 	one := int32(1)
 	required, repeated := parquet.FieldRepetitionType_REQUIRED, parquet.FieldRepetitionType_REPEATED
 	int32Type := parquet.Type_INT32
-	logicalOnly := schema.NewSchemaHandlerFromSchemaList([]*parquet.SchemaElement{
+	logicalOnly, logicalOnlyErr := schema.NewSchemaHandlerFromSchemaListWithError([]*parquet.SchemaElement{
 		{Name: common.ParGoRootExName, NumChildren: &one},
 		{Name: "v", RepetitionType: &required, LogicalType: &parquet.LogicalType{LIST: parquet.NewListType()}, NumChildren: &one},
 		{Name: "list", RepetitionType: &repeated, NumChildren: &one},
 		{Name: "element", RepetitionType: &required, Type: &int32Type},
 	})
+	require.NoError(t, logicalOnlyErr)
 
 	rows := []listWrapperRecord{{V: []int32{1}, N: []listWrapperItem{{X: []int32{2}}}}}
 	altFile := footerSchemaHandler(t, writeListWrapperParquet(t, rows, renameListWrappers))
