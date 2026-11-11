@@ -2,6 +2,7 @@ package gcs
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,14 @@ var (
 	_ source.ParquetFileReader = (*gcsReader)(nil)
 	_ source.ParquetFileWriter = (*gcsFileWriter)(nil)
 )
+
+func TestMain(m *testing.M) {
+	// A missing credential file fails default client creation, so tests never pick up the developer's own Google credentials.
+	if err := os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/parquet-go-test-credentials.json"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
 
 func TestGcsFile_Fields(t *testing.T) {
 	ctx := context.Background()
