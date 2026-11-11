@@ -1125,6 +1125,15 @@ go build -tags example ./example/all_types
 | [writer](example/writer) | ParquetWriter from `io.Writer` |
 | [writer_file](example/writer_file) | WriterFile example |
 | [mem](example/mem) | In-memory file system |
+| [buffer](example/buffer) | In-memory buffer round trip |
+| [s3](example/s3) | S3 round trip |
+| [gcs](example/gcs) | Google Cloud Storage round trip |
+| [azblob](example/azblob) | Azure Blob Storage round trip |
+| [gocloud](example/gocloud) | Go CDK blob bucket round trip |
+| [hdfs](example/hdfs) | Write to and read from HDFS |
+| [swift](example/swift) | Write to and read from OpenStack Swift |
+| [http_reader](example/http_reader) | Read over HTTP |
+| [http_multipart](example/http_multipart) | Read from a multipart HTTP upload |
 
 ## Local Development
 
