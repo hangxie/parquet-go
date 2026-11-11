@@ -2,6 +2,7 @@ package gcs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"cloud.google.com/go/storage"
@@ -26,6 +27,7 @@ func NewGcsFileWriter(ctx context.Context, projectID, bucketName, name string) (
 
 	r, err := NewGcsFileWriterWithClient(ctx, client, projectID, bucketName, name)
 	if err != nil {
+		_ = client.Close()
 		return nil, fmt.Errorf("new gcs writer with client: %w", err)
 	}
 
@@ -35,15 +37,15 @@ func NewGcsFileWriter(ctx context.Context, projectID, bucketName, name string) (
 	return r, nil
 }
 
-// NewGcsFileWriter will create a new GCS file writer with the passed client.
+// NewGcsFileWriterWithClient will create a new GCS file writer with the passed client.
 func NewGcsFileWriterWithClient(ctx context.Context, client *storage.Client, projectID, bucketName, name string) (*gcsFileWriter, error) {
-	obj := client.Bucket(bucketName).Object(name)
-
-	// Close writer to flush changes and force the file to be created
-	writer := obj.NewWriter(ctx)
-	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("close writer: %w", err)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("open gcs object: %w", err)
 	}
+
+	// The object is only created when Close commits the upload; canceling ctx before that aborts it.
+	obj := client.Bucket(bucketName).Object(name)
+	writer := obj.NewWriter(ctx)
 
 	return &gcsFileWriter{
 		gcsFile: gcsFile{
@@ -86,18 +88,24 @@ func (g *gcsFileWriter) Write(b []byte) (int, error) {
 	return g.gcsWriter.Write(b)
 }
 
-// Close implements io.Closer.
+// Close commits the upload, creating the object even if nothing was written, then closes an owned client.
 func (g *gcsFileWriter) Close() error {
+	var errs []error
+
+	// Commit the upload before closing the client it runs on.
+	if g.gcsWriter != nil {
+		if err := g.gcsWriter.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close GCS writer: %w", err))
+		}
+	}
+
 	if !g.externalClient && g.gcsClient != nil {
 		if err := g.gcsClient.Close(); err != nil {
-			return fmt.Errorf("close GCS client: %w", err)
+			errs = append(errs, fmt.Errorf("close GCS client: %w", err))
 		}
 
 		g.gcsClient = nil
 	}
 
-	if g.gcsWriter != nil {
-		return g.gcsWriter.Close()
-	}
-	return nil
+	return errors.Join(errs...)
 }
