@@ -1105,7 +1105,7 @@ func TestDataPageVersion(t *testing.T) {
 
 	t.Run("delta_encoding_v1_rejected", func(t *testing.T) {
 		type DeltaStruct struct {
-			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=DELTA_LENGTH_BYTE_ARRAY"`
 		}
 		pw, _, err := createTestParquetWriter(new(DeltaStruct), WithNP(1))
 		require.NoError(t, err)
@@ -1115,7 +1115,7 @@ func TestDataPageVersion(t *testing.T) {
 
 		err = pw.Write(DeltaStruct{Field: "test"})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "DELTA_BYTE_ARRAY")
+		require.Contains(t, err.Error(), "DELTA_LENGTH_BYTE_ARRAY")
 		require.Contains(t, err.Error(), "v2")
 	})
 

@@ -586,7 +586,7 @@ Up to v3.9.3, `marshal.ConvertToJSONFriendly` rendered a LIST whose repeated fie
 | `PLAIN_DICTIONARY` | All types | Y | Y |
 | `RLE_DICTIONARY` | All types | Y | Y |
 | `DELTA_BINARY_PACKED` | Integer types | Y | Y |
-| `DELTA_BYTE_ARRAY` | `BYTE_ARRAY`, `UTF8` | Y | Y |
+| `DELTA_BYTE_ARRAY` | `BYTE_ARRAY`, `UTF8`, `FIXED_LEN_BYTE_ARRAY` | Y | Y |
 | `DELTA_LENGTH_BYTE_ARRAY` | `BYTE_ARRAY`, `UTF8` | Y | Y |
 | `BYTE_STREAM_SPLIT` | `INT32`, `INT64`, `FIXED_LEN_BYTE_ARRAY` | Y | Y |
 | `BIT_PACKED` | Boolean, integer | Y | Y |
@@ -596,6 +596,7 @@ Encoding notes:
 - For maximum compatibility, use `PLAIN` and `PLAIN_DICTIONARY`.
 - Dictionary indices use the minimum bit width required by the completed row-group dictionary. Encoded dictionary value bytes are capped at 1 MiB by default, after which the writer uses `PLAIN` encoding for subsequent pages; tune the cap with `writer.WithMaxDictionarySize`.
 - `writer.WithDataPageVersion(2)` applies to both dictionary-encoded and plain data pages.
+- The writer still limits `DELTA_BINARY_PACKED` and `DELTA_LENGTH_BYTE_ARRAY` to data page v2, though the spec allows them on v1. `DELTA_BYTE_ARRAY` works with either version; up to v3.12.0 it was rejected on v1 pages for `BYTE_ARRAY` columns too.
 - The writer rejects `PLAIN_DICTIONARY` and `RLE_DICTIONARY` on `BOOLEAN` columns, since Apache Arrow and other readers cannot decode a BOOLEAN dictionary. Readers still accept the encoding in struct tags and JSON schemas, so files that already use one remain readable.
 - Readers cap the decoded `DELTA_BYTE_ARRAY` and `DELTA_LENGTH_BYTE_ARRAY` values they return per batch of 1,024 values at 256 MB by default, and fail the read with a `batch budget` error beyond it; change the cap with `reader.WithMaxDecodedBatchBytes`. Only `DELTA_BYTE_ARRAY` can exceed its page, since prefix reuse lets a small page expand to many times its size; `DELTA_LENGTH_BYTE_ARRAY` stores every value's bytes, so the decoded page size limit already bounds it. Skipped values do not count toward the cap, and neither does a value that repeats the previous one or a prefix at least half its length, since it shares that value's bytes instead of copying them; shorter prefixes are copied so they never keep a much larger value alive. It bounds decoded output, not peak memory: the page buffer and the decoder's working copy of the previous value are held alongside the returned values.
 - A dictionary-encoded data page whose index falls outside its dictionary fails the read or skip with a `dictionary index ... out of range` error, and one whose column chunk has no dictionary page fails with `dictionary-encoded page has no dictionary`. Up to v3.9.2 such indices were kept and read back as values of the column type, so a corrupt page produced made-up data.

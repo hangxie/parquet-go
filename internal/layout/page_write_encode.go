@@ -48,9 +48,9 @@ func (page *Page) EncodingValues(valuesBuf []any) ([]byte, error) {
 		}
 		return encoding.WriteDelta(valuesBuf)
 	case parquet.Encoding_DELTA_BYTE_ARRAY:
-		// DELTA_BYTE_ARRAY: BYTE_ARRAY only
-		if *page.Schema.Type != parquet.Type_BYTE_ARRAY {
-			return nil, fmt.Errorf("DELTA_BYTE_ARRAY encoding is only supported for BYTE_ARRAY, not %v", *page.Schema.Type)
+		// DELTA_BYTE_ARRAY: BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY only
+		if *page.Schema.Type != parquet.Type_BYTE_ARRAY && *page.Schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+			return nil, fmt.Errorf("DELTA_BYTE_ARRAY encoding is only supported for BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY, not %v", *page.Schema.Type)
 		}
 		return encoding.WriteDeltaByteArray(valuesBuf)
 	case parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/bits"
+	"strings"
 
 	"github.com/hangxie/parquet-go/v3/common"
 	"github.com/hangxie/parquet-go/v3/internal/encoding"
@@ -26,6 +27,7 @@ type pageDecoder struct {
 	count       uint64
 	emitted     uint64
 	batchStart  uint64
+	column      string
 }
 
 func newLevelDecoder(reader *bytes.Reader, maxLevel int32, count uint64) (*encoding.IntDecoder, error) {
@@ -79,8 +81,13 @@ func (p *Page) initDecoder(buf, values []byte, sh *schema.SchemaHandler, chunkVa
 	if values != nil {
 		reader = bytes.NewReader(values)
 	}
+	// Errors name the column as the file does, not by its Go field names.
+	column := p.Path
+	if exPath, ok := sh.InPathToExPath[name]; ok {
+		column = common.StrToPath(exPath)
+	}
 	p.decoder = &pageDecoder{
-		repetitions: rl, definitions: dl, valueData: reader, method: method, schema: se,
+		repetitions: rl, definitions: dl, valueData: reader, method: method, schema: se, column: strings.Join(column, "."),
 		template: &Table{Path: p.Path, Schema: se, RepetitionType: se.GetRepetitionType(), MaxRepetitionLevel: maxRL, MaxDefinitionLevel: maxDL},
 		left:     uint64(count), count: nonNulls,
 	}
@@ -136,7 +143,7 @@ func (p *Page) ReadBatch(decodeValues bool) (int64, int64, error) {
 	p.DataTable = table
 	if decodeValues {
 		if err := p.decodeBatchValues(); err != nil {
-			return 0, 0, err
+			return 0, 0, fmt.Errorf("column [%s]: %w", d.column, err)
 		}
 	}
 	return int64(count), rows, nil
