@@ -89,3 +89,29 @@ func TestMarshalCSV(t *testing.T) {
 		require.Equal(t, "Alice", nameColumn.Values[0])
 	})
 }
+
+func TestMarshalCSVByteSlices(t *testing.T) {
+	sch, err := schema.NewSchemaHandlerFromJSON(`{
+		"Tag": "name=parquet_go_root",
+		"Fields": [
+			{"Tag": "name=binary, type=BYTE_ARRAY"},
+			{"Tag": "name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=2"},
+			{"Tag": "name=int96, type=INT96"},
+			{"Tag": "name=age, type=INT32"}
+		]
+	}`)
+	require.NoError(t, err)
+
+	binary, fixed, int96 := []byte{0x00, 0xff}, []byte{0xfe, 0x01}, make([]byte, 12)
+	other := []byte{1}
+	result, err := MarshalCSV([]any{[]any{binary, fixed, int96, other}}, sch)
+	require.NoError(t, err)
+	column := func(name string) any {
+		return (*result)[sch.GetRootInName()+common.ParGoPathDelimiter+name].Values[0]
+	}
+	require.Equal(t, "\x00\xff", column("Binary"))
+	require.Equal(t, "\xfe\x01", column("Fixed"))
+	require.Equal(t, string(make([]byte, 12)), column("Int96"))
+	// Only byte-backed columns are converted; anything else is left for the encoder to reject.
+	require.Equal(t, other, column("Age"))
+}

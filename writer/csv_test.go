@@ -228,6 +228,102 @@ func TestCSVWriter(t *testing.T) {
 	})
 }
 
+func TestCSVWriterByteSliceValues(t *testing.T) {
+	md := []string{
+		"name=plain, type=BYTE_ARRAY, encoding=PLAIN, bloomfilter=true, repetitiontype=OPTIONAL",
+		"name=dict, type=BYTE_ARRAY, encoding=RLE_DICTIONARY, repetitiontype=OPTIONAL",
+		"name=delta, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY, repetitiontype=OPTIONAL",
+		"name=utf8, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL",
+		"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=3, encoding=DELTA_BYTE_ARRAY, repetitiontype=OPTIONAL",
+		"name=decimal, type=FIXED_LEN_BYTE_ARRAY, length=4, convertedtype=DECIMAL, precision=9, scale=2, repetitiontype=OPTIONAL",
+		"name=interval, type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL, repetitiontype=OPTIONAL",
+		"name=int96, type=INT96, repetitiontype=OPTIONAL",
+	}
+	type record struct {
+		Plain    *string `parquet:"name=plain, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		Dict     *string `parquet:"name=dict, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		Delta    *string `parquet:"name=delta, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+		Utf8     *string `parquet:"name=utf8, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+		Fixed    *string `parquet:"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=3, repetitiontype=OPTIONAL"`
+		Decimal  *string `parquet:"name=decimal, type=FIXED_LEN_BYTE_ARRAY, length=4, convertedtype=DECIMAL, precision=9, scale=2, repetitiontype=OPTIONAL"`
+		Interval *string `parquet:"name=interval, type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL, repetitiontype=OPTIONAL"`
+		Int96    *string `parquet:"name=int96, type=INT96, repetitiontype=OPTIONAL"`
+	}
+	widths := []int{2, 2, 2, 2, 3, 4, 12, 12}
+	rowValue := func(i, col int) []byte {
+		v := bytes.Repeat([]byte{0xff}, widths[col])
+		v[len(v)-1] = byte(i % 3)
+		v[0] = byte(i)
+		return v
+	}
+
+	for _, version := range []int32{1, 2} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			var buf bytes.Buffer
+			cw, err := NewCSVWriter(md, writerfile.NewWriterFile(&buf), WithNP(1), WithDataPageVersion(version))
+			require.NoError(t, err)
+
+			const rows = 6
+			want := make([]record, rows)
+			for i := range rows {
+				row := make([]any, len(md))
+				strs := make([]*string, len(md))
+				if i != 4 {
+					for col := range md {
+						row[col] = rowValue(i, col)
+						strs[col] = common.ToPtr(string(rowValue(i, col)))
+					}
+				}
+				want[i] = record{strs[0], strs[1], strs[2], strs[3], strs[4], strs[5], strs[6], strs[7]}
+				require.NoError(t, cw.Write(row))
+			}
+			require.NoError(t, cw.WriteStop())
+
+			pr, pf, err := createTestParquetReader(buf.Bytes(), new(record), reader.WithNP(1))
+			require.NoError(t, err)
+			defer func() { _ = pf.Close() }()
+			got := make([]record, rows)
+			//nolint:staticcheck
+			require.NoError(t, pr.Read(&got))
+			require.Equal(t, want, got)
+			for _, col := range pr.Footer.RowGroups[0].Columns {
+				// INTERVAL has no defined sort order, so it carries no bounds.
+				if col.MetaData.PathInSchema[0] != "interval" {
+					require.NotNil(t, col.MetaData.Statistics.MinValue, col.MetaData.PathInSchema)
+				}
+			}
+		})
+	}
+}
+
+// Only an untyped nil is a null; a nil []byte is a present, empty value, as for a
+// struct field pointing at a nil slice.
+func TestCSVWriterNilByteSlice(t *testing.T) {
+	type record struct {
+		V *string `parquet:"name=v, type=BYTE_ARRAY, repetitiontype=OPTIONAL"`
+	}
+	var nilBytes []byte
+	rows := []any{nil, nilBytes, []byte{}, []byte("a")}
+	want := []record{{nil}, {common.ToPtr("")}, {common.ToPtr("")}, {common.ToPtr("a")}}
+
+	var buf bytes.Buffer
+	cw, err := NewCSVWriter([]string{"name=v, type=BYTE_ARRAY, repetitiontype=OPTIONAL"}, writerfile.NewWriterFile(&buf), WithNP(1))
+	require.NoError(t, err)
+	for _, v := range rows {
+		require.NoError(t, cw.Write([]any{v}))
+	}
+	require.NoError(t, cw.WriteStop())
+
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(record), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pf.Close() }()
+	got := make([]record, len(rows))
+	//nolint:staticcheck
+	require.NoError(t, pr.Read(&got))
+	require.Equal(t, want, got)
+	require.Equal(t, int64(1), pr.Footer.RowGroups[0].Columns[0].MetaData.Statistics.GetNullCount())
+}
+
 func TestCSVWriterFixedLenByteArrayWidth(t *testing.T) {
 	testCases := map[string]struct {
 		value  string
