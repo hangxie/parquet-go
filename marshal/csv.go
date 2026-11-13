@@ -49,6 +49,10 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 			if lt := table.Schema.LogicalType; lt != nil && lt.UNKNOWN != nil && rec != nil {
 				return nil, fmt.Errorf("UNKNOWN column %s must have nil value, got non-nil", pathStr)
 			}
+			// Byte-backed columns are carried as strings everywhere past this point.
+			if b, ok := rec.([]byte); ok && isByteBacked(table.Schema.GetType()) {
+				rec = string(b)
+			}
 			table.Values = append(table.Values, rec)
 
 			table.RepetitionLevels = append(table.RepetitionLevels, 0)
@@ -60,4 +64,8 @@ func MarshalCSV(records []any, schemaHandler *schema.SchemaHandler) (*map[string
 		}
 	}
 	return &res, nil
+}
+
+func isByteBacked(t parquet.Type) bool {
+	return t == parquet.Type_BYTE_ARRAY || t == parquet.Type_FIXED_LEN_BYTE_ARRAY || t == parquet.Type_INT96
 }

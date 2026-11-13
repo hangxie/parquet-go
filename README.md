@@ -347,6 +347,8 @@ Every value written to such a column must be exactly that wide, annotated (`DECI
 
 Writers that take string input read an unannotated `FIXED_LEN_BYTE_ARRAY` value as base64 and check the decoded width against the column, rejecting anything that is not base64 or does not decode to the declared width, naming the string that was supplied. `CSVWriter` converts each row as it is handed over, so that error returns from `WriteString`; `JSONWriter` converts while the row group is flushed, so its error arrives from `Write`, `Flush`, or `WriteStop` like the width check above. Up to v3.8.3 the reading was guessed per value, base64 first and the literal string as a fallback, so `0123456789abcdef` for an `FLBA(16)` column was stored as the 12 bytes it decodes to while `abc bcd` for an `FLBA(7)` column was stored as its own seven characters. See [Value Modes](#value-modes) for the rule that replaced the guess.
 
+`CSVWriter.Write` takes typed values rather than text. A `BYTE_ARRAY`, `FIXED_LEN_BYTE_ARRAY`, or `INT96` column accepts a `[]byte` there as well as a `string`; up to v3.12.0 a `[]byte` panicked while the page statistics were computed. Only an untyped `nil` is a null: a nil `[]byte` is an empty value, as is a struct field pointing at a nil slice.
+
 Type aliases are supported, for example `type MyString string`, when the base type follows the table. Conversion utilities are available in [types/converter.go](types/converter.go).
 
 ### Reading Values
