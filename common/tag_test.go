@@ -1301,10 +1301,10 @@ func TestValidateEncodingForDataPageVersion(t *testing.T) {
 			2,
 			"",
 		},
-		"delta-byte-array-v1-invalid": {
+		"delta-byte-array-v1-valid": {
 			parquet.Encoding_DELTA_BYTE_ARRAY,
 			1,
-			"DELTA_BYTE_ARRAY encoding is only supported for data page v2",
+			"",
 		},
 		"delta-length-byte-array-v2-valid": {
 			parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY,

@@ -180,6 +180,9 @@ func (d *valueDecoder) advanceString() (int64, error) {
 	if length < 0 || length > int64(d.reader.Len()) {
 		return 0, fmt.Errorf("invalid byte array length %d with %d bytes remaining", length, d.reader.Len())
 	}
+	if d.dataType == parquet.Type_FIXED_LEN_BYTE_ARRAY && uint64(prefix+length) != d.width {
+		return 0, fmt.Errorf("byte array of length %d does not match column length %d", prefix+length, d.width)
+	}
 	// Earlier values were copied out, so the shared prefix is rewritten in place and only the suffix is read.
 	d.previous = slices.Grow(d.previous[:prefix], int(length))[:prefix+length]
 	// The byte length was checked against the remaining input above.

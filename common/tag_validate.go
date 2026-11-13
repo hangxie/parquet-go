@@ -203,8 +203,8 @@ func ValidateEncodingForDataPageVersion(fieldName string, encoding parquet.Encod
 		if version != 1 {
 			return fmt.Errorf("field [%s]: PLAIN_DICTIONARY encoding is deprecated and only valid for data page v1, use RLE_DICTIONARY for v2", fieldName)
 		}
-	case parquet.Encoding_DELTA_BINARY_PACKED, parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
-		// Delta encodings are for v2 data pages only
+	case parquet.Encoding_DELTA_BINARY_PACKED, parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY:
+		// The spec ties no delta encoding to v2; only DELTA_BYTE_ARRAY has been lifted so far.
 		if version == 1 {
 			return fmt.Errorf("field [%s]: %v encoding is only supported for data page v2, not v1", fieldName, encoding)
 		}

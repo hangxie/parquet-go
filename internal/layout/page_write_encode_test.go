@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -37,6 +38,37 @@ func TestEncodingValues_DeltaByteArray_UnsupportedType(t *testing.T) {
 	_, err := page.EncodingValues([]any{int32(1)})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "DELTA_BYTE_ARRAY")
+}
+
+func TestEncodingValues_DeltaByteArrayByteSlices(t *testing.T) {
+	strs := []string{"\x00\xff\x01", "\x00\xff\x01", "\x00\xff\x02", "\x80\x00\x00"}
+	for _, typ := range []parquet.Type{parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY} {
+		t.Run(typ.String(), func(t *testing.T) {
+			page := newPageWithEncoding(typ, parquet.Encoding_DELTA_BYTE_ARRAY)
+			page.Schema.TypeLength = common.ToPtr(int32(3))
+			asString := make([]any, len(strs))
+			asBytes := make([]any, len(strs))
+			for i, s := range strs {
+				asString[i], asBytes[i] = s, []byte(s)
+			}
+			want, err := page.EncodingValues(asString)
+			require.NoError(t, err)
+			got, err := page.EncodingValues(asBytes)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+			for i, s := range strs {
+				require.Equal(t, []byte(s), asBytes[i])
+			}
+
+			d, err := newValueDecoder(bytes.NewReader(got), parquet.Encoding_DELTA_BYTE_ARRAY, typ, uint64(len(strs)), 3)
+			require.NoError(t, err)
+			for _, s := range strs {
+				v, err := d.next()
+				require.NoError(t, err)
+				require.Equal(t, s, v)
+			}
+		})
+	}
 }
 
 func TestEncodingValues_DeltaLengthByteArray_UnsupportedType(t *testing.T) {

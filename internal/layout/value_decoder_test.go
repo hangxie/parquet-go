@@ -36,6 +36,7 @@ func TestValueDecoderRoundTrip(t *testing.T) {
 		{parquet.Encoding_DELTA_BINARY_PACKED, parquet.Type_INT64, func(i int) any { return int64(i * i) }, 0},
 		{parquet.Encoding_DELTA_LENGTH_BYTE_ARRAY, parquet.Type_BYTE_ARRAY, func(i int) any { return fmt.Sprint(i) }, 0},
 		{parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Type_BYTE_ARRAY, func(i int) any { return fmt.Sprint(i) }, 0},
+		{parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY, func(i int) any { return fmt.Sprintf("%04d", i%1000) }, 4},
 		{parquet.Encoding_BYTE_STREAM_SPLIT, parquet.Type_FLOAT, func(i int) any { return float32(i) / 7 }, 0},
 		{parquet.Encoding_BYTE_STREAM_SPLIT, parquet.Type_DOUBLE, func(i int) any { return float64(i) / 7 }, 0},
 		{parquet.Encoding_BYTE_STREAM_SPLIT, parquet.Type_INT32, func(i int) any { return int32(i) }, 0},
@@ -156,6 +157,53 @@ func TestValueDecoderMalformedStreams(t *testing.T) {
 	}
 	_, err := openDeltaSection(bytes.NewReader([]byte{0x80, 1, 1, 2, 0}), 2)
 	require.Error(t, err)
+}
+
+func TestValueDecoderFixedLenByteArrayDeltaWidth(t *testing.T) {
+	deltaByteArray := func(prefixes []any, suffixes ...any) []byte {
+		suffixBuf, err := encoding.WriteDeltaLengthByteArray(suffixes)
+		require.NoError(t, err)
+		return append(encoding.WriteDeltaINT32(prefixes), suffixBuf...)
+	}
+	cases := map[string]struct {
+		data   []byte
+		errMsg string
+	}{
+		"exact":         {deltaByteArray([]any{int32(0), int32(3)}, "abcd", "e"), ""},
+		"short suffix":  {deltaByteArray([]any{int32(0), int32(0)}, "abcd", "abc"), "byte array of length 3 does not match column length 4"},
+		"long suffix":   {deltaByteArray([]any{int32(0), int32(0)}, "abcd", "abcde"), "byte array of length 5 does not match column length 4"},
+		"short prefix":  {deltaByteArray([]any{int32(0), int32(2)}, "abcd", "e"), "byte array of length 3 does not match column length 4"},
+		"short first":   {deltaByteArray([]any{int32(0), int32(0)}, "ab", "abcd"), "byte array of length 2 does not match column length 4"},
+		"over by first": {deltaByteArray([]any{int32(0), int32(2)}, "abcdef", "ab"), "byte array of length 6 does not match column length 4"},
+		"neg prefix":    {deltaByteArray([]any{int32(0), int32(-1)}, "abcd", "abcde"), "invalid prefix length -1"},
+		"long prefix":   {deltaByteArray([]any{int32(0), int32(5)}, "abcd", ""), "invalid prefix length 5"},
+		"first prefix":  {deltaByteArray([]any{int32(4), int32(0)}, "", "abcd"), "invalid prefix length 4"},
+	}
+	for name, tt := range cases {
+		t.Run(name, func(t *testing.T) {
+			d, err := newValueDecoder(bytes.NewReader(tt.data), parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY, 2, 4)
+			require.NoError(t, err)
+			var values []any
+			for range 2 {
+				var v any
+				if v, err = d.next(); err != nil {
+					break
+				}
+				values = append(values, v)
+			}
+			d2, err2 := newValueDecoder(bytes.NewReader(tt.data), parquet.Encoding_DELTA_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY, 2, 4)
+			require.NoError(t, err2)
+			skipErr := d2.skip(2)
+			if tt.errMsg == "" {
+				require.NoError(t, err)
+				require.Equal(t, []any{"abcd", "abce"}, values)
+				require.NoError(t, skipErr)
+				return
+			}
+			require.ErrorContains(t, err, tt.errMsg)
+			require.ErrorContains(t, skipErr, tt.errMsg)
+		})
+	}
 }
 
 func TestDefaultBitWidth(t *testing.T) {

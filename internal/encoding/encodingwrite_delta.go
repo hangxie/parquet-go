@@ -3,7 +3,6 @@ package encoding
 import (
 	"fmt"
 	"math/bits"
-	"reflect"
 )
 
 func WriteDelta(nums []any) ([]byte, error) {
@@ -159,15 +158,34 @@ func WriteDeltaINT64(nums []any) []byte {
 	return res
 }
 
-func WriteDeltaLengthByteArray(arrays []any) ([]byte, error) {
-	ln := len(arrays)
-	if ln <= 0 {
-		return WriteDeltaINT32([]any{}), nil
+// byteArrayStrings returns string and []byte values as strings, copying any []byte.
+func byteArrayStrings(arrays []any) ([]string, error) {
+	strs := make([]string, len(arrays))
+	for i, v := range arrays {
+		switch value := v.(type) {
+		case string:
+			strs[i] = value
+		case []byte:
+			strs[i] = string(value)
+		default:
+			return nil, fmt.Errorf("[%v] is not a string or []byte", v)
+		}
 	}
-	lengthArray := make([]any, ln)
-	for i := range ln {
-		array := reflect.ValueOf(arrays[i]).String()
-		length, err := Int32Length(len(array), "DELTA_LENGTH_BYTE_ARRAY length")
+	return strs, nil
+}
+
+func WriteDeltaLengthByteArray(arrays []any) ([]byte, error) {
+	strs, err := byteArrayStrings(arrays)
+	if err != nil {
+		return nil, err
+	}
+	return writeDeltaLengthStrings(strs)
+}
+
+func writeDeltaLengthStrings(strs []string) ([]byte, error) {
+	lengthArray := make([]any, len(strs))
+	for i, str := range strs {
+		length, err := Int32Length(len(str), "DELTA_LENGTH_BYTE_ARRAY length")
 		if err != nil {
 			return nil, err
 		}
@@ -175,45 +193,27 @@ func WriteDeltaLengthByteArray(arrays []any) ([]byte, error) {
 	}
 
 	res := WriteDeltaINT32(lengthArray)
-
-	for i := range ln {
-		array := reflect.ValueOf(arrays[i]).String()
-		res = append(res, array...)
+	for _, str := range strs {
+		res = append(res, str...)
 	}
 	return res, nil
 }
 
 func WriteDeltaByteArray(arrays []any) ([]byte, error) {
-	ln := len(arrays)
-	if ln <= 0 {
-		// Prepare empty inputs for prefix lengths and suffixes to generate valid headers
-		prefixBuf := WriteDeltaINT32([]any{})
-		suffixBuf, err := WriteDeltaLengthByteArray([]any{})
-		if err != nil {
-			return nil, err
-		}
-		res := make([]byte, 0)
-		res = append(res, prefixBuf...)
-		res = append(res, suffixBuf...)
-		return res, nil
+	strs, err := byteArrayStrings(arrays)
+	if err != nil {
+		return nil, err
 	}
 
-	prefixLengths := make([]any, ln)
-	suffixes := make([]any, ln)
-	prefixLengths[0] = int32(0)
-	suffixes[0] = arrays[0]
-
-	for i := 1; i < ln; i++ {
-		s1 := reflect.ValueOf(arrays[i-1]).String()
-		s2 := reflect.ValueOf(arrays[i]).String()
-		l1 := len(s1)
-		l2 := len(s2)
+	prefixLengths := make([]any, len(strs))
+	suffixes := make([]string, len(strs))
+	for i, s2 := range strs {
 		j := 0
-		for j < l1 && j < l2 {
-			if s1[j] != s2[j] {
-				break
+		if i > 0 {
+			s1 := strs[i-1]
+			for j < len(s1) && j < len(s2) && s1[j] == s2[j] {
+				j++
 			}
-			j++
 		}
 		prefixLength, err := Int32Length(j, "DELTA_BYTE_ARRAY prefix length")
 		if err != nil {
@@ -224,13 +224,9 @@ func WriteDeltaByteArray(arrays []any) ([]byte, error) {
 	}
 
 	prefixBuf := WriteDeltaINT32(prefixLengths)
-	suffixBuf, err := WriteDeltaLengthByteArray(suffixes)
+	suffixBuf, err := writeDeltaLengthStrings(suffixes)
 	if err != nil {
 		return nil, err
 	}
-
-	res := make([]byte, 0)
-	res = append(res, prefixBuf...)
-	res = append(res, suffixBuf...)
-	return res, nil
+	return append(prefixBuf, suffixBuf...), nil
 }

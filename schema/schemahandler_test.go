@@ -497,9 +497,18 @@ func TestSchemaHandler_ValidateEncodingsForDataPageVersion(t *testing.T) {
 		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(2))
 	})
 
+	t.Run("delta_byte_array_v1_valid", func(t *testing.T) {
+		type DeltaStruct struct {
+			Field string `parquet:"name=field, type=FIXED_LEN_BYTE_ARRAY, length=4, encoding=DELTA_BYTE_ARRAY"`
+		}
+		sh, err := NewSchemaHandlerFromStruct(new(DeltaStruct))
+		require.NoError(t, err)
+		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(1))
+	})
+
 	t.Run("delta_encoding_v1_invalid", func(t *testing.T) {
 		type DeltaStruct struct {
-			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
+			Field string `parquet:"name=field, type=BYTE_ARRAY, encoding=DELTA_LENGTH_BYTE_ARRAY"`
 		}
 		sh, err := NewSchemaHandlerFromStruct(new(DeltaStruct))
 		require.NoError(t, err)
@@ -531,13 +540,13 @@ func TestSchemaHandler_ValidateEncodingsForDataPageVersion(t *testing.T) {
 	t.Run("multiple_fields_one_invalid", func(t *testing.T) {
 		type MixedStruct struct {
 			Field1 string `parquet:"name=field1, type=BYTE_ARRAY, encoding=PLAIN"`
-			Field2 string `parquet:"name=field2, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
+			Field2 string `parquet:"name=field2, type=BYTE_ARRAY, encoding=DELTA_LENGTH_BYTE_ARRAY"`
 		}
 		sh, err := NewSchemaHandlerFromStruct(new(MixedStruct))
 		require.NoError(t, err)
 		// v2 should be fine
 		require.NoError(t, sh.ValidateEncodingsForDataPageVersion(2))
-		// v1 should fail due to DELTA_BYTE_ARRAY
+		// v1 should fail due to DELTA_LENGTH_BYTE_ARRAY
 		err = sh.ValidateEncodingsForDataPageVersion(1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Field2")

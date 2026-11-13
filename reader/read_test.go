@@ -3,11 +3,13 @@ package reader
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -991,6 +993,173 @@ func TestRead_OldListStructure(t *testing.T) {
 	raw, err := json.Marshal(friendly)
 	require.NoError(t, err)
 	require.JSONEq(t, `[{"a":[[1,2],[3,4]]}]`, string(raw))
+}
+
+// Written by pyarrow 26.0.1 with no dictionary and DELTA_BYTE_ARRAY on every column, page_version "1.0" or "2.0":
+//
+//	ids = [uuid.UUID(int=0x0123456789abcdef0000000000000000 + i).bytes for i in range(5)]
+//	t = pa.table({
+//	    "u": pa.array(ids, pa.uuid()),
+//	    "f": pa.array([b"abcd", b"abce", None, b"xbcd", b"xbcd"], pa.binary(4)),
+//	    "d": pa.array([decimal.Decimal(x) for x in ["1.23", "-4.56", "1.24", "999.99", "0.00"]], pa.decimal128(10, 2)),
+//	})
+//	pq.write_table(t, path, use_dictionary=False, compression="NONE", data_page_version=page_version,
+//	               store_schema=False, column_encoding={c: "DELTA_BYTE_ARRAY" for c in t.column_names})
+const pyarrowFLBADeltaByteArrayV1 = "" +
+	"UEFSMRUAFZwBFZwBLBUKFQ4VBhUGHDYAKBABI0VniavN7wAAAAAAAAAEGBABI0VniavN7wAAAAAAAAAAEREAAAACAAAACgGAAQQF" +
+	"AAAEAAAADwAAAAAAAAAAAAAAAAAAAIABBAUgHQQAAADw/wAAAAAAAAAAAAAAAAAAASNFZ4mrze8AAAAAAAAAAAECAwQVABV2FXYs" +
+	"FQoVDhUGFQYcNgIoBHhiY2QYBGFiY2QREQAAAAIAAAADG4ABBAQABQMAAADGAQAAAAAAAAAAAACAAQQECAcDAAAAOQAAAAAAAAAA" +
+	"AAAAYWJjZGV4YmNkFQAVfhV+LBUKFQ4VBhUGHBgFAAABhp8YBf////44FgAoBQAAAYafGAX////+OBERAAAAAgAAAAoBgAEEBQAA" +
+	"AgAAACAAAAAAAAAAgAEEBQoDAgAAAIoAAAAAAAAAAAAAAHv////+OAAAAAB8AYafAAAAFQQZTDUAGAZzY2hlbWEVBgAVDhUgFQIY" +
+	"AXVs7AAAABUOFQgVAhgBZgAVDhUKFQIYAWQlChUEFRQsXBUEFRQAAAAWChkcGTwmABwVDhklBg4ZGAF1FQAWChaWAhaWAiYIPDYA" +
+	"KBABI0VniavN7wAAAAAAAAAEGBABI0VniavN7wAAAAAAAAAAEREAGRwVABUOFQIAPCkGGSYACgAAACYAHBUOGSUGDhkYAWYVABYK" +
+	"FrwBFrwBJp4CPDYCKAR4YmNkGARhYmNkEREAGRwVABUOFQIAPCkGGSYCCAAAACYAHBUOGSUGDhkYAWQVABYKFuQBFuQBJtoDPBgF" +
+	"AAABhp8YBf////44FgAoBQAAAYafGAX////+OBERABkcFQAVDhUCADwpBhkmAAoAAAAWtgUWCiYIFrYFACggcGFycXVldC1jcHAt" +
+	"YXJyb3cgdmVyc2lvbiAyNi4wLjEZPBwAABwAABwAAABkAQAAUEFSMQ=="
+
+const pyarrowFLBADeltaByteArrayV2 = "" +
+	"UEFSMRUGFZQBFZQBXBUKFQAVChUOFQQVABIcNgAoEAEjRWeJq83vAAAAAAAAAAQYEAEjRWeJq83vAAAAAAAAAAAREQAAAAoBgAEE" +
+	"BQAABAAAAA8AAAAAAAAAAAAAAAAAAACAAQQFIB0EAAAA8P8AAAAAAAAAAAAAAAAAAAEjRWeJq83vAAAAAAAAAAABAgMEFQYVbhVu" +
+	"XBUKFQIVChUOFQQVABIcNgIoBHhiY2QYBGFiY2QREQAAAAMbgAEEBAAFAwAAAMYBAAAAAAAAAAAAAIABBAQIBwMAAAA5AAAAAAAA" +
+	"AAAAAABhYmNkZXhiY2QVBhV2FXZcFQoVABUKFQ4VBBUAEhwYBQAAAYafGAX////+OBYAKAUAAAGGnxgF/////jgREQAAAAoBgAEE" +
+	"BQAAAgAAACAAAAAAAAAAgAEEBQoDAgAAAIoAAAAAAAAAAAAAAHv////+OAAAAAB8AYafAAAAFQQZTDUAGAZzY2hlbWEVBgAVDhUg" +
+	"FQIYAXVs7AAAABUOFQgVAhgBZgAVDhUKFQIYAWQlChUEFRQsXBUEFRQAAAAWChkcGTwmABwVDhklBg4ZGAF1FQAWChaYAhaYAiYI" +
+	"PDYAKBABI0VniavN7wAAAAAAAAAEGBABI0VniavN7wAAAAAAAAAAEREAGRwVABUOFQIAPCkGGSYACgAAACYAHBUOGSUGDhkYAWYV" +
+	"ABYKFr4BFr4BJqACPDYCKAR4YmNkGARhYmNkEREAGRwVABUOFQIAPCkGGSYCCAAAACYAHBUOGSUGDhkYAWQVABYKFuYBFuYBJt4D" +
+	"PBgFAAABhp8YBf////44FgAoBQAAAYafGAX////+OBERABkcFQAVDhUCADwpBhkmAAoAAAAWvAUWCiYIFrwFACggcGFycXVldC1j" +
+	"cHAtYXJyb3cgdmVyc2lvbiAyNi4wLjEZPBwAABwAABwAAABkAQAAUEFSMQ=="
+
+// Files from other writers; parquet-testing has no FIXED_LEN_BYTE_ARRAY column with DELTA_BYTE_ARRAY.
+var fixedLenByteArrayDeltaByteArrayFiles = map[string]struct {
+	data     string
+	pageType parquet.PageType
+}{
+	"pyarrow-v1": {pyarrowFLBADeltaByteArrayV1, parquet.PageType_DATA_PAGE},
+	"pyarrow-v2": {pyarrowFLBADeltaByteArrayV2, parquet.PageType_DATA_PAGE_V2},
+}
+
+func TestRead_FixedLenByteArrayDeltaByteArray(t *testing.T) {
+	for name, tc := range fixedLenByteArrayDeltaByteArrayFiles {
+		t.Run(name, func(t *testing.T) {
+			data, err := base64.StdEncoding.DecodeString(tc.data)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(data), nil)
+			require.NoError(t, err)
+			for i, col := range pr.Footer.RowGroups[0].Columns {
+				require.Equal(t, parquet.Type_FIXED_LEN_BYTE_ARRAY, col.MetaData.Type)
+				require.Contains(t, col.MetaData.Encodings, parquet.Encoding_DELTA_BYTE_ARRAY)
+				header, err := pr.GetFirstDataPageHeader(0, i)
+				require.NoError(t, err)
+				require.Equal(t, tc.pageType, header.PageType)
+				require.Equal(t, parquet.Encoding_DELTA_BYTE_ARRAY, header.Encoding)
+			}
+			got, err := pr.ReadByNumberWithContext(ctx, int(pr.GetNumRows()))
+			require.NoError(t, err)
+			friendly, err := marshal.ConvertToJSONFriendly(got, pr.SchemaHandler)
+			require.NoError(t, err)
+			raw, err := json.Marshal(friendly)
+			require.NoError(t, err)
+			require.JSONEq(t, `[
+				{"u":"01234567-89ab-cdef-0000-000000000000","f":"YWJjZA==","d":1.23},
+				{"u":"01234567-89ab-cdef-0000-000000000001","f":"YWJjZQ==","d":-4.56},
+				{"u":"01234567-89ab-cdef-0000-000000000002","f":null,"d":1.24},
+				{"u":"01234567-89ab-cdef-0000-000000000003","f":"eGJjZA==","d":999.99},
+				{"u":"01234567-89ab-cdef-0000-000000000004","f":"eGJjZA==","d":0}
+			]`, string(raw))
+		})
+	}
+}
+
+func TestRead_FixedLenByteArrayDeltaByteArrayWidthMismatch(t *testing.T) {
+	for name, tc := range fixedLenByteArrayDeltaByteArrayFiles {
+		t.Run(name, func(t *testing.T) {
+			data, err := base64.StdEncoding.DecodeString(tc.data)
+			require.NoError(t, err)
+			ctx := context.Background()
+			pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(data), nil)
+			require.NoError(t, err)
+
+			// Declare f as 3 bytes wide while its pages still hold 4-byte values.
+			footer := pr.Footer
+			for _, se := range footer.Schema {
+				if se.Name == "f" {
+					se.TypeLength = common.ToPtr(int32(3))
+				}
+			}
+			ts := thrift.NewTSerializer()
+			ts.Protocol = thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{}).GetProtocol(ts.Transport)
+			footerBytes, err := ts.Write(ctx, footer)
+			require.NoError(t, err)
+			oldLen := binary.LittleEndian.Uint32(data[len(data)-8:])
+			patched := append([]byte{}, data[:len(data)-8-int(oldLen)]...)
+			patched = append(patched, footerBytes...)
+			patched = binary.LittleEndian.AppendUint32(patched, uint32(len(footerBytes)))
+			patched = append(patched, "PAR1"...)
+
+			pr, err = NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(patched), nil)
+			require.NoError(t, err)
+			_, err = pr.ReadByNumberWithContext(ctx, int(pr.GetNumRows()))
+			require.ErrorContains(t, err, "column [schema.f]")
+			require.ErrorContains(t, err, "byte array of length 4 does not match column length 3")
+		})
+	}
+}
+
+func TestDeltaByteArrayRoundTrip(t *testing.T) {
+	type record struct {
+		Uuid    string   `parquet:"name=uuid, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID, encoding=DELTA_BYTE_ARRAY"`
+		Decimal string   `parquet:"name=decimal, type=FIXED_LEN_BYTE_ARRAY, length=5, logicaltype=DECIMAL, logicaltype.precision=10, logicaltype.scale=2, encoding=DELTA_BYTE_ARRAY"`
+		Fixed   *string  `parquet:"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=4, repetitiontype=OPTIONAL, encoding=DELTA_BYTE_ARRAY"`
+		Tags    []string `parquet:"name=tags, type=FIXED_LEN_BYTE_ARRAY, length=2, repetitiontype=REPEATED, encoding=DELTA_BYTE_ARRAY"`
+		Raw     []byte   `parquet:"name=raw, type=FIXED_LEN_BYTE_ARRAY, length=3, encoding=DELTA_BYTE_ARRAY"`
+		Binary  []byte   `parquet:"name=binary, type=BYTE_ARRAY, encoding=DELTA_BYTE_ARRAY"`
+	}
+	records := make([]record, 300)
+	for i := range records {
+		// Consecutive rows share values, so pages hold full-prefix entries with empty suffixes.
+		r := record{
+			Uuid:    string(binary.BigEndian.AppendUint64([]byte("\x01\x23\x45\x67\x89\xab\xcd\xef"), uint64(i/2))),
+			Decimal: types.StrIntToBinary(strconv.Itoa(i/3*37-5000), "BigEndian", 5, true),
+			Raw:     []byte{0x00, 0xff, byte(i / 4)},
+			Binary:  []byte(strings.Repeat("\xfe", i%5)),
+		}
+		if i%7 != 0 {
+			r.Fixed = common.ToPtr(fmt.Sprintf("x%03d", i/3%50))
+		}
+		for j := range i % 3 {
+			r.Tags = append(r.Tags, fmt.Sprintf("t%d", (i+j)%4))
+		}
+		records[i] = r
+	}
+
+	for _, version := range []int32{1, 2} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			ctx := context.Background()
+			var out bytes.Buffer
+			pw, err := writer.NewParquetWriterWithContext(ctx, writerfile.NewWriterFile(&out), new(record), writer.WithNP(1), writer.WithDataPageVersion(version), writer.WithPageSize(1024))
+			require.NoError(t, err)
+			for _, r := range records {
+				require.NoError(t, pw.WriteWithContext(ctx, r))
+			}
+			require.NoError(t, pw.WriteStopWithContext(ctx))
+
+			pr, err := NewParquetReaderWithContext(ctx, buffer.NewBufferReaderFromBytes(out.Bytes()), new(record), WithNP(1))
+			require.NoError(t, err)
+			pageType := map[int32]parquet.PageType{1: parquet.PageType_DATA_PAGE, 2: parquet.PageType_DATA_PAGE_V2}[version]
+			for i, col := range pr.Footer.RowGroups[0].Columns {
+				require.Equal(t, []parquet.Encoding{parquet.Encoding_RLE, parquet.Encoding_DELTA_BYTE_ARRAY}, col.MetaData.Encodings)
+				header, err := pr.GetFirstDataPageHeader(0, i)
+				require.NoError(t, err)
+				require.Equal(t, pageType, header.PageType)
+			}
+			got := make([]record, len(records))
+			require.NoError(t, pr.ReadWithContext(ctx, &got))
+			require.Equal(t, records, got)
+			require.NoError(t, pr.ReadStopWithContext(ctx))
+		})
+	}
 }
 
 func TestReadListWithRepeatedElementField(t *testing.T) {

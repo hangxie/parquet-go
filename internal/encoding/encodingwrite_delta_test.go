@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -150,4 +151,44 @@ func mustWriteDeltaByteArray(t *testing.T, arrays []any) []byte {
 	res, err := WriteDeltaByteArray(arrays)
 	require.NoError(t, err)
 	return res
+}
+
+func TestWriteDeltaByteArrayValueTypes(t *testing.T) {
+	strs := []string{"\x00\xffab", "\x00\xffac", "\x00\xffac", "", "\x80zz"}
+	asString := make([]any, len(strs))
+	asBytes := make([]any, len(strs))
+	mixed := make([]any, len(strs))
+	for i, s := range strs {
+		asString[i] = s
+		asBytes[i] = []byte(s)
+		mixed[i] = asString[i]
+		if i%2 == 1 {
+			mixed[i] = []byte(s)
+		}
+	}
+	writers := map[string]func([]any) ([]byte, error){
+		"delta-byte-array":        WriteDeltaByteArray,
+		"delta-length-byte-array": WriteDeltaLengthByteArray,
+	}
+	for name, write := range writers {
+		t.Run(name, func(t *testing.T) {
+			want, err := write(asString)
+			require.NoError(t, err)
+			for _, values := range [][]any{asBytes, mixed} {
+				got, err := write(values)
+				require.NoError(t, err)
+				require.Equal(t, want, got)
+			}
+			// Inputs are left as they were.
+			for i, s := range strs {
+				require.Equal(t, []byte(s), asBytes[i])
+			}
+			_, err = write([]any{"a", int32(1)})
+			require.ErrorContains(t, err, "is not a string or []byte")
+		})
+	}
+
+	got, err := ReadDeltaByteArray(bytes.NewReader(mustWriteDeltaByteArray(t, asBytes)), uint64(len(strs)))
+	require.NoError(t, err)
+	require.Equal(t, asString, got)
 }
