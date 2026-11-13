@@ -55,8 +55,7 @@ func WithKeyRetriever(retriever KeyRetriever) ReaderOption {
 	})
 }
 
-// WithAADPrefix supplies an external AAD prefix for files whose encryption
-// algorithm requires readers to supply it.
+// WithAADPrefix supplies the prefix WithSupplyAADPrefix files need, or one checked against a stored prefix; empty means unset.
 func WithAADPrefix(prefix []byte) ReaderOption {
 	return readerOptionFunc(func(pr *ParquetReader) {
 		pr.aadPrefix = append(pr.aadPrefix[:0], prefix...)
