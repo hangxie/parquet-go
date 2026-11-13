@@ -52,6 +52,7 @@ type ParquetReader struct {
 	aadPrefix         []byte
 	keyRetriever      KeyRetriever
 	columnKeys        map[string][]byte
+	requireEncryption bool
 
 	// Lazy runtime state.
 	columnKeysFullPath bool

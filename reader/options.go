@@ -62,6 +62,13 @@ func WithAADPrefix(prefix []byte) ReaderOption {
 	})
 }
 
+// WithRequireEncryption rejects unencrypted files, and plaintext footers not verified with the footer key, at open.
+func WithRequireEncryption(enabled bool) ReaderOption {
+	return readerOptionFunc(func(pr *ParquetReader) {
+		pr.requireEncryption = enabled
+	})
+}
+
 // WithColumnKey sets the key used to decrypt a column. The path is rootless and
 // matched against external Parquet names in PathInSchema. Path components must be
 // separated by common.ParGoPathDelimiter (build it with common.PathToStr); "." is

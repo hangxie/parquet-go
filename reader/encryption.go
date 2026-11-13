@@ -3,6 +3,7 @@ package reader
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -95,6 +96,11 @@ func (pr *ParquetReader) verifyPlaintextFooter(section []byte) error {
 		return fmt.Errorf("resolve footer signing key: %w", err)
 	}
 	if len(key) == 0 {
+		// Anyone can forge an unsigned claim of encryption, so requiring
+		// encryption also requires the signature to be verified.
+		if pr.requireEncryption {
+			return errors.New("plaintext footer cannot be authenticated without the footer key")
+		}
 		// The footer is unauthenticated here, so this only catches an honest
 		// prefix mismatch early; tampering is still caught when an encrypted
 		// module is decrypted. A missing required prefix is deferred until then.

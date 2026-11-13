@@ -889,7 +889,21 @@ pw, err := writer.NewParquetWriter(fw, new(Student),
 )
 ```
 
-`WithAADPrefix` supplies the file AAD prefix. If `WithSupplyAADPrefix(true)` is set, readers must pass the same value with `reader.WithAADPrefix`. Otherwise the prefix is stored in the file; a reader may still pass `reader.WithAADPrefix` to verify the file's identity, and opening the reader fails if the supplied prefix differs from the stored one or the encrypted file was written without a prefix. An empty prefix is treated as not supplied. The prefix is ignored when reading an unencrypted file. `EncryptionAESGCMV1` encrypts all modules with AES-GCM; `EncryptionAESGCMCTRV1` uses AES-CTR for page bodies and AES-GCM for metadata modules.
+`WithAADPrefix` sets the file AAD prefix. How a reader treats `reader.WithAADPrefix` depends on how the file was written:
+
+| File | Reader passes no prefix | Reader passes a prefix |
+|------|-------------------------|------------------------|
+| Encrypted with `WithSupplyAADPrefix(true)` (prefix not stored) | Fails with "AAD prefix is required" | Used to decrypt; must equal the writer's prefix |
+| Encrypted, prefix stored | Stored prefix is used | Must match the stored prefix, or opening fails |
+| Encrypted, no prefix | Reads normally | Opening fails |
+| Unencrypted | Reads normally | Ignored; add `reader.WithRequireEncryption(true)` to reject the file at open |
+
+An empty prefix is treated as not supplied.
+
+Encryption algorithms:
+
+- `EncryptionAESGCMV1`: AES-GCM for all modules.
+- `EncryptionAESGCMCTRV1`: AES-CTR for page bodies, AES-GCM for metadata modules.
 
 Security guidance:
 
@@ -898,6 +912,7 @@ Security guidance:
 - Plaintext-footer encrypted columns still expose page counts, encodings, value counts, offsets, compressed sizes, key metadata, and column names through the plaintext footer. Use encrypted footer mode when those metadata are sensitive.
 - Each file should use a unique `(AADPrefix, AADFileUnique)` pair. Reusing the same pair with the same key weakens module-swap protection.
 - When a plaintext-footer file is read without the footer key, the footer is not authenticated: `reader.WithAADPrefix` is compared with the stored prefix as a consistency check only, and the file's identity is proven only when an encrypted column is decrypted.
+- By default a reader configured with keys or an AAD prefix still reads an unencrypted file, so an encrypted file swapped for a plaintext one goes unnoticed. `reader.WithRequireEncryption(true)` rejects unencrypted files at open. Because anyone can write a plaintext footer that claims encryption, the option also requires the footer key for plaintext-footer files and fails at open if the footer signature cannot be verified; readers holding only column keys cannot use it on such files.
 - `AES_GCM_CTR_V1` does not authenticate page bodies; use `AES_GCM_V1` when page-data tamper detection is required.
 
 Reader behavior is driven by the file's per-column `CryptoMetadata`: nil means plaintext, `ENCRYPTION_WITH_FOOTER_KEY` means footer-key column, and `ENCRYPTION_WITH_COLUMN_KEY` means column-key column. `reader.WithColumnKey(path, key)` supplies a direct key for a rootless leaf path in the file schema, matched against the file's `PathInSchema` (external Parquet names); `WithCaseInsensitive(true)` accepts case-only differences, but Go struct field names with different spelling are not accepted. `reader.WithKeyRetriever` resolves keys from stored `key_metadata`. Once the reader has a schema, it prepends the external schema root internally for validation and lookup. Like writer column options, reader column-key paths must omit the schema root; a root name in the option value is treated as an ordinary path component. If a writer intentionally stores `ENCRYPTION_WITH_COLUMN_KEY` while using bytes equal to the footer key, downstream readers can decrypt it either with `reader.WithColumnKey(path, footerKey)` or with a retriever that returns `footerKey` for that column metadata.
