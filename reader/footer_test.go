@@ -533,3 +533,82 @@ func TestReadFooterMalformedSchema(t *testing.T) {
 		})
 	}
 }
+
+func TestReadFooterRequireEncryption(t *testing.T) {
+	t.Parallel()
+
+	footerKey := []byte("0123456789abcdef")
+	write := func(opts ...writer.WriterOption) []byte {
+		ctx := context.Background()
+		var out bytes.Buffer
+		opts = append([]writer.WriterOption{writer.WithNP(1)}, opts...)
+		pw, err := writer.NewParquetWriterWithContext(ctx, writerfile.NewWriterFile(&out), new(footerRenamedColumnRecord), opts...)
+		require.NoError(t, err)
+		require.NoError(t, pw.WriteWithContext(ctx, footerRenamedColumnRecord{ColL1: "value"}))
+		require.NoError(t, pw.WriteStopWithContext(ctx))
+		return out.Bytes()
+	}
+	columnKey := []byte("abcdef0123456789")
+	plain := write()
+	encryptedFooter := write(writer.WithFooterKey(footerKey))
+	plaintextFooter := write(writer.WithFooterKey(footerKey), writer.WithPlaintextFooter(true))
+	plaintextFooterColumnKey := write(writer.WithFooterKey(footerKey), writer.WithPlaintextFooter(true),
+		writer.WithColumnEncrypted("col_l1", writer.ColumnKey(columnKey)))
+
+	// A plaintext file whose footer claims encryption and carries a junk
+	// signature; only the footer signature can tell it apart from a real one.
+	forged := rewriteFooter(t, plain, func(f *parquet.FileMetaData) {
+		f.EncryptionAlgorithm = &parquet.EncryptionAlgorithm{AES_GCM_V1: &parquet.AesGcmV1{}}
+	})
+	forgedSize := binary.LittleEndian.Uint32(forged[len(forged)-8:])
+	forged = append(forged[:len(forged)-8], make([]byte, 28)...)
+	forged = binary.LittleEndian.AppendUint32(forged, forgedSize+28)
+	forged = append(forged, common.MagicBytes...)
+
+	required := []ReaderOption{WithRequireEncryption(true)}
+	withFooterKey := []ReaderOption{WithRequireEncryption(true), WithFooterKey(footerKey)}
+
+	tests := []struct {
+		name    string
+		data    []byte
+		opts    []ReaderOption
+		wantErr string
+	}{
+		{name: "unencrypted allowed by default", data: plain},
+		{name: "unencrypted allowed when disabled", data: plain, opts: []ReaderOption{WithRequireEncryption(false)}},
+		{name: "unencrypted rejected", data: plain, opts: required, wantErr: "file is not encrypted"},
+		{name: "encrypted footer accepted", data: encryptedFooter, opts: withFooterKey},
+		{name: "encrypted footer without key", data: encryptedFooter, opts: required, wantErr: "decryption key required"},
+		{name: "plaintext footer accepted", data: plaintextFooter, opts: withFooterKey},
+		{name: "plaintext footer without key", data: plaintextFooter, opts: required, wantErr: "cannot be authenticated without the footer key"},
+		{name: "plaintext footer with only column key", data: plaintextFooterColumnKey, opts: append([]ReaderOption{WithColumnKey("col_l1", columnKey)}, required...), wantErr: "cannot be authenticated without the footer key"},
+		{name: "plaintext footer with only column key allowed when not required", data: plaintextFooterColumnKey, opts: []ReaderOption{WithColumnKey("col_l1", columnKey)}},
+		{name: "forged footer without key", data: forged, opts: required, wantErr: "cannot be authenticated without the footer key"},
+		{name: "forged footer with key", data: forged, opts: withFooterKey, wantErr: "verify plaintext footer signature"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			opts := append([]ReaderOption{WithNP(1)}, tt.opts...)
+			pr, err := NewParquetReader(buffer.NewBufferReaderFromBytesNoAlloc(tt.data), new(footerRenamedColumnRecord), opts...)
+			cr, crErr := NewParquetColumnReader(buffer.NewBufferReaderFromBytesNoAlloc(tt.data), opts...)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.ErrorContains(t, crErr, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			got := make([]footerRenamedColumnRecord, 1)
+			require.NoError(t, pr.Read(&got))
+			require.Equal(t, "value", got[0].ColL1)
+			require.NoError(t, pr.ReadStop())
+
+			require.NoError(t, crErr)
+			values, _, _, err := cr.ReadColumnByPath(valueColumnPathWithLeaf(t, cr, "col_l1"), 1)
+			require.NoError(t, err)
+			require.Equal(t, []any{"value"}, values)
+			require.NoError(t, cr.ReadStop())
+		})
+	}
+}

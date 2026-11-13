@@ -3,6 +3,7 @@ package reader
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -211,6 +212,9 @@ func (pr *ParquetReader) ReadFooterWithContext(ctx context.Context) error {
 	case common.MagicBytes:
 		if err := pr.readPlainFooter(size); err != nil {
 			return fmt.Errorf("read plain footer: %w", err)
+		}
+		if pr.requireEncryption && !pr.Footer.IsSetEncryptionAlgorithm() {
+			return errors.New("file is not encrypted but encryption is required")
 		}
 	default:
 		return fmt.Errorf("invalid footer magic %q", magic)

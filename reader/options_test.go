@@ -37,6 +37,7 @@ func TestApplyReaderDefaults_AppliesOptions(t *testing.T) {
 		WithCRCMode(common.CRCStrict),
 		WithFooterKey([]byte("footer-key")),
 		WithAADPrefix([]byte("aad")),
+		WithRequireEncryption(true),
 		WithColumnKey(common.PathToStr([]string{"a", "b"}), []byte("col-key")),
 	}
 	require.NoError(t, applyReaderDefaults(pr, opts))
@@ -46,6 +47,7 @@ func TestApplyReaderDefaults_AppliesOptions(t *testing.T) {
 	require.Equal(t, common.CRCStrict, pr.crcMode)
 	require.Equal(t, []byte("footer-key"), pr.footerKey)
 	require.Equal(t, []byte("aad"), pr.aadPrefix)
+	require.True(t, pr.requireEncryption)
 	require.Equal(t, []byte("col-key"), pr.columnKeys[common.PathToStr([]string{"a", "b"})])
 }
 
