@@ -342,6 +342,73 @@ func TestReadFooterEncryptedFooterWithSuppliedAADPrefix(t *testing.T) {
 	})
 }
 
+func TestNewParquetReaderChecksSuppliedAADPrefixAgainstStored(t *testing.T) {
+	t.Parallel()
+
+	const storedPrefix = "orders"
+	footerKey := []byte("0123456789abcdef")
+	nameKey := []byte("abcdef0123456789")
+	write := func(opts ...writer.WriterOption) []byte {
+		ctx := context.Background()
+		var out bytes.Buffer
+		opts = append([]writer.WriterOption{
+			writer.WithNP(1),
+			writer.WithFooterKey(footerKey),
+			writer.WithColumnEncrypted("name", writer.ColumnKey(nameKey)),
+		}, opts...)
+		pw, err := writer.NewParquetWriterWithContext(ctx, writerfile.NewWriterFile(&out), new(encryptedReaderRecord), opts...)
+		require.NoError(t, err)
+		require.NoError(t, pw.WriteWithContext(ctx, encryptedReaderRecord{ID: 1, Name: "alpha"}))
+		require.NoError(t, pw.WriteStopWithContext(ctx))
+		return out.Bytes()
+	}
+	encryptedFooter := write(writer.WithAADPrefix([]byte(storedPrefix)))
+	encryptedFooterNoPrefix := write()
+	plaintextFooter := write(writer.WithAADPrefix([]byte(storedPrefix)), writer.WithPlaintextFooter(true))
+
+	allKeys := []ReaderOption{WithFooterKey(footerKey), WithColumnKey("name", nameKey)}
+	columnKeyOnly := []ReaderOption{WithColumnKey("name", nameKey)}
+	with := func(base []ReaderOption, prefix string) []ReaderOption {
+		return append(append([]ReaderOption{}, base...), WithAADPrefix([]byte(prefix)))
+	}
+
+	// Mismatches must fail at open, even when the reader holds no key for the
+	// footer and would otherwise touch only plaintext columns.
+	tests := []struct {
+		name    string
+		data    []byte
+		opts    []ReaderOption
+		wantErr string
+	}{
+		{name: "encrypted footer no supplied prefix", data: encryptedFooter, opts: allKeys},
+		{name: "encrypted footer matching prefix", data: encryptedFooter, opts: with(allKeys, storedPrefix)},
+		{name: "encrypted footer mismatched prefix", data: encryptedFooter, opts: with(allKeys, "customers"), wantErr: "AAD prefix mismatch"},
+		{name: "encrypted footer without prefix", data: encryptedFooterNoPrefix, opts: allKeys},
+		{name: "prefix supplied for file without one", data: encryptedFooterNoPrefix, opts: with(allKeys, "expected"), wantErr: "not used for file encryption"},
+		{name: "plaintext footer signed matching prefix", data: plaintextFooter, opts: with(allKeys, storedPrefix)},
+		{name: "plaintext footer signed mismatched prefix", data: plaintextFooter, opts: with(allKeys, "customers"), wantErr: "AAD prefix mismatch"},
+		{name: "plaintext footer unsigned matching prefix", data: plaintextFooter, opts: with(columnKeyOnly, storedPrefix)},
+		{name: "plaintext footer unsigned mismatched prefix", data: plaintextFooter, opts: with(columnKeyOnly, "customers"), wantErr: "AAD prefix mismatch"},
+		{name: "plaintext footer no keys mismatched prefix", data: plaintextFooter, opts: with(nil, "customers"), wantErr: "AAD prefix mismatch"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pr, err := NewParquetReader(buffer.NewBufferReaderFromBytesNoAlloc(tt.data), new(encryptedReaderRecord), tt.opts...)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			got := make([]encryptedReaderRecord, 1)
+			require.NoError(t, pr.Read(&got))
+			require.Equal(t, encryptedReaderRecord{ID: 1, Name: "alpha"}, got[0])
+			require.NoError(t, pr.ReadStop())
+		})
+	}
+}
+
 func TestReadFooterVerifiesPlaintextFooterSignature(t *testing.T) {
 	t.Parallel()
 

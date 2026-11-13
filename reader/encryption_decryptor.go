@@ -1,6 +1,7 @@
 package reader
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 
@@ -130,6 +131,16 @@ func (pr *ParquetReader) aadParts(storedPrefix, fileUnique []byte, supplyPrefix 
 			return nil, nil, fmt.Errorf("AAD prefix is required")
 		}
 		return pr.aadPrefix, fileUnique, nil
+	}
+	// A supplied prefix is the caller's expected file identity, so it must
+	// match what the writer used rather than being silently ignored.
+	if len(pr.aadPrefix) > 0 {
+		if len(storedPrefix) == 0 {
+			return nil, nil, fmt.Errorf("AAD prefix supplied but not used for file encryption")
+		}
+		if !bytes.Equal(pr.aadPrefix, storedPrefix) {
+			return nil, nil, fmt.Errorf("AAD prefix mismatch: supplied prefix does not match prefix stored in file")
+		}
 	}
 	return storedPrefix, fileUnique, nil
 }

@@ -95,6 +95,14 @@ func (pr *ParquetReader) verifyPlaintextFooter(section []byte) error {
 		return fmt.Errorf("resolve footer signing key: %w", err)
 	}
 	if len(key) == 0 {
+		// The footer is unauthenticated here, so this only catches an honest
+		// prefix mismatch early; tampering is still caught when an encrypted
+		// module is decrypted. A missing required prefix is deferred until then.
+		if len(pr.aadPrefix) > 0 {
+			if _, _, err := pr.footerAADParts(footer.GetEncryptionAlgorithm()); err != nil {
+				return fmt.Errorf("footer AAD: %w", err)
+			}
+		}
 		pr.Footer = footer
 		return nil
 	}

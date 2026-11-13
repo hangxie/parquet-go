@@ -46,3 +46,48 @@ func TestConfigurePageDecryptor(t *testing.T) {
 	require.Equal(t, int16(7), cbt.PageReadOptions.Decryptor.RowGroupOrdinal)
 	require.Equal(t, int16(3), cbt.PageReadOptions.Decryptor.ColumnOrdinal)
 }
+
+func TestAADParts(t *testing.T) {
+	t.Parallel()
+
+	stored := []byte("orders")
+	fileUnique := []byte("file-unique")
+
+	tests := []struct {
+		name         string
+		storedPrefix []byte
+		supplied     []byte
+		supplyPrefix bool
+		wantPrefix   []byte
+		wantErr      string
+	}{
+		{name: "stored prefix used when none supplied", storedPrefix: stored, wantPrefix: stored},
+		{name: "stored prefix matches supplied", storedPrefix: stored, supplied: []byte("orders"), wantPrefix: stored},
+		{name: "stored prefix differs from supplied", storedPrefix: stored, supplied: []byte("customers"), wantErr: "AAD prefix mismatch"},
+		{name: "supplied prefix but file uses none", supplied: []byte("orders"), wantErr: "not used for file encryption"},
+		{name: "no prefix anywhere"},
+		{name: "required prefix supplied", supplied: stored, supplyPrefix: true, wantPrefix: stored},
+		{name: "required prefix missing", supplyPrefix: true, wantErr: "AAD prefix is required"},
+		{name: "empty supplied prefix uses stored prefix", storedPrefix: stored, supplied: []byte{}, wantPrefix: stored},
+		{name: "empty supplied prefix for file without one", supplied: []byte{}},
+		{name: "empty supplied prefix when required", supplied: []byte{}, supplyPrefix: true, wantErr: "AAD prefix is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pr := &ParquetReader{}
+			if tt.supplied != nil {
+				applyReaderOptionsForTest(t, pr, WithAADPrefix(tt.supplied))
+			}
+			prefix, unique, err := pr.aadParts(tt.storedPrefix, fileUnique, tt.supplyPrefix)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantPrefix, prefix)
+			require.Equal(t, fileUnique, unique)
+		})
+	}
+}
