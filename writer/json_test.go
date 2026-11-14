@@ -350,6 +350,28 @@ func TestJSONWriter(t *testing.T) {
 	})
 }
 
+func TestJSONWriterCopiesReusedDocuments(t *testing.T) {
+	type record struct {
+		N int32 `parquet:"name=n, type=INT32"`
+	}
+	var buf bytes.Buffer
+	jw, err := NewJSONWriter(`{"Tag":"name=parquet-go-root","Fields":[{"Tag":"name=n, type=INT32"}]}`, writerfile.NewWriterFile(&buf), WithNP(1))
+	require.NoError(t, err)
+	doc := []byte(`{"n":0}`)
+	for i := range 3 {
+		doc[5] = byte('0' + i)
+		require.NoError(t, jw.Write(doc))
+	}
+	doc[5] = '9'
+	require.NoError(t, jw.WriteStop())
+
+	pr, err := reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytes(buf.Bytes()), new(record), reader.WithNP(1))
+	require.NoError(t, err)
+	got := make([]record, 3)
+	require.NoError(t, pr.ReadWithContext(context.Background(), &got))
+	require.Equal(t, []record{{0}, {1}, {2}}, got)
+}
+
 func TestJSONWriterUUID(t *testing.T) {
 	jsonSchema := `{
 		"Tag": "name=parquet-go-root",

@@ -176,6 +176,7 @@ Common writer options:
 - `writer.WithCompressionLevel`
 - `writer.WithDataPageVersion`
 - `writer.WithWriteCRC`
+- `writer.WithRowCopy`
 - `writer.WithSortingColumns`
 
 `writer.WithPageSize` accepts at most 2,147,483,647 bytes (`math.MaxInt32`), the largest size a page header can record; the writer constructor rejects larger values.
@@ -674,6 +675,8 @@ pw, err := writer.NewParquetWriter(fw, new(MyStruct),
     writer.WithPageSize(common.DefaultPageSize),         // default 8K
 )
 ```
+
+Writers buffer rows until a page's worth is collected, so `Write` copies every part of a row the caller could still change: slices including `[]byte`, maps, pointers, and values held in interfaces. Only what the schema writes is copied; a field or map key outside the schema keeps the caller's value and is never walked. `ArrowWriter` copies strings out of the record batch, so the batch may be released and its memory reused. A caller may reuse or change its values, buffers, and `[]any` rows as soon as `Write` returns. Rows made only of numbers, strings, and structs or arrays of them are not copied, and a nil slice, map, or pointer stays nil. Up to v3.12.2 writers kept the caller's values until the next flush, so a reused buffer changed rows already written. Copying costs time and memory roughly in proportion to the bytes it copies. A caller that never changes a value after passing it to `Write` can skip the copy with `writer.WithRowCopy(false)`; with copying off, any value changed before the next flush changes rows already written, as up to v3.12.2.
 
 `ParquetReader.SkipRows` jumps ahead using the file's own positional metadata: it skips whole row groups by their declared row counts and, when a column offset index is present, seeks straight to the target data page instead of decoding every page along the way. Both are taken on trust, the same way the reader already trusts row group row counts everywhere else, so a corrupted file could in theory point a skip at the wrong row. That is really a broken file rather than a reader bug, and parquet-go just does its best with what the file declares: if an offset index is missing or structurally unusable it quietly falls back to a plain sequential skip, which reads the real page boundaries.
 

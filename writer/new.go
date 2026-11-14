@@ -201,6 +201,7 @@ func NewParquetWriterWithContext(ctx context.Context, pFile source.ParquetFileWr
 		return nil, fmt.Errorf("init writer base: %w", err)
 	}
 	res.marshalFunc = marshal.Marshal
+	res.copyBySchema = true
 	sortingColumnsValidated := false
 
 	if obj != nil {

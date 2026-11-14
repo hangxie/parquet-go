@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -873,6 +874,26 @@ func TestWriteSchemaWithoutColumns(t *testing.T) {
 			require.Len(t, rows, tc.numRows)
 		})
 	}
+
+	// Meta has no tag, so it is not a column; it refers back to itself, which must not be
+	// walked since nothing in it is written.
+	t.Run("ignored-field", func(t *testing.T) {
+		type withMeta struct{ Meta any }
+		cyclic := map[string]any{}
+		cyclic["self"] = cyclic
+		var buf bytes.Buffer
+		pw, err := NewParquetWriter(writerfile.NewWriterFile(&buf), new(withMeta), WithNP(1))
+		require.NoError(t, err)
+		for range 3 {
+			require.NoError(t, pw.WriteWithContext(context.Background(), withMeta{Meta: cyclic}))
+		}
+		require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+		pr, err := reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), nil, reader.WithNP(1))
+		require.NoError(t, err)
+		defer func() { _ = pr.ReadStopWithContext(context.Background()) }()
+		require.Equal(t, int64(3), pr.GetNumRows())
+	})
 }
 
 func BenchmarkPlainByteArrayWriter(b *testing.B) {
@@ -913,5 +934,176 @@ func benchmarkWriteRows[T any](b *testing.B, schema any, rows []T, codec parquet
 	}
 	if out.Len() == 0 {
 		b.Fatal("empty output")
+	}
+}
+
+// BenchmarkWriteRowCopy compares Write with copying on and off (WithRowCopy(false), which
+// buffers rows by reference as writers did before), for rows the caller keeps alive and rows
+// it drops after each Write. sampled-peak-heap-MB is the largest HeapAlloc seen at 1,024-row
+// intervals in one extra, untimed run; it compares runs but is not the exact peak.
+func BenchmarkWriteRowCopy(b *testing.B) {
+	const count = 32768
+	for _, rowCase := range rowCopyBenchCases() {
+		for _, mode := range []string{"kept", "dropped"} {
+			for _, copyRows := range []bool{true, false} {
+				b.Run(fmt.Sprintf("%s/%s/copy=%t", rowCase.name, mode, copyRows), func(b *testing.B) {
+					// Only the kept mode holds every row, so the dropped mode's heap holds none of them.
+					row := rowCase.newRow
+					if mode == "kept" {
+						kept := make([]any, count)
+						for i := range kept {
+							kept[i] = rowCase.newRow(i)
+						}
+						row = func(i int) any { return kept[i] }
+					}
+					opt := WithRowCopy(copyRows)
+					b.ReportAllocs()
+					b.ResetTimer()
+					for range b.N {
+						writeRowCopyRows(b, rowCase.schema, count, row, opt, nil)
+					}
+					b.StopTimer()
+					var peak uint64
+					var ms runtime.MemStats
+					runtime.GC()
+					writeRowCopyRows(b, rowCase.schema, count, row, opt, func() {
+						runtime.ReadMemStats(&ms)
+						peak = max(peak, ms.HeapAlloc)
+					})
+					b.ReportMetric(float64(peak)/(1<<20), "sampled-peak-heap-MB")
+				})
+			}
+		}
+	}
+}
+
+type rowCopyBenchCase struct {
+	name   string
+	schema any
+	newRow func(int) any
+}
+
+// rowCopyBenchCases covers scalar columns held as strings, []byte and pointers, a 4 KiB
+// payload, a list and a map of strings, and chains of optional structs 1 to 20 levels deep.
+func rowCopyBenchCases() []rowCopyBenchCase {
+	type scalarString struct {
+		I32  int32   `parquet:"name=i32, type=INT32"`
+		I64  int64   `parquet:"name=i64, type=INT64"`
+		F64  float64 `parquet:"name=f64, type=DOUBLE"`
+		Str  string  `parquet:"name=str, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Dec  string  `parquet:"name=dec, type=BYTE_ARRAY, convertedtype=DECIMAL, scale=2, precision=20"`
+		UUID string  `parquet:"name=uuid, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID"`
+	}
+	type scalarBytes struct {
+		I32  int32   `parquet:"name=i32, type=INT32"`
+		I64  int64   `parquet:"name=i64, type=INT64"`
+		F64  float64 `parquet:"name=f64, type=DOUBLE"`
+		Str  []byte  `parquet:"name=str, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Dec  []byte  `parquet:"name=dec, type=BYTE_ARRAY, convertedtype=DECIMAL, scale=2, precision=20"`
+		UUID []byte  `parquet:"name=uuid, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID"`
+	}
+	type scalarOptional struct {
+		I32  *int32   `parquet:"name=i32, type=INT32, repetitiontype=OPTIONAL"`
+		I64  *int64   `parquet:"name=i64, type=INT64, repetitiontype=OPTIONAL"`
+		F64  *float64 `parquet:"name=f64, type=DOUBLE, repetitiontype=OPTIONAL"`
+		Str  *string  `parquet:"name=str, type=BYTE_ARRAY, convertedtype=UTF8, repetitiontype=OPTIONAL"`
+		Dec  *string  `parquet:"name=dec, type=BYTE_ARRAY, convertedtype=DECIMAL, scale=2, precision=20, repetitiontype=OPTIONAL"`
+		UUID *string  `parquet:"name=uuid, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID, repetitiontype=OPTIONAL"`
+	}
+	type largeBytes struct {
+		ID      int64  `parquet:"name=id, type=INT64"`
+		Payload []byte `parquet:"name=payload, type=BYTE_ARRAY"`
+	}
+	type listOfString struct {
+		ID   int64    `parquet:"name=id, type=INT64"`
+		Tags []string `parquet:"name=tags, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	}
+	type mapOfKV struct {
+		ID    int64             `parquet:"name=id, type=INT64"`
+		Attrs map[string]string `parquet:"name=attrs, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+	}
+	text := func(i, width int) string { return fmt.Sprintf("%0*d", width, i) }
+	dec := func(i int) string { return string(binary.BigEndian.AppendUint64(nil, uint64(i)*100)) }
+	cases := []rowCopyBenchCase{
+		{"scalar/string", new(scalarString), func(i int) any {
+			return scalarString{int32(i), int64(i), float64(i), text(i, 16), dec(i), text(i, 16)}
+		}},
+		{"scalar/bytes", new(scalarBytes), func(i int) any {
+			return scalarBytes{int32(i), int64(i), float64(i), []byte(text(i, 16)), []byte(dec(i)), []byte(text(i, 16))}
+		}},
+		{"scalar/optional", new(scalarOptional), func(i int) any {
+			i32, i64, f64, s, d, u := int32(i), int64(i), float64(i), text(i, 16), dec(i), text(i, 16)
+			return scalarOptional{&i32, &i64, &f64, &s, &d, &u}
+		}},
+		{"scalar/bytes-4KiB", new(largeBytes), func(i int) any {
+			return largeBytes{int64(i), bytes.Repeat([]byte{byte(i)}, 4096)}
+		}},
+		{"nested/list-of-8-strings", new(listOfString), func(i int) any {
+			tags := make([]string, 8)
+			for j := range tags {
+				tags[j] = text(i+j, 8)
+			}
+			return listOfString{int64(i), tags}
+		}},
+		{"nested/map-of-8-kv", new(mapOfKV), func(i int) any {
+			attrs := make(map[string]string, 8)
+			for j := range 8 {
+				attrs[text(j, 4)] = text(i+j, 8)
+			}
+			return mapOfKV{int64(i), attrs}
+		}},
+	}
+	for _, levels := range []int{1, 5, 10, 20} {
+		typ := deepRowType(levels)
+		cases = append(cases, rowCopyBenchCase{
+			fmt.Sprintf("deep/%d-levels", levels), reflect.New(typ).Interface(),
+			func(i int) any { return newDeepRow(typ, i).Interface() },
+		})
+	}
+	return cases
+}
+
+// deepRowType has an id and a name at every level, nested levels optional structs deep.
+func deepRowType(levels int) reflect.Type {
+	fields := []reflect.StructField{
+		{Name: "ID", Type: reflect.TypeFor[int64](), Tag: `parquet:"name=id, type=INT64"`},
+		{Name: "Name", Type: reflect.TypeFor[string](), Tag: `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`},
+	}
+	typ := reflect.StructOf(fields)
+	for range levels {
+		next := reflect.StructField{Name: "Next", Type: reflect.PointerTo(typ), Tag: `parquet:"name=next, repetitiontype=OPTIONAL"`}
+		typ = reflect.StructOf(append(fields[:2:2], next))
+	}
+	return typ
+}
+
+func newDeepRow(typ reflect.Type, i int) reflect.Value {
+	v := reflect.New(typ).Elem()
+	v.Field(0).SetInt(int64(i))
+	v.Field(1).SetString(fmt.Sprintf("name-%d", i))
+	if typ.NumField() > 2 {
+		v.Field(2).Set(newDeepRow(typ.Field(2).Type.Elem(), i).Addr())
+	}
+	return v
+}
+
+// writeRowCopyRows writes count rows; sample, when set, runs every 1,024 rows.
+func writeRowCopyRows(b *testing.B, schema any, count int, row func(int) any, opt WriterOption, sample func()) {
+	var out bytes.Buffer
+	pw, err := NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&out), schema,
+		WithNP(1), WithPageSize(64<<10), WithRowGroupSize(1<<30), WithDataPageVersion(2), opt)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := range count {
+		if err := pw.WriteWithContext(context.Background(), row(i)); err != nil {
+			b.Fatal(err)
+		}
+		if sample != nil && i%1024 == 0 {
+			sample()
+		}
+	}
+	if err := pw.WriteStopWithContext(context.Background()); err != nil {
+		b.Fatal(err)
 	}
 }

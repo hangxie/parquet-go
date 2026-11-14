@@ -130,8 +130,14 @@ func (pw *ParquetWriter) Write(src any) error {
 	return pw.WriteWithContext(pw.defaultContext(), src)
 }
 
-// WriteWithContext writes one object using ctx.
+// WriteWithContext writes one object using ctx. Rows are buffered until a flush, so src is
+// copied wherever the caller could still change it, unless WithRowCopy(false) is set.
 func (pw *ParquetWriter) WriteWithContext(ctx context.Context, src any) error {
+	return pw.bufferRow(ctx, src, true)
+}
+
+// bufferRow buffers src, copying it first unless the caller built it for this call alone.
+func (pw *ParquetWriter) bufferRow(ctx context.Context, src any, shared bool) error {
 	if err := pw.setContext(ctx); err != nil {
 		return err
 	}
@@ -157,6 +163,9 @@ func (pw *ParquetWriter) WriteWithContext(ctx context.Context, src any) error {
 	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 		src = val.Interface()
+	}
+	if shared && !pw.skipRowCopy {
+		src = pw.copyRow(src)
 	}
 
 	if pw.checkSizeCritical <= ln {
@@ -284,6 +293,8 @@ func (pw *ParquetWriter) FlushWithContext(ctx context.Context, flag bool) error 
 		pw.pagesMapBuf = make(map[string][]*layout.Page)
 	}
 	pw.Footer.NumRows += int64(len(pw.objs))
+	// The backing array is reused, so its slots are cleared to release the rows just written.
+	clear(pw.objs)
 	pw.objs = pw.objs[:0]
 	pw.objsSize = 0
 	return nil

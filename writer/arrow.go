@@ -114,7 +114,7 @@ func (w *ArrowWriter) WriteArrowWithContext(ctx context.Context, batch arrow.Rec
 		}
 	}
 	for _, row := range transposedTable {
-		if err := w.WriteWithContext(ctx, row); err != nil {
+		if err := w.bufferRow(ctx, row, false); err != nil {
 			return fmt.Errorf("write row: %w", err)
 		}
 	}

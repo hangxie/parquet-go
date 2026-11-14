@@ -271,3 +271,20 @@ func TestNonNullableFieldContainsNullError(t *testing.T) {
 	err := nonNullableFieldContainsNullError(arrow.Field{Name: "unit-test"}, 3)
 	require.Equal(t, "field with name 'unit-test' is marked non-nullable but its column array contains Null value at index 3", err.Error())
 }
+
+// array.String values are views into the batch's buffer, which the caller may reuse
+// once the batch is released, so converted strings must not share it.
+func TestArrowColToParquetColCopiesStrings(t *testing.T) {
+	values := []byte("abcdef")
+	offsets := arrow.Int32Traits.CastToBytes([]int32{0, 3, 6})
+	data := array.NewData(arrow.BinaryTypes.String, 2,
+		[]*memory.Buffer{nil, memory.NewBufferBytes(offsets), memory.NewBufferBytes(values)}, nil, 0, 0)
+	defer data.Release()
+	col := array.NewStringData(data)
+	defer col.Release()
+
+	got, err := ArrowColToParquetCol(arrow.Field{Name: "s", Type: arrow.BinaryTypes.String}, col)
+	require.NoError(t, err)
+	copy(values, "zzzzzz")
+	require.Equal(t, []any{"abc", "def"}, got)
+}
