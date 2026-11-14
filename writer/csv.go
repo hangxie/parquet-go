@@ -112,7 +112,7 @@ func (w *CSVWriter) WriteStringWithContext(ctx context.Context, recsi any) error
 		}
 	}
 
-	if err := w.WriteWithContext(ctx, rec); err != nil {
+	if err := w.bufferRow(ctx, rec, false); err != nil {
 		return fmt.Errorf("write row: %w", err)
 	}
 	return nil

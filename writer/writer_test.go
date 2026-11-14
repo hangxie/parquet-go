@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
@@ -913,5 +914,87 @@ func benchmarkWriteRows[T any](b *testing.B, schema any, rows []T, codec parquet
 	}
 	if out.Len() == 0 {
 		b.Fatal("empty output")
+	}
+}
+
+// BenchmarkWriteRowCopy measures what copying rows on Write costs, for rows the
+// caller keeps alive and rows it drops after each Write. sampled-peak-heap-MB is the
+// largest HeapAlloc seen at 1,024-row intervals in one extra, untimed run; it compares
+// revisions but is not the exact peak.
+func BenchmarkWriteRowCopy(b *testing.B) {
+	type flat struct {
+		ID    int64   `parquet:"name=id, type=INT64"`
+		Name  string  `parquet:"name=name, type=BYTE_ARRAY, convertedtype=UTF8"`
+		Score float64 `parquet:"name=score, type=DOUBLE"`
+	}
+	type references struct {
+		ID      int64            `parquet:"name=id, type=INT64"`
+		Payload []byte           `parquet:"name=payload, type=BYTE_ARRAY"`
+		Tags    []string         `parquet:"name=tags, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+		Attrs   map[string]int32 `parquet:"name=attrs, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+		Opt     *int32           `parquet:"name=opt, type=INT32, repetitiontype=OPTIONAL"`
+	}
+	const count = 32768
+	newFlat := func(i int) any { return flat{ID: int64(i), Name: fmt.Sprintf("name-%d", i), Score: float64(i)} }
+	newReferences := func(i int) any {
+		v := int32(i)
+		return references{
+			ID: int64(i), Payload: bytes.Repeat([]byte{byte(i)}, 256), Tags: []string{"a", "b"},
+			Attrs: map[string]int32{"k": v}, Opt: &v,
+		}
+	}
+	for _, rowCase := range []struct {
+		name   string
+		schema any
+		newRow func(int) any
+	}{{"flat", new(flat), newFlat}, {"references", new(references), newReferences}} {
+		for _, mode := range []string{"kept", "dropped"} {
+			b.Run(rowCase.name+"/"+mode, func(b *testing.B) {
+				// Only the kept mode holds every row, so the dropped mode's heap holds none of them.
+				row := rowCase.newRow
+				if mode == "kept" {
+					kept := make([]any, count)
+					for i := range kept {
+						kept[i] = rowCase.newRow(i)
+					}
+					row = func(i int) any { return kept[i] }
+				}
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					writeRowCopyRows(b, rowCase.schema, count, row, nil)
+				}
+				b.StopTimer()
+				var peak uint64
+				var ms runtime.MemStats
+				runtime.GC()
+				writeRowCopyRows(b, rowCase.schema, count, row, func() {
+					runtime.ReadMemStats(&ms)
+					peak = max(peak, ms.HeapAlloc)
+				})
+				b.ReportMetric(float64(peak)/(1<<20), "sampled-peak-heap-MB")
+			})
+		}
+	}
+}
+
+// writeRowCopyRows writes count rows; sample, when set, runs every 1,024 rows.
+func writeRowCopyRows(b *testing.B, schema any, count int, row func(int) any, sample func()) {
+	var out bytes.Buffer
+	pw, err := NewParquetWriterWithContext(context.Background(), writerfile.NewWriterFile(&out), schema,
+		WithNP(1), WithPageSize(64<<10), WithRowGroupSize(1<<30), WithDataPageVersion(2))
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := range count {
+		if err := pw.WriteWithContext(context.Background(), row(i)); err != nil {
+			b.Fatal(err)
+		}
+		if sample != nil && i%1024 == 0 {
+			sample()
+		}
+	}
+	if err := pw.WriteStopWithContext(context.Background()); err != nil {
+		b.Fatal(err)
 	}
 }
