@@ -296,6 +296,34 @@ func TestCSVWriterByteSliceValues(t *testing.T) {
 	}
 }
 
+func TestCSVWriterCopiesReusedRows(t *testing.T) {
+	type record struct {
+		B string `parquet:"name=b, type=BYTE_ARRAY"`
+		N int32  `parquet:"name=n, type=INT32"`
+	}
+	var buf bytes.Buffer
+	cw, err := NewCSVWriter([]string{"name=b, type=BYTE_ARRAY", "name=n, type=INT32"}, writerfile.NewWriterFile(&buf), WithNP(1))
+	require.NoError(t, err)
+	// Both the row and the bytes in it are reused for every Write.
+	value := make([]byte, 1)
+	row := make([]any, 2)
+	for i := range 3 {
+		value[0] = byte('a' + i)
+		row[0], row[1] = value, int32(i)
+		require.NoError(t, cw.Write(row))
+	}
+	value[0], row[1] = 'z', int32(99)
+	require.NoError(t, cw.WriteStop())
+
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(record), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pf.Close() }()
+	got := make([]record, 3)
+	//nolint:staticcheck
+	require.NoError(t, pr.Read(&got))
+	require.Equal(t, []record{{"a", 0}, {"b", 1}, {"c", 2}}, got)
+}
+
 // Only an untyped nil is a null; a nil []byte is a present, empty value, as for a
 // struct field pointing at a nil slice.
 func TestCSVWriterNilByteSlice(t *testing.T) {

@@ -130,8 +130,14 @@ func (pw *ParquetWriter) Write(src any) error {
 	return pw.WriteWithContext(pw.defaultContext(), src)
 }
 
-// WriteWithContext writes one object using ctx.
+// WriteWithContext writes one object using ctx. Rows are buffered until a flush, so src is
+// copied wherever the caller could still change it; it may be reused once this returns.
 func (pw *ParquetWriter) WriteWithContext(ctx context.Context, src any) error {
+	return pw.bufferRow(ctx, src, true)
+}
+
+// bufferRow buffers src, copying it first unless the caller built it for this call alone.
+func (pw *ParquetWriter) bufferRow(ctx context.Context, src any, shared bool) error {
 	if err := pw.setContext(ctx); err != nil {
 		return err
 	}
@@ -157,6 +163,9 @@ func (pw *ParquetWriter) WriteWithContext(ctx context.Context, src any) error {
 	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 		src = val.Interface()
+	}
+	if shared {
+		src = copyRow(src)
 	}
 
 	if pw.checkSizeCritical <= ln {
