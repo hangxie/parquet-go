@@ -1081,3 +1081,34 @@ func TestWriteArrowWithoutColumns(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 5)
 }
+
+func TestWriteArrowCopiesStringBuffers(t *testing.T) {
+	type record struct {
+		S string `parquet:"name=s, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	schema := arrow.NewSchema([]arrow.Field{{Name: "s", Type: arrow.BinaryTypes.String}}, nil)
+	var buf bytes.Buffer
+	aw, err := NewArrowWriter(schema, writerfile.NewWriterFile(&buf), WithNP(1))
+	require.NoError(t, err)
+	// The caller owns the value buffer and reuses it once the batch is released.
+	values := []byte("abcdef")
+	offsets := arrow.Int32Traits.CastToBytes([]int32{0, 3, 6})
+	data := array.NewData(arrow.BinaryTypes.String, 2,
+		[]*memory.Buffer{nil, memory.NewBufferBytes(offsets), memory.NewBufferBytes(values)}, nil, 0, 0)
+	col := array.NewStringData(data)
+	batch := array.NewRecordBatch(schema, []arrow.Array{col}, 2)
+	require.NoError(t, aw.WriteArrow(batch))
+	batch.Release()
+	col.Release()
+	data.Release()
+	copy(values, "zzzzzz")
+	require.NoError(t, aw.WriteStop())
+
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(record), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pf.Close() }()
+	got := make([]record, 2)
+	//nolint:staticcheck
+	require.NoError(t, pr.Read(&got))
+	require.Equal(t, []record{{"abc"}, {"def"}}, got)
+}

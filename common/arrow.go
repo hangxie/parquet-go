@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/float16"
@@ -103,7 +104,8 @@ func ArrowColToParquetCol(field arrow.Field, col arrow.Array) ([]any, error) {
 	case *arrow.BinaryType:
 		recs, err = arrowArrayToParquetList(field, col, func(v []byte) any { return string(v) })
 	case *arrow.StringType:
-		recs, err = arrowArrayToParquetList(field, col, func(v string) any { return v })
+		// Value returns a view into the batch's buffer, which the caller may reuse after release.
+		recs, err = arrowArrayToParquetList(field, col, func(v string) any { return strings.Clone(v) })
 	case *arrow.BooleanType:
 		recs, err = arrowArrayToParquetList(field, col, func(v bool) any { return v })
 	case *arrow.Time32Type:

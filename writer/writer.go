@@ -38,6 +38,9 @@ type ParquetWriter struct {
 	columnCompressors             map[string]*compress.Compressor
 	dataPageVersion               int32 // 1 for DATA_PAGE (default), 2 for DATA_PAGE_V2
 	writeCRC                      bool  // compute and write CRC32 checksums on pages (default false)
+	skipRowCopy                   bool  // buffer the caller's rows as they are (default false)
+	copyBySchema                  bool  // rows are marshaled along the schema, so only its fields are copied
+	rowCopier                     *schemaCopier
 	valueOptions                  []types.ValueOption
 	sortingColumns                []*parquet.SortingColumn
 	encryptionConfig              *EncryptionConfig

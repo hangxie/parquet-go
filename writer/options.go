@@ -83,6 +83,12 @@ func WithWriteCRC(enabled bool) WriterOption {
 	return writerOptionFunc(func(pw *ParquetWriter) { pw.writeCRC = enabled })
 }
 
+// WithRowCopy sets whether Write copies the caller's slices, maps and pointers. Default is true.
+// With false, values changed between Write and the next flush change rows already written.
+func WithRowCopy(enabled bool) WriterOption {
+	return writerOptionFunc(func(pw *ParquetWriter) { pw.skipRowCopy = !enabled })
+}
+
 // WithValueMode selects how JSONWriter and CSVWriter read logical values: interpreted
 // (the default) expects canonical text, raw the physical value as base64 where byte-backed.
 // ParquetWriter is unaffected, its values already being typed.

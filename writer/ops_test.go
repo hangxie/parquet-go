@@ -3,6 +3,7 @@ package writer
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -192,6 +193,221 @@ func TestWrite_PointerInput(t *testing.T) {
 	// Pass a pointer — Write should dereference it.
 	require.NoError(t, pw.Write(&val))
 	require.NoError(t, pw.WriteStop())
+}
+
+func TestWrite_CopiesCallerValues(t *testing.T) {
+	type inner struct {
+		S []byte `parquet:"name=s, type=BYTE_ARRAY"`
+	}
+	type record struct {
+		Bytes     []byte           `parquet:"name=bytes, type=BYTE_ARRAY"`
+		Opt       *int32           `parquet:"name=opt, type=INT32, repetitiontype=OPTIONAL"`
+		List      []int64          `parquet:"name=list, type=LIST, valuetype=INT64"`
+		Map       map[string]int32 `parquet:"name=map, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT32"`
+		Nested    inner            `parquet:"name=nested"`
+		NestedPtr *inner           `parquet:"name=nested_ptr, repetitiontype=OPTIONAL"`
+		Variant   any              `parquet:"name=variant, type=VARIANT, repetitiontype=OPTIONAL"`
+	}
+	const rows = 3
+	// fill rewrites every part of r that is shared with the caller, in place.
+	fill := func(r *record, i int) {
+		b := byte('a' + i)
+		r.Bytes[0], *r.Opt, r.List[0], r.Map["k"] = b, int32(i), int64(i), int32(i)
+		r.Nested.S[0], r.NestedPtr.S[0] = b, b
+		r.Variant.(map[string]any)["n"] = int64(i)
+	}
+	snapshot := func(i int) record {
+		r := record{
+			Bytes: []byte{0}, Opt: new(int32), List: []int64{0}, Map: map[string]int32{},
+			Nested: inner{S: []byte{0}}, NestedPtr: &inner{S: []byte{0}}, Variant: map[string]any{},
+		}
+		fill(&r, i)
+		return r
+	}
+
+	for name, byPointer := range map[string]bool{"value": false, "pointer": true} {
+		t.Run(name, func(t *testing.T) {
+			pw, buf, err := createTestParquetWriter(new(record), WithNP(1))
+			require.NoError(t, err)
+			reused := snapshot(0)
+			for i := range rows {
+				fill(&reused, i)
+				if byPointer {
+					require.NoError(t, pw.Write(&reused))
+				} else {
+					require.NoError(t, pw.Write(reused))
+				}
+			}
+			// A caller that keeps changing its value after the last Write must not reach the file.
+			fill(&reused, rows)
+			require.NoError(t, pw.WriteStop())
+
+			pr, pf, err := createTestParquetReader(buf.Bytes(), new(record), reader.WithNP(1))
+			require.NoError(t, err)
+			defer func() { _ = pf.Close() }()
+			got := make([]record, rows)
+			//nolint:staticcheck
+			require.NoError(t, pr.Read(&got))
+			for i := range rows {
+				want := snapshot(i)
+				require.Equal(t, want.Bytes, got[i].Bytes, "row %d", i)
+				require.Equal(t, want.Opt, got[i].Opt, "row %d", i)
+				require.Equal(t, want.List, got[i].List, "row %d", i)
+				require.Equal(t, want.Map, got[i].Map, "row %d", i)
+				require.Equal(t, want.Nested, got[i].Nested, "row %d", i)
+				require.Equal(t, want.NestedPtr, got[i].NestedPtr, "row %d", i)
+				require.Equal(t, want.Variant, got[i].Variant, "row %d", i)
+			}
+		})
+	}
+}
+
+// Only the parts of a row the schema writes are copied, so a value it never reads may
+// refer back to itself, as marshaling already allowed.
+func TestWrite_CopiesOnlySchemaFields(t *testing.T) {
+	type item struct {
+		V    int32 `parquet:"name=v, type=INT32"`
+		Meta any
+	}
+	type record struct {
+		ID    int64           `parquet:"name=id, type=INT64"`
+		Items []item          `parquet:"name=items, type=LIST"`
+		ByKey map[string]item `parquet:"name=by_key, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8"`
+		Meta  any
+	}
+	// untyped has the JSON schema's column without its tags, so rows match by field name.
+	type untyped struct {
+		ID   int64
+		Meta any
+	}
+	type idOnly struct {
+		ID int64 `parquet:"name=id, type=INT64"`
+	}
+	cyclic := map[string]any{}
+	cyclic["self"] = cyclic
+	jsonSchema := `{"Tag": "name=parquet_go_root", "Fields": [{"Tag": "name=id, inname=ID, type=INT64"}]}`
+	testCases := map[string]struct {
+		schema any
+		row    any
+		want   any
+	}{
+		"struct": {
+			new(record),
+			record{ID: 1, Items: []item{{V: 2, Meta: cyclic}}, ByKey: map[string]item{"k": {V: 3, Meta: cyclic}}, Meta: cyclic},
+			&record{ID: 1, Items: []item{{V: 2}}, ByKey: map[string]item{"k": {V: 3}}},
+		},
+		"json-schema": {jsonSchema, untyped{ID: 1, Meta: cyclic}, &idOnly{ID: 1}},
+		"map-row":     {jsonSchema, map[string]any{"ID": int64(1), "Meta": cyclic}, &idOnly{ID: 1}},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			pw, buf, err := createTestParquetWriter(tc.schema, WithNP(1))
+			require.NoError(t, err)
+			require.NoError(t, pw.Write(tc.row))
+			require.NoError(t, pw.WriteStop())
+
+			pr, pf, err := createTestParquetReader(buf.Bytes(), tc.want, reader.WithNP(1))
+			require.NoError(t, err)
+			defer func() { _ = pf.Close() }()
+			got := reflect.New(reflect.SliceOf(reflect.TypeOf(tc.want).Elem()))
+			got.Elem().Set(reflect.MakeSlice(got.Elem().Type(), 1, 1))
+			//nolint:staticcheck
+			require.NoError(t, pr.Read(got.Interface()))
+			require.Equal(t, reflect.ValueOf(tc.want).Elem().Interface(), got.Elem().Index(0).Interface())
+		})
+	}
+}
+
+// A flush must drop the rows it wrote, which may be large copies, rather than keep them
+// reachable through the reused buffer until the writer is collected.
+func TestFlush_ReleasesBufferedRows(t *testing.T) {
+	type record struct {
+		Payload []byte `parquet:"name=payload, type=BYTE_ARRAY"`
+	}
+	pw, _, err := createTestParquetWriter(new(record), WithNP(1))
+	require.NoError(t, err)
+	for range 3 {
+		require.NoError(t, pw.Write(record{Payload: []byte("payload")}))
+	}
+	require.NoError(t, pw.Flush(true))
+	require.Empty(t, pw.objs)
+	for i, obj := range pw.objs[:cap(pw.objs)] {
+		require.Nil(t, obj, "slot %d", i)
+	}
+}
+
+func TestWrite_RowCopyOption(t *testing.T) {
+	type record struct {
+		Bytes []byte `parquet:"name=bytes, type=BYTE_ARRAY"`
+	}
+	testCases := map[string]struct {
+		opts []WriterOption
+		want []string
+	}{
+		"default":  {want: []string{"a", "b", "c"}},
+		"enabled":  {opts: []WriterOption{WithRowCopy(true)}, want: []string{"a", "b", "c"}},
+		"disabled": {opts: []WriterOption{WithRowCopy(false)}, want: []string{"z", "z", "z"}},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			pw, buf, err := createTestParquetWriter(new(record), append([]WriterOption{WithNP(1)}, tc.opts...)...)
+			require.NoError(t, err)
+			reused := record{Bytes: []byte{0}}
+			for i := range len(tc.want) {
+				reused.Bytes[0] = byte('a' + i)
+				require.NoError(t, pw.Write(reused))
+			}
+			// Without a copy, the buffered rows still share the caller's bytes until the flush.
+			reused.Bytes[0] = 'z'
+			require.NoError(t, pw.WriteStop())
+
+			pr, pf, err := createTestParquetReader(buf.Bytes(), new(record), reader.WithNP(1))
+			require.NoError(t, err)
+			defer func() { _ = pf.Close() }()
+			got := make([]record, len(tc.want))
+			//nolint:staticcheck
+			require.NoError(t, pr.Read(&got))
+			for i, want := range tc.want {
+				require.Equal(t, want, string(got[i].Bytes), "row %d", i)
+			}
+		})
+	}
+}
+
+// Copying a row must not change what nil and empty slices write.
+func TestWrite_NilAndEmptySlices(t *testing.T) {
+	type record struct {
+		List    []int64  `parquet:"name=list, type=LIST, valuetype=INT64"`
+		Strs    []string `parquet:"name=strs, type=LIST, valuetype=BYTE_ARRAY, valueconvertedtype=UTF8"`
+		OptList *[]int64 `parquet:"name=opt_list, type=LIST, valuetype=INT64, repetitiontype=OPTIONAL"`
+		Variant any      `parquet:"name=variant, type=VARIANT, repetitiontype=OPTIONAL"`
+	}
+	empty := []int64{}
+	rows := []record{
+		{},
+		{List: []int64{}, Strs: []string{}, OptList: &empty, Variant: []any{}},
+		{Variant: map[string]any{"a": []any{}}},
+	}
+	pw, buf, err := createTestParquetWriter(new(record), WithNP(1))
+	require.NoError(t, err)
+	for _, r := range rows {
+		require.NoError(t, pw.Write(r))
+	}
+	require.NoError(t, pw.WriteStop())
+
+	pr, pf, err := createTestParquetReader(buf.Bytes(), new(record), reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pf.Close() }()
+	got := make([]record, len(rows))
+	//nolint:staticcheck
+	require.NoError(t, pr.Read(&got))
+	// A required LIST reads back empty whether it was written nil or empty; only the
+	// optional one keeps a null apart from an empty list.
+	require.Equal(t, []record{
+		{List: []int64{}, Strs: []string{}},
+		{List: []int64{}, Strs: []string{}, OptList: &empty, Variant: []any{}},
+		{List: []int64{}, Strs: []string{}, Variant: map[string]any{"a": []any{}}},
+	}, got)
 }
 
 // TestWriteStop_FooterWriteError covers the "write footer" error path in WriteStop.
