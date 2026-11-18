@@ -6,11 +6,11 @@ import (
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
-// Compile time check that *localFile implement the source.ParquetFileReader interface.
+// Compile-time check that *localReader implements source.ParquetFileReader.
 var _ source.ParquetFileReader = (*localReader)(nil)
 
 type localReader struct {
-	localFile
+	cursor *fileCursor
 }
 
 func NewLocalFileReader(name string) (source.ParquetFileReader, error) {
@@ -23,27 +23,26 @@ func (f *localReader) Open(name string) (source.ParquetFileReader, error) {
 		return nil, err
 	}
 
-	return &localReader{
-		localFile: localFile{
-			filePath: name,
-			file:     file,
-		},
-	}, nil
+	return &localReader{cursor: newFileCursor(file)}, nil
 }
 
 func (f localReader) Clone() (source.ParquetFileReader, error) {
-	return NewLocalFileReader(f.filePath)
+	cursor, err := f.cursor.Clone()
+	if err != nil {
+		return nil, err
+	}
+	return &localReader{cursor: cursor}, nil
 }
 
 func (f *localReader) Seek(offset int64, pos int) (int64, error) {
-	return f.file.Seek(offset, pos)
+	return f.cursor.Seek(offset, pos)
 }
 
 func (f *localReader) Read(b []byte) (cnt int, err error) {
 	var n int
 	ln := len(b)
 	for cnt < ln {
-		n, err = f.file.Read(b[cnt:])
+		n, err = f.cursor.Read(b[cnt:])
 		cnt += n
 		if err != nil {
 			break
@@ -53,5 +52,5 @@ func (f *localReader) Read(b []byte) (cnt int, err error) {
 }
 
 func (f *localReader) Close() error {
-	return f.file.Close()
+	return f.cursor.Close()
 }

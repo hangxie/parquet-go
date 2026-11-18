@@ -3,7 +3,11 @@ package reader
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -18,6 +22,7 @@ import (
 	"github.com/hangxie/parquet-go/v3/schema"
 	"github.com/hangxie/parquet-go/v3/source"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
+	"github.com/hangxie/parquet-go/v3/source/local"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
 	"github.com/hangxie/parquet-go/v3/writer"
 )
@@ -1258,4 +1263,58 @@ func TestNewParquetReaderJSONSchemaErrors(t *testing.T) {
 			require.ErrorContains(t, err, tt.errMsg)
 		})
 	}
+}
+
+func TestWideLocalReaderHandleLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell with ulimit")
+	}
+	if path := os.Getenv("PARQUET_WIDE_HANDLE_TEST"); path != "" {
+		file, err := local.NewLocalFileReader(path)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, file.Close()) }()
+		columns, err := NewParquetColumnReaderWithContext(context.Background(), file)
+		require.NoError(t, err)
+		for _, index := range []int64{0, 199} {
+			values, _, _, err := columns.ReadColumnByIndexWithContext(context.Background(), index, 1)
+			require.NoError(t, err)
+			require.Equal(t, []any{index}, values)
+		}
+		require.NoError(t, columns.ReadStopWithContext(context.Background()))
+		pr, err := NewParquetReaderWithContext(context.Background(), file, nil, WithNP(4))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pr.ReadStopWithContext(context.Background())) }()
+		rows, err := pr.ReadByNumberWithContext(context.Background(), 1)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		value := reflect.ValueOf(rows[0])
+		require.Equal(t, 200, value.NumField())
+		for i := range 200 {
+			require.EqualValues(t, i, value.Field(i).Int())
+		}
+		require.NoError(t, pr.ResetWithContext(context.Background()))
+		rows, err = pr.ReadByNumberWithContext(context.Background(), 1)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		return
+	}
+	var data bytes.Buffer
+	metadata := make([]string, 200)
+	row := make([]any, 200)
+	for i := range metadata {
+		metadata[i] = fmt.Sprintf("name=c%d, type=INT64", i)
+		row[i] = int64(i)
+	}
+	pw, err := writer.NewCSVWriterFromWriterWithContext(context.Background(), metadata, &data)
+	require.NoError(t, err)
+	require.NoError(t, pw.WriteWithContext(context.Background(), row))
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+	path := filepath.Join(t.TempDir(), "wide.parquet")
+	require.NoError(t, os.WriteFile(path, data.Bytes(), 0o600))
+	binary, err := os.Executable()
+	require.NoError(t, err)
+	cmd := exec.Command("sh", "-c", `ulimit -n 128 && exec "$@"`, "sh", binary, "-test.run=^TestWideLocalReaderHandleLimit$", "-test.count=1")
+	cmd.Env = append(os.Environ(), "PARQUET_WIDE_HANDLE_TEST="+path)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", output)
 }
