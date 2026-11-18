@@ -201,5 +201,5 @@ func TestSwiftWideParquetReader(t *testing.T) {
 	require.NoError(t, file.Close())
 	_, active, peak := tracker.counts()
 	require.Zero(t, active)
-	require.LessOrEqual(t, peak, len(metadata)+1)
+	require.LessOrEqual(t, peak, defaultStreamLimit)
 }

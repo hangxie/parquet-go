@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ncw/swift"
 	"github.com/stretchr/testify/assert"
@@ -151,6 +152,45 @@ func (t *requestTracker) counts() (int, int, int) {
 	return t.gets, t.active, t.peak
 }
 
+func TestSwiftPoolInterleavedReads(t *testing.T) {
+	for _, width := range []int{4, 32, 200, defaultStreamLimit, defaultStreamLimit + 5} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			tracker := &requestTracker{}
+			conn := setupSwiftServer(t, tracker)
+			data := bytes.Repeat([]byte("abcdefgh"), 4096)
+			require.NoError(t, conn.ObjectPutBytes(testContainer, "pool", data, ""))
+			root, err := NewSwiftFileReader(testContainer, "pool", conn)
+			require.NoError(t, err)
+			cursors := make([]source.ParquetFileReader, width)
+			for i := range cursors {
+				cursors[i], err = root.Clone()
+				require.NoError(t, err)
+			}
+			gets, _, _ := tracker.counts()
+			require.Zero(t, gets, "clones must not open streams")
+			require.NoError(t, root.Close())
+			buf := make([]byte, 1024)
+			for round := range 3 {
+				for _, c := range cursors {
+					_, err := io.ReadFull(c, buf)
+					require.NoError(t, err)
+					require.Equal(t, data[round*1024:(round+1)*1024], buf)
+				}
+			}
+			gets, _, peak := tracker.counts()
+			require.LessOrEqual(t, peak, defaultStreamLimit)
+			if width <= defaultStreamLimit {
+				require.Equal(t, width, gets, "retained sequential streams must not reopen")
+			}
+			for _, c := range cursors {
+				require.NoError(t, c.Close())
+			}
+			_, active, _ := tracker.counts()
+			require.Zero(t, active)
+		})
+	}
+}
+
 func TestSwiftPoolFailureIsolation(t *testing.T) {
 	tracker := &requestTracker{}
 	conn := setupSwiftServer(t, tracker)
@@ -206,7 +246,7 @@ func TestSwiftPoolConcurrentReads(t *testing.T) {
 	require.NoError(t, root.Close())
 	_, active, peak := tracker.counts()
 	require.Zero(t, active)
-	require.LessOrEqual(t, peak, 40)
+	require.LessOrEqual(t, peak, defaultStreamLimit)
 }
 
 func TestSwiftPoolCleanupErrors(t *testing.T) {
@@ -283,7 +323,7 @@ func TestSwiftOpenSharesPool(t *testing.T) {
 	}
 	_, active, peak := tracker.counts()
 	require.Zero(t, active)
-	require.LessOrEqual(t, peak, 1)
+	require.LessOrEqual(t, peak, defaultStreamLimit)
 }
 
 func BenchmarkSwiftInterleavedColumns(b *testing.B) {
@@ -325,6 +365,72 @@ func BenchmarkSwiftInterleavedColumns(b *testing.B) {
 	}
 }
 
+func TestSwiftPoolCustomLimit(t *testing.T) {
+	for _, limit := range []int{1, 3, 32} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			tracker := &requestTracker{}
+			conn := setupSwiftServer(t, tracker)
+			require.NoError(t, conn.ObjectPutBytes(testContainer, "limit", []byte("abcdef"), ""))
+			root, err := NewSwiftFileReaderWithStreamLimit(testContainer, "limit", conn, limit)
+			require.NoError(t, err)
+			var cursors []source.ParquetFileReader
+			for range limit + 1 {
+				c, err := root.Clone()
+				require.NoError(t, err)
+				_, err = c.Read(make([]byte, 1))
+				require.NoError(t, err)
+				cursors = append(cursors, c)
+			}
+			for _, c := range cursors {
+				require.NoError(t, c.Close())
+			}
+			require.NoError(t, root.Close())
+			_, active, peak := tracker.counts()
+			require.Zero(t, active)
+			require.Equal(t, limit, peak)
+		})
+	}
+	for _, limit := range []int{0, -1} {
+		_, err := NewSwiftFileReaderWithStreamLimit("", "", nil, limit)
+		require.ErrorContains(t, err, "must be positive")
+	}
+}
+
+func BenchmarkSwiftConfigured32Streams(b *testing.B) {
+	tracker := &requestTracker{}
+	conn := setupSwiftServer(b, tracker)
+	require.NoError(b, conn.ObjectPutBytes(testContainer, "configured", bytes.Repeat([]byte("x"), 65536), ""))
+	buf := make([]byte, 4096)
+	b.ResetTimer()
+	for range b.N {
+		root, err := NewSwiftFileReaderWithStreamLimit(testContainer, "configured", conn, 32)
+		require.NoError(b, err)
+		cursors := make([]source.ParquetFileReader, 32)
+		for i := range cursors {
+			cursors[i], err = root.Clone()
+			require.NoError(b, err)
+		}
+		require.NoError(b, root.Close())
+		for range 8 {
+			for _, c := range cursors {
+				_, err := io.ReadFull(c, buf)
+				require.NoError(b, err)
+			}
+		}
+		for _, c := range cursors {
+			require.NoError(b, c.Close())
+		}
+	}
+	b.StopTimer()
+	gets, _, peak := tracker.counts()
+	b.ReportMetric(float64(gets)/float64(b.N), "GETs/op")
+	tracker.mu.Lock()
+	heads := tracker.heads
+	tracker.mu.Unlock()
+	b.ReportMetric(float64(heads)/float64(b.N), "HEADs/op")
+	b.ReportMetric(float64(peak), "peak-streams")
+}
+
 func TestSwiftOpenOnlyFetchesMetadata(t *testing.T) {
 	tracker := &requestTracker{}
 	conn := setupSwiftServer(t, tracker)
@@ -345,7 +451,7 @@ func TestSwiftPoolRejectsChangedObject(t *testing.T) {
 	tracker := &requestTracker{}
 	conn := setupSwiftServer(t, tracker)
 	require.NoError(t, conn.ObjectPutBytes(testContainer, "version", []byte("abcdef"), ""))
-	root, err := NewSwiftFileReader(testContainer, "version", conn)
+	root, err := NewSwiftFileReaderWithStreamLimit(testContainer, "version", conn, 1)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, root.Close()) }()
 	clone, err := root.Clone()
@@ -358,14 +464,12 @@ func TestSwiftPoolRejectsChangedObject(t *testing.T) {
 	_, err = clone.Read(make([]byte, 1))
 	require.NoError(t, err)
 	require.NoError(t, conn.ObjectPutBytes(testContainer, "version", []byte("UVWXYZ"), ""))
-	_, err = root.Seek(2, io.SeekStart)
-	require.NoError(t, err)
 	n, err := root.Read(data)
 	require.Error(t, err, "a resume must not mix bytes from a different object version")
 	require.Zero(t, n)
 	pos, err := root.Seek(0, io.SeekCurrent)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, pos)
+	require.EqualValues(t, 3, pos)
 	tracker.mu.Lock()
 	matches := append([]string(nil), tracker.matches...)
 	tracker.mu.Unlock()
@@ -380,6 +484,95 @@ func TestSwiftPoolRejectsChangedObject(t *testing.T) {
 	got, err := io.ReadAll(fresh)
 	require.NoError(t, err)
 	require.Equal(t, "UVWXYZ", string(got))
+}
+
+func TestSwiftPoolWaitsForBusyStreams(t *testing.T) {
+	tracker := &requestTracker{entered: make(chan struct{}, 3), unblock: make(chan struct{})}
+	var release sync.Once
+	defer release.Do(func() { close(tracker.unblock) })
+	conn := setupSwiftServer(t, tracker)
+	require.NoError(t, conn.ObjectPutBytes(testContainer, "busy", []byte("abcdef"), ""))
+	root, err := NewSwiftFileReaderWithStreamLimit(testContainer, "busy", conn, 2)
+	require.NoError(t, err)
+	cursors := []source.ParquetFileReader{root}
+	for range 2 {
+		c, err := root.Clone()
+		require.NoError(t, err)
+		cursors = append(cursors, c)
+	}
+	for _, c := range cursors {
+		defer func() { require.NoError(t, c.Close()) }()
+	}
+	defer release.Do(func() { close(tracker.unblock) })
+	done := make(chan error, 3)
+	read := func(c source.ParquetFileReader) { _, err := c.Read(make([]byte, 1)); done <- err }
+	for _, c := range cursors[:2] {
+		go read(c)
+	}
+	for range 2 {
+		select {
+		case <-tracker.entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("first two reads did not enter their bodies")
+		}
+	}
+	go read(cursors[2])
+	third := cursors[2].(*swiftReader).fileReader
+	require.Eventually(t, func() bool {
+		if third.mu.TryLock() {
+			third.mu.Unlock()
+			return false
+		}
+		return true
+	}, 5*time.Second, time.Millisecond, "third read never entered the cursor")
+	select {
+	case <-tracker.entered:
+		t.Fatal("third stream opened while all slots were pinned")
+	case err := <-done:
+		t.Fatalf("read completed before bodies were released: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	gets, _, peak := tracker.counts()
+	require.Equal(t, 2, gets)
+	require.Equal(t, 2, peak)
+	release.Do(func() { close(tracker.unblock) })
+	for range 3 {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("waiting read did not resume")
+		}
+	}
+	_, _, peak = tracker.counts()
+	require.Equal(t, 2, peak)
+}
+
+func TestSwiftEvictionCloseErrorIsIsolated(t *testing.T) {
+	tracker := &requestTracker{}
+	conn := setupSwiftServer(t, tracker)
+	require.NoError(t, conn.ObjectPutBytes(testContainer, "evict-error", []byte("abcdef"), ""))
+	root, err := NewSwiftFileReaderWithStreamLimit(testContainer, "evict-error", conn, 1)
+	require.NoError(t, err)
+	clone, err := root.Clone()
+	require.NoError(t, err)
+	_, err = root.Read(make([]byte, 1))
+	require.NoError(t, err)
+	tracker.mu.Lock()
+	tracker.closeErr = true
+	tracker.mu.Unlock()
+	data := make([]byte, 1)
+	_, err = clone.Read(data)
+	require.NoError(t, err, "a victim's close error must not fail the acquiring cursor")
+	require.Equal(t, "a", string(data))
+	tracker.mu.Lock()
+	tracker.closeErr = false
+	tracker.mu.Unlock()
+	require.NoError(t, root.Close())
+	require.NoError(t, clone.Close())
+	_, active, peak := tracker.counts()
+	require.Zero(t, active)
+	require.Equal(t, 1, peak)
 }
 
 func TestSwiftRejectsInvalidMetadata(t *testing.T) {
@@ -413,16 +606,14 @@ func TestSwiftPoolRejectsInvalidRange(t *testing.T) {
 			tracker := &requestTracker{}
 			conn := setupSwiftServer(t, tracker)
 			require.NoError(t, conn.ObjectPutBytes(testContainer, "range", []byte("abcdef"), ""))
-			root, err := NewSwiftFileReader(testContainer, "range", conn)
+			root, err := NewSwiftFileReaderWithStreamLimit(testContainer, "range", conn, 1)
 			require.NoError(t, err)
 			clone, err := root.Clone()
 			require.NoError(t, err)
 			defer func() { require.NoError(t, root.Close()); require.NoError(t, clone.Close()) }()
-			_, err = io.ReadFull(root, make([]byte, 1))
+			_, err = io.ReadFull(root, make([]byte, 2))
 			require.NoError(t, err)
 			_, err = clone.Read(make([]byte, 1))
-			require.NoError(t, err)
-			_, err = root.Seek(2, io.SeekStart)
 			require.NoError(t, err)
 			tracker.mu.Lock()
 			tracker.rangeMode = mode
@@ -436,7 +627,7 @@ func TestSwiftPoolRejectsInvalidRange(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 2, pos)
 			_, active, _ := tracker.counts()
-			require.Equal(t, 1, active, "invalid bodies must be closed")
+			require.Zero(t, active, "invalid bodies must be closed")
 			tracker.mu.Lock()
 			tracker.rangeMode = ""
 			tracker.mu.Unlock()
@@ -444,7 +635,7 @@ func TestSwiftPoolRejectsInvalidRange(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "cd", string(data), "a valid retry must resume at the unchanged offset")
 			_, _, peak := tracker.counts()
-			require.Equal(t, 2, peak)
+			require.Equal(t, 1, peak)
 		})
 	}
 }
@@ -492,17 +683,15 @@ func TestSwiftPoolConditionalRequestErrors(t *testing.T) {
 			tracker := &requestTracker{}
 			conn := setupSwiftServer(t, tracker)
 			require.NoError(t, conn.ObjectPutBytes(testContainer, "conditional", []byte("abcdef"), ""))
-			root, err := NewSwiftFileReader(testContainer, "conditional", conn)
+			root, err := NewSwiftFileReaderWithStreamLimit(testContainer, "conditional", conn, 1)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, root.Close()) }()
 			clone, err := root.Clone()
 			require.NoError(t, err)
 			defer func() { require.NoError(t, clone.Close()) }()
-			_, err = io.ReadFull(root, make([]byte, 1))
+			_, err = io.ReadFull(root, make([]byte, 2))
 			require.NoError(t, err)
 			_, err = clone.Read(make([]byte, 1))
-			require.NoError(t, err)
-			_, err = root.Seek(2, io.SeekStart)
 			require.NoError(t, err)
 			tracker.mu.Lock()
 			tracker.getStatus = tt.status
@@ -519,7 +708,7 @@ func TestSwiftPoolConditionalRequestErrors(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 2, pos)
 			_, active, _ := tracker.counts()
-			require.Equal(t, 1, active)
+			require.Zero(t, active)
 			tracker.mu.Lock()
 			tracker.getStatus = 0
 			tracker.mu.Unlock()

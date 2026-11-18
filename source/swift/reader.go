@@ -16,9 +16,17 @@ type swiftReader struct {
 	fileReader *streamCursor
 }
 
-// NewSwiftFileReader creates a Swift reader with lazy independent streams.
+// NewSwiftFileReader opens a Swift object with at most 256 streams per reader family.
 func NewSwiftFileReader(container, filePath string, conn *swift.Connection) (source.ParquetFileReader, error) {
-	cursor, err := newStreamCursor(newReaderPool(conn, container), filePath)
+	return NewSwiftFileReaderWithStreamLimit(container, filePath, conn, defaultStreamLimit)
+}
+
+// NewSwiftFileReaderWithStreamLimit bounds streams shared by clones and Open readers.
+func NewSwiftFileReaderWithStreamLimit(container, filePath string, conn *swift.Connection, limit int) (source.ParquetFileReader, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("swift stream limit must be positive: %d", limit)
+	}
+	cursor, err := newStreamCursor(newReaderPool(conn, container, limit), filePath)
 	if err != nil {
 		return nil, fmt.Errorf("open swift file: %w", err)
 	}
@@ -30,7 +38,7 @@ func (file *swiftReader) Open(name string) (source.ParquetFileReader, error) {
 	if file.fileReader != nil {
 		pool = file.fileReader.pool
 	} else {
-		pool = newReaderPool(file.connection, file.container)
+		pool = newReaderPool(file.connection, file.container, defaultStreamLimit)
 	}
 	fr, err := newStreamCursor(pool, name)
 	if err != nil {

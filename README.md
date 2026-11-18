@@ -36,6 +36,7 @@ parquet-go is a pure-Go library for reading and writing Apache Parquet files.
 - [Compression Support](#compression-support)
 - [Readers and Writers](#readers-and-writers)
 - [File Sources](#file-sources)
+  - [Swift Stream Limits](#swift-stream-limits)
 - [Advanced Features](#advanced-features)
   - [CRC Page Checksums](#crc-page-checksums)
   - [Bloom Filters](#bloom-filters)
@@ -353,7 +354,7 @@ Type aliases are supported, for example `type MyString string`, when the base ty
 
 ### Reading Values
 
-Local-file readers share one file handle across column readers, allowing wide files to be read without a file descriptor per column. See [source reader lifetimes](source/README.md#reader-lifetimes) for ownership and backend differences. Swift clones open independent streams lazily; see [Swift reader behavior](source/README.md#swift).
+Local-file readers share one file handle across column readers, allowing wide files to be read without a file descriptor per column. See [source reader lifetimes](source/README.md#reader-lifetimes) for ownership and backend differences. Swift readers use a bounded pool of independent streams; see [Swift stream limits](#swift-stream-limits) for configuration and throughput trade-offs.
 
 `types.ConvertValue` renders a column value for output, taking the schema element and the same options the write path does:
 
@@ -711,6 +712,22 @@ Supported sources:
 - OpenStack Swift
 
 See [source/README.md](source/README.md) for source-specific details.
+
+### Swift Stream Limits
+
+Swift readers open independent HTTP streams lazily. `swiftsource.NewSwiftFileReader(container, path, conn)` defaults to a budget of 256 open streams. To choose another positive budget, use `swiftsource.NewSwiftFileReaderWithStreamLimit(container, path, conn, limit)`. The pool is shared by clones and readers returned by `Open`; separate constructor calls create separate pools.
+
+Choose a limit using the leaf/value columns you will actually read, rather than top-level fields, unused columns in the schema, or `WithNP`. The following are starting points to benchmark, not guaranteed performance bands:
+
+| Use case | Starting point |
+| --- | --- |
+| Normal: fewer than 256 columns to read | Keep `NewSwiftFileReader` defaults when the application's connection budget allows. |
+| Wide: 256 or more columns that fit the connection budget (for example, 300–500) | Use `NewSwiftFileReaderWithStreamLimit` with room for the interleaved columns and auxiliary reads. A limit of 512 is a starting point for about 500 columns. Retaining more streams avoids eviction-driven requests at the cost of more open streams. |
+| Ultra-wide: more columns than the connection budget can retain (often thousands) | Set a resource budget rather than matching the column count. Eviction bounds open streams while allowing the scan to proceed, but additional range GETs can substantially increase latency and request charges. |
+
+Check the running process's actual soft file-descriptor limit, HTTP transport limits, and backend connection limits, leaving headroom for other files, sockets, and idle HTTP connections. Separate reader families have separate pools, so account for concurrent files. The stream limit counts open HTTP response bodies, not all OS file descriptors. Benchmark representative projections, batch sizes, `WithNP`, and concurrent readers; compare throughput, latency, request counts, and peak resource usage to find a suitable limit for the deployment.
+
+See [Swift source details](source/README.md#swift) for stream lifetimes, object-version checks, and range-request validation.
 
 ## Advanced Features
 
