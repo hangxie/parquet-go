@@ -1,7 +1,11 @@
 package swiftsource
 
 import (
+	"fmt"
 	"io"
+	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ncw/swift"
@@ -11,20 +15,44 @@ import (
 
 const testContainer = "test-container"
 
-func setupSwiftServer(t *testing.T) *swift.Connection {
+func setupSwiftServer(t testing.TB, transports ...http.RoundTripper) *swift.Connection {
 	t.Helper()
 	srv, err := swifttest.NewSwiftServer("localhost")
 	require.NoError(t, err)
 	t.Cleanup(func() { srv.Close() })
 
 	conn := &swift.Connection{
-		UserName: swifttest.TEST_ACCOUNT,
-		ApiKey:   swifttest.TEST_ACCOUNT,
-		AuthUrl:  srv.AuthURL,
+		UserName:  swifttest.TEST_ACCOUNT,
+		ApiKey:    swifttest.TEST_ACCOUNT,
+		AuthUrl:   srv.AuthURL,
+		Transport: rangeAwareTestTransport{},
+	}
+	if len(transports) != 0 {
+		conn.Transport = transports[0]
 	}
 	require.NoError(t, conn.Authenticate())
 	require.NoError(t, conn.ContainerCreate(testContainer, nil))
 	return conn
+}
+
+// rangeAwareTestTransport fills metadata omitted by swifttest's correctly sliced bodies.
+type rangeAwareTestTransport struct{}
+
+func (rangeAwareTestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	response, err := http.DefaultTransport.RoundTrip(r)
+	if err != nil {
+		return response, err
+	}
+	value := r.Header.Get("Range")
+	if r.Method == "GET" && strings.HasPrefix(value, "bytes=") && strings.HasSuffix(value, "-") && response.StatusCode == http.StatusOK {
+		start, parseErr := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(value, "bytes="), "-"), 10, 64)
+		if parseErr == nil && response.ContentLength >= 0 {
+			response.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, start+response.ContentLength-1, start+response.ContentLength))
+			response.StatusCode = http.StatusPartialContent
+			response.Status = "206 Partial Content"
+		}
+	}
+	return response, nil
 }
 
 func TestSwiftReaderRoundTrip(t *testing.T) {
@@ -116,7 +144,7 @@ func TestSwiftReaderCloneError(t *testing.T) {
 
 	_, err := reader.Clone()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "swift object open")
+	require.Contains(t, err.Error(), "swift object metadata")
 }
 
 func TestSwiftReaderOpenError(t *testing.T) {
@@ -124,7 +152,7 @@ func TestSwiftReaderOpenError(t *testing.T) {
 
 	_, err := NewSwiftFileReader(testContainer, "nonexistent.parquet", conn)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "swift object open")
+	require.Contains(t, err.Error(), "swift object metadata")
 }
 
 func TestSwiftWriterRoundTrip(t *testing.T) {

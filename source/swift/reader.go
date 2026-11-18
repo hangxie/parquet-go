@@ -8,33 +8,33 @@ import (
 	"github.com/hangxie/parquet-go/v3/source"
 )
 
-// Compile time check that *swiftFile implement the source.ParquetFileReader interface.
+// Compile-time check that *swiftReader implements source.ParquetFileReader.
 var _ source.ParquetFileReader = (*swiftReader)(nil)
 
 type swiftReader struct {
 	swiftFile
-	fileReader *swift.ObjectOpenFile
+	fileReader *streamCursor
 }
 
+// NewSwiftFileReader creates a Swift reader with lazy independent streams.
 func NewSwiftFileReader(container, filePath string, conn *swift.Connection) (source.ParquetFileReader, error) {
-	res := swiftReader{
-		swiftFile: swiftFile{
-			connection: conn,
-			container:  container,
-			filePath:   filePath,
-		},
-	}
-	r, err := res.Open(filePath)
+	cursor, err := newStreamCursor(newReaderPool(conn, container), filePath)
 	if err != nil {
 		return nil, fmt.Errorf("open swift file: %w", err)
 	}
-	return r, nil
+	return &swiftReader{swiftFile: swiftFile{connection: conn, container: container, filePath: filePath}, fileReader: cursor}, nil
 }
 
 func (file *swiftReader) Open(name string) (source.ParquetFileReader, error) {
-	fr, _, err := file.connection.ObjectOpen(file.container, name, false, nil)
+	var pool *readerPool
+	if file.fileReader != nil {
+		pool = file.fileReader.pool
+	} else {
+		pool = newReaderPool(file.connection, file.container)
+	}
+	fr, err := newStreamCursor(pool, name)
 	if err != nil {
-		return nil, fmt.Errorf("swift object open: %w", err)
+		return nil, err
 	}
 
 	res := &swiftReader{
@@ -50,11 +50,12 @@ func (file *swiftReader) Open(name string) (source.ParquetFileReader, error) {
 }
 
 func (file swiftReader) Clone() (source.ParquetFileReader, error) {
-	// Create a new reader without making network calls
-	// Open a new connection to the same object
-	fr, _, err := file.connection.ObjectOpen(file.container, file.filePath, false, nil)
+	if file.fileReader == nil {
+		return file.Open(file.filePath)
+	}
+	fr, err := file.fileReader.Clone()
 	if err != nil {
-		return nil, fmt.Errorf("swift object open: %w", err)
+		return nil, err
 	}
 
 	return &swiftReader{

@@ -353,7 +353,7 @@ Type aliases are supported, for example `type MyString string`, when the base ty
 
 ### Reading Values
 
-Local-file readers share one file handle across column readers, allowing wide files to be read without a file descriptor per column. See [source reader lifetimes](source/README.md#reader-lifetimes) for ownership and backend differences.
+Local-file readers share one file handle across column readers, allowing wide files to be read without a file descriptor per column. See [source reader lifetimes](source/README.md#reader-lifetimes) for ownership and backend differences. Swift clones open independent streams lazily; see [Swift reader behavior](source/README.md#swift).
 
 `types.ConvertValue` renders a column value for output, taking the schema element and the same options the write path does:
 
