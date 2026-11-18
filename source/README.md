@@ -4,17 +4,17 @@ parquet-go-source is a source provider for parquet-go. Sources implement separat
 
 ```go
 type ParquetFileReader interface {
-	io.Seeker
-	io.Reader
-	io.Closer
-	Open(name string) (ParquetFileReader, error)
-	Clone() (ParquetFileReader, error)
+    io.Seeker
+    io.Reader
+    io.Closer
+    Open(name string) (ParquetFileReader, error)
+    Clone() (ParquetFileReader, error)
 }
 
 type ParquetFileWriter interface {
-	io.Writer
-	io.Closer
-	Create(name string) (ParquetFileWriter, error)
+    io.Writer
+    io.Closer
+    Create(name string) (ParquetFileWriter, error)
 }
 ```
 
@@ -40,5 +40,11 @@ Supported sources:
 The `projectID` argument is only recorded on the source; object access is authorized against the bucket and does not depend on it. A reader `generation` of `-1` reads the latest generation of the object.
 
 A written object appears only when the writer's `Close` commits the upload, so upload errors such as a missing bucket surface at `Close`, and canceling the writer's context before `Close` leaves no object behind. See [example/gcs](../example/gcs) for a round trip.
+
+## Reader lifetimes
+
+Local-file clones share one reference-counted `*os.File` and keep independent positions. Reads use `ReadAt`, allowing parallel column access without opening another file descriptor. A local clone continues to read the same open file even if its path is renamed or removed. The handle closes after the last reader or clone closes. `Clone` on a closed local reader now returns `os.ErrClosed`, even if another clone remains open; previously it reopened the file by path. Clone before closing the source, or use `Open` to obtain a new reader by path. Call `ReadStop` to release the column readers, and close the original source reader when finished. `Open` creates a separate handle.
+
+HDFS and Swift clones continue to open independent streams. Sharing those streams would serialize reads and could trigger costly reconnects or HTTP range requests when columns interleave; wide-file handle limits for these sources remain unresolved. HDFS `ReadAt` also changes the stream position internally and cannot be used for concurrent column reads without synchronization.
 
 Thanks for all the contributors!

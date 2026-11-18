@@ -5,9 +5,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/hangxie/parquet-go/v3/source"
 )
 
 func TestLocalReader_Clone(t *testing.T) {
@@ -332,4 +335,54 @@ func TestNewLocalFileReader(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLocalReaderCloneSharesHandle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires unlinking an open file")
+	}
+	path := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.WriteFile(path, []byte("abcdef"), 0o600))
+	reader, err := NewLocalFileReader(path)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reader.Close()) }()
+	// The open inode remains readable, but cloning must not reopen its path.
+	require.NoError(t, os.Remove(path))
+	clone, err := reader.Clone()
+	require.NoError(t, err)
+	defer func() { require.NoError(t, clone.Close()) }()
+	_, err = reader.Seek(3, io.SeekStart)
+	require.NoError(t, err)
+	data := make([]byte, 3)
+	_, err = clone.Read(data)
+	require.NoError(t, err)
+	require.Equal(t, "abc", string(data))
+	require.NoError(t, reader.Close())
+	_, err = clone.Read(data)
+	require.NoError(t, err)
+	require.Equal(t, "def", string(data))
+}
+
+func TestLocalReaderManyClones(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.WriteFile(path, []byte("abcdef"), 0o600))
+	original, err := NewLocalFileReader(path)
+	require.NoError(t, err)
+	clones := make([]source.ParquetFileReader, 256)
+	for i := range clones {
+		clones[i], err = original.Clone()
+		require.NoError(t, err)
+	}
+	require.NoError(t, original.Close())
+	for i, clone := range clones {
+		if i < 2 {
+			data := make([]byte, 3)
+			_, err = clone.Read(data)
+			require.NoError(t, err)
+			require.Equal(t, "abc", string(data))
+		}
+		require.NoError(t, clone.Close())
+	}
+	_, err = original.Clone()
+	require.ErrorIs(t, err, os.ErrClosed)
 }
