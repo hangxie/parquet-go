@@ -43,7 +43,9 @@ A written object appears only when the writer's `Close` commits the upload, so u
 
 ## Swift
 
-Swift reader clones open independent streams lazily. Each stream has its own position, so different cursors can read concurrently without seeking a shared HTTP body. Streams stay open until EOF, Close, or a seek requires reopening. Lazy cloning avoids opening a stream for every column during reader initialization, but reading every column of a wide file can still retain many streams.
+Swift readers created by `NewSwiftFileReader` share a pool capped at 256 open object streams across their clones and readers returned by `Open`. Each active stream has its own position, so reads on different cursors can run concurrently without seeking a shared HTTP body. `NewSwiftFileReaderWithStreamLimit(container, path, conn, limit)` accepts any positive limit for workloads needing a different connection budget. Separate calls to either constructor create independent pools.
+
+For scenario-based sizing and benchmarking advice, see [Swift stream limits](../README.md#swift-stream-limits).
 
 Constructors and `Open` use HEAD to fetch the object size and ETag without opening a stream. GET permission and stream-open errors surface on the first read. Every GET uses `If-Match` and validates the returned ETag against that metadata; clones retain the same ETag, so an object overwritten between reads fails rather than mixing versions. Resumed GETs must also provide a valid `Content-Range` matching the saved offset, expected end, and object size; invalid responses are closed before any bytes are returned. Call `Open` to read a new version.
 
@@ -51,7 +53,7 @@ Readers require an ETag and reject metadata without one. Large-object manifests 
 
 Clones are lazy: `Clone` does not issue an HTTP request, and errors opening a clone's stream surface on its first read. `Clone` on a closed Swift reader returns `os.ErrClosed`; use `Open` to open a new reader by path. Closing one reader does not invalidate its clones or other readers in the pool. Call `ReadStop` and close the original source reader to release their streams.
 
-Seeks update the cursor position without requests, and reading at or beyond EOF returns EOF without opening a stream.
+The pool keeps recently used streams for sequential reads. Once the limit is reached, it closes an idle stream and resumes that cursor later using an HTTP range request at its saved offset. If all streams are reading, further reads wait for a slot. Interleaving more than 256 retained cursors with the default limit (or more than a custom limit) can cause repeated range requests and lower throughput; increase the limit when retaining more streams fits the application's connection budget. Pool waits cannot currently be interrupted by context cancellation. Seeks update the cursor position without requests, and reading at or beyond EOF returns EOF without opening a stream.
 
 ## Reader lifetimes
 

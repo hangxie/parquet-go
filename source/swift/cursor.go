@@ -67,6 +67,8 @@ func (c *streamCursor) Read(p []byte) (int, error) {
 		if closeErr := c.pool.discard(c); closeErr != nil {
 			err = errors.Join(err, fmt.Errorf("close Swift stream: %w", closeErr))
 		}
+	} else {
+		c.pool.release(c, e)
 	}
 	return n, err
 }
