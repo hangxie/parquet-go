@@ -59,6 +59,10 @@ The pool keeps recently used streams for sequential reads. Once the limit is rea
 
 Local-file clones share one reference-counted `*os.File` and keep independent positions. Reads use `ReadAt`, allowing parallel column access without opening another file descriptor. A local clone continues to read the same open file even if its path is renamed or removed. The handle closes after the last reader or clone closes. `Clone` on a closed local reader now returns `os.ErrClosed`, even if another clone remains open; previously it reopened the file by path. Clone before closing the source, or use `Open` to obtain a new reader by path. Call `ReadStop` to release the column readers, and close the original source reader when finished. `Open` creates a separate handle.
 
-HDFS clones continue to open independent streams, and their wide-file handle limits remain unresolved. HDFS `ReadAt` changes the stream position internally and cannot be used for concurrent column reads without synchronization.
+HDFS readers fetch the file size with a namenode metadata request. Clones start at offset zero without an RPC. Each cursor opens its own data stream on its first nonempty read before EOF and keeps it for sequential reads. Independent cursors can read concurrently. The default limit is 256 open streams across the original reader, its clones, and readers created by `Open`. Use `NewHdfsFileReaderWithStreamLimit` to set a different positive limit.
+
+At capacity, the pool closes the least recently used idle stream. Its cursor reopens the path and seeks to the saved offset on its next read. When all streams are busy, reads wait for a slot. Pool waits cannot currently be interrupted by context cancellation. Interleaving more active columns than the limit can cause repeated namenode opens and datanode reconnects. Keep input paths stable throughout the read, including after eviction. Stream-open errors can surface on the first read or after eviction.
+
+Each reader owns a reference to the HDFS client. Close each explicitly opened reader and call `ReadStop` to release column cursors. Closing the original reader leaves derived readers usable, and the final close releases the client. Cloning or opening a path from a closed reader returns `os.ErrClosed`.
 
 Thanks for all the contributors!

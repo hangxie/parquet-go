@@ -72,3 +72,10 @@ func (f *hdfsWriter) Close() error {
 	}
 	return nil
 }
+
+type hdfsFile struct {
+	hosts    []string
+	user     string
+	filePath string
+	client   hdfsClientIface
+}
