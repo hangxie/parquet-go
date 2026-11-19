@@ -702,7 +702,7 @@ type ParquetFileWriter interface {
 Supported sources:
 
 - Local filesystem
-- HDFS
+- HDFS (column readers open independent streams on demand, with a configurable limit)
 - S3 (AWS SDK v2)
 - Google Cloud Storage
 - Azure Blob Storage

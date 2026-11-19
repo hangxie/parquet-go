@@ -1,13 +1,15 @@
 package hdfs
 
 import (
+	"io"
+	"os"
+
 	"github.com/colinmarc/hdfs/v2"
 )
 
 // hdfsFileReaderIface abstracts *hdfs.FileReader to allow testing.
 type hdfsFileReaderIface interface {
-	Read(b []byte) (int, error)
-	Seek(offset int64, whence int) (int64, error)
+	io.ReadSeeker
 	Close() error
 }
 
@@ -19,6 +21,7 @@ type hdfsFileWriterIface interface {
 
 // hdfsClientIface abstracts the HDFS client to allow testing.
 type hdfsClientIface interface {
+	Stat(name string) (os.FileInfo, error)
 	Open(name string) (hdfsFileReaderIface, error)
 	Create(name string) (hdfsFileWriterIface, error)
 	Close() error
@@ -35,11 +38,4 @@ func (c *realHdfsClient) Open(name string) (hdfsFileReaderIface, error) {
 
 func (c *realHdfsClient) Create(name string) (hdfsFileWriterIface, error) {
 	return c.Client.Create(name)
-}
-
-type hdfsFile struct {
-	hosts    []string
-	user     string
-	filePath string
-	client   hdfsClientIface
 }
