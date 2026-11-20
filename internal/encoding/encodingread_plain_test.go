@@ -91,7 +91,7 @@ func TestReadPlain(t *testing.T) {
 				case parquet.Type_INT64:
 					buf, err = WritePlainINT64(tc.data)
 				case parquet.Type_INT96:
-					buf = WritePlainINT96(tc.data)
+					buf, err = WritePlainINT96(tc.data)
 				case parquet.Type_FLOAT:
 					buf, err = WritePlainFLOAT(tc.data)
 				case parquet.Type_DOUBLE:

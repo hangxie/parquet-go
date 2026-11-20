@@ -444,12 +444,20 @@ func TestWritePlain(t *testing.T) {
 
 				[]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			},
+			{
+				[]any{string([]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}), []byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+				[]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			},
 		}
 
 		for _, data := range testData {
-			res := WritePlainINT96(data.nums)
+			res, err := WritePlainINT96(data.nums)
+			require.NoError(t, err)
 			require.Equal(t, string(data.expected), string(res))
 		}
+
+		_, err := WritePlainINT96([]any{int64(1)})
+		require.ErrorContains(t, err, "is not a string or []byte")
 	})
 }
 
