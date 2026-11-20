@@ -74,6 +74,10 @@ func SizeOf(val reflect.Value) int64 {
 		}
 		return SizeOf(val.Elem())
 	case reflect.Slice:
+		// a byte-backed value carried as []byte, sized like the string it replaces
+		if val.Type().Elem().Kind() == reflect.Uint8 {
+			return int64(val.Len())
+		}
 		for i := range val.Len() {
 			size += SizeOf(val.Index(i))
 		}

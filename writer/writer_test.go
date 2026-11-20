@@ -832,6 +832,37 @@ func TestWriteInt96ByteSlice(t *testing.T) {
 	}
 }
 
+// TestWriteByteSliceMatchesString pins that a []byte field is sized like the string it
+// replaces, so both flush pages at the same rows and write the same file.
+func TestWriteByteSliceMatchesString(t *testing.T) {
+	type bytesRow struct {
+		Bin   []byte `parquet:"name=bin, type=BYTE_ARRAY"`
+		Fixed []byte `parquet:"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=12"`
+		Ts    []byte `parquet:"name=ts, type=INT96"`
+	}
+	type stringRow struct {
+		Bin   string `parquet:"name=bin, type=BYTE_ARRAY"`
+		Fixed string `parquet:"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=12"`
+		Ts    string `parquet:"name=ts, type=INT96"`
+	}
+	write := func(obj any, row func(i int) any) []byte {
+		pw, buf, err := createTestParquetWriter(obj, WithNP(1), WithPageSize(256))
+		require.NoError(t, err)
+		for i := range 200 {
+			require.NoError(t, pw.Write(row(i)))
+		}
+		require.NoError(t, pw.WriteStop())
+		return buf.Bytes()
+	}
+	value := func(i int) []byte { return fmt.Appendf(nil, "%012d", i) }
+
+	fromBytes := write(new(bytesRow), func(i int) any { return bytesRow{value(i), value(i), value(i)} })
+	fromStrings := write(new(stringRow), func(i int) any {
+		return stringRow{string(value(i)), string(value(i)), string(value(i))}
+	})
+	require.Equal(t, fromStrings, fromBytes)
+}
+
 // testInt96ReadBack reads buf into rows of obj's type and requires them to equal want.
 func testInt96ReadBack(t *testing.T, buf []byte, obj, want any) {
 	t.Helper()
