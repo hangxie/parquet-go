@@ -20,6 +20,13 @@ func (converter *jsonConverter) isRowBatch(val reflect.Value, schemaHandler *sch
 	if converter.rootPath == "" {
 		return true, nil
 	}
+	if val.Kind() == reflect.Slice {
+		// a byte-backed leaf's value is itself a []byte, not a batch of byte rows
+		primitive, err := isPrimitiveByteSlice(val, schemaHandler, converter.rootPath, converter)
+		if err != nil || primitive {
+			return false, err
+		}
+	}
 	element, err := lookupSchemaElement(schemaHandler, converter.rootPath, converter)
 	if err != nil {
 		return false, err
@@ -30,7 +37,15 @@ func (converter *jsonConverter) isRowBatch(val reflect.Value, schemaHandler *sch
 	// A LIST root is the one place both readings are slices. A batch holds a list each, so
 	// its entries are slices of their own; a single list holds that list's elements.
 	switch val.Type().Elem().Kind() {
-	case reflect.Slice, reflect.Array, reflect.Interface:
+	case reflect.Slice:
+		// a list of byte-backed values holds []byte elements, which are values, not lists
+		elementPath, err := listElementPath(schemaHandler, converter.rootPath, converter)
+		if err != nil {
+			return false, err
+		}
+		primitive, err := isPrimitiveByteSlice(reflect.Zero(val.Type().Elem()), schemaHandler, elementPath, converter)
+		return !primitive, err
+	case reflect.Array, reflect.Interface:
 		return true, nil
 	}
 	return false, nil
@@ -93,7 +108,11 @@ func isPrimitiveByteSlice(val reflect.Value, schemaHandler *schema.SchemaHandler
 	}
 	// The column decides, not the Go type: a LIST carried in a []byte is still a list, and
 	// a repeated primitive names one path for the column ([][]byte) and for its values.
-	return *element.Type == parquet.Type_BYTE_ARRAY || *element.Type == parquet.Type_FIXED_LEN_BYTE_ARRAY, nil
+	switch *element.Type {
+	case parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY, parquet.Type_INT96:
+		return true, nil
+	}
+	return false, nil
 }
 
 // listElementPath returns the schema path of a slice's elements, or "" for a rootless slice.

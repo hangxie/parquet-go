@@ -456,6 +456,45 @@ func TestNewSchemaHandlerFromStruct_ByteArraySlice(t *testing.T) {
 	require.Equal(t, parquet.Type_BYTE_ARRAY, *sh.SchemaElements[1].Type)
 }
 
+func TestNewSchemaHandlerFromStruct_Int96ByteSlice(t *testing.T) {
+	tests := []struct {
+		name string
+		obj  any
+		path []string
+		rt   parquet.FieldRepetitionType
+	}{
+		{"required", new(struct {
+			V []byte `parquet:"name=v, type=INT96"`
+		}), []string{"V"}, parquet.FieldRepetitionType_REQUIRED},
+		{"optional", new(struct {
+			V *[]byte `parquet:"name=v, type=INT96, repetitiontype=OPTIONAL"`
+		}), []string{"V"}, parquet.FieldRepetitionType_OPTIONAL},
+		{"repeated", new(struct {
+			V [][]byte `parquet:"name=v, type=INT96, repetitiontype=REPEATED"`
+		}), []string{"V"}, parquet.FieldRepetitionType_REPEATED},
+		{"list element", new(struct {
+			V [][]byte `parquet:"name=v, type=LIST, valuetype=INT96"`
+		}), []string{"V", "List", "Element"}, parquet.FieldRepetitionType_REQUIRED},
+		{"map value", new(struct {
+			V map[string][]byte `parquet:"name=v, type=MAP, keytype=BYTE_ARRAY, valuetype=INT96"`
+		}), []string{"V", "Key_value", "Value"}, parquet.FieldRepetitionType_REQUIRED},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sh, err := NewSchemaHandlerFromStruct(tt.obj)
+			require.NoError(t, err)
+
+			path := common.PathToStr(append([]string{"Parquet_go_root"}, tt.path...))
+			idx, ok := sh.MapIndex[path]
+			require.True(t, ok, "missing %s", path)
+			elem := sh.SchemaElements[idx]
+			require.Equal(t, parquet.Type_INT96, elem.GetType())
+			require.Equal(t, int32(0), elem.GetNumChildren())
+			require.Equal(t, tt.rt, elem.GetRepetitionType())
+		})
+	}
+}
+
 func TestNewSchemaHandlerFromSchemaListListWrapperNames(t *testing.T) {
 	required := parquet.FieldRepetitionType_REQUIRED
 	repeated := parquet.FieldRepetitionType_REPEATED
