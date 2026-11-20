@@ -40,7 +40,7 @@ func WritePlain(src []any, pt parquet.Type) ([]byte, error) {
 	case parquet.Type_INT64:
 		return WritePlainINT64(src)
 	case parquet.Type_INT96:
-		return WritePlainINT96(src), nil
+		return WritePlainINT96(src)
 	case parquet.Type_FLOAT:
 		return WritePlainFLOAT(src)
 	case parquet.Type_DOUBLE:
@@ -86,12 +86,16 @@ func WritePlainINT64(nums []any) ([]byte, error) {
 	return bufWriter.Bytes(), nil
 }
 
-func WritePlainINT96(nums []any) []byte {
+func WritePlainINT96(nums []any) ([]byte, error) {
 	bufWriter := new(bytes.Buffer)
 	for i := range nums {
-		bufWriter.WriteString(nums[i].(string))
+		tmp, ok := plainByteValue(nums[i])
+		if !ok {
+			return nil, fmt.Errorf("[%v] is not a string or []byte", nums[i])
+		}
+		bufWriter.Write(tmp)
 	}
-	return bufWriter.Bytes()
+	return bufWriter.Bytes(), nil
 }
 
 func WritePlainFLOAT(nums []any) ([]byte, error) {

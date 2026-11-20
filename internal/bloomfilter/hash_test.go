@@ -80,6 +80,22 @@ func TestHashValueByteArrayStripsPrefix(t *testing.T) {
 	require.Equal(t, h1, h3)
 }
 
+func TestHashValueByteSlice(t *testing.T) {
+	for _, pType := range []parquet.Type{parquet.Type_BYTE_ARRAY, parquet.Type_FIXED_LEN_BYTE_ARRAY, parquet.Type_INT96} {
+		t.Run(pType.String(), func(t *testing.T) {
+			raw := "abcdefghijkl"
+			want, err := HashValue(raw, pType)
+			require.NoError(t, err)
+			got, err := HashValue([]byte(raw), pType)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+
+			_, err = HashValue(int32(1), pType)
+			require.ErrorContains(t, err, "encode value for bloom filter hash")
+		})
+	}
+}
+
 func TestHashValueRoundTrip(t *testing.T) {
 	// Test that hashed values can be found in a bloom filter
 	f := New(1024)
