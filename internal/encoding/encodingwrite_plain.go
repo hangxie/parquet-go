@@ -93,6 +93,10 @@ func WritePlainINT96(nums []any) ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("[%v] is not a string or []byte", nums[i])
 		}
+		// values are concatenated and read back every 12 bytes, so a wrong width shifts its neighbors
+		if len(tmp) != 12 {
+			return nil, fmt.Errorf("INT96 value of length %d is not 12 bytes", len(tmp))
+		}
 		bufWriter.Write(tmp)
 	}
 	return bufWriter.Bytes(), nil

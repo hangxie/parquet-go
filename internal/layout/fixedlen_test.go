@@ -29,6 +29,7 @@ func TestFixedLenByteArrayWidth(t *testing.T) {
 		"not-fixed-len":  {&parquet.SchemaElement{Type: common.ToPtr(parquet.Type_BYTE_ARRAY)}, 0, false},
 		"fixed-len":      {flbaSchema(12), 12, true},
 		"fixed-len-zero": {&parquet.SchemaElement{Type: common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY)}, 0, true},
+		"int96":          {&parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT96)}, 12, true},
 	}
 
 	for name, tc := range testCases {
@@ -75,6 +76,13 @@ func TestCheckFixedLenByteArrayWidth(t *testing.T) {
 		"zero-width-column": {
 			flbaSchema(0), "a",
 			"FIXED_LEN_BYTE_ARRAY value of length 1 does not match column length 0",
+		},
+		"int96-exact": {
+			&parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT96)}, []byte("abcdefghijkl"), "",
+		},
+		"int96-too-short": {
+			&parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT96)}, []byte("abcdefghijk"),
+			"INT96 value of length 11 does not match column length 12",
 		},
 	}
 
@@ -159,6 +167,33 @@ func TestEncodingValues_FixedLenByteArrayWidth(t *testing.T) {
 			}
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.errMsg)
+		})
+	}
+}
+
+func TestEncodingValues_Int96Width(t *testing.T) {
+	testCases := map[string]struct {
+		values []any
+		errMsg string
+	}{
+		"exact":        {[]any{"abcdefghijkl", []byte("ABCDEFGHIJKL")}, ""},
+		"short-string": {[]any{"abcdefghijk"}, "INT96 value of length 11 does not match column length 12"},
+		"long-bytes":   {[]any{[]byte("abcdefghijklm")}, "INT96 value of length 13 does not match column length 12"},
+		// the pair sums to two values' worth of bytes, which only a per-value check catches
+		"pair-sums-to-two": {[]any{"abcdefghijk", "ABCDEFGHIJKLM"}, "INT96 value of length 11"},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			page := newPageWithEncoding(parquet.Type_INT96, parquet.Encoding_PLAIN)
+			page.Path = []string{"root", "ts"}
+			_, err := page.EncodingValues(tc.values)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.errMsg)
+			require.ErrorContains(t, err, "column [root.ts]")
 		})
 	}
 }

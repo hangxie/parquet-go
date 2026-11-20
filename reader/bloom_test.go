@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -415,6 +416,115 @@ func TestBloomFilterCheckByteSlice(t *testing.T) {
 			require.NoError(t, err, column)
 			require.True(t, found, "%s %T", column, v)
 		}
+	}
+	// A BYTE_ARRAY has no fixed width, so a value of any length is a valid probe.
+	for _, v := range []any{value(50)[:11], string(value(50)) + "x"} {
+		found, err := pr.BloomFilterCheckWithContext(context.Background(), "bin", 0, v)
+		require.NoError(t, err)
+		require.False(t, found, "%q", v)
+	}
+}
+
+func TestBloomFilterCheckRejectsWrongWidth(t *testing.T) {
+	type record struct {
+		Fixed       []byte `parquet:"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=12, bloomfilter=true"`
+		Ts          []byte `parquet:"name=ts, type=INT96, bloomfilter=true"`
+		UUID        string `parquet:"name=uuid, type=FIXED_LEN_BYTE_ARRAY, length=16, logicaltype=UUID, bloomfilter=true"`
+		FixedNoBF   []byte `parquet:"name=fixed_no_bf, type=FIXED_LEN_BYTE_ARRAY, length=12"`
+		TsNoBF      []byte `parquet:"name=ts_no_bf, type=INT96"`
+		IntervalNoB string `parquet:"name=interval_no_bf, type=FIXED_LEN_BYTE_ARRAY, length=12, convertedtype=INTERVAL"`
+	}
+	v := []byte("abcdefghijkl")
+	var buf bytes.Buffer
+	pw, err := writer.NewParquetWriterFromWriterWithContext(context.Background(), &buf, new(record), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.WriteWithContext(context.Background(), record{v, v, "0123456789abcdef", v, v, string(v)}))
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), new(record), WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithContext(context.Background()) }()
+
+	for column, width := range map[string]int{"fixed": 12, "ts": 12, "uuid": 16, "fixed_no_bf": 12, "ts_no_bf": 12, "interval_no_bf": 12} {
+		// A column without a filter answers true for any value of the right width; one of the
+		// wrong width cannot be in the column whether or not a filter is there to ask.
+		found, err := pr.BloomFilterCheckWithContext(context.Background(), column, 0, bytes.Repeat([]byte{'a'}, width))
+		require.NoError(t, err, column)
+		if strings.HasSuffix(column, "no_bf") {
+			require.True(t, found, column)
+		}
+		for _, bad := range []any{bytes.Repeat([]byte{'a'}, width-1), strings.Repeat("a", width+1)} {
+			_, err := pr.BloomFilterCheckWithContext(context.Background(), column, 0, bad)
+			require.ErrorContains(t, err, "does not match column length", column)
+		}
+	}
+
+	// A value that is not bytes at all has no width to check and fails in the hash instead.
+	_, err = pr.BloomFilterCheckWithContext(context.Background(), "ts", 0, int64(1))
+	require.ErrorContains(t, err, "is not a string or []byte")
+}
+
+func TestBloomFilterCheckUsesFileWidth(t *testing.T) {
+	type stored struct {
+		Code  string `parquet:"name=code, type=FIXED_LEN_BYTE_ARRAY, length=4, bloomfilter=true"`
+		Label string `parquet:"name=label, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	type declared struct {
+		Code  string `parquet:"name=code, type=FIXED_LEN_BYTE_ARRAY, length=8"`
+		Label string `parquet:"name=label, type=BYTE_ARRAY, convertedtype=UTF8"`
+	}
+	var buf bytes.Buffer
+	pw, err := writer.NewParquetWriterFromWriterWithContext(context.Background(), &buf, new(stored), writer.WithNP(1))
+	require.NoError(t, err)
+	require.NoError(t, pw.WriteWithContext(context.Background(), stored{"abcd", "x"}))
+	require.NoError(t, pw.WriteStopWithContext(context.Background()))
+
+	pr, err := NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), new(declared), WithNP(1))
+	require.NoError(t, err)
+	defer func() { _ = pr.ReadStopWithContext(context.Background()) }()
+
+	// the filter was built from the file's 4-byte values, whatever width the destination declares
+	found, err := pr.BloomFilterCheckWithContext(context.Background(), "code", 0, "abcd")
+	require.NoError(t, err)
+	require.True(t, found)
+	_, err = pr.BloomFilterCheckWithContext(context.Background(), "code", 0, "abcdefgh")
+	require.ErrorContains(t, err, "value of length 8 does not match column length 4")
+}
+
+func TestFileLeaf(t *testing.T) {
+	footer := &parquet.FileMetaData{Schema: []*parquet.SchemaElement{
+		{Name: "root", NumChildren: common.ToPtr(int32(2))},
+		{Name: "a", TypeLength: common.ToPtr(int32(4))},
+		{Name: "g", NumChildren: common.ToPtr(int32(1))},
+		{Name: "b", TypeLength: common.ToPtr(int32(8))},
+	}}
+	require.Equal(t, "a", fileLeaf(footer, 0).GetName())
+	require.Equal(t, "b", fileLeaf(footer, 1).GetName())
+	require.Nil(t, fileLeaf(footer, 2))
+
+	// an ordinal past what 16 bits hold still names its own leaf rather than wrapping to another
+	wide := &parquet.FileMetaData{Schema: []*parquet.SchemaElement{{Name: "root"}}}
+	for i := range 1<<16 + 1 {
+		wide.Schema = append(wide.Schema, &parquet.SchemaElement{Name: fmt.Sprint(i)})
+	}
+	require.Equal(t, "65536", fileLeaf(wide, 1<<16).GetName())
+}
+
+func TestCheckFixedWidthInconsistentFooter(t *testing.T) {
+	fixed := parquet.Type_FIXED_LEN_BYTE_ARRAY
+	int32Type := parquet.Type_INT32
+	pr := &ParquetReader{Footer: &parquet.FileMetaData{Schema: []*parquet.SchemaElement{
+		{Name: "root", NumChildren: common.ToPtr(int32(2))},
+		{Name: "code", Type: &fixed, TypeLength: common.ToPtr(int32(4))},
+		{Name: "num", Type: &int32Type},
+	}}}
+
+	require.NoError(t, pr.checkFixedWidth("code", 0, fixed, "abcd"))
+	require.ErrorContains(t, pr.checkFixedWidth("code", 0, fixed, "abc"), "does not match column length 4")
+	// a row group naming a chunk the footer has no matching leaf for is malformed, not a width to skip
+	for _, ordinal := range []int{1, 2} {
+		err := pr.checkFixedWidth("other", ordinal, fixed, "abcd")
+		require.ErrorContains(t, err, "column [other]: chunk "+fmt.Sprint(ordinal)+" has no FIXED_LEN_BYTE_ARRAY leaf in the file schema")
 	}
 }
 

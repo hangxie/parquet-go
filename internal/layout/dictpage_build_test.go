@@ -356,30 +356,37 @@ func TestDictDataPageCompress_CompressError(t *testing.T) {
 }
 
 func TestTableToDictDataPagesWithOption_FixedLenByteArrayWidth(t *testing.T) {
+	flba := &parquet.SchemaElement{
+		Type:       common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
+		TypeLength: common.ToPtr(int32(4)),
+		Name:       "flba_col",
+	}
+	int96 := &parquet.SchemaElement{Type: common.ToPtr(parquet.Type_INT96), Name: "flba_col"}
 	testCases := map[string]struct {
+		schema *parquet.SchemaElement
 		values []any
 		errMsg string
 	}{
-		"exact":     {[]any{"abcd", "efgh"}, ""},
-		"too-short": {[]any{"abcd", "ef"}, "value of length 2 does not match column length 4"},
-		"too-long":  {[]any{"abcdef", "abcd"}, "value of length 6 does not match column length 4"},
+		"exact":     {flba, []any{"abcd", "efgh"}, ""},
+		"too-short": {flba, []any{"abcd", "ef"}, "value of length 2 does not match column length 4"},
+		"too-long":  {flba, []any{"abcdef", "abcd"}, "value of length 6 does not match column length 4"},
+		// tables hold strings by now: marshaling converts a caller's []byte before it gets here
+		"int96-exact":     {int96, []any{"abcdefghijkl", "ABCDEFGHIJKL"}, ""},
+		"int96-too-short": {int96, []any{"abcdefghijk", "ABCDEFGHIJKLM"}, "INT96 value of length 11 does not match column length 12"},
+		"int96-too-long":  {int96, []any{"abcdefghijklm", "abcdefghijkl"}, "INT96 value of length 13 does not match column length 12"},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			table := &Table{
-				Schema: &parquet.SchemaElement{
-					Type:       common.ToPtr(parquet.Type_FIXED_LEN_BYTE_ARRAY),
-					TypeLength: common.ToPtr(int32(4)),
-					Name:       "flba_col",
-				},
+				Schema:           tc.schema,
 				Path:             []string{"root", "flba_col"},
 				Values:           tc.values,
 				DefinitionLevels: []int32{0, 0},
 				RepetitionLevels: []int32{0, 0},
 				Info:             &common.Tag{},
 			}
-			_, _, err := TableToDictDataPagesWithOption(NewDictRec(parquet.Type_FIXED_LEN_BYTE_ARRAY), table, PageWriteOption{
+			_, _, err := TableToDictDataPagesWithOption(NewDictRec(tc.schema.GetType()), table, PageWriteOption{
 				PageSize:     1024,
 				CompressType: parquet.CompressionCodec_UNCOMPRESSED,
 			})

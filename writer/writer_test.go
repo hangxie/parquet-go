@@ -832,6 +832,42 @@ func TestWriteInt96ByteSlice(t *testing.T) {
 	}
 }
 
+// TestWriteInt96ValueWidth rejects values that are not 12 bytes. The rows below sum to two
+// full values, so writing them verbatim would read back as two different, valid rows.
+func TestWriteInt96ValueWidth(t *testing.T) {
+	type bytesRow struct {
+		Ts []byte `parquet:"name=ts, type=INT96"`
+	}
+	type stringRow struct {
+		Ts string `parquet:"name=ts, type=INT96"`
+	}
+	type dictRow struct {
+		Ts []byte `parquet:"name=ts, type=INT96, encoding=RLE_DICTIONARY"`
+	}
+	short, long := "abcdefghijk", "ABCDEFGHIJKLM"
+	for name, tc := range map[string]struct {
+		obj  any
+		rows []any
+	}{
+		"bytes":      {new(bytesRow), []any{bytesRow{[]byte(short)}, bytesRow{[]byte(long)}}},
+		"strings":    {new(stringRow), []any{stringRow{short}, stringRow{long}}},
+		"dictionary": {new(dictRow), []any{dictRow{[]byte(short)}, dictRow{[]byte(long)}}},
+	} {
+		for _, version := range []int32{1, 2} {
+			t.Run(fmt.Sprintf("%s/v%d", name, version), func(t *testing.T) {
+				pw, _, err := createTestParquetWriter(tc.obj, WithNP(1), WithDataPageVersion(version))
+				require.NoError(t, err)
+				for _, row := range tc.rows {
+					err = errors.Join(err, pw.Write(row))
+				}
+				err = errors.Join(err, pw.WriteStop())
+				require.ErrorContains(t, err, "INT96 value of length 11 does not match column length 12")
+				require.ErrorContains(t, err, "column [Parquet_go_root.Ts]")
+			})
+		}
+	}
+}
+
 // TestWriteByteSliceMatchesString pins that a []byte field is sized like the string it
 // replaces, so both flush pages at the same rows and write the same file.
 func TestWriteByteSliceMatchesString(t *testing.T) {

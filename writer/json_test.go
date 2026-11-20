@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -802,6 +803,73 @@ func TestJSONWriterFixedLenByteArrayWidth(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+// TestJSONWriterInt96 pins the text forms an INT96 column takes, each of which must encode to
+// the 12 bytes the writer now requires, read back as []byte and as string.
+func TestJSONWriterInt96(t *testing.T) {
+	jsonSchema := `{
+		"Tag": "name=parquet-go-root",
+		"Fields": [
+			{"Tag": "name=V, type=INT96"}
+		]
+	}`
+	type bytesRow struct {
+		V []byte `parquet:"name=V, type=INT96"`
+	}
+	type stringRow struct {
+		V string `parquet:"name=V, type=INT96"`
+	}
+
+	testCases := map[string]struct {
+		value  string
+		want   []byte
+		errMsg string
+	}{
+		"timestamp": {
+			value: "2024-01-02T03:04:05Z",
+			want:  []byte(types.TimeToINT96(time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC))),
+		},
+		"legacy-integer": {
+			value: "12345",
+			want:  []byte{0x39, 0x30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		"legacy-negative-integer": {
+			value: "-1",
+			want:  bytes.Repeat([]byte{0xff}, 12),
+		},
+		"not-a-timestamp": {
+			value:  "not-a-time",
+			errMsg: `parse INT96 timestamp "not-a-time"`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			jw, err := NewJSONWriter(jsonSchema, writerfile.NewWriterFile(&buf), WithNP(1))
+			require.NoError(t, err)
+			require.NoError(t, jw.Write(`{"V":"`+tc.value+`"}`))
+			err = jw.WriteStop()
+			if tc.errMsg != "" {
+				require.ErrorContains(t, err, tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+
+			pr, err := reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), new(bytesRow))
+			require.NoError(t, err)
+			gotBytes := make([]bytesRow, 1)
+			require.NoError(t, pr.ReadWithContext(context.Background(), &gotBytes))
+			require.Equal(t, tc.want, gotBytes[0].V)
+
+			pr, err = reader.NewParquetReaderWithContext(context.Background(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), new(stringRow))
+			require.NoError(t, err)
+			gotString := make([]stringRow, 1)
+			require.NoError(t, pr.ReadWithContext(context.Background(), &gotString))
+			require.Equal(t, string(tc.want), gotString[0].V)
 		})
 	}
 }

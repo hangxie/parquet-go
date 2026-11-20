@@ -1526,6 +1526,42 @@ func TestConvertToJSONFriendlyByteSliceAtLeafPrefix(t *testing.T) {
 	}
 }
 
+// TestConvertToJSONFriendlyFixedWidthMismatch reports a value no column of that width can
+// hold, which the interpreted rendering of a plain or DECIMAL FIXED_LEN_BYTE_ARRAY used to pass.
+func TestConvertToJSONFriendlyFixedWidthMismatch(t *testing.T) {
+	type row struct {
+		Fixed []byte `parquet:"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=4"`
+		Dec   []byte `parquet:"name=dec, type=FIXED_LEN_BYTE_ARRAY, length=4, convertedtype=DECIMAL, precision=9, scale=2"`
+		Ts    []byte `parquet:"name=ts, type=INT96"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+
+	_, err = ConvertToJSONFriendly(row{Fixed: []byte("abcd"), Dec: []byte{0, 0, 1, 0}, Ts: int96Timestamp()}, sh)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		column string
+		row    row
+		errMsg string
+	}{
+		{"Fixed", row{Fixed: []byte("abc"), Dec: []byte{0, 0, 1, 0}, Ts: int96Timestamp()}, "is 3 bytes, must be 4"},
+		{"Dec", row{Fixed: []byte("abcd"), Dec: []byte{1, 0}, Ts: int96Timestamp()}, "is 2 bytes, must be 4"},
+		{"Ts", row{Fixed: []byte("abcd"), Dec: []byte{0, 0, 1, 0}, Ts: int96Timestamp()[:11]}, "is 11 bytes, must be 12"},
+	} {
+		t.Run(tc.column, func(t *testing.T) {
+			_, err := ConvertToJSONFriendly(tc.row, sh)
+			require.ErrorIs(t, err, types.ErrUnrenderable)
+			require.ErrorContains(t, err, tc.errMsg)
+
+			// the same value handed over as a string, at a prefix naming the column
+			bad := reflect.ValueOf(tc.row).FieldByName(tc.column).Bytes()
+			_, err = ConvertToJSONFriendly(string(bad), sh, WithPrefixPath(common.PathToStr([]string{"Parquet_go_root", tc.column})))
+			require.ErrorIs(t, err, types.ErrUnrenderable)
+		})
+	}
+}
+
 // TestConvertToJSONFriendlyByteSliceListAtPrefix covers a prefix naming a list of byte-backed
 // values, where a [][]byte is one list and a [][][]byte is a batch of them.
 func TestConvertToJSONFriendlyByteSliceListAtPrefix(t *testing.T) {

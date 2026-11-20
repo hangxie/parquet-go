@@ -72,6 +72,17 @@ func valueBytes(val any) ([]byte, bool) {
 	return nil, false
 }
 
+// fixedLenByteArrayWidthError reports a FIXED_LEN_BYTE_ARRAY value that is not as wide as its column.
+func fixedLenByteArrayWidthError(val any, pT *parquet.Type, length int) error {
+	if pT == nil || *pT != parquet.Type_FIXED_LEN_BYTE_ARRAY || length <= 0 {
+		return nil
+	}
+	if b, ok := valueBytes(val); ok && len(b) != length {
+		return errUnrenderable(pT.String(), "is %d bytes, must be %d", len(b), length)
+	}
+	return nil
+}
+
 // isTextAnnotated reports whether either annotation guarantees the column holds text,
 // which is verbatim in both modes; base64-decoding it is the corruption in #420.
 func isTextAnnotated(cT *parquet.ConvertedType, lT *parquet.LogicalType) bool {

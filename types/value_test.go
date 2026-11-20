@@ -344,28 +344,45 @@ func TestConvertValueRawWidths(t *testing.T) {
 		require.NoError(t, err, "%d bytes", n)
 	}
 
-	// Only raw mode reports a width the schema fixes but the annotation does not: it
-	// promises the value writes back as it was read, and the raw write path rejects
-	// base64 that decodes to the wrong width. Interpreted mode promises no such thing and
-	// renders the same value.
-	for _, se := range []*parquet.SchemaElement{
-		readSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, nil, nil, 8),
-		readSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, ct(parquet.ConvertedType_DECIMAL), nil, 8),
+	// A width the schema fixes but the annotation does not is reported in both modes, as no
+	// column of that width can hold the value. Interpreted mode still hands back what it
+	// rendered, base64 or a decimal, alongside the error.
+	for _, tc := range []struct {
+		se   *parquet.SchemaElement
+		want any
+	}{
+		{readSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, nil, nil, 8), base64.StdEncoding.EncodeToString([]byte("short"))},
+		{readSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, ct(parquet.ConvertedType_DECIMAL), nil, 8), nil},
 	} {
-		_, err := ConvertValue("short", se, raw)
-		require.ErrorIs(t, err, ErrUnrenderable)
+		for _, v := range []any{"short", []byte("short")} {
+			_, err := ConvertValue(v, tc.se, raw)
+			require.ErrorIs(t, err, ErrUnrenderable)
 
-		_, err = ConvertValue("short", se)
-		require.NoError(t, err)
+			got, err := ConvertValue(v, tc.se)
+			require.ErrorIs(t, err, ErrUnrenderable)
+			require.ErrorContains(t, err, "is 5 bytes, must be 8")
+			if tc.want != nil {
+				require.Equal(t, tc.want, got)
+			}
+		}
 	}
 
 	// A text annotation is the exception in both directions: raw carries the string
 	// verbatim rather than base64, and rawStrToParquetType takes it back the same way
-	// without measuring it, so there is no width here to disagree about.
-	textSE := readSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, ct(parquet.ConvertedType_UTF8), nil, 8)
-	got, err := ConvertValue("short", textSE, raw)
-	require.NoError(t, err)
-	require.Equal(t, "short", got)
+	// without measuring it, so there is no width here to disagree about. Interpreted mode
+	// renders text verbatim too, and measures it no more than raw mode does.
+	for _, textSE := range []*parquet.SchemaElement{
+		readSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, ct(parquet.ConvertedType_UTF8), nil, 8),
+		readSE(parquet.Type_FIXED_LEN_BYTE_ARRAY, nil, &parquet.LogicalType{STRING: parquet.NewStringType()}, 8),
+	} {
+		for _, v := range []any{"short", []byte("short")} {
+			for _, opts := range [][]ValueOption{{raw}, nil} {
+				got, err := ConvertValue(v, textSE, opts...)
+				require.NoError(t, err)
+				require.Equal(t, "short", got)
+			}
+		}
+	}
 }
 
 // TestRawModeRoundTrip is the symmetry the mode exists for: what the read path renders in
@@ -562,6 +579,39 @@ func TestConvertValueChecksModeBeforeValue(t *testing.T) {
 // TestConvertValueINT96Width covers an INT96 that is not exactly 12 bytes. INT96ToTime only
 // rejects what is too short, so a longer value was rendering as the timestamp its first 12
 // bytes spell. Either byte form is accepted, as for every other byte-backed column.
+func TestFixedLenByteArrayWidthError(t *testing.T) {
+	flba, ba := parquet.Type_FIXED_LEN_BYTE_ARRAY, parquet.Type_BYTE_ARRAY
+	type named []byte
+	testCases := []struct {
+		name   string
+		val    any
+		pT     *parquet.Type
+		length int
+		errMsg string
+	}{
+		{"exact string", "abcd", &flba, 4, ""},
+		{"exact []byte", []byte("abcd"), &flba, 4, ""},
+		{"short string", "abc", &flba, 4, "is 3 bytes, must be 4"},
+		{"long []byte", []byte("abcde"), &flba, 4, "is 5 bytes, must be 4"},
+		{"named []byte", named("abc"), &flba, 4, "is 3 bytes, must be 4"},
+		{"not bytes", int32(1), &flba, 4, ""},
+		{"no width declared", "abc", &flba, 0, ""},
+		{"BYTE_ARRAY has no width", "abc", &ba, 4, ""},
+		{"no physical type", "abc", nil, 4, ""},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := fixedLenByteArrayWidthError(tc.val, tc.pT, tc.length)
+			if tc.errMsg == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrUnrenderable)
+			require.ErrorContains(t, err, tc.errMsg)
+		})
+	}
+}
+
 func TestConvertValueINT96Width(t *testing.T) {
 	se := readSE(parquet.Type_INT96, nil, nil, 0)
 

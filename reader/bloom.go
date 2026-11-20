@@ -31,6 +31,10 @@ func (pr *ParquetReader) BloomFilterCheckWithContext(ctx context.Context, column
 	if err != nil {
 		return false, err
 	}
+	// checked before the filter is looked for, so the answer does not depend on whether one was written
+	if err := pr.checkFixedWidth(columnPath, columnOrdinal, columnChunk.MetaData.GetType(), value); err != nil {
+		return false, err
+	}
 	if !columnChunk.MetaData.IsSetBloomFilterOffset() {
 		// No bloom filter for this column; conservatively return true
 		return true, nil
@@ -84,7 +88,7 @@ func (pr *ParquetReader) BloomFilterSize(ctx context.Context, columnPath string,
 }
 
 // locateColumnChunk resolves a rootless external column path to its chunk in one row group.
-func (pr *ParquetReader) locateColumnChunk(columnPath string, rowGroupIndex int) (*parquet.RowGroup, *parquet.ColumnChunk, int16, error) {
+func (pr *ParquetReader) locateColumnChunk(columnPath string, rowGroupIndex int) (*parquet.RowGroup, *parquet.ColumnChunk, int, error) {
 	if rowGroupIndex < 0 || rowGroupIndex >= len(pr.Footer.RowGroups) {
 		return nil, nil, 0, fmt.Errorf("row group index %d out of range [0, %d)", rowGroupIndex, len(pr.Footer.RowGroups))
 	}
@@ -103,13 +107,61 @@ func (pr *ParquetReader) locateColumnChunk(columnPath string, rowGroupIndex int)
 			continue
 		}
 		if columnPathToInPath(pr.SchemaHandler, pr.fileSchemaHandler, cc.MetaData.GetPathInSchema(), pr.caseInsensitive) == inPath {
-			return rg, cc, int16(i), nil
+			return rg, cc, i, nil
 		}
 	}
 	return nil, nil, 0, fmt.Errorf("column %q not found in row group %d", columnPath, rowGroupIndex)
 }
 
-func (pr *ParquetReader) readBloomFilterForColumn(pf source.ParquetFileReader, rowGroupIndex int, columnOrdinal int16, rowGroup *parquet.RowGroup, columnChunk *parquet.ColumnChunk) (*bloomfilter.Filter, error) {
+// checkFixedWidth rejects a byte value that is not as wide as its FIXED_LEN_BYTE_ARRAY or INT96 column.
+func (pr *ParquetReader) checkFixedWidth(columnPath string, columnOrdinal int, pT parquet.Type, value any) error {
+	var width int
+	switch pT {
+	case parquet.Type_INT96:
+		width = 12
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		// the filter holds the file's values, so the width is the file's, not the destination struct's
+		leaf := fileLeaf(pr.Footer, columnOrdinal)
+		if leaf == nil || leaf.GetType() != pT {
+			return fmt.Errorf("column [%s]: chunk %d has no FIXED_LEN_BYTE_ARRAY leaf in the file schema", columnPath, columnOrdinal)
+		}
+		width = int(leaf.GetTypeLength())
+	default:
+		return nil
+	}
+	var n int
+	switch v := value.(type) {
+	case string:
+		n = len(v)
+	case []byte:
+		n = len(v)
+	default:
+		// left to the hash, which reports a value that is not bytes at all
+		return nil
+	}
+	if width > 0 && n != width {
+		return fmt.Errorf("column [%s]: %s value of length %d does not match column length %d", columnPath, pT, n, width)
+	}
+	return nil
+}
+
+// fileLeaf returns the footer schema's leaf for a column chunk ordinal, nil when there is none.
+func fileLeaf(footer *parquet.FileMetaData, columnOrdinal int) *parquet.SchemaElement {
+	// chunks follow the file schema's leaves in order, whatever names the reader renamed them to
+	leaf := 0
+	for i, element := range footer.GetSchema() {
+		if i == 0 || element == nil || element.GetNumChildren() > 0 {
+			continue
+		}
+		if leaf == columnOrdinal {
+			return element
+		}
+		leaf++
+	}
+	return nil
+}
+
+func (pr *ParquetReader) readBloomFilterForColumn(pf source.ParquetFileReader, rowGroupIndex, columnOrdinal int, rowGroup *parquet.RowGroup, columnChunk *parquet.ColumnChunk) (*bloomfilter.Filter, error) {
 	offset, opt, err := pr.bloomFilterLocation(rowGroupIndex, columnOrdinal, rowGroup, columnChunk)
 	if err != nil {
 		return nil, err
@@ -121,7 +173,7 @@ func (pr *ParquetReader) readBloomFilterForColumn(pf source.ParquetFileReader, r
 	return bloomfilter.ReadEncryptedBloomFilter(rs, offset, *opt)
 }
 
-func (pr *ParquetReader) readBloomFilterSizeForColumn(pf source.ParquetFileReader, rowGroupIndex int, columnOrdinal int16, rowGroup *parquet.RowGroup, columnChunk *parquet.ColumnChunk) (int32, error) {
+func (pr *ParquetReader) readBloomFilterSizeForColumn(pf source.ParquetFileReader, rowGroupIndex, columnOrdinal int, rowGroup *parquet.RowGroup, columnChunk *parquet.ColumnChunk) (int32, error) {
 	offset, opt, err := pr.bloomFilterLocation(rowGroupIndex, columnOrdinal, rowGroup, columnChunk)
 	if err != nil {
 		return 0, err
@@ -134,7 +186,7 @@ func (pr *ParquetReader) readBloomFilterSizeForColumn(pf source.ParquetFileReade
 }
 
 // bloomFilterLocation returns a column's bloom filter offset, and its decryption options when encrypted.
-func (pr *ParquetReader) bloomFilterLocation(rowGroupIndex int, columnOrdinal int16, rowGroup *parquet.RowGroup, columnChunk *parquet.ColumnChunk) (int64, *bloomfilter.ReadOptions, error) {
+func (pr *ParquetReader) bloomFilterLocation(rowGroupIndex, columnOrdinal int, rowGroup *parquet.RowGroup, columnChunk *parquet.ColumnChunk) (int64, *bloomfilter.ReadOptions, error) {
 	if columnChunk == nil || columnChunk.MetaData == nil {
 		return 0, nil, fmt.Errorf("column metadata is nil")
 	}
@@ -167,7 +219,7 @@ func (pr *ParquetReader) bloomFilterLocation(rowGroupIndex int, columnOrdinal in
 		AADPrefix:           aadPrefix,
 		AADFileUnique:       aadFileUnique,
 		RowGroupOrdinal:     rowGroupOrdinal,
-		ColumnOrdinal:       columnOrdinal,
+		ColumnOrdinal:       int16(columnOrdinal), // the AAD format holds the ordinal in 16 bits
 		MaxHeaderModuleSize: int64(columnChunk.MetaData.GetBloomFilterLength()),
 	}, nil
 }

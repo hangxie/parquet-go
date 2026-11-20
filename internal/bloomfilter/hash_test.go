@@ -96,6 +96,13 @@ func TestHashValueByteSlice(t *testing.T) {
 	}
 }
 
+func TestHashValueInt96Width(t *testing.T) {
+	for _, v := range []any{"abcdefghijk", []byte("abcdefghijklm")} {
+		_, err := HashValue(v, parquet.Type_INT96)
+		require.ErrorContains(t, err, "is not 12 bytes")
+	}
+}
+
 func TestHashValueRoundTrip(t *testing.T) {
 	// Test that hashed values can be found in a bloom filter
 	f := New(1024)
