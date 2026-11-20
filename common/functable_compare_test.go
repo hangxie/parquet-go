@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -223,6 +224,11 @@ func TestSizeOf(t *testing.T) {
 		"float64-pointer": {reflect.ValueOf(ToPtr(float64(0.1))), 8},
 		"pointer-nil":     {reflect.ValueOf((*string)(nil)), 0},
 		"slice":           {reflect.ValueOf([]int32{1, 2, 3}), 12},
+		"bytes":           {reflect.ValueOf([]byte("012345678901")), 12},
+		"bytes-empty":     {reflect.ValueOf([]byte{}), 0},
+		"bytes-pointer":   {reflect.ValueOf(ToPtr([]byte("012345678901"))), 12},
+		"bytes-named":     {reflect.ValueOf(json.RawMessage("012345678901")), 12},
+		"bytes-slice":     {reflect.ValueOf([][]byte{[]byte("0123"), []byte("45")}), 6},
 		"map": {reflect.ValueOf(map[string]int32{
 			string("1"):   1,
 			string("11"):  11,
