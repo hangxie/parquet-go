@@ -191,3 +191,94 @@ func TestIsListAnnotated(t *testing.T) {
 		})
 	}
 }
+
+func TestIsPrimitiveByteSlice(t *testing.T) {
+	type Row struct {
+		Bin   []byte   `parquet:"name=bin, type=BYTE_ARRAY"`
+		Fixed []byte   `parquet:"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=12"`
+		Ts    []byte   `parquet:"name=ts, type=INT96"`
+		Rep   [][]byte `parquet:"name=rep, type=INT96, repetitiontype=REPEATED"`
+		Ints  []byte   `parquet:"name=ints, type=LIST, valuetype=INT32"`
+		Num   int32    `parquet:"name=num, type=INT32"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Row))
+	require.NoError(t, err)
+	converter := &jsonConverter{}
+	require.NoError(t, converter.resolveRootPath(sh))
+	path := func(name string) string { return common.PathToStr([]string{sh.GetRootInName(), name}) }
+	bytesVal := reflect.ValueOf([]byte{1})
+
+	testCases := []struct {
+		name string
+		val  reflect.Value
+		path string
+		want bool
+	}{
+		{"BYTE_ARRAY", bytesVal, path("Bin"), true},
+		{"FIXED_LEN_BYTE_ARRAY", bytesVal, path("Fixed"), true},
+		{"INT96", bytesVal, path("Ts"), true},
+		{"repeated INT96 shares its values' path", bytesVal, path("Rep"), true},
+		{"LIST carried in a []byte", bytesVal, path("Ints"), false},
+		{"INT32 leaf", bytesVal, path("Num"), false},
+		{"group", bytesVal, sh.GetRootInName(), false},
+		{"unknown path", bytesVal, path("Missing"), false},
+		{"no path", bytesVal, "", false},
+		{"not a byte slice", reflect.ValueOf([]int32{1}), path("Ts"), false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := isPrimitiveByteSlice(tc.val, sh, tc.path, converter)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestIsRowBatch covers telling the rows a read returns from one value at the prefix, where
+// a byte-backed value is itself a slice.
+func TestIsRowBatch(t *testing.T) {
+	type Row struct {
+		Ts     []byte   `parquet:"name=ts, type=INT96"`
+		Bin    []byte   `parquet:"name=bin, type=BYTE_ARRAY"`
+		TsList [][]byte `parquet:"name=ts_list, type=LIST, valuetype=INT96"`
+		TsRep  [][]byte `parquet:"name=ts_rep, type=INT96, repetitiontype=REPEATED"`
+		Days   []int32  `parquet:"name=days, type=LIST, valuetype=INT32"`
+		Num    int32    `parquet:"name=num, type=INT32"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(Row))
+	require.NoError(t, err)
+	ts := make([]byte, 12)
+
+	testCases := []struct {
+		name   string
+		prefix string
+		val    any
+		want   bool
+	}{
+		{"rows at the file root", "", []any{Row{}}, true},
+		{"one row at the file root", "", Row{}, false},
+		{"INT96 leaf, one value", "Ts", ts, false},
+		{"INT96 leaf, batch", "Ts", [][]byte{ts, ts}, true},
+		{"BYTE_ARRAY leaf, one value", "Bin", []byte("ab"), false},
+		{"BYTE_ARRAY leaf, batch", "Bin", [][]byte{[]byte("ab")}, true},
+		{"LIST of INT96, one list", "TsList", [][]byte{ts}, false},
+		{"LIST of INT96, batch", "TsList", [][][]byte{{ts}}, true},
+		{"LIST of INT96, batch as []any", "TsList", []any{[][]byte{ts}}, true},
+		{"repeated INT96, one value", "TsRep", ts, false},
+		{"LIST of INT32, one list", "Days", []int32{1, 2}, false},
+		{"LIST of INT32, batch", "Days", [][]int32{{1}, {2}}, true},
+		{"INT32 leaf, batch", "Num", []int32{1, 2}, true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			converter := &jsonConverter{}
+			if tc.prefix != "" {
+				converter.prefixPath = common.PathToStr([]string{"Parquet_go_root", tc.prefix})
+			}
+			require.NoError(t, converter.resolveRootPath(sh))
+			got, err := converter.isRowBatch(reflect.ValueOf(tc.val), sh)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

@@ -54,7 +54,7 @@ func newSchemaHandlerFromStruct(ot reflect.Type) (*SchemaHandler, error) {
 				return nil, fmt.Errorf("create struct schema for %s: %w", item.Info.InName, err)
 			}
 		} else if item.GoType.Kind() == reflect.Slice &&
-			item.Info.Type != "BYTE_ARRAY" && item.Info.Type != "FIXED_LEN_BYTE_ARRAY" &&
+			item.Info.Type != "BYTE_ARRAY" && item.Info.Type != "FIXED_LEN_BYTE_ARRAY" && item.Info.Type != "INT96" &&
 			item.Info.RepetitionType != parquet.FieldRepetitionType_REPEATED {
 			createListSchema(item, &stack, &schemaElements, &infos)
 		} else if item.GoType.Kind() == reflect.Slice &&

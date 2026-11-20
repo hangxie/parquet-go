@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -1450,6 +1451,122 @@ func TestConvertToJSONFriendlyPrimitiveByteSlice(t *testing.T) {
 			}}, got)
 		})
 	}
+}
+
+func TestConvertToJSONFriendlyInt96ByteSlice(t *testing.T) {
+	type bytesRow struct {
+		Req  []byte            `parquet:"name=req, type=INT96"`
+		Opt  *[]byte           `parquet:"name=opt, type=INT96, repetitiontype=OPTIONAL"`
+		Rep  [][]byte          `parquet:"name=rep, type=INT96, repetitiontype=REPEATED"`
+		List [][]byte          `parquet:"name=list, type=LIST, valuetype=INT96"`
+		Map  map[string][]byte `parquet:"name=map, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT96"`
+	}
+	type stringRow struct {
+		Req  string            `parquet:"name=req, type=INT96"`
+		Opt  *string           `parquet:"name=opt, type=INT96, repetitiontype=OPTIONAL"`
+		Rep  []string          `parquet:"name=rep, type=INT96, repetitiontype=REPEATED"`
+		List []string          `parquet:"name=list, type=LIST, valuetype=INT96"`
+		Map  map[string]string `parquet:"name=map, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT96"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(bytesRow))
+	require.NoError(t, err)
+
+	ts := int96Timestamp()
+	s := string(ts)
+	const rendered = "2024-01-02T03:04:05.000000000Z"
+	want := map[string]any{
+		"Req": rendered, "Opt": rendered, "Rep": []any{rendered}, "List": []any{rendered},
+		"Map": map[string]any{"k": rendered},
+	}
+
+	for name, row := range map[string]any{
+		"bytes":   bytesRow{Req: ts, Opt: &ts, Rep: [][]byte{ts}, List: [][]byte{ts}, Map: map[string][]byte{"k": ts}},
+		"strings": stringRow{Req: s, Opt: &s, Rep: []string{s}, List: []string{s}, Map: map[string]string{"k": s}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := ConvertToJSONFriendly(row, sh)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
+	}
+}
+
+// TestConvertToJSONFriendlyByteSliceAtLeafPrefix covers a partial read rooted at a byte-backed
+// leaf, where a []byte is one value and a [][]byte is a batch of them.
+func TestConvertToJSONFriendlyByteSliceAtLeafPrefix(t *testing.T) {
+	type row struct {
+		Ts    []byte `parquet:"name=ts, type=INT96"`
+		Bin   []byte `parquet:"name=bin, type=BYTE_ARRAY"`
+		Fixed []byte `parquet:"name=fixed, type=FIXED_LEN_BYTE_ARRAY, length=12"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+
+	ts := int96Timestamp()
+	b64 := base64.StdEncoding.EncodeToString(ts)
+	for _, tc := range []struct {
+		column string
+		want   any
+	}{
+		{"Ts", "2024-01-02T03:04:05.000000000Z"},
+		{"Bin", b64},
+		{"Fixed", b64},
+	} {
+		t.Run(tc.column, func(t *testing.T) {
+			prefix := WithPrefixPath(common.PathToStr([]string{"Parquet_go_root", tc.column}))
+
+			got, err := ConvertToJSONFriendly(ts, sh, prefix)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+
+			got, err = ConvertToJSONFriendly([][]byte{ts, ts}, sh, prefix)
+			require.NoError(t, err)
+			require.Equal(t, []any{tc.want, tc.want}, got)
+		})
+	}
+}
+
+// TestConvertToJSONFriendlyByteSliceListAtPrefix covers a prefix naming a list of byte-backed
+// values, where a [][]byte is one list and a [][][]byte is a batch of them.
+func TestConvertToJSONFriendlyByteSliceListAtPrefix(t *testing.T) {
+	type row struct {
+		TsList  [][]byte `parquet:"name=ts_list, type=LIST, valuetype=INT96"`
+		BinList [][]byte `parquet:"name=bin_list, type=LIST, valuetype=BYTE_ARRAY"`
+		TsRep   [][]byte `parquet:"name=ts_rep, type=INT96, repetitiontype=REPEATED"`
+		BinRep  [][]byte `parquet:"name=bin_rep, type=BYTE_ARRAY, repetitiontype=REPEATED"`
+	}
+	sh, err := schema.NewSchemaHandlerFromStruct(new(row))
+	require.NoError(t, err)
+
+	ts := int96Timestamp()
+	b64 := base64.StdEncoding.EncodeToString(ts)
+	for _, tc := range []struct {
+		column string
+		want   any
+	}{
+		{"TsList", "2024-01-02T03:04:05.000000000Z"},
+		{"BinList", b64},
+		{"TsRep", "2024-01-02T03:04:05.000000000Z"},
+		{"BinRep", b64},
+	} {
+		t.Run(tc.column, func(t *testing.T) {
+			prefix := WithPrefixPath(common.PathToStr([]string{"Parquet_go_root", tc.column}))
+
+			got, err := ConvertToJSONFriendly([][]byte{ts}, sh, prefix)
+			require.NoError(t, err)
+			require.Equal(t, []any{tc.want}, got)
+
+			got, err = ConvertToJSONFriendly([][][]byte{{ts}, {ts, ts}}, sh, prefix)
+			require.NoError(t, err)
+			require.Equal(t, []any{[]any{tc.want}, []any{tc.want, tc.want}}, got)
+		})
+	}
+}
+
+// int96Timestamp returns 2024-01-02 03:04:05 UTC: nanoseconds of the day, then the Julian day.
+func int96Timestamp() []byte {
+	ts := binary.LittleEndian.AppendUint64(nil, uint64((3*3600+4*60+5)*time.Second))
+	return binary.LittleEndian.AppendUint32(ts, 2460312)
 }
 
 // TestConvertToJSONFriendlyRepeatedByteArray covers the legacy repeated primitive, whose

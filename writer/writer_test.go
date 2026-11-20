@@ -770,6 +770,83 @@ func rowWithValue(obj any, value string) any {
 	return row.Interface()
 }
 
+func TestWriteInt96ByteSlice(t *testing.T) {
+	type bytesRow struct {
+		Req  []byte            `parquet:"name=req, type=INT96"`
+		Opt  *[]byte           `parquet:"name=opt, type=INT96, repetitiontype=OPTIONAL"`
+		Rep  [][]byte          `parquet:"name=rep, type=INT96, repetitiontype=REPEATED"`
+		List [][]byte          `parquet:"name=list, type=LIST, valuetype=INT96"`
+		Map  map[string][]byte `parquet:"name=map, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT96"`
+	}
+	type stringRow struct {
+		Req  string            `parquet:"name=req, type=INT96"`
+		Opt  *string           `parquet:"name=opt, type=INT96, repetitiontype=OPTIONAL"`
+		Rep  []string          `parquet:"name=rep, type=INT96, repetitiontype=REPEATED"`
+		List []string          `parquet:"name=list, type=LIST, valuetype=INT96"`
+		Map  map[string]string `parquet:"name=map, type=MAP, keytype=BYTE_ARRAY, keyconvertedtype=UTF8, valuetype=INT96"`
+	}
+	int96 := func(i int) []byte { return fmt.Appendf(nil, "%012d", i) }
+	const numRows = 4
+	wantBytes := make([]bytesRow, numRows)
+	wantStrings := make([]stringRow, numRows)
+	for i := range numRows {
+		v, s := int96(i), string(int96(i))
+		wantBytes[i] = bytesRow{
+			Req: v, Rep: [][]byte{v, int96(i + 10)}, List: [][]byte{v}, Map: map[string][]byte{"k": v},
+		}
+		wantStrings[i] = stringRow{
+			Req: s, Rep: []string{s, string(int96(i + 10))}, List: []string{s}, Map: map[string]string{"k": s},
+		}
+		if i%2 == 0 {
+			wantBytes[i].Opt = &v
+			wantStrings[i].Opt = &s
+		}
+	}
+
+	type shape struct {
+		obj  any
+		rows any
+	}
+	shapes := map[string]shape{
+		"bytes":   {new(bytesRow), wantBytes},
+		"strings": {new(stringRow), wantStrings},
+	}
+	for _, version := range []int32{1, 2} {
+		for from, src := range shapes {
+			t.Run(fmt.Sprintf("v%d/from-%s", version, from), func(t *testing.T) {
+				pw, buf, err := createTestParquetWriter(src.obj, WithNP(1), WithDataPageVersion(version))
+				require.NoError(t, err)
+				rows := reflect.ValueOf(src.rows)
+				for i := range rows.Len() {
+					require.NoError(t, pw.Write(rows.Index(i).Interface()))
+				}
+				require.NoError(t, pw.WriteStop())
+
+				for to, dst := range shapes {
+					t.Run("to-"+to, func(t *testing.T) {
+						testInt96ReadBack(t, buf.Bytes(), dst.obj, dst.rows)
+					})
+				}
+			})
+		}
+	}
+}
+
+// testInt96ReadBack reads buf into rows of obj's type and requires them to equal want.
+func testInt96ReadBack(t *testing.T, buf []byte, obj, want any) {
+	t.Helper()
+	pr, pf, err := createTestParquetReader(buf, obj, reader.WithNP(1))
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, pf.Close())
+	}()
+	n := reflect.ValueOf(want).Len()
+	rows := reflect.New(reflect.SliceOf(reflect.TypeOf(obj).Elem()))
+	rows.Elem().Set(reflect.MakeSlice(rows.Type().Elem(), n, n))
+	require.NoError(t, pr.ReadWithContext(context.Background(), rows.Interface()))
+	require.Equal(t, want, rows.Elem().Interface())
+}
+
 // TestWriteIsDeterministic requires identical input to produce identical bytes. It guards
 // the file rather than any one map-ordered field, so the next such field fails here too.
 func TestWriteIsDeterministic(t *testing.T) {
