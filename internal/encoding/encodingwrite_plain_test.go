@@ -458,6 +458,16 @@ func TestWritePlain(t *testing.T) {
 
 		_, err := WritePlainINT96([]any{int64(1)})
 		require.ErrorContains(t, err, "is not a string or []byte")
+
+		// Each value is checked, not the total: these two sum to two full values.
+		for _, nums := range [][]any{
+			{[]byte("abcdefghijk"), []byte("ABCDEFGHIJKLM")},
+			{"abcdefghijk", "ABCDEFGHIJKLM"},
+			{""},
+		} {
+			_, err := WritePlainINT96(nums)
+			require.ErrorContains(t, err, "INT96 value of length")
+		}
 	})
 }
 

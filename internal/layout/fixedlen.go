@@ -7,16 +7,22 @@ import (
 	"github.com/hangxie/parquet-go/v3/parquet"
 )
 
-// fixedLenByteArrayWidth returns the width of a FIXED_LEN_BYTE_ARRAY column, false for any other.
+// fixedLenByteArrayWidth returns the width of a FIXED_LEN_BYTE_ARRAY or INT96 column, false for any other.
 func fixedLenByteArrayWidth(schema *parquet.SchemaElement) (int, bool) {
-	if schema == nil || schema.Type == nil || *schema.Type != parquet.Type_FIXED_LEN_BYTE_ARRAY {
+	if schema == nil || schema.Type == nil {
 		return 0, false
 	}
-	return int(schema.GetTypeLength()), true
+	switch *schema.Type {
+	case parquet.Type_FIXED_LEN_BYTE_ARRAY:
+		return int(schema.GetTypeLength()), true
+	case parquet.Type_INT96:
+		return 12, true
+	}
+	return 0, false
 }
 
 // checkWidth rejects a value that is not as wide as its column.
-func checkWidth(path []string, width int, val any) error {
+func checkWidth(schema *parquet.SchemaElement, path []string, width int, val any) error {
 	// Values that carry no bytes are left to the encoder, which reports the type
 	// mismatch itself.
 	var ln int
@@ -31,7 +37,7 @@ func checkWidth(path []string, width int, val any) error {
 	if ln == width {
 		return nil
 	}
-	return fmt.Errorf("column [%s]: FIXED_LEN_BYTE_ARRAY value of length %d does not match column length %d", strings.Join(path, "."), ln, width)
+	return fmt.Errorf("column [%s]: %s value of length %d does not match column length %d", strings.Join(path, "."), schema.GetType(), ln, width)
 }
 
 // checkFixedLenByteArrayWidth rejects one value that is not as wide as its column.
@@ -43,7 +49,7 @@ func checkFixedLenByteArrayWidth(schema *parquet.SchemaElement, path []string, v
 	if !ok {
 		return nil
 	}
-	return checkWidth(path, width, val)
+	return checkWidth(schema, path, width, val)
 }
 
 // checkFixedLenByteArrayWidths applies checkFixedLenByteArrayWidth to a page of values.
@@ -53,7 +59,7 @@ func checkFixedLenByteArrayWidths(schema *parquet.SchemaElement, path []string, 
 		return nil
 	}
 	for i := range values {
-		if err := checkWidth(path, width, values[i]); err != nil {
+		if err := checkWidth(schema, path, width, values[i]); err != nil {
 			return err
 		}
 	}

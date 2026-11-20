@@ -90,6 +90,11 @@ func convertValue(val any, se *parquet.SchemaElement, cfg ValueConfig) (any, err
 		// Fall back to ConvertedType (legacy)
 		converted, err = parquetTypeToJSONTypeWithConverted(val, pT, cT, int(se.GetPrecision()), int(se.GetScale()))
 	}
+	if err == nil && !isTextAnnotated(cT, lT) {
+		// UUID, FLOAT16 and INTERVAL check their own widths; this covers the schema's for the
+		// rest but text, which is verbatim in both modes
+		err = fixedLenByteArrayWidthError(val, pT, int(se.GetTypeLength()))
+	}
 
 	// NaN/Inf have no JSON number representation; quote them the same way
 	// JSONWriter already accepts them on input, so output stays round-trippable.
