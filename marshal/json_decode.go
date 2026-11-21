@@ -43,3 +43,20 @@ func (d *jsonRowDecoder) decode(row any) (any, error) {
 	}
 	return value, nil
 }
+
+// decodeStructKey reads the entire property name using the same number and UTF-8 rules as its row.
+func (d *jsonRowDecoder) decodeStructKey(key string) (map[string]any, error) {
+	// decode stops after the first value, so Valid is what rejects trailing input.
+	if !json.Valid([]byte(key)) {
+		return nil, fmt.Errorf("expected a single JSON object")
+	}
+	value, err := d.decode(key)
+	if err != nil {
+		return nil, err
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("expected a JSON object, got %T", value)
+	}
+	return object, nil
+}

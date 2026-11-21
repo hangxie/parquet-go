@@ -167,11 +167,49 @@ func jsonColumnTakesNumber(pT parquet.Type, cT *parquet.ConvertedType, lT *parqu
 	}
 }
 
+// isJSONNumberKey excludes other JSON values and surrounding whitespace that json.Valid accepts.
+func isJSONNumberKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	first, last := key[0], key[len(key)-1]
+	return (first == '-' || first >= '0' && first <= '9') &&
+		last >= '0' && last <= '9' && json.Valid([]byte(key))
+}
+
+// JSONMapKeyValue restores the JSON scalar type of a MAP property name for its key column.
+func JSONMapKeyValue(key string, se *parquet.SchemaElement) (any, error) {
+	if se.Type != nil {
+		if jsonColumnTakesNumber(*se.Type, se.ConvertedType, se.LogicalType) {
+			if (*se.Type == parquet.Type_FLOAT || *se.Type == parquet.Type_DOUBLE) &&
+				(key == "NaN" || key == "Infinity" || key == "-Infinity") {
+				return key, nil
+			}
+			if !isJSONNumberKey(key) {
+				return nil, fmt.Errorf("invalid numeric MAP key %q for %s", key, *se.Type)
+			}
+			return json.Number(key), nil
+		}
+		if *se.Type == parquet.Type_BOOLEAN {
+			switch key {
+			case "true":
+				return true, nil
+			case "false":
+				return false, nil
+			}
+		}
+	}
+	return key, nil
+}
+
 // checkJSONScalarColumn requires the JSON form the column is written in.
 func checkJSONScalarColumn(val reflect.Value, pT parquet.Type, cT *parquet.ConvertedType, lT *parquet.LogicalType) error {
 	if pT == parquet.Type_BOOLEAN {
 		if val.Kind() == reflect.Bool {
 			return nil
+		}
+		if isJSONString(val) {
+			return fmt.Errorf("BOOLEAN column takes true or false, got string %q", val.String())
 		}
 		// Anything ParseBool reads used to pass, so 1 and "true" both wrote true.
 		return fmt.Errorf("BOOLEAN column takes true or false, got %s", jsonValueKind(val))

@@ -21,21 +21,39 @@ func appendNilToChildTables(basePath string, node *Node, res map[string]*layout.
 	}
 }
 
-func marshalJSONRealMap(node *Node, pathStr string, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node) []*Node {
+func (d *jsonRowDecoder) marshalJSONRealMap(node *Node, pathStr string, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
 	keys := node.Val.MapKeys()
 	pathStr = pathStr + common.ParGoPathDelimiter + "Key_value"
 	if len(keys) <= 0 {
 		appendNilToChildTables(node.PathMap.Path, node, res)
+		return stack, nil
 	}
 
+	keyPath := node.PathMap.Children["Key_value"].Children["Key"]
+	keyIndex := schemaHandler.MapIndex[keyPath.Path]
+	keySchema := schemaHandler.SchemaElements[keyIndex]
+	structKey := isGroup(schemaHandler, keyIndex) && !isListColumn(keySchema) && !isMapColumn(keySchema) &&
+		(keySchema.LogicalType == nil || !keySchema.LogicalType.IsSetVARIANT())
 	rlNow, _ := schemaHandler.MaxRepetitionLevel(common.StrToPath(pathStr))
 	for j := len(keys) - 1; j >= 0; j-- {
 		key := keys[j]
 		value := node.Val.MapIndex(key).Elem()
 
 		newNode := nodeBuf.GetNode()
-		newNode.PathMap = node.PathMap.Children["Key_value"].Children["Key"]
-		newNode.Val = key
+		newNode.PathMap = keyPath
+		if structKey {
+			object, err := d.decodeStructKey(key.String())
+			if err != nil {
+				return nil, fmt.Errorf("decode struct MAP key at %s: %w", keyPath.Path, err)
+			}
+			newNode.Val = reflect.ValueOf(object)
+		} else {
+			scalar, err := types.JSONMapKeyValue(key.String(), keySchema)
+			if err != nil {
+				return nil, fmt.Errorf("decode MAP key at %s: %w", keyPath.Path, err)
+			}
+			newNode.Val = reflect.ValueOf(scalar)
+		}
 		newNode.DL = node.DL + 1
 		if j == 0 {
 			newNode.RL = node.RL
@@ -60,7 +78,7 @@ func marshalJSONRealMap(node *Node, pathStr string, res map[string]*layout.Table
 		}
 		stack = append(stack, newNode)
 	}
-	return stack
+	return stack, nil
 }
 
 func marshalJSONStruct(node *Node, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node) []*Node {
@@ -168,7 +186,7 @@ func isMapColumn(se *parquet.SchemaElement) bool {
 	return se.GetConvertedType() == parquet.ConvertedType_MAP
 }
 
-func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node, opts []types.ValueOption) ([]*Node, error) {
+func (d *jsonRowDecoder) processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node, opts []types.ValueOption) ([]*Node, error) {
 	pathStr := node.PathMap.Path
 	schemaIndex, ok := schemaHandler.MapIndex[pathStr]
 	if !ok {
@@ -198,7 +216,7 @@ func processJSONNode(node *Node, res map[string]*layout.Table, schemaHandler *sc
 		// repeated element, never the object's keys, so it filled none and left a null.
 		switch {
 		case isMapColumn(se):
-			stack = marshalJSONRealMap(node, pathStr, res, schemaHandler, nodeBuf, stack)
+			return d.marshalJSONRealMap(node, pathStr, res, schemaHandler, nodeBuf, stack)
 		case isListColumn(se):
 			return nil, fmt.Errorf("column %s is a LIST and cannot take a JSON object", pathStr)
 		case isGroup(schemaHandler, schemaIndex):
@@ -259,7 +277,7 @@ func MarshalJSON(ss []any, schemaHandler *schema.SchemaHandler, opts ...types.Va
 			node = stack[ln-1]
 			stack = stack[:ln-1]
 
-			if stack, err = processJSONNode(node, res, schemaHandler, nodeBuf, stack, opts); err != nil {
+			if stack, err = decoder.processJSONNode(node, res, schemaHandler, nodeBuf, stack, opts); err != nil {
 				return nil, fmt.Errorf("process JSON node row %d: %w", i, err)
 			}
 		}

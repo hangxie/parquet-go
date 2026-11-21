@@ -1,6 +1,7 @@
 package marshal
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -134,6 +135,20 @@ func convertSliceToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaH
 	return result, nil
 }
 
+// FormatJSONMapKey formats a converted MAP key as a JSON object property name.
+func FormatJSONMapKey(key any) (string, error) {
+	if group, ok := key.(map[string]any); ok {
+		var buf strings.Builder
+		encoder := json.NewEncoder(&buf)
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(group); err != nil {
+			return "", fmt.Errorf("encode struct map key: %w", err)
+		}
+		return strings.TrimSuffix(buf.String(), "\n"), nil
+	}
+	return fmt.Sprint(key), nil
+}
+
 // convertMapToJSONFriendly optimized map conversion
 func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHandler, pathPrefix string, converter *jsonConverter) (any, error) {
 	result := make(map[string]any)
@@ -162,7 +177,10 @@ func convertMapToJSONFriendly(val reflect.Value, schemaHandler *schema.SchemaHan
 		if err != nil {
 			return nil, fmt.Errorf("convert map key: %w", err)
 		}
-		keyStr := fmt.Sprint(converted)
+		keyStr, err := FormatJSONMapKey(converted)
+		if err != nil {
+			return nil, err
+		}
 
 		converted, err = convertValueToJSONFriendlyWithContext(val.MapIndex(key), schemaHandler, valuePath, converter)
 		if err != nil {
