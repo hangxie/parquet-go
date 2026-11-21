@@ -48,7 +48,12 @@ func (t *mapKeyTracker) writeIdentity(id *strings.Builder, pathMap *schema.PathM
 		if err != nil {
 			return fmt.Errorf("convert JSON value for %s: %w", pathMap.Path, err)
 		}
-		fmt.Fprintf(id, "%#v", val)
+		// Go map equality treats positive and negative floating-point zero as equal.
+		if val == float32(0) || val == float64(0) {
+			id.WriteByte('0')
+		} else {
+			fmt.Fprintf(id, "%#v", val)
+		}
 	case isObject && !isListColumn(se) && !isMapColumn(se):
 		// Field names match the way marshalJSONStruct matches them.
 		fields := make(map[string]any, len(object))
