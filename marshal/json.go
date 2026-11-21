@@ -21,7 +21,7 @@ func appendNilToChildTables(basePath string, node *Node, res map[string]*layout.
 	}
 }
 
-func (d *jsonRowDecoder) marshalJSONRealMap(node *Node, pathStr string, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node) ([]*Node, error) {
+func (d *jsonRowDecoder) marshalJSONRealMap(node *Node, pathStr string, res map[string]*layout.Table, schemaHandler *schema.SchemaHandler, nodeBuf *NodeBufType, stack []*Node, opts []types.ValueOption) ([]*Node, error) {
 	keys := node.Val.MapKeys()
 	pathStr = pathStr + common.ParGoPathDelimiter + "Key_value"
 	if len(keys) <= 0 {
@@ -34,6 +34,10 @@ func (d *jsonRowDecoder) marshalJSONRealMap(node *Node, pathStr string, res map[
 	keySchema := schemaHandler.SchemaElements[keyIndex]
 	structKey := isGroup(schemaHandler, keyIndex) && !isListColumn(keySchema) && !isMapColumn(keySchema) &&
 		(keySchema.LogicalType == nil || !keySchema.LogicalType.IsSetVARIANT())
+	var tracker *mapKeyTracker
+	if len(keys) > 1 {
+		tracker = &mapKeyTracker{schemaHandler: schemaHandler, keyPath: keyPath, opts: opts, seen: make(map[string]string, len(keys))}
+	}
 	rlNow, _ := schemaHandler.MaxRepetitionLevel(common.StrToPath(pathStr))
 	for j := len(keys) - 1; j >= 0; j-- {
 		key := keys[j]
@@ -53,6 +57,11 @@ func (d *jsonRowDecoder) marshalJSONRealMap(node *Node, pathStr string, res map[
 				return nil, fmt.Errorf("decode MAP key at %s: %w", keyPath.Path, err)
 			}
 			newNode.Val = reflect.ValueOf(scalar)
+		}
+		if tracker != nil {
+			if err := tracker.add(key.String(), newNode.Val.Interface()); err != nil {
+				return nil, fmt.Errorf("at %s: %w", keyPath.Path, err)
+			}
 		}
 		newNode.DL = node.DL + 1
 		if j == 0 {
@@ -216,7 +225,7 @@ func (d *jsonRowDecoder) processJSONNode(node *Node, res map[string]*layout.Tabl
 		// repeated element, never the object's keys, so it filled none and left a null.
 		switch {
 		case isMapColumn(se):
-			return d.marshalJSONRealMap(node, pathStr, res, schemaHandler, nodeBuf, stack)
+			return d.marshalJSONRealMap(node, pathStr, res, schemaHandler, nodeBuf, stack, opts)
 		case isListColumn(se):
 			return nil, fmt.Errorf("column %s is a LIST and cannot take a JSON object", pathStr)
 		case isGroup(schemaHandler, schemaIndex):
