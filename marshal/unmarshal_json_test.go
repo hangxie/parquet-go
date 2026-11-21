@@ -1649,3 +1649,32 @@ func TestConvertToJSONFriendlyNamedByteSlice(t *testing.T) {
 		"UUID": "550e8400-e29b-41d4-a716-446655440000",
 	}, got)
 }
+
+func TestConvertToJSONFriendlyStructMapKeys(t *testing.T) {
+	type key struct {
+		A string `json:"a"`
+		B string `json:"b"`
+	}
+	input := map[key]int{
+		{"one b:two", "three"}: 1,
+		{"one", "two b:three"}: 2,
+	}
+	got, err := ConvertToJSONFriendly(input, &schema.SchemaHandler{})
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		`{"a":"one b:two","b":"three"}`: 1,
+		`{"a":"one","b":"two b:three"}`: 2,
+	}, got)
+}
+
+func TestConvertToJSONFriendlyUnencodableMapKey(t *testing.T) {
+	type key struct{ Value chan int }
+	_, err := ConvertToJSONFriendly(map[key]int{{make(chan int)}: 1}, &schema.SchemaHandler{})
+	require.ErrorContains(t, err, "encode struct map key")
+}
+
+func TestFormatJSONMapKeyHTML(t *testing.T) {
+	got, err := FormatJSONMapKey(map[string]any{"s": "<a&b>"})
+	require.NoError(t, err)
+	require.Equal(t, `{"s":"<a&b>"}`, got)
+}

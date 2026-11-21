@@ -640,7 +640,7 @@ func TestJSONScalarColumnMismatches(t *testing.T) {
 		{name: "float NaN", literal: `"NaN"`, pT: parquet.Type_FLOAT, want: float32(math.NaN())},
 		{name: "boolean true", literal: `true`, pT: parquet.Type_BOOLEAN, want: true},
 		{name: "boolean number", literal: `1`, pT: parquet.Type_BOOLEAN, errMsg: "BOOLEAN column takes true or false, got number"},
-		{name: "boolean string", literal: `"true"`, pT: parquet.Type_BOOLEAN, errMsg: "BOOLEAN column takes true or false, got string"},
+		{name: "boolean string", literal: `"True"`, pT: parquet.Type_BOOLEAN, errMsg: `BOOLEAN column takes true or false, got string "True"`},
 		{
 			name: "unsigned string", literal: `"200"`, pT: parquet.Type_INT32,
 			cT: parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_8), lT: integerLT,
@@ -677,6 +677,26 @@ func TestJSONScalarColumnMismatches(t *testing.T) {
 				return
 			}
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestJSONMapKeyValue(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		schema parquet.SchemaElement
+		input  string
+		want   any
+	}{
+		{"legacy integer", parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT64), ConvertedType: parquet.ConvertedTypePtr(parquet.ConvertedType_UINT_64)}, "18446744073709551615", json.Number("18446744073709551615")},
+		{"logical integer", parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_INT64), LogicalType: createIntegerLogicalType(64, true)}, "-9007199254740993", json.Number("-9007199254740993")},
+		{"text", parquet.SchemaElement{Type: parquet.TypePtr(parquet.Type_BYTE_ARRAY)}, "true", "true"},
+		{"group", parquet.SchemaElement{}, "{}", "{}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value, err := JSONMapKeyValue(tc.input, &tc.schema)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, value)
 		})
 	}
 }

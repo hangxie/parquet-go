@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hangxie/parquet-go/v3/common"
+	"github.com/hangxie/parquet-go/v3/marshal"
 	"github.com/hangxie/parquet-go/v3/reader"
 	"github.com/hangxie/parquet-go/v3/source/buffer"
 	"github.com/hangxie/parquet-go/v3/source/writerfile"
@@ -980,4 +981,136 @@ func TestJSONWriterSchemaWithoutColumns(t *testing.T) {
 	rows, err := pr.ReadByNumberWithContext(context.Background(), 3)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
+}
+
+func TestJSONWriterStructMapKeyRoundTrip(t *testing.T) {
+	const schemaJSON = `{"Tag":"name=root","Fields":[
+		{"Tag":"name=points, type=MAP","Fields":[{"Tag":"name=key","Fields":[
+			{"Tag":"name=a, type=BYTE_ARRAY, convertedtype=UTF8"},{"Tag":"name=b, type=BYTE_ARRAY, convertedtype=UTF8"},{"Tag":"name=id, type=INT64"}]},
+			{"Tag":"name=value, type=INT32"}]},
+		{"Tag":"name=labels, type=MAP","Fields":[{"Tag":"name=key, type=BYTE_ARRAY, convertedtype=UTF8"},{"Tag":"name=value, type=INT32"}]}]}`
+	type point struct {
+		A  string `json:"a"`
+		B  string `json:"b"`
+		Id int64  `json:"id"`
+	}
+	input := struct {
+		Points map[point]int32  `json:"points"`
+		Labels map[string]int32 `json:"labels"`
+	}{
+		Points: map[point]int32{{"one b:two", "three", 9007199254740993}: 1, {"one", "two b:three", 9007199254740993}: 2},
+		Labels: map[string]int32{`{"id":1}`: 3},
+	}
+	var buf bytes.Buffer
+	w, err := NewJSONWriterFromWriter(schemaJSON, &buf)
+	require.NoError(t, err)
+	exported, err := marshal.ConvertToJSONFriendly(input, w.SchemaHandler)
+	require.NoError(t, err)
+	data, err := json.Marshal(exported)
+	require.NoError(t, err)
+	require.NoError(t, w.Write(data))
+	require.NoError(t, w.WriteStop())
+
+	r, err := reader.NewParquetReaderWithContext(t.Context(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), nil)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, r.ReadStopWithContext(t.Context())) }()
+	rows, err := r.ReadByNumberWithContext(t.Context(), 1)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	got, err := marshal.ConvertToJSONFriendly(rows[0], r.SchemaHandler)
+	require.NoError(t, err)
+	require.Equal(t, exported, got)
+}
+
+func TestJSONWriterScalarMapKeyRoundTrip(t *testing.T) {
+	const schemaTemplate = `{"Tag":"name=root","Fields":[{"Tag":"name=entries, type=MAP","Fields":[{"Tag":"name=key, %s"},{"Tag":"name=value, type=INT32"}]}]}`
+	for _, tc := range []struct {
+		tag, key string
+		invalid  bool
+	}{
+		{"type=INT32, convertedtype=INT_16", "-32768", false},
+		{"type=INT32, convertedtype=INT_32", "-2147483648", false},
+		{"type=INT64, convertedtype=INT_64", "-9007199254740993", false},
+		{"type=INT32, convertedtype=UINT_32", "4294967295", false},
+		{"type=INT64, convertedtype=UINT_64", "18446744073709551615", false},
+		{"type=INT32, logicaltype=INTEGER, logicaltype.bitwidth=32, logicaltype.issigned=true", "2147483647", false},
+		{"type=INT64, logicaltype=INTEGER, logicaltype.bitwidth=64, logicaltype.issigned=true", "9007199254740993", false},
+		{"type=INT32, logicaltype=INTEGER, logicaltype.bitwidth=32, logicaltype.issigned=false", "4294967295", false},
+		{"type=INT64, logicaltype=INTEGER, logicaltype.bitwidth=64, logicaltype.issigned=false", "18446744073709551615", false},
+		{"type=INT32, convertedtype=INT_16", "32768", true},
+		{"type=INT32, convertedtype=UINT_32", "-1", true},
+		{"type=INT64, convertedtype=UINT_64", "18446744073709551616", true},
+		{"type=FLOAT", "1.25", false},
+		{"type=DOUBLE", "-2.5", false},
+		{"type=DOUBLE", "Infinity", false},
+		{"type=BOOLEAN", "true", false},
+		{"type=BOOLEAN", "false", false},
+		{"type=BOOLEAN", "maybe", true},
+		{"type=INT32, convertedtype=DATE", "2024-01-01", false},
+	} {
+		t.Run(tc.tag+"/"+tc.key, func(t *testing.T) {
+			var buf bytes.Buffer
+			w, err := NewJSONWriterFromWriter(fmt.Sprintf(schemaTemplate, tc.tag), &buf)
+			require.NoError(t, err)
+			row := fmt.Sprintf(`{"entries":{%q:1}}`, tc.key)
+			require.NoError(t, w.Write(row))
+			err = w.WriteStop()
+			if tc.invalid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			r, err := reader.NewParquetReaderWithContext(t.Context(), buffer.NewBufferReaderFromBytesNoAlloc(buf.Bytes()), nil)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, r.ReadStopWithContext(t.Context())) }()
+			rows, err := r.ReadByNumberWithContext(t.Context(), 1)
+			require.NoError(t, err)
+			got, err := marshal.ConvertToJSONFriendly(rows[0], r.SchemaHandler)
+			require.NoError(t, err)
+			data, err := json.Marshal(got)
+			require.NoError(t, err)
+			require.JSONEq(t, row, string(data))
+		})
+	}
+}
+
+func TestJSONWriterNumericMapKeyGrammar(t *testing.T) {
+	const schemaTemplate = `{"Tag":"name=root","Fields":[{"Tag":"name=entries, type=MAP","Fields":[{"Tag":"name=key, type=%s"},{"Tag":"name=value, type=INT32"}]}]}`
+	for _, mode := range []types.ValueMode{types.ValueModeInterpreted, types.ValueModeRaw} {
+		for _, tc := range []struct {
+			column, key string
+			valid       bool
+		}{
+			{"DOUBLE", "inf", false},
+			{"DOUBLE", "0x1p4", false},
+			{"DOUBLE", "+Infinity", false},
+			{"INT64", "+5", false},
+			{"INT64", "05", false},
+			{"INT64", " 5 ", false},
+			{"INT64", "5 ", false},
+			{"INT64", "5\t", false},
+			{"INT64", "true", false},
+			{"INT64", "", false},
+			{"INT64", "NaN", false},
+			{"FLOAT", "1e", false},
+			{"DOUBLE", "NaN", true},
+			{"FLOAT", "Infinity", true},
+			{"DOUBLE", "-Infinity", true},
+			{"DOUBLE", "-0.25e+2", true},
+			{"INT64", "9007199254740993", true},
+		} {
+			t.Run(fmt.Sprintf("%v/%s/%q", mode, tc.column, tc.key), func(t *testing.T) {
+				var buf bytes.Buffer
+				w, err := NewJSONWriterFromWriter(fmt.Sprintf(schemaTemplate, tc.column), &buf, WithValueMode(mode))
+				require.NoError(t, err)
+				require.NoError(t, w.Write(fmt.Sprintf(`{"entries":{%q:1}}`, tc.key)))
+				err = w.WriteStop()
+				if tc.valid {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, "invalid numeric MAP key")
+				}
+			})
+		}
+	}
 }

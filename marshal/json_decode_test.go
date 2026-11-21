@@ -123,3 +123,21 @@ func BenchmarkJSONRowDecoder(b *testing.B) {
 		})
 	}
 }
+
+func TestDecodeStructKey(t *testing.T) {
+	for _, tc := range []struct {
+		name, key, err string
+	}{
+		{"legacy", "map[x:1]", "single JSON object"},
+		{"trailing", `{"x":1} {}`, "single JSON object"},
+		{"null", "null", "expected a JSON object"},
+		{"array", "[1]", "expected a JSON object"},
+		{"unpaired surrogate", `{"x":"\ud800"}`, "surrogate pair"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := jsonRowDecoder{enforceUTF8: true}
+			_, err := d.decodeStructKey(tc.key)
+			require.ErrorContains(t, err, tc.err)
+		})
+	}
+}

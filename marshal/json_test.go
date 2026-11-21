@@ -1227,3 +1227,22 @@ func TestMarshalJSONSchemaWithoutColumns(t *testing.T) {
 		})
 	}
 }
+
+func TestMarshalJSONMapKeySchema(t *testing.T) {
+	const mapSchema = `{"Tag":"name=root","Fields":[{"Tag":"name=entries, type=MAP","Fields":[{"Tag":"name=key, type=INT64"},{"Tag":"name=value, type=INT64"}]}]}`
+	sch, err := schema.NewSchemaHandlerFromJSON(mapSchema)
+	require.NoError(t, err)
+	res, err := MarshalJSON([]any{`{"entries":{"9007199254740993":1}}`}, sch)
+	require.NoError(t, err)
+	keyPath := common.PathToStr([]string{"Root", "Entries", "Key_value", "Key"})
+	require.Equal(t, []any{int64(9007199254740993)}, (*res)[keyPath].Values)
+	_, err = MarshalJSON([]any{`{"entries":{"1":"2"}}`}, sch)
+	require.ErrorContains(t, err, "takes a JSON number")
+}
+
+func TestMarshalJSONInvalidStructMapKey(t *testing.T) {
+	sch, err := schema.NewSchemaHandlerFromJSON(`{"Tag":"name=root","Fields":[{"Tag":"name=entries, type=MAP","Fields":[{"Tag":"name=key","Fields":[{"Tag":"name=x, type=INT64"}]},{"Tag":"name=value, type=INT64"}]}]}`)
+	require.NoError(t, err)
+	_, err = MarshalJSON([]any{`{"entries":{"[]":1}}`}, sch)
+	require.ErrorContains(t, err, "decode struct MAP key at "+common.PathToStr([]string{"Root", "Entries", "Key_value", "Key"}))
+}
