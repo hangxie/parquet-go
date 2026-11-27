@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	cloud.google.com/go/storage v1.68.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.3
 	github.com/andybalholm/brotli v1.3.0
 	github.com/apache/arrow-go/v18 v18.8.0
@@ -40,7 +40,7 @@ require (
 	cloud.google.com/go/monitoring v1.30.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/storage/internal v0.1.0 // indirect
-	github.com/AzureAD/microsoft-authentication-library-for-go v1.8.0 // indirect
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.35.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.59.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.59.0 // indirect
